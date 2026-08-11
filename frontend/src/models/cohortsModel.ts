@@ -95,12 +95,25 @@ function convertTimeValueToRelativeTime(criteria: AnyCohortCriteriaType): string
     }
 }
 
+// Mirrors BEHAVIORAL_VALUE_ALIASES in posthog/models/property/property.py: values older cohort
+// builders stored that the backend still resolves to a canonical behavioral type. The API hands
+// them back verbatim, so without this the frontend treats them as unmapped and renders no fields.
+// A Map, not an object literal: a stored value of 'constructor' or 'toString' resolves to an
+// Object.prototype member on a plain lookup.
+const BEHAVIORAL_VALUE_ALIASES = new Map<string, BehavioralEventType>([
+    ['performed_event_multiple_times', BehavioralEventType.PerformMultipleEvents],
+])
+
 function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     if (!criteria.type) {
         return criteria
     }
 
     const processedCriteria = { ...criteria }
+
+    if (criteria.type === BehavioralFilterKey.Behavioral && typeof criteria.value === 'string') {
+        processedCriteria.value = BEHAVIORAL_VALUE_ALIASES.get(criteria.value) ?? criteria.value
+    }
 
     if (
         [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person, BehavioralFilterKey.PersonMetadata].includes(
@@ -118,8 +131,8 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
     if (
         [BehavioralFilterKey.Behavioral].includes(criteria.type) &&
         !('explicit_datetime' in criteria) &&
-        criteria.value &&
-        COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(criteria.value)
+        processedCriteria.value &&
+        COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(processedCriteria.value)
     ) {
         processedCriteria.explicit_datetime = convertTimeValueToRelativeTime(criteria)
     }
@@ -264,12 +277,21 @@ export const cohortsModel = kea<cohortsModelType>([
         allCohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadAllCohorts: async () => {
-                const response = await api.cohorts.listPaginated({
+                // `allCohorts` feeds `cohortsById`, mostly id + name lookups, so request the
+                // basic payload that drops the legacy `groups`/`query` JSON. Fetching the full
+                // payload for up to 2,000 cohorts on this hot path was slow enough to hit the
+                // gateway timeout on cohort-heavy teams. `filters` stays in the basic payload:
+                // the feature-flag intent warning reads it off `cohortsById` (see
+                // featureFlagIntentWarningLogic.hasBehavioralCriteria), and its raw shape is
+                // what that check expects, so no `processCohort` normalization is needed here.
+                const response = await api.cohorts.listBasic({
                     limit: MAX_COHORTS_FOR_FULL_LIST,
                 })
                 return {
                     count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
+                    // `groups` is dropped from the basic payload but required on CohortType, so
+                    // add the empty default back — nothing reading `cohortsById` uses `groups`.
+                    results: response.results.map((cohort): CohortType => ({ ...cohort, groups: [] })),
                 }
             },
         },
@@ -410,7 +432,9 @@ export const cohortsModel = kea<cohortsModelType>([
                         // own, or pickers keep serving the deleted-state cache for staleTime.
                         invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
                     }
-                    actions.loadCohorts()
+                    // Refresh `allCohorts` (the source for `cohortsById`) so an undo restores
+                    // the row's name to breadcrumbs and pickers, not just the `cohorts` list.
+                    actions.loadAllCohorts()
                     if (cohort.id && cohort.id !== 'new') {
                         if (undo) {
                             refreshTreeItem('cohort', String(cohort.id))
@@ -436,7 +460,6 @@ export const cohortsModel = kea<cohortsModelType>([
                 actions.hydrateAllCohortsFromExport(exportedCohorts)
             }
         }
-        actions.loadCohorts()
     }),
     permanentlyMount(),
 ])

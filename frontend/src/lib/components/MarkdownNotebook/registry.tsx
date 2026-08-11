@@ -168,6 +168,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             category: 'PostHog',
             icon: <IconFlag />,
             defaultProps: { id: '' },
+            editableTitle: false,
             ViewComponent: SummaryView,
         }),
         makeDefinition({

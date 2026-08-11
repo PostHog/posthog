@@ -290,6 +290,9 @@ export const McpGatewayServersPoliciesCreateBody = /* @__PURE__ */ zod.object({
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
                     .describe(
+                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
+                    )
+                    .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
             })
@@ -357,6 +360,9 @@ export const McpGatewayServiceAccountsAccessCreateBody = /* @__PURE__ */ zod.obj
                 policy_state: zod
                     .enum(['approved', 'needs_approval', 'do_not_use'])
                     .describe(
+                        '\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
+                    )
+                    .describe(
                         'State to apply for this scope.\n\n\* `approved` - Approved\n\* `needs_approval` - Needs approval\n\* `do_not_use` - Do not use'
                     ),
             })
@@ -394,6 +400,26 @@ export const McpServerInstallationsPartialUpdateBody = /* @__PURE__ */ zod.objec
     display_name: zod.string().optional(),
     description: zod.string().optional(),
     is_enabled: zod.boolean().optional(),
+})
+
+/**
+ * Invoke one tool on a connected MCP server.
+ *
+ * The request/response shape is plain REST rather than the JSON-RPC envelope
+ * `proxy` speaks, because the caller here is an agent surface (the PostHog MCP's
+ * `exec`) that wants one tool result, not an MCP transport of its own.
+ */
+export const mcpServerInstallationsCallToolCreateBodyToolNameMax = 200
+
+export const McpServerInstallationsCallToolCreateBody = /* @__PURE__ */ zod.object({
+    tool_name: zod
+        .string()
+        .max(mcpServerInstallationsCallToolCreateBodyToolNameMax)
+        .describe('Name of the tool to invoke, exactly as the upstream server reports it.'),
+    arguments: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Arguments object passed straight to the tool, matching its input schema.'),
 })
 
 export const mcpServerInstallationsProxyCreateBodyDisplayNameMax = 200

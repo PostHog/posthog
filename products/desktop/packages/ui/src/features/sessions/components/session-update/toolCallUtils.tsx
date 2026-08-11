@@ -65,7 +65,7 @@ export function ToolTitle({
   // original styling so toggling the chat thread off leaves ConversationView pixel-identical.
   const chatChrome = useChatThreadChrome();
   const base = chatChrome
-    ? "text-sm text-muted-foreground truncate shrink-0 max-w-[calc(100%-1.5rem)]"
+    ? "text-sm text-muted-foreground truncate min-w-0"
     : "text-[13px] text-gray-11";
   return <Text className={cn(base, className)}>{children}</Text>;
 }

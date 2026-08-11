@@ -142,7 +142,10 @@ class S3BatchWriter:
         if self._schema is None:
             self._schema = pa_table.schema
         else:
-            self._schema = pa.unify_schemas([self._schema, pa_table.schema])
+            # Batches infer their own types, so one run's column can land int64 in an early batch and
+            # double in a later one (whole vs fractional values). Permissive promotion widens to the
+            # common type instead of raising ArrowTypeError; the default only unifies identical types.
+            self._schema = pa.unify_schemas([self._schema, pa_table.schema], promote_options="permissive")
 
         self._logger.debug(
             f"Batch {batch_index} written successfully",

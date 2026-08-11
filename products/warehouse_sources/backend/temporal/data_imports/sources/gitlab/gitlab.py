@@ -190,6 +190,16 @@ def validate_credentials(
     if not project or not project.strip():
         return False, "Missing project id or path"
 
+    # GitLab addresses a project by its numeric id or a group/project path. A pasted URL or a bare
+    # group name otherwise URL-encodes into a nonsense path, 404s, and gets reported as "not found
+    # or not accessible with this token" — which points the user at the token rather than the format.
+    project_ref = project.strip()
+    if "://" in project_ref or ("/" not in project_ref and not project_ref.isdigit()):
+        return (
+            False,
+            "Enter the project as group/project (for example, mygroup/myproject) or its numeric project ID, not a full URL.",
+        )
+
     host_only = _host_only(host)
     if not host_only:
         return False, "Invalid GitLab host"

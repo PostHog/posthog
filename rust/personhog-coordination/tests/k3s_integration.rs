@@ -1,3 +1,4 @@
+use personhog_coordination::authority::AuthorityClock;
 mod common;
 
 use std::collections::BTreeMap;
@@ -395,7 +396,13 @@ fn start_pod_k8s(
     cancel: CancellationToken,
 ) -> (Arc<Mutex<Vec<HandoffEvent>>>, JoinHandle<Result<()>>) {
     let (handler, events) = MockHandler::new();
-    let pod = PodHandle::new(store, config, Arc::new(handler), k8s_awareness);
+    let pod = PodHandle::new(
+        store,
+        config,
+        Arc::new(handler),
+        k8s_awareness,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
     let token = cancel.child_token();
     let handle = tokio::spawn(async move { pod.run(token).await });
     (events, handle)

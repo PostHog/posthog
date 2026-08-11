@@ -6,7 +6,6 @@ import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 
-import { Chart } from 'lib/Chart'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { dayjs } from 'lib/dayjs'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
@@ -25,7 +24,7 @@ import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
-import { useAnnotationsPositioning } from './useAnnotationsPositioning'
+import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
 
 const MIN_BADGE_SPACING_PX = 24
 /** Clusters anchor on their starting badge (leftPx) so a chain of near-adjacent badges
@@ -69,10 +68,8 @@ function getInterpolatedDataPointX(dataIndex: number, getDataPointX: (index: num
 export interface AnnotationsOverlayProps {
     insightNumericId: AnnotationsOverlayLogicProps['insightNumericId']
     dates: string[]
-    chart: Chart
+    geometry: AnnotationsChartGeometry
     chartWidth: number
-    chartHeight: number
-    datasetIndex?: number
     /** Forwarded to the kea logic key so multiple overlays on the same insight don't
      *  collide. Used by compare-against-previous bar charts to show one overlay per period. */
     kind?: string
@@ -85,29 +82,22 @@ interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
 }
 
 export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
-    chart,
+    geometry,
     chartWidth,
-    chartHeight,
     dates,
     insightNumericId,
-    datasetIndex = 0,
     kind,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(
-        chart,
-        chartWidth,
-        chartHeight,
-        datasetIndex
-    )
+    const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(geometry)
 
     // Memoize ticks by value to prevent unnecessary kea selector cascades.
-    // chart.scales.x.ticks is a Chart.js internal array that is the same object between renders
-    // when the chart hasn't changed, but .map() would create new references every render,
-    // causing all downstream selectors (tickDates → dateRange → relevantAnnotations →
-    // groupedAnnotations) to recompute unnecessarily.
+    // The tick array is the same object between renders while the chart's layout is unchanged,
+    // but .map() would create new references every render, causing all downstream selectors
+    // (tickDates → dateRange → relevantAnnotations → groupedAnnotations) to recompute
+    // unnecessarily.
     const prevTicksRef = useRef<{ value: number }[]>([])
-    const currentChartTicks = chart.scales.x.ticks
+    const currentChartTicks = geometry.xTicks
     if (
         prevTicksRef.current.length !== currentChartTicks.length ||
         prevTicksRef.current.some((t, i) => t.value !== currentChartTicks[i]?.value)
@@ -139,7 +129,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     const modalContentRef = useRef<HTMLDivElement | null>(null)
     const modalOverlayRef = useRef<HTMLDivElement | null>(null)
     const badgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
-    const chartAreaLeft = chart ? chart.scales.x.left : 0
+    const chartAreaLeft = geometry.plotLeft
 
     const clusters = React.useMemo<AnnotationBadgeCluster[]>(() => {
         const positioned = annotationBadgeDataIndices
@@ -194,7 +184,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 style={
                     {
                         '--annotations-overlay-chart-area-left': `${chartAreaLeft}px`,
-                        '--annotations-overlay-chart-area-height': `${chart ? chart.scales.x.top : 0}px`,
+                        '--annotations-overlay-chart-area-height': `${geometry.plotBottom}px`,
                         '--annotations-overlay-chart-width': `${chartWidth}px`,
                     } as AnnotationsOverlayCSSProperties
                 }

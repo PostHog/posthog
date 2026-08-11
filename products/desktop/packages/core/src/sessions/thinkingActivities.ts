@@ -42,7 +42,6 @@ export const THINKING_ACTIVITIES = [
   "Clustering",
   "Teasing",
   "Cranking",
-  "Merging",
   "Snooping",
   "Rewiring",
   "Bundling",

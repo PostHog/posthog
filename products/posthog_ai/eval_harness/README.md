@@ -103,14 +103,14 @@ When npm is unreachable the check warns and reuses the existing image instead of
 (The modal DEBUG image is rebuilt by Modal whenever the Dockerfile or build context changes, but a new `@posthog/agent` publish alone does not invalidate it — a known limitation.)
 
 **modal** runs sandboxes remotely.
-Modal's network cannot reach `localhost`, so the harness starts ngrok tunnels itself and points the sandbox at the public URLs.
+Modal's network cannot reach `localhost`, so the harness exposes the host services via Tailscale Funnel itself and points the sandbox at the public URLs.
 Eval sandboxes run in the dedicated `posthog-sandbox-evals` Modal app, separate from production and local development sandboxes.
 The manual tunnel setup in [`docs/internal/sandboxes-setup-guide.md`](../../../../docs/internal/sandboxes-setup-guide.md) is therefore not needed for evals.
 The first modal run pays a one-time remote image build; later runs reuse the cached image until the skills or build context change.
 
 Modal prerequisites, all checked by preflight before anything boots:
 
-- `ngrok` on `PATH`, plus an authtoken (`NGROK_AUTHTOKEN`, or `ngrok config add-authtoken <token>`). Three simultaneous tunnels need a paid ngrok plan; Cloudflare Tunnel is the free alternative.
+- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the LLM gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
 - Modal credentials: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or a `~/.modal.toml` from `modal token new`.
 - `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`; the harness auto-loads it from `.env`.
 

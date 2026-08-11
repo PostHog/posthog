@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 
+from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_catalog.backend.logic import relationships
 from products.data_catalog.backend.logic.certifications import certify, deprecate, propose_certification
 from products.data_catalog.backend.logic.metrics import upsert_metric
@@ -749,6 +750,27 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
             context=self._context(),
         )
         assert response.results == [(str(cert.id), "cert_sales_view", str(view.id), "view", "proposed")]
+
+    def test_deprecation_proposal_shows_intent_but_is_not_a_trust_mark(self) -> None:
+        table = self._create_warehouse_table("cert_stale")
+        propose_certification(
+            team=self.team, user=self.user, table_id=str(table.id), proposed_status=CertificationStatus.DEPRECATED
+        )
+
+        queue = execute_hogql_query(
+            "SELECT status, proposed_status FROM system.information_schema.certifications "
+            "WHERE target_name = 'cert_stale'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert queue.results == [("proposed", "deprecated")]
+
+        settled = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'cert_stale'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert settled.results == [(None,)]
 
     def test_certifications_table_target_id_disambiguates_same_name(self) -> None:
         # (team, name) is not unique on DataWarehouseTable, so the queue must expose target_id — otherwise

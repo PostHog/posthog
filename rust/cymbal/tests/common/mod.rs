@@ -21,6 +21,7 @@ use cymbal::frames::{Frame, RawFrame};
 use cymbal::langs::native::DebugImage;
 use cymbal::stages::pipeline::ParsedPipelineItem;
 use cymbal::stages::resolution::{
+    event_release::ReleaseCache,
     remote::{
         config::RemoteResolutionConfig, pool::EndpointPool, resolver::RemoteResolutionContext,
     },
@@ -46,7 +47,6 @@ use cymbal_proto::cymbal::resolution::v1::{
 };
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
-use tokio::sync::Semaphore;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -258,6 +258,7 @@ fn done_outcome(item: &ResolveItem) -> ResolveOutcome {
         id: item.id,
         result: Some(resolve_outcome::Result::Done(Done {
             resolved_exception_json: item.exception_json.clone(),
+            release_id: String::new(),
         })),
     }
 }
@@ -335,14 +336,6 @@ pub fn unbound_addr() -> SocketAddr {
 }
 
 pub fn make_config(max_retries: u32, deadline: Duration) -> RemoteResolutionConfig {
-    make_config_with_sample_rate(max_retries, deadline, 1.0)
-}
-
-pub fn make_config_with_sample_rate(
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-) -> RemoteResolutionConfig {
     RemoteResolutionConfig {
         host: "test-only".to_string(),
         port: 0,
@@ -355,7 +348,6 @@ pub fn make_config_with_sample_rate(
         // production defaults are tuned for thundering-herd mitigation.
         retry_backoff: Duration::from_millis(1),
         retry_max_backoff: Duration::from_millis(2),
-        sample_rate,
         routing_jitter: 0.0,
         routing_acceptance_concurrency: 10,
         overload_ejection_initial: Duration::ZERO,
@@ -375,20 +367,6 @@ pub async fn make_ctx(
     deadline: Duration,
 ) -> RemoteResolutionContext {
     let config = make_config(max_retries, deadline);
-    let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
-    if !addrs.is_empty() {
-        wait_until_routable(&pool).await;
-    }
-    RemoteResolutionContext::new(pool, config)
-}
-
-pub async fn make_ctx_with_sample_rate(
-    addrs: &[SocketAddr],
-    max_retries: u32,
-    deadline: Duration,
-    sample_rate: f64,
-) -> RemoteResolutionContext {
-    let config = make_config_with_sample_rate(max_retries, deadline, sample_rate);
     let pool = EndpointPool::from_addrs(config.clone(), addrs).expect("build pool");
     if !addrs.is_empty() {
         wait_until_routable(&pool).await;
@@ -449,17 +427,13 @@ impl SymbolResolver for NoopResolver {
 
 pub fn remote_stage(ctx: RemoteResolutionContext) -> ResolutionStage {
     ResolutionStage {
-        symbol_resolver: Arc::new(NoopResolver),
-        symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
-        remote: Some(ctx),
-    }
-}
-
-pub fn local_stage() -> ResolutionStage {
-    ResolutionStage {
-        symbol_resolver: Arc::new(NoopResolver),
-        symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
-        remote: None,
+        remote: ctx,
+        // Never connected: fixture events carry no release identifiers, so the release
+        // resolver never issues a query.
+        posthog_pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused/unused")
+            .expect("lazy pool construction does not connect"),
+        release_cache: ReleaseCache::new(0, Duration::from_secs(0)),
     }
 }
 

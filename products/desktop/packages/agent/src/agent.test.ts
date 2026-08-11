@@ -60,7 +60,10 @@ describe("Agent", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
-        headers: { Authorization: "Bearer token" },
+        headers: {
+          Authorization: "Bearer token",
+          "X-PostHog-Project-Id": "1",
+        },
       }),
     );
   });

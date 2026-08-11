@@ -1,10 +1,14 @@
 import type { AuthFlowVariant } from './authFlowVariants'
+import { GlassInviteSignup } from './invite-signup/variants/glass/GlassInviteSignup'
 import { LegacyInviteSignup } from './invite-signup/variants/legacy/LegacyInviteSignup'
 import { PaperDeskInviteSignup } from './invite-signup/variants/paper-desk/PaperDeskInviteSignup'
+import { GlassLogin } from './login/variants/glass/GlassLogin'
 import { LegacyLogin } from './login/variants/legacy/LegacyLogin'
 import { PaperDeskLogin } from './login/variants/paper-desk/PaperDeskLogin'
+import { GlassSignup } from './signup/variants/glass/GlassSignup'
 import { LegacySignup } from './signup/variants/legacy/LegacySignup'
 import { PaperDeskSignup } from './signup/variants/paper-desk/PaperDeskSignup'
+import { GlassVerifyEmail } from './verify-email/variants/glass/GlassVerifyEmail'
 import { LegacyVerifyEmail } from './verify-email/variants/legacy/LegacyVerifyEmail'
 import { PaperDeskVerifyEmail } from './verify-email/variants/paper-desk/PaperDeskVerifyEmail'
 
@@ -28,5 +32,11 @@ export const authFlowVariantRegistry: Record<AuthFlowVariant, AuthFlowVariantCom
         Signup: PaperDeskSignup,
         InviteSignup: PaperDeskInviteSignup,
         VerifyEmail: PaperDeskVerifyEmail,
+    },
+    glass: {
+        Login: GlassLogin,
+        Signup: GlassSignup,
+        InviteSignup: GlassInviteSignup,
+        VerifyEmail: GlassVerifyEmail,
     },
 }

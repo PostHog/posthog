@@ -12,6 +12,7 @@ from unittest import mock
 from django.db.utils import OperationalError
 from django.test import override_settings
 
+import requests
 from asgiref.sync import sync_to_async
 from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
@@ -236,6 +237,29 @@ class TestRowTracking(BaseTest):
             mock_get_billing.side_effect = OperationalError(
                 'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
                 "server closed the connection unexpectedly"
+            )
+
+            assert await self._run(source, 10) is False
+
+        mock_capture_exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_row_tracking_fails_open_on_request_error_without_capturing_exception(self):
+        # A network blip (e.g. a proxy timeout) reaching the billing service is a transient
+        # infra issue, not a bug, and must fail open like any other billing-check error
+        # without being reported to error tracking.
+        source = await self._create_source()
+
+        with (
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
+        ):
+            mock_get_billing.side_effect = requests.exceptions.ProxyError(
+                "HTTPSConnectionPool(host='billing.posthog.com', port=443): Max retries exceeded "
+                "with url: /api/billing (Caused by ProxyError('Cannot connect to proxy.', "
+                "OSError('Tunnel connection failed: 504 Gateway timeout')))"
             )
 
             assert await self._run(source, 10) is False

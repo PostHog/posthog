@@ -154,7 +154,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         if (isStickiness) {
             return <StickinessLineChart context={context} />
         }
-        return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
+        return <TrendsLineChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
     }
 
     return (

@@ -28,7 +28,7 @@ export interface MessageInputProps {
     /** Whether to show the "Send as private" checkbox */
     showPrivateOption?: boolean
     /** Draft content to restore (from parent logic for tab persistence) */
-    draftContent?: JSONContent | null
+    draftContent?: JSONContent | string | null
     /** Called when draft content changes */
     onDraftChange?: (content: JSONContent | null) => void
     /** Whether the private note checkbox is checked (from parent logic for tab persistence) */
@@ -51,6 +51,10 @@ export interface MessageInputProps {
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
     /** Other unsaved ticket edits that sending with a status would also persist; when non-empty, asks for confirmation first */
     unsavedTicketChanges?: string[]
+    /** When set, the composer is editing an existing private note */
+    editingMessageId?: string | null
+    /** Cancel edit mode and restore the previous draft */
+    onCancelEdit?: () => void
 }
 
 export function MessageInput({
@@ -73,27 +77,81 @@ export function MessageInput({
     sendConfirmationMessage,
     sendAndSetStatusOptions,
     unsavedTicketChanges,
+    editingMessageId = null,
+    onCancelEdit,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const editorRef = useRef<RichContentEditorType | null>(null)
+    const lastSeededEditId = useRef<string | null>(null)
+    const draftContentRef = useRef(draftContent)
+    draftContentRef.current = draftContent
+    const isEditing = !!editingMessageId
 
     useEffect(() => {
         setIsEmpty(!draftContent)
     }, [draftContent])
 
+    // SupportEditor only applies initialContent at mount; seed/restore via setContent on edit transitions.
+    // Defer seeding so kea listeners can apply setDraftContent before we read it.
+    useEffect(() => {
+        const editor = editorRef.current
+        if (!editor) {
+            return
+        }
+
+        if (!editingMessageId) {
+            if (lastSeededEditId.current !== null) {
+                lastSeededEditId.current = null
+                const content = draftContentRef.current
+                if (content) {
+                    editor.setContent(content)
+                    queueMicrotask(() => setIsEmpty(editor.isEmpty()))
+                } else {
+                    editor.clear()
+                    setIsEmpty(true)
+                }
+            }
+            return
+        }
+
+        if (lastSeededEditId.current === editingMessageId) {
+            return
+        }
+        const targetId = editingMessageId
+        queueMicrotask(() => {
+            const ed = editorRef.current
+            if (!ed || lastSeededEditId.current === targetId) {
+                return
+            }
+            const content = draftContentRef.current
+            if (content == null) {
+                return
+            }
+            lastSeededEditId.current = targetId
+            ed.setContent(content)
+            queueMicrotask(() => setIsEmpty(ed.isEmpty()))
+        })
+    }, [editingMessageId])
+
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
 
-    const resolvedPlaceholder = placeholder ?? (isPrivate ? 'Type your private note...' : getReplyPlaceholder(channel))
-    const showChannelLogo = !isPrivate && hasReplyChannelBranding(channel)
-    const sendVerb = isPrivate ? 'Attach' : 'Send'
+    const resolvedPlaceholder =
+        placeholder ??
+        (isEditing
+            ? 'Edit your private note...'
+            : isPrivate
+              ? 'Type your private note...'
+              : getReplyPlaceholder(channel))
+    const showChannelLogo = !isPrivate && !isEditing && hasReplyChannelBranding(channel)
+    const sendVerb = isEditing ? 'Save' : isPrivate ? 'Attach' : 'Send'
 
     const handleSubmit = (statusAfterSend?: TicketStatus): void => {
         // These guard the Cmd+Enter path, which bypasses the disabled button.
-        if (sendDisabledReason || (replyDisabledReason && !isPrivate)) {
+        if (sendDisabledReason || (replyDisabledReason && !isPrivate && !isEditing)) {
             return
         }
         if (messageSending || isUploading) {
@@ -117,11 +175,11 @@ export function MessageInput({
                             setLocalIsPrivate(false)
                         }
                     },
-                    statusAfterSend
+                    isEditing ? undefined : statusAfterSend
                 )
             }
             // Sending with a status saves the whole ticket, so surface any other unsaved edits first.
-            if (statusAfterSend && unsavedTicketChanges && unsavedTicketChanges.length > 0) {
+            if (!isEditing && statusAfterSend && unsavedTicketChanges && unsavedTicketChanges.length > 0) {
                 LemonDialog.open({
                     title: `${sendVerb} and save other changes?`,
                     description: (
@@ -142,7 +200,7 @@ export function MessageInput({
                     primaryButton: { children: `${sendVerb} and save`, type: 'primary', onClick: doSend },
                     secondaryButton: { children: 'Cancel' },
                 })
-            } else if (draftMode && !isPrivate && sendConfirmationMessage) {
+            } else if (!isEditing && draftMode && !isPrivate && sendConfirmationMessage) {
                 // Private notes are never sent externally, so they skip the draft-mode confirmation.
                 LemonDialog.open({
                     title: 'Ready to send?',
@@ -165,7 +223,7 @@ export function MessageInput({
 
     const sendBlockedReason = sendDisabledReason
         ? sendDisabledReason
-        : replyDisabledReason && !isPrivate
+        : replyDisabledReason && !isPrivate && !isEditing
           ? replyDisabledReason
           : isEmpty
             ? 'No message'
@@ -182,11 +240,12 @@ export function MessageInput({
     return (
         <div>
             <SupportEditor
-                initialContent={draftContent}
+                initialContent={typeof draftContent === 'string' ? null : draftContent}
                 placeholder={resolvedPlaceholder}
                 onCreate={(editor) => {
                     editorRef.current = editor
                     if (draftContent) {
+                        editor.setContent(draftContent)
                         setIsEmpty(false)
                     }
                 }}
@@ -196,7 +255,7 @@ export function MessageInput({
                 disabled={messageSending || !!sendDisabledReason}
                 minRows={minRows}
                 className={
-                    isPrivate
+                    isPrivate || isEditing
                         ? 'bg-warning-highlight border-warning'
                         : draftMode
                           ? 'bg-success-highlight border-success'
@@ -208,13 +267,13 @@ export function MessageInput({
                     <Tooltip title="Private notes are only visible to your team, not to the customer.">
                         <span>
                             <LemonCheckbox
-                                checked={isPrivate}
+                                checked={isPrivate || isEditing}
                                 onChange={setIsPrivate}
-                                disabledReason={sendControlDisabledReason}
+                                disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
                                 label={
                                     <span className="inline-flex items-center gap-1">
                                         <IconLock className="text-sm" />
-                                        Attach as private note
+                                        {isEditing ? 'Editing private note' : 'Attach as private note'}
                                     </span>
                                 }
                             />
@@ -226,7 +285,11 @@ export function MessageInput({
                 <div className="flex items-center gap-2">
                     {onDraftModeChange && (
                         <Tooltip
-                            title={isPrivate ? null : 'In draft mode, sending asks you to confirm the recipient first.'}
+                            title={
+                                isPrivate || isEditing
+                                    ? null
+                                    : 'In draft mode, sending asks you to confirm the recipient first.'
+                            }
                         >
                             <span>
                                 <LemonSwitch
@@ -235,20 +298,27 @@ export function MessageInput({
                                     label="Draft mode"
                                     disabledReason={
                                         sendControlDisabledReason ??
-                                        (isPrivate ? 'Draft mode has no effect on private notes' : undefined)
+                                        (isPrivate || isEditing
+                                            ? 'Draft mode has no effect on private notes'
+                                            : undefined)
                                     }
                                 />
                             </span>
                         </Tooltip>
                     )}
                     {extraActions}
+                    {isEditing && onCancelEdit && (
+                        <LemonButton type="secondary" onClick={onCancelEdit} disabled={messageSending}>
+                            Cancel
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type="primary"
                         onClick={() => handleSubmit()}
                         loading={messageSending}
                         disabledReason={sendBlockedReason}
                         sideAction={
-                            sendAndSetStatusOptions?.length
+                            !isEditing && sendAndSetStatusOptions?.length
                                 ? {
                                       'aria-label': `${sendVerb} and set ticket status`,
                                       disabled: messageSending,
@@ -270,7 +340,9 @@ export function MessageInput({
                                 : undefined
                         }
                     >
-                        {isPrivate ? (
+                        {isEditing ? (
+                            'Save'
+                        ) : isPrivate ? (
                             'Attach'
                         ) : showChannelLogo ? (
                             <span className="inline-flex items-center gap-1.5">

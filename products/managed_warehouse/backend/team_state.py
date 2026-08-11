@@ -94,6 +94,14 @@ def data_imports_schema(team_id: int) -> str:
     return schema
 
 
+def data_imports_table_naming_version(team_id: int) -> str:
+    """The organization-level naming policy shared by Duckgres data-import readers and writers."""
+    row = _get_cp_row(team_id)
+    if row is None:
+        return "copy_v1"
+    return row.data_imports_table_naming_version
+
+
 # --- backfill state (warehouse-status UI) -----------------------------------------
 
 

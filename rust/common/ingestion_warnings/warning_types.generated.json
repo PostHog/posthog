@@ -122,6 +122,18 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_ai_event",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "invalid_ai_payload",
+      "category": "event",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
       "type": "invalid_ai_token_property",
       "category": "event",
       "severity": "warning",
@@ -176,6 +188,12 @@
       "captureProduced": false
     },
     {
+      "type": "invalid_session_id",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
       "type": "malformed_event_properties",
       "category": "event",
       "severity": "error",
@@ -221,6 +239,24 @@
       "type": "missing_event_uuid",
       "category": "event",
       "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "missing_session_id",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "missing_snapshot_data",
+      "category": "replay",
+      "severity": "error",
+      "captureProduced": true
+    },
+    {
+      "type": "no_ai_spans_ingested",
+      "category": "event",
+      "severity": "warning",
       "captureProduced": true
     },
     {

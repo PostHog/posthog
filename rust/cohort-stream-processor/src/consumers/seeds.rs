@@ -869,8 +869,8 @@ mod tests {
     use std::num::NonZeroU32;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileTile, RunId, SChunkMs,
-        ScannedAtMs,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileScope, ReconcileTile,
+        RunId, SChunkMs, ScannedAtMs,
     };
     use uuid::Uuid;
 
@@ -1271,10 +1271,12 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            )
-            .unwrap(),
+            ReconcileScope::Behavioral(
+                BehavioralShapeHash::parse(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                )
+                .unwrap(),
+            ),
             RunId(Uuid::nil()),
         );
         let bytes = serde_json::to_vec(&reconcile).unwrap();
@@ -1329,7 +1331,7 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
         );
         let consumed = ConsumedSeed {
@@ -1352,7 +1354,7 @@ mod tests {
         let reconcile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::nil()),
         );
         let reconcile_seed = |offset| ConsumedSeed {

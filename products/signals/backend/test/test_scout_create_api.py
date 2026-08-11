@@ -67,6 +67,18 @@ class TestSignalScoutCreateAPI(APIBaseTest):
         assert config.output_destinations == payload["config"]["output_destinations"]
         assert response.json()["config"]["description"] == payload["description"]
 
+    def test_create_stores_normalized_tags_from_the_config_block(self) -> None:
+        # Tagging at authoring time is the point — a scout the agent creates should land in the
+        # right group without a follow-up PATCH.
+        payload = {**self._payload(), "config": {"tags": ["Revenue", "on call", "revenue"]}}
+
+        response = self.client.post(self._url(), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["config"]["tags"] == ["on-call", "revenue"]
+        config = SignalScoutConfig.all_teams.get(team=self.team, skill_name=payload["name"])
+        assert config.tags == ["on-call", "revenue"]
+
     def test_matching_definition_retry_is_idempotent_and_applies_config(self) -> None:
         payload = self._payload()
 

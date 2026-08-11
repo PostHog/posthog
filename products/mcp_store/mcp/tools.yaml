@@ -162,6 +162,12 @@ tools:
     mcp-gateway-service-accounts-update:
         operation: mcp_gateway_service_accounts_update
         enabled: false
+    mcp-server-installations-available-tools-retrieve:
+        operation: mcp_server_installations_available_tools_retrieve
+        enabled: false
+    mcp-server-installations-call-tool-create:
+        operation: mcp_server_installations_call_tool_create
+        enabled: false
     mcp-server-installations-share-create:
         operation: mcp_server_installations_share_create
         enabled: false

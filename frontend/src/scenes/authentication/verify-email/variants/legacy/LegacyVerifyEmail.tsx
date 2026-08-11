@@ -34,7 +34,7 @@ const SupportButtons = ({ disabledReason }: SupportButtonsProps): JSX.Element =>
                 type="primary"
                 disabledReason={disabledReason}
                 onClick={() => {
-                    openSupportForm({ kind: 'bug', target_area: 'login' })
+                    openSupportForm({ kind: 'bug' })
                 }}
             >
                 Contact support

@@ -11,10 +11,12 @@ import {
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
+import type { Schemas } from '@/api/generated'
 import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -283,8 +285,8 @@ export class StateManager {
         return projectId
     }
 
-    private isCacheStale(fetchedAt: number | undefined): boolean {
-        return !fetchedAt || Date.now() - fetchedAt > CACHE_TTL_MS
+    private isCacheStale(fetchedAt: number | undefined, ttlMs: number = CACHE_TTL_MS): boolean {
+        return !fetchedAt || Date.now() - fetchedAt > ttlMs
     }
 
     /**
@@ -298,13 +300,14 @@ export class StateManager {
         cacheKey: D
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
+        ttlMs?: number
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
             this._cache.get(opts.fetchedAtKey),
         ])) as [State[D], number | undefined]
 
-        if (!this.isCacheStale(fetchedAt)) {
+        if (!this.isCacheStale(fetchedAt, opts.ttlMs)) {
             return cached
         }
 
@@ -386,6 +389,23 @@ export class StateManager {
             cacheKey: `groupTypes:${projectId}` as const,
             fetchedAtKey: `groupTypesFetchedAt:${projectId}` as const,
             fetcher: () => this._api.getGroupTypes(projectId),
+        })
+    }
+
+    /**
+     * The third-party MCP tools this user can reach, from the gateway.
+     *
+     * Shorter TTL than the other cached entities: connecting a server is a deliberate
+     * act and the user expects its tools to appear on the next command, not ten minutes
+     * later. Cheap enough to re-fetch — it's one request, and only `exec` triggers it.
+     */
+    async getOrFetchGatewayTools(projectId: string): Promise<Schemas.AvailableToolsResponse | undefined> {
+        return this.getOrFetchCached({
+            name: 'gateway_tools',
+            cacheKey: `gatewayTools:${projectId}` as const,
+            fetchedAtKey: `gatewayToolsFetchedAt:${projectId}` as const,
+            fetcher: () => this._api.getGatewayTools(projectId),
+            ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
         })
     }
 

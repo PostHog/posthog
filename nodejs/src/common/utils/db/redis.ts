@@ -28,6 +28,13 @@ export interface RedisPoolConfig {
     connection: RedisConnectionConfig
     poolMinSize: number
     poolMaxSize: number
+    /**
+     * Rejects a caller that waits this long for a connection. Prefer this to racing `acquire()`
+     * against your own timer: generic-pool has no cancellation, so a caller that walks away from a
+     * pending `acquire()` is still handed the next free connection and is still counted as
+     * borrowing it. Enough of those and the pool is empty for good.
+     */
+    acquireTimeoutMillis?: number
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
@@ -46,6 +53,7 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
             min: config.poolMinSize,
             max: config.poolMaxSize,
             autostart: true,
+            ...(config.acquireTimeoutMillis !== undefined ? { acquireTimeoutMillis: config.acquireTimeoutMillis } : {}),
         }
     )
 }

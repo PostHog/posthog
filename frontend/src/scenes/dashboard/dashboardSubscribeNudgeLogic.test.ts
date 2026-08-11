@@ -3,9 +3,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
@@ -115,7 +113,6 @@ describe('dashboardSubscribeNudgeLogic', () => {
         initKeaTests()
         userLogic.mount()
         userLogic.actions.loadUserSuccess(USER_WITH_SUBSCRIPTIONS_FEATURE)
-        featureFlagLogic.mount()
         dashboardLogic({
             id: DASHBOARD_ID,
             dashboard: mockDashboard(),
@@ -185,7 +182,6 @@ describe('dashboardSubscribeNudgeLogic', () => {
     describe('free-tier subscription limit', () => {
         beforeEach(() => {
             userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER) // no available features -> free tier
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'test' })
         })
 
         it.each([
@@ -245,21 +241,17 @@ describe('dashboardSubscribeNudgeLogic', () => {
         expect(teamWideCalls).toHaveLength(0)
     })
 
-    describe('feature flag exposure gating and notification delivery', () => {
-        beforeEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'test' })
-        })
-
-        it('does not read the flag while the existing-subscription check is in flight', () => {
+    describe('notification delivery', () => {
+        it('stays hidden while the existing-subscription check is in flight', () => {
             recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
 
             // Synchronously after the threshold view: the check hasn't resolved yet.
             expect(logic.values.hasExistingSubscription).toBeNull()
             expect(logic.values.isEligible).toBe(false)
-            expect(logic.values.flagVariant).toBeUndefined()
+            expect(logic.values.showNudge).toBe(false)
         })
 
-        it('suppresses the dashboard permanently when it already has a subscription, without reading the flag or notifying', async () => {
+        it('suppresses the dashboard permanently when it already has a subscription, without notifying', async () => {
             mockSubscriptionsList.mockResolvedValue({ count: 1, results: [{ id: 7 }] })
 
             await expectLogic(logic, () => {
@@ -268,7 +260,6 @@ describe('dashboardSubscribeNudgeLogic', () => {
 
             expect(logic.values.isSuppressed).toBe(true)
             expect(logic.values.isCandidate).toBe(false)
-            expect(logic.values.flagVariant).toBeUndefined()
             expect(mockSubscriptionsList).toHaveBeenCalledTimes(1)
             expect(nudgePostCount).toBe(0)
 
@@ -405,33 +396,6 @@ describe('dashboardSubscribeNudgeLogic', () => {
         })
     })
 
-    it('does not notify for the control variant', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'control' })
-
-        await expectLogic(logic, () => {
-            recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
-        }).toFinishAllListeners()
-
-        expect(logic.values.isEligible).toBe(true)
-        expect(logic.values.showNudge).toBe(false)
-        expect(nudgePostCount).toBe(0)
-    })
-
-    it('requests the notification when feature flags resolve only after the check completed', async () => {
-        // No flag variant yet: the check resolves eligible but the nudge can't fire.
-        await expectLogic(logic, () => {
-            recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
-        }).toFinishAllListeners()
-        expect(nudgePostCount).toBe(0)
-
-        // Flags arrive late — the nudge must still be delivered.
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'test' })
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(nudgePostCount).toBe(1)
-        expect(capturesOf('dashboard subscribe nudge shown')).toHaveLength(1)
-    })
-
     it.each([
         [true, 1],
         [false, 0],
@@ -450,7 +414,6 @@ describe('dashboardSubscribeNudgeLogic', () => {
             subsLogic.mount()
             await expectLogic(subsLogic).toFinishAllListeners()
 
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DASHBOARD_SUBSCRIBE_NUDGE]: 'test' })
             await expectLogic(logic, () => {
                 recordViews(DASHBOARD_SUBSCRIBE_NUDGE_VIEW_THRESHOLD)
             }).toFinishAllListeners()

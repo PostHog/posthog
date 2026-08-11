@@ -19,11 +19,19 @@ export class SqlInsight {
         // CodeEditor lazy-loads monaco, so the container renders before the editor
         // mounts — clicking too early focuses nothing and insertText is lost.
         await editorArea.locator('[data-editor-ready="true"]').first().waitFor({ state: 'visible' })
-        await editorArea.click()
-        await this.page.keyboard.press('ControlOrMeta+a')
-        // Use insertText() to avoid Monaco autocomplete intercepting keystrokes
-        // during character-by-character typing (space is a trigger character).
-        await this.page.keyboard.insertText(query)
+
+        // Monaco treats insertText as typed input, so autocomplete and auto-indent can corrupt a
+        // large query. Its paste command updates the controlled model while inserting text verbatim.
+        await this.page.evaluate((text) => {
+            const editor = (window as any).__monacoEditors?.at(-1)
+            const model = editor?.getModel()
+            if (!editor || !model) {
+                throw new Error('Monaco handle missing')
+            }
+            editor.focus()
+            editor.setSelection(model.getFullModelRange())
+            editor.trigger('keyboard', 'paste', { text })
+        }, query)
         await this.page.keyboard.press('Escape')
     }
 

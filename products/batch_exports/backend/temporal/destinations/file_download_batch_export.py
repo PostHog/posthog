@@ -20,6 +20,7 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from products.batch_exports.backend.models.batch_export import BatchExportFileDownload
 from products.batch_exports.backend.service import BatchExportInsertInputs, FileDownloadBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import (
+    DataInterval,
     StartBatchExportRunInputs,
     get_data_interval,
     is_over_billing_limit_error,
@@ -310,19 +311,19 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
         """
         if inputs.data_interval_start and inputs.data_interval_end:
             # Allow this workflow to be ran outside of a schedule
-            data_interval_end_dt = dt.datetime.fromisoformat(inputs.data_interval_end)
-            data_interval_start_dt = dt.datetime.fromisoformat(inputs.data_interval_start)
+            data_interval = DataInterval(
+                start=dt.datetime.fromisoformat(inputs.data_interval_start),
+                end=dt.datetime.fromisoformat(inputs.data_interval_end),
+            )
             should_backfill_from_beginning = False
         else:
             is_backfill = inputs.get_is_backfill()
             is_earliest_backfill = inputs.get_is_earliest_backfill()
-            data_interval_start_dt, data_interval_end_dt = get_data_interval(
-                inputs.interval, inputs.data_interval_end, inputs.timezone
-            )
+            data_interval = get_data_interval(inputs.interval, inputs.data_interval_end, inputs.timezone)
 
             should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
-        interval_delta = data_interval_end_dt - data_interval_start_dt
+        interval_delta = data_interval.end - data_interval.start
 
         on_demand = False
         if inputs.batch_export_run_id is not None:
@@ -332,8 +333,8 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
             start_batch_export_run_inputs = StartBatchExportRunInputs(
                 team_id=inputs.team_id,
                 batch_export_id=inputs.batch_export_id,
-                data_interval_start=data_interval_start_dt.isoformat(),
-                data_interval_end=data_interval_end_dt.isoformat(),
+                data_interval_start=data_interval.start.isoformat(),
+                data_interval_end=data_interval.end.isoformat(),
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
                 backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
@@ -363,8 +364,8 @@ class FileDownloadBatchExportWorkflow(PostHogWorkflow):
                 batch_export_id=inputs.batch_export_id,
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
-                data_interval_start=data_interval_start_dt.isoformat() if not should_backfill_from_beginning else None,
-                data_interval_end=data_interval_end_dt.isoformat(),
+                data_interval_start=data_interval.start.isoformat() if not should_backfill_from_beginning else None,
+                data_interval_end=data_interval.end.isoformat(),
                 destination_default_fields=s3_default_fields(),
                 on_demand=on_demand,
             ),

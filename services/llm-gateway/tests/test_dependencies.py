@@ -6,10 +6,13 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
+from llm_gateway.baseten import BASETEN_DEEPSEEK_PUBLIC_MODEL
 from llm_gateway.dependencies import (
     _extract_end_user_id_from_body,
     enforce_product_access,
     enforce_throttles,
+    get_authenticated_user,
     get_model_from_request,
     get_provider_from_request,
     get_request_json,
@@ -76,6 +79,25 @@ def _make_user(auth_method: str = "personal_api_key", user_id: int = 1) -> Authe
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=["llm_gateway:read"],
     )
+
+
+class TestGetAuthenticatedUser:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error,expected_status",
+        [
+            pytest.param(InvalidProjectScopeError(), 400, id="invalid_project"),
+            pytest.param(UnauthorizedProjectScopeError(), 403, id="unauthorized_project"),
+        ],
+    )
+    async def test_rejects_invalid_oauth_project_scope(self, error: Exception, expected_status: int) -> None:
+        auth_service = MagicMock()
+        auth_service.authenticate_request = AsyncMock(side_effect=error)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_authenticated_user(_make_request(), MagicMock(), auth_service)
+
+        assert exc_info.value.status_code == expected_status
 
 
 class TestExtractEndUserIdFromBody:
@@ -379,6 +401,92 @@ class TestFreeTierModelGateWiring:
             assert error["message"].endswith("(rate_limit)")
         finally:
             get_settings.cache_clear()
+
+
+class TestPreviewModelGateWiring:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("flag_result", [False, None])
+    async def test_preview_model_blocked_when_flag_off_or_unavailable(self, flag_result: bool | None) -> None:
+        # flag_result=None is the eval-outage case: must fail closed (403), not fail open.
+        request = _make_request({"model": "moonshotai/kimi-k3", "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_throttles(request=request, user=user, runner=runner)
+
+        assert exc_info.value.status_code == 403
+        error = exc_info.value.detail["error"]
+        assert error["code"] == "model_gate"
+        assert "moonshotai/kimi-k3" in error["message"]
+        assert error["message"].endswith("(rate_limit)")
+
+    @pytest.mark.asyncio
+    async def test_preview_model_allowed_when_flag_enabled(self) -> None:
+        request = _make_request({"model": "moonshotai/kimi-k3", "messages": []}, path="/posthog_code/v1/messages")
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)) as flag,
+        ):
+            await enforce_throttles(request=request, user=user, runner=runner)
+
+        flag.assert_awaited_once()
+        assert flag.await_args is not None
+        assert flag.await_args.args[0] == "tasks-kimi-k3"
+
+
+class TestBasetenExclusiveModelGateWiring:
+    # DeepSeek V4 Flash is Baseten-only with no fallback and isn't cleared for external rollout,
+    # so it's blocked behind its own access flag (not the GLM Baseten routing flag).
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("flag_result", [False, None])
+    async def test_baseten_exclusive_model_blocked_when_flag_off_or_unavailable(self, flag_result: bool | None) -> None:
+        request = _make_request(
+            {"model": BASETEN_DEEPSEEK_PUBLIC_MODEL, "messages": []}, path="/posthog_code/v1/messages"
+        )
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=flag_result)) as flag,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await enforce_throttles(request=request, user=user, runner=runner)
+
+        assert exc_info.value.status_code == 403
+        assert exc_info.value.detail["error"]["code"] == "model_gate"
+        assert flag.await_args is not None
+        assert flag.await_args.args[0] == "posthog-code-deepseek-model"
+
+    @pytest.mark.asyncio
+    async def test_baseten_exclusive_model_allowed_when_flag_enabled(self) -> None:
+        request = _make_request(
+            {"model": BASETEN_DEEPSEEK_PUBLIC_MODEL, "messages": []}, path="/posthog_code/v1/messages"
+        )
+        user = _make_user(auth_method="oauth_access_token", user_id=7)
+
+        runner = MagicMock()
+        runner.check = AsyncMock(return_value=ThrottleResult.allow())
+
+        with (
+            patch("llm_gateway.dependencies.ensure_costs_fresh"),
+            patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)),
+        ):
+            await enforce_throttles(request=request, user=user, runner=runner)
 
 
 class TestServerCredentialRequirementWiring:

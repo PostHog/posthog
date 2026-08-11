@@ -2,6 +2,8 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, refresh_scanner_estimate
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -17,5 +19,5 @@ def refresh_scanner_estimate_activity(inputs: RefreshScannerEstimateInputs) -> b
         return False
     if scanner.estimated_at is not None and timezone.now() - scanner.estimated_at < ESTIMATE_STALE_AFTER:
         return False
-    refresh_scanner_estimate(scanner)
+    refresh_scanner_estimate(scanner, ch_user=ClickHouseUser.REPLAY_VISION)
     return True

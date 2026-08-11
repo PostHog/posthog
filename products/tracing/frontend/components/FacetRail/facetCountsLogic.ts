@@ -21,7 +21,7 @@ import {
     SpanPropertyTypeEnumApi,
     TracingSpansAttributesRetrieveAttributeType,
 } from '../../generated/api.schemas'
-import { FACETS, FacetConfig, innerFilters } from './facets'
+import { FACETS, FacetConfig, innerFilters, resolveFacets } from './facets'
 
 export interface FacetCountsLogicProps {
     id: string
@@ -307,7 +307,8 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     // typing in one facet's search must not cancel a still-debouncing full reload.
                     loadFacetValuesForKey: async (facetKey: string, breakpoint) => {
                         await breakpoint(300)
-                        const facet = FACETS.find((f) => f.key === facetKey)
+                        // Resolved, not raw: an aliased facet must search the key the tenant emits.
+                        const facet = values.visibleFacets.find((f) => f.key === facetKey)
                         const result = facet ? await mergeFetched([facet]) : values.facetValues
                         breakpoint()
                         return result
@@ -335,11 +336,11 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
     }),
 
     selectors({
-        // Column facets always render; resource-attribute facets only when the tenant emits the key.
+        // Column facets always render; resource-attribute facets only when the tenant emits the key (or one
+        // of its aliases, which resolution rewrites the facet onto).
         visibleFacets: [
             (s) => [s.presentResourceKeys],
-            (presentResourceKeys: string[]): FacetConfig[] =>
-                FACETS.filter((f) => f.source.type === 'column' || presentResourceKeys.includes(f.source.key)),
+            (presentResourceKeys: string[]): FacetConfig[] => resolveFacets(FACETS, presentResourceKeys),
         ],
         // Per-facet loading state. A filter-change reload and a per-facet search have independent
         // breakpoints and can overlap, so union both sources — otherwise whichever settles first would

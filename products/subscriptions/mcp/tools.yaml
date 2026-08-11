@@ -186,7 +186,11 @@ tools:
             destructive: false
             idempotent: true
         title: Get subscription
-        description: Retrieve a single subscription by ID.
+        description:
+            'Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard, or
+            ai_prompt), target (`target_type`/`target_value`), schedule, enabled state, and AI-summary settings.
+            Metadata only — for the send history and delivered reports, use `subscriptions-deliveries-list` /
+            `subscriptions-deliveries-retrieve`.'
         response:
             exclude:
                 - invite_message

@@ -34,6 +34,8 @@ const LONG_RUNNING_POLL_DELAY_MS = 30000
 // An export is still rendering while it has neither produced content nor failed.
 const isRendering = (asset: ExportedAssetType): boolean => !asset.has_content && !asset.exception
 
+export type ExportStatusFetcher = () => Promise<ExportedAssetType | null>
+
 const fetchExportOrNull = async (id: number): Promise<ExportedAssetType | null> => {
     try {
         return await api.exports.get(id)
@@ -182,6 +184,13 @@ export interface exportsLogicActions {
         sessionRecordingId: string
         timestamp: number | undefined
     }
+    trackExport: (
+        exportedAsset: ExportedAssetType,
+        fetchLatest?: ExportStatusFetcher
+    ) => {
+        exportedAsset: ExportedAssetType
+        fetchLatest: ExportStatusFetcher | undefined
+    }
 }
 
 export type exportsLogicType = MakeLogicType<exportsLogicValues, exportsLogicActions>
@@ -196,6 +205,10 @@ export const exportsLogic = kea<exportsLogicType>([
         loadExports: true,
         startExport: (exportData: TriggerExportProps) => ({ exportData }),
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
+        trackExport: (exportedAsset: ExportedAssetType, fetchLatest?: ExportStatusFetcher) => ({
+            exportedAsset,
+            fetchLatest,
+        }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         downloadExport: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
@@ -270,6 +283,18 @@ export const exportsLogic = kea<exportsLogicType>([
 
             actions.createExport({ exportData })
         },
+        trackExport: ({ exportedAsset, fetchLatest }) => {
+            cache.exportStatusFetchers ??= new Map<number, ExportStatusFetcher>()
+            if (fetchLatest) {
+                cache.exportStatusFetchers.set(exportedAsset.id, fetchLatest)
+            }
+            actions.setAssetFormat(null)
+            actions.addFresh(exportedAsset)
+            actions.openSidePanel(SidePanelTab.Exports)
+        },
+        removeFresh: ({ exportedAsset }) => {
+            cache.exportStatusFetchers?.delete(exportedAsset.id)
+        },
         createExportSuccess: () => {
             actions.loadExports()
         },
@@ -289,7 +314,10 @@ export const exportsLogic = kea<exportsLogicType>([
             for (const fresh of values.freshUndownloadedExports) {
                 // The list can be format-filtered (assetFormat), so fetch directly if it's not in it.
                 const listed = exportsList.find((asset) => asset.id === fresh.id)
-                const latest = listed ?? (await fetchExportOrNull(fresh.id))
+                const customFetcher = cache.exportStatusFetchers?.get(fresh.id) as ExportStatusFetcher | undefined
+                const latest = customFetcher
+                    ? await customFetcher().catch(() => null)
+                    : (listed ?? (await fetchExportOrNull(fresh.id)))
                 if (!latest || isRendering(latest)) {
                     // Still rendering, or a transient fetch miss: keep an out-of-list export polling.
                     if (!listed) {
@@ -301,6 +329,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     continue
                 }
                 if (latest.has_content) {
+                    cache.exportStatusFetchers?.delete(fresh.id)
                     cache.notifiedExportIds.add(fresh.id)
                     const finished = latest
                     lemonToast.success('Export complete!', {

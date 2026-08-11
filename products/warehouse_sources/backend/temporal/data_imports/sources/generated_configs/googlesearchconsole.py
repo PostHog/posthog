@@ -8,3 +8,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class GoogleSearchConsoleSourceConfig(config.Config):
     site_url: str
     google_search_console_integration_id: int = config.value(converter=config.str_to_int)
+    search_types: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)

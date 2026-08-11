@@ -187,7 +187,11 @@ export function TriggerGroupsEditor(): JSX.Element {
             {triggerGroups.length === 0 && !isAddingGroup ? (
                 <div className="border border-dashed rounded p-6 text-center text-muted">
                     <p>No trigger groups configured</p>
-                    <p className="text-xs mt-2">Add a group to start recording based on specific conditions.</p>
+                    <p className="text-xs mt-2">
+                        {hasLegacyTriggers
+                            ? 'Recording falls back to your legacy conditions below.'
+                            : 'Add a group to start recording based on specific conditions.'}
+                    </p>
                 </div>
             ) : (
                 <div className="space-y-3">

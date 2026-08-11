@@ -259,6 +259,7 @@ def get_gitlab_file_url(
 
 class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
+    scope_object_read_actions = ["resolve_github", "resolve_gitlab"]
 
     @extend_schema(
         parameters=[GitProviderFileLinkResolveQuerySerializer],

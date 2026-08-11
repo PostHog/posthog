@@ -174,6 +174,19 @@ runcmd:
         safe_sha = shlex.quote(self.sha) if self.sha else "unknown"
         safe_hostname = shlex.quote(self.hostname)
 
+        # Smoke tests use a fresh hostname per run, so real ACME certs would blow through
+        # Let's Encrypt's 50-certs-per-registered-domain/168h limit for posthog.cc. Point Caddy
+        # at the LE staging directory. Preview instances keep real certs since humans browse them.
+        preview_mode = os.environ.get("PREVIEW_MODE", "false").lower() == "true"
+        tls_commands = (
+            []
+            if preview_mode
+            else [
+                'echo "$LOG_PREFIX Using Let\'s Encrypt staging directory for ACME (CI cert rate-limit avoidance)"',
+                "export TLS_BLOCK='acme_ca https://acme-staging-v02.api.letsencrypt.org/directory'",
+            ]
+        )
+
         # Add runcmd commands with logging
         commands = [
             'LOG_PREFIX="[$(date +%Y-%m-%d_%H:%M:%S)]"',
@@ -197,6 +210,7 @@ runcmd:
             self._get_wait_for_image_script(),
             self._get_node_image_fallback_script(),
             *self._get_installer_commands(),
+            *tls_commands,
             'echo "$LOG_PREFIX Starting hobby installer (CI mode)"',
             f"./hobby-installer --ci --domain {safe_hostname} --version $CURRENT_COMMIT",
             "DEPLOY_EXIT=$?",
@@ -779,7 +793,7 @@ runcmd:
     def wait_for_health_check(
         self,
         cloud_init_finished_at: datetime.datetime,
-        timeout_minutes: int = 35,
+        timeout_minutes: int = 60,
         retry_interval: int = 15,
         stability_period: int = 300,
         startup_grace_seconds: int = 300,
@@ -943,7 +957,7 @@ runcmd:
     def test_deployment_with_details(
         self,
         cloud_init_timeout=35,
-        health_timeout=35,
+        health_timeout=60,
         retry_interval=15,
         stability_period=300,
         startup_grace_seconds=300,

@@ -5,6 +5,11 @@ import {
   FREEFORM_POSTHOG_JS_URL,
   FREEFORM_QUILL_CSS_URLS,
 } from "@posthog/core/canvas/freeformWhitelist";
+import { resolveTextCommentAnchor } from "@posthog/core/comments/anchors";
+import {
+  commentActionAnchorRect,
+  installSelectionSettleGate,
+} from "@posthog/ui/features/sessions/components/selectionCommentAction";
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
@@ -162,6 +167,15 @@ export function resolveExternalAnchorUrl(target: unknown): string | null {
   }
 }
 
+export function isInteractiveCanvasCommentTarget(target: unknown): boolean {
+  return (
+    target instanceof Element &&
+    !!target.closest(
+      "a,button,input,select,textarea,[role=button],[contenteditable=true],[onclick]",
+    )
+  );
+}
+
 export function buildSandboxDocument(
   mode: SandboxMode,
   // The PostHog host, when in-iframe analytics/replay is enabled. Opens CSP for
@@ -275,6 +289,162 @@ export function buildSandboxDocument(
       },
       true,
     );
+
+    const selectionAnchorRect = ${commentActionAnchorRect.toString()};
+    let textSelectionPublished = false;
+    const clearTextSelection = () => {
+      if (!textSelectionPublished) return;
+      textSelectionPublished = false;
+      post({ type: "text-selection-cleared" });
+    };
+    let selectionTimer = 0;
+    const reportTextSelection = () => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        clearTextSelection();
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (!document.body.contains(range.startContainer) || !document.body.contains(range.endContainer)) {
+        clearTextSelection();
+        return;
+      }
+      const before = document.createRange();
+      before.selectNodeContents(document.body);
+      before.setEnd(range.startContainer, range.startOffset);
+      const through = document.createRange();
+      through.selectNodeContents(document.body);
+      through.setEnd(range.endContainer, range.endOffset);
+      const text = commentTextIndex().text;
+      const start = before.toString().length;
+      const end = through.toString().length;
+      const quote = text.slice(start, end);
+      if (!quote.trim() || quote.length > 10000) {
+        clearTextSelection();
+        return;
+      }
+      // The END line's rect, so the host anchors the comment action where the
+      // pointer was released rather than at the whole-range bounding box.
+      const rect = selectionAnchorRect(range.getClientRects(), range.getBoundingClientRect());
+      textSelectionPublished = true;
+      post({
+        type: "text-selection",
+        selection: {
+          quote,
+          prefix: text.slice(Math.max(0, start - 32), start),
+          suffix: text.slice(end, end + 32),
+          start,
+          end,
+          rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+        },
+      });
+      }, 80);
+    };
+    // Report the selection only once it settles, so the host's comment action
+    // doesn't chase the cursor mid-drag. The settle callback re-reads the live
+    // selection, which self-corrects clicks that didn't change the selection.
+    const selectionSettleGate = ${installSelectionSettleGate.toString()};
+    // Dropping the pending report matters: a new drag started within the
+    // debounce window would otherwise publish the previous selection mid-drag.
+    const abortTextSelection = () => {
+      clearTimeout(selectionTimer);
+      clearTextSelection();
+    };
+    selectionSettleGate(document, {
+      onGestureStart: abortTextSelection,
+      onSelectionSettled: reportTextSelection,
+      onIdleSelectionChange: reportTextSelection,
+      onGestureCancel: abortTextSelection,
+    });
+    document.addEventListener("scroll", abortTextSelection, true);
+    const clearNativeTextSelection = () => {
+      window.getSelection()?.removeAllRanges();
+      clearTextSelection();
+    };
+
+    const commentHighlightStyle = document.createElement("style");
+    commentHighlightStyle.textContent = "::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";
+    document.head.appendChild(commentHighlightStyle);
+    let currentCommentHighlights = [];
+    let commentRanges = [];
+    let cachedCommentTextIndex = null;
+    const commentTextIndex = () => {
+      if (cachedCommentTextIndex) return cachedCommentTextIndex;
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const entries = [];
+      let text = "";
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const start = text.length;
+        text += node.data;
+        entries.push({ node, start, end: text.length });
+      }
+      cachedCommentTextIndex = { text, entries };
+      return cachedCommentTextIndex;
+    };
+    const commentRangeAt = (index, start, end) => {
+      const find = (offset) => {
+        let low = 0, high = index.entries.length - 1, match = null;
+        while (low <= high) {
+          const middle = (low + high) >> 1;
+          const entry = index.entries[middle];
+          if (offset < entry.start) high = middle - 1;
+          else if (offset > entry.end) low = middle + 1;
+          else { match = entry; high = middle - 1; }
+        }
+        return match;
+      };
+      const startEntry = find(start), endEntry = find(end);
+      if (!startEntry || !endEntry) return null;
+      const range = document.createRange();
+      range.setStart(startEntry.node, start - startEntry.start);
+      range.setEnd(endEntry.node, end - endEntry.start);
+      return range;
+    };
+    const resolveCommentAnchor = ${resolveTextCommentAnchor.toString()};
+    const renderCommentHighlights = (items) => {
+      currentCommentHighlights = items || [];
+      commentRanges = [];
+      if (!window.Highlight || !window.CSS || !CSS.highlights) return;
+      const normal = new Highlight();
+      const active = new Highlight();
+      const index = commentTextIndex();
+      for (const item of currentCommentHighlights) {
+        const resolved = resolveCommentAnchor(index.text, item.anchor);
+        const range = resolved && commentRangeAt(index, resolved.start, resolved.end);
+        if (range) {
+          commentRanges.push({ id: item.id, range });
+          (item.active ? active : normal).add(range);
+        }
+      }
+      CSS.highlights.set("posthog-canvas-comment", normal);
+      CSS.highlights.set("posthog-canvas-comment-active", active);
+    };
+    let commentHighlightTimer = 0;
+    new MutationObserver(() => {
+      cachedCommentTextIndex = null;
+      if (!currentCommentHighlights.length || commentHighlightTimer) return;
+      commentHighlightTimer = setTimeout(() => {
+        commentHighlightTimer = 0;
+        renderCommentHighlights(currentCommentHighlights);
+      }, 2000);
+    }).observe(document.body, { childList: true, characterData: true, subtree: true });
+    const isInteractiveCommentTarget = ${isInteractiveCanvasCommentTarget.toString()};
+    document.addEventListener("click", (event) => {
+      const selection = window.getSelection();
+      if ((selection && !selection.isCollapsed) || isInteractiveCommentTarget(event.target)) return;
+      for (const item of commentRanges) {
+        for (const rect of item.range.getClientRects()) {
+          if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
+            event.preventDefault();
+            event.stopPropagation();
+            post({ type: "comment-activate", id: item.id });
+            return;
+          }
+        }
+      }
+    }, true);
 
     // Boot posthog-js with the PUBLIC key the host passed in (never the read
     // token). Enables session replay so the author/viewer can be watched.
@@ -407,6 +577,7 @@ export function buildSandboxDocument(
         // Let layout settle, then report success.
         requestAnimationFrame(() => {
           if (seq !== mountSeq) return;
+          renderCommentHighlights(currentCommentHighlights);
           post({ type: "rendered" });
         });
       } catch (err) {
@@ -421,11 +592,16 @@ export function buildSandboxDocument(
       if (!d || d.channel !== CHANNEL) return;
       if (d.type === "init") {
         applyTheme(d.theme);
+        currentCommentHighlights = d.highlights || [];
         if (d.analytics) void bootAnalytics(d.analytics);
         void mount(d.code);
       } else if (d.type === "set-theme") {
         // Re-theme in place — no mount(), so the app keeps all its state.
         applyTheme(d.theme);
+      } else if (d.type === "set-comment-highlights") {
+        renderCommentHighlights(d.highlights);
+      } else if (d.type === "clear-text-selection") {
+        clearNativeTextSelection();
       } else if (d.type === "data-response") {
         const p = pending.get(d.id);
         if (!p) return;

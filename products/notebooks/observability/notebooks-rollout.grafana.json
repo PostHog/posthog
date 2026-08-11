@@ -124,12 +124,111 @@
         },
         {
             "type": "row",
-            "title": "Rollout state \u2014 is the new path actually engaged?",
+            "title": "Transport A/B \u2014 worker relay vs ClickHouse writes",
+            "collapsed": false,
             "gridPos": {
                 "h": 1,
                 "w": 24,
                 "x": 0,
                 "y": 9
+            },
+            "panels": []
+        },
+        {
+            "type": "timeseries",
+            "title": "End-to-end run duration by transport",
+            "description": "The headline A/B: what a user waits, split by the transport that actually served the run's rows. `delivery` is resolved where the data plane picks a transport, so a fallback lands in the bucket it really used, not the one the flags asked for. `direct` and `none` runs are excluded because no transport choice applies to them.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 10
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "s"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "histogram_quantile(0.95, sum by (le, delivery) (rate(posthog_notebooks_node_run_seconds_bucket{delivery=~\"object_relay|object_ch_writes|inline\"}[$__rate_interval])))",
+                    "legendFormat": "p95 {{delivery}}"
+                },
+                {
+                    "refId": "B",
+                    "expr": "histogram_quantile(0.50, sum by (le, delivery) (rate(posthog_notebooks_node_run_seconds_bucket{delivery=~\"object_relay|object_ch_writes|inline\"}[$__rate_interval])))",
+                    "legendFormat": "p50 {{delivery}}"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Runs per transport \u2014 is each arm actually running?",
+            "description": "Read this before trusting the latency panel. A flat line on one transport means that arm produced no runs, so its percentiles are stale or empty rather than fast. This is also where a silent fallback shows up: object runs collapsing into `inline` while the flag is on means the deployment gate failed, not that the new path is slow.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 10
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "reqps"
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (delivery) (rate(posthog_notebooks_node_run_seconds_count{delivery=~\"object_relay|object_ch_writes|inline\"}[$__rate_interval]))",
+                    "legendFormat": "{{delivery}}"
+                }
+            ]
+        },
+        {
+            "type": "timeseries",
+            "title": "Failure ratio by transport",
+            "description": "A transport that returns faster while failing more is not faster. Any outcome other than `done` counts, so a materialization dying at its deadline shows up here as well as in the success-only frame histograms further down.",
+            "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 24,
+                "x": 0,
+                "y": 18
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "unit": "percentunit",
+                    "min": 0
+                }
+            },
+            "targets": [
+                {
+                    "refId": "A",
+                    "expr": "sum by (delivery) (rate(posthog_notebooks_node_run_seconds_count{delivery=~\"object_relay|object_ch_writes|inline\",outcome!=\"done\"}[$__rate_interval])) / clamp_min(sum by (delivery) (rate(posthog_notebooks_node_run_seconds_count{delivery=~\"object_relay|object_ch_writes|inline\"}[$__rate_interval])), 1e-9)",
+                    "legendFormat": "{{delivery}}"
+                }
+            ]
+        },
+        {
+            "type": "row",
+            "title": "Rollout state \u2014 is the new path actually engaged?",
+            "gridPos": {
+                "h": 1,
+                "w": 24,
+                "x": 0,
+                "y": 26
             },
             "collapsed": false
         },
@@ -145,7 +244,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 10
+                "y": 27
             },
             "fieldConfig": {
                 "defaults": {
@@ -167,7 +266,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 8,
-                "y": 10
+                "y": 27
             },
             "options": {
                 "mode": "markdown",
@@ -186,7 +285,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 10
+                "y": 27
             },
             "fieldConfig": {
                 "defaults": {
@@ -224,7 +323,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 18
+                "y": 35
             },
             "collapsed": false
         },
@@ -239,7 +338,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 0,
-                "y": 19
+                "y": 36
             },
             "fieldConfig": {
                 "defaults": {
@@ -267,7 +366,7 @@
                 "h": 8,
                 "w": 4,
                 "x": 8,
-                "y": 19
+                "y": 36
             },
             "fieldConfig": {
                 "defaults": {
@@ -311,7 +410,7 @@
                 "h": 8,
                 "w": 4,
                 "x": 12,
-                "y": 19
+                "y": 36
             },
             "fieldConfig": {
                 "defaults": {
@@ -356,7 +455,7 @@
                 "h": 8,
                 "w": 8,
                 "x": 16,
-                "y": 19
+                "y": 36
             },
             "fieldConfig": {
                 "defaults": {
@@ -378,7 +477,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 27
+                "y": 44
             },
             "collapsed": false
         },
@@ -394,7 +493,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 28
+                "y": 45
             },
             "fieldConfig": {
                 "defaults": {
@@ -431,7 +530,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 28
+                "y": 45
             },
             "fieldConfig": {
                 "defaults": {
@@ -458,7 +557,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 36
+                "y": 53
             },
             "fieldConfig": {
                 "defaults": {
@@ -490,7 +589,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 36
+                "y": 53
             },
             "fieldConfig": {
                 "defaults": {
@@ -522,7 +621,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 44
+                "y": 61
             },
             "collapsed": false
         },
@@ -538,7 +637,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 45
+                "y": 62
             },
             "fieldConfig": {
                 "defaults": {
@@ -565,7 +664,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 45
+                "y": 62
             },
             "fieldConfig": {
                 "defaults": {
@@ -587,7 +686,7 @@
                 "h": 1,
                 "w": 24,
                 "x": 0,
-                "y": 53
+                "y": 70
             },
             "collapsed": false
         },
@@ -603,7 +702,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 0,
-                "y": 54
+                "y": 71
             },
             "fieldConfig": {
                 "defaults": {
@@ -630,7 +729,7 @@
                 "h": 8,
                 "w": 12,
                 "x": 12,
-                "y": 54
+                "y": 71
             },
             "fieldConfig": {
                 "defaults": {
@@ -656,7 +755,7 @@
                 "h": 8,
                 "w": 24,
                 "x": 0,
-                "y": 62
+                "y": 79
             },
             "fieldConfig": {
                 "defaults": {

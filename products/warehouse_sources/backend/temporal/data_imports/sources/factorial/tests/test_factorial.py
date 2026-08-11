@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial import (
     API_VERSION_2025_04_01,
     API_VERSION_2026_04_01,
+    API_VERSION_2026_07_01,
     PAGE_SIZE,
     FactorialCursorPaginator,
     FactorialResumeConfig,
@@ -244,7 +245,7 @@ class TestFactorialSourceResumeBehavior:
         assert sent_params[0].get("after_id") == "MTY="
         manager.load_state.assert_called_once()
 
-    @pytest.mark.parametrize("api_version", [API_VERSION_2025_04_01, API_VERSION_2026_04_01])
+    @pytest.mark.parametrize("api_version", [API_VERSION_2025_04_01, API_VERSION_2026_04_01, API_VERSION_2026_07_01])
     def test_requests_go_to_the_pinned_version_path(self, api_version: str) -> None:
         # A pinned source must fetch under its own version segment — never a hardcoded default.
         manager = MagicMock(spec=ResumableSourceManager)
@@ -304,7 +305,7 @@ class TestValidateCredentials:
             else:
                 assert error is not None
 
-    @pytest.mark.parametrize("api_version", [API_VERSION_2025_04_01, API_VERSION_2026_04_01])
+    @pytest.mark.parametrize("api_version", [API_VERSION_2025_04_01, API_VERSION_2026_04_01, API_VERSION_2026_07_01])
     def test_probes_employees_endpoint_under_requested_version(self, api_version: str) -> None:
         with patch(_SESSION_FACTORY) as MockSession:
             mock_session = MockSession.return_value

@@ -4,4 +4,9 @@ import type { FeatureFlagLookupKey } from 'lib/constants'
 export const LogsFeatureFlagKeys = {
     dropRules: 'LOGS_SETTINGS_DROP_RULES',
     metricRules: 'LOGS_METRIC_RULES',
-} as const satisfies { dropRules: FeatureFlagLookupKey; metricRules: FeatureFlagLookupKey }
+    retentionRules: 'LOGS_SETTINGS_RETENTION_RULES',
+} as const satisfies {
+    dropRules: FeatureFlagLookupKey
+    metricRules: FeatureFlagLookupKey
+    retentionRules: FeatureFlagLookupKey
+}

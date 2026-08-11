@@ -2,8 +2,7 @@ import React, { useMemo } from 'react'
 
 import { computeVisibleXLabels, useChartLayout } from '@posthog/quill-charts'
 
-import { Chart } from 'lib/Chart'
-import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
+import { AnnotationsOverlay, type AnnotationsChartGeometry } from 'lib/components/AnnotationsOverlay'
 
 interface AnnotationsLayerProps {
     /** Numeric insight id used by the annotations logic. Pass `'new'` for unsaved insights. */
@@ -24,7 +23,7 @@ interface AnnotationsLayerProps {
 }
 
 const WRAPPER_STYLE: React.CSSProperties = {
-    // Re-enable pointer-events here because Chart's overlay layer disables them
+    // Re-enable pointer-events here because the chart's overlay layer disables them
     // for non-interactive overlays (axis labels, crosshair, reference lines).
     pointerEvents: 'auto',
 }
@@ -44,41 +43,29 @@ export function AnnotationsLayer({
     const { scales, dimensions, labels, axis } = useChartLayout()
     const xTickFormatter = axis.xTickFormatter
 
-    const currentChartLike = useMemo(() => {
+    const currentGeometry = useMemo<AnnotationsChartGeometry>(() => {
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
-        const points = labels.map((label) => ({ x: scales.x(label, seriesKey) ?? 0, y: 0 }))
-        const ticks = visibleXLabels.map((v) => ({ value: v.index }))
         return {
-            scales: {
-                x: {
-                    ticks,
-                    left: dimensions.plotLeft,
-                    top: dimensions.plotTop + dimensions.plotHeight,
-                },
-            },
-            _metasets: [{ data: points }],
+            xTicks: visibleXLabels.map((v) => ({ value: v.index })),
+            pointsX: labels.map((label) => scales.x(label, seriesKey) ?? 0),
+            plotLeft: dimensions.plotLeft,
+            plotBottom: dimensions.plotTop + dimensions.plotHeight,
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only `scales.x` is read; `scales` itself is unused.
     }, [labels, scales.x, seriesKey, dimensions.plotLeft, dimensions.plotTop, dimensions.plotHeight, xTickFormatter])
 
-    const previousChartLike = useMemo(() => {
+    const previousGeometry = useMemo<AnnotationsChartGeometry | null>(() => {
         if (!previousDates || !previousSeriesKey) {
             return null
         }
         const visibleXLabels = computeVisibleXLabels(labels, scales.x, xTickFormatter)
-        // Anchor on the previous-period bar (left bar in each band) but reuse the current
-        // labels — only the x positions matter, not the labels themselves.
-        const points = labels.map((label) => ({ x: scales.x(label, previousSeriesKey) ?? 0, y: 0 }))
-        const ticks = visibleXLabels.map((v) => ({ value: v.index }))
         return {
-            scales: {
-                x: {
-                    ticks,
-                    left: dimensions.plotLeft,
-                    top: dimensions.plotTop + dimensions.plotHeight,
-                },
-            },
-            _metasets: [{ data: points }],
+            xTicks: visibleXLabels.map((v) => ({ value: v.index })),
+            // Anchor on the previous-period bar (left bar in each band) but reuse the current
+            // labels — only the x positions matter, not the labels themselves.
+            pointsX: labels.map((label) => scales.x(label, previousSeriesKey) ?? 0),
+            plotLeft: dimensions.plotLeft,
+            plotBottom: dimensions.plotTop + dimensions.plotHeight,
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps -- only `scales.x` is read; `scales` itself is unused.
     }, [
@@ -92,7 +79,7 @@ export function AnnotationsLayer({
         xTickFormatter,
     ])
 
-    if (currentChartLike.scales.x.ticks.length < 2) {
+    if (currentGeometry.xTicks.length < 2) {
         return null
     }
 
@@ -105,18 +92,16 @@ export function AnnotationsLayer({
             onMouseDown={stopPointerPropagation}
         >
             <AnnotationsOverlay
-                chart={currentChartLike as unknown as Chart}
+                geometry={currentGeometry}
                 dates={dates}
                 chartWidth={dimensions.width}
-                chartHeight={dimensions.height}
                 insightNumericId={insightNumericId}
             />
-            {previousChartLike && previousDates && (
+            {previousGeometry && previousDates && (
                 <AnnotationsOverlay
-                    chart={previousChartLike as unknown as Chart}
+                    geometry={previousGeometry}
                     dates={previousDates}
                     chartWidth={dimensions.width}
-                    chartHeight={dimensions.height}
                     insightNumericId={insightNumericId}
                     kind="previous"
                 />

@@ -53,6 +53,7 @@ import {
   estimateTokens,
 } from "../claude/context-breakdown";
 import { isLocalSkillCommandChunk } from "../local-skill";
+import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
 import { resolveSpokenNarration } from "../session-meta";
 import {
   AppServerClient,
@@ -1939,6 +1940,22 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     );
   }
 
+  private shouldAutoAcceptMcpToolCall(mcp: {
+    server: string;
+    tool: string;
+    args: unknown;
+  }): boolean {
+    const isHandsOffMode =
+      this.config.mode === "auto" || this.config.mode === "full-access";
+    const isRepositoryTool =
+      mcp.server === LOCAL_TOOLS_MCP_NAME &&
+      (mcp.tool === "list_repos" || mcp.tool === "clone_repo");
+    return (
+      (isHandsOffMode && isRepositoryTool) ||
+      this.shouldAutoAcceptPostHogExec(mcp)
+    );
+  }
+
   /**
    * Server-initiated requests. Simple approvals resolve to a `{ decision }` envelope (a bare
    * string is rejected); richer ones (AskUserQuestion / permission profile / elicitation) go
@@ -1953,7 +1970,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       logger: this.logger,
       resolveMcpToolCall: (serverName) => this.mcp.byServer(serverName),
       shouldAutoAcceptMcpToolCall: (mcp) =>
-        this.shouldAutoAcceptPostHogExec(mcp),
+        this.shouldAutoAcceptMcpToolCall(mcp),
     });
     if (richer.handled) {
       return richer.response;
@@ -2001,7 +2018,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // Codex has no MCP-specific approval; a known MCP call surfaces the real server/tool/args
     // so the host renders the proper MCP permission (incl. PostHog `exec` unwrapping).
     const mcp = this.mcp.byItemId(detail.itemId);
-    if (mcp && this.shouldAutoAcceptPostHogExec(mcp)) {
+    if (mcp && this.shouldAutoAcceptMcpToolCall(mcp)) {
       return { decision: "accept" };
     }
     // kind + content route plain command/file approvals to Execute/EditPermission (not the fallback).

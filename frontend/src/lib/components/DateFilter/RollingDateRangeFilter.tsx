@@ -79,7 +79,6 @@ export function RollingDateRangeFilter({
                     type="number"
                     value={counter ?? 0}
                     min={0}
-                    placeholder="0"
                     onChange={(value) => setCounter(value)}
                 />
                 <span

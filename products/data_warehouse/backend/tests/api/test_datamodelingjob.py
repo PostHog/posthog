@@ -69,6 +69,8 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(first_job["saved_query_id"], str(self.saved_query.id))
         self.assertEqual(first_job["rows_materialized"], 0)
         self.assertEqual(first_job["error"], "Something went wrong")
+        # The frontend derives failed-run duration and the log-search window from updated_at.
+        self.assertIsNotNone(first_job["updated_at"])
 
     def test_retrieve_data_modeling_job(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/{self.job1.id}/")
@@ -132,6 +134,30 @@ class TestDataModelingJob(APIBaseTest):
         first_ids = {job["id"] for job in first_page["results"]}
         second_ids = {job["id"] for job in second_page["results"]}
         self.assertEqual(first_ids & second_ids, set())
+
+    def test_recent_reports_a_skip_over_the_older_success(self):
+        query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Blocked saved query")
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=query,
+            status=DataModelingJob.Status.COMPLETED,
+            workflow_id="materialize-view-abc",
+            last_run_at=timezone.now(),
+        )
+        skipped = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=query,
+            status=DataModelingJob.Status.SKIPPED,
+            error="Skipped because upstream view orders_daily is failing.",
+            workflow_id="execute-dag-abc:900-2026-08-07T10:17:00Z",
+            last_run_at=timezone.now(),
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/recent/")
+        self.assertEqual(response.status_code, 200)
+
+        for_query = [job for job in response.json() if job["saved_query_id"] == str(query.id)]
+        self.assertEqual([job["id"] for job in for_query], [str(skipped.id)])
 
     def test_cannot_access_other_teams_jobs(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/{self.other_team_job.id}/")

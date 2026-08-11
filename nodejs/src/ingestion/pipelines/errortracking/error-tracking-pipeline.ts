@@ -188,8 +188,13 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
 
     return (
         afterCymbal
-            // Batch fetch person (read-only, no updates)
-            .pipeChunk(createFetchPersonChunkStep(personRepository))
+            // Batch fetch person (read-only, no updates). The personhog client
+            // retries transient gRPC errors for ~150ms; this outer retry
+            // absorbs longer blips that would otherwise crash the worker via
+            // an unhandled rejection.
+            .pipeChunk(createFetchPersonChunkStep(personRepository), {
+                retry: { tries: 5, sleepMs: 100, name: 'fetch_person_chunk' },
+            })
             // Run Hog transformations (including GeoIP if team has it enabled)
             .pipe(createHogTransformEventStep(hogTransformer))
             // Prepare event for emission

@@ -383,7 +383,6 @@ function SignupProfilePanel(): JSX.Element {
                                     e.preventDefault()
                                     openSupportForm({
                                         kind: 'support',
-                                        target_area: 'login',
                                         email: signupPanelEmail.email,
                                     })
                                 }}

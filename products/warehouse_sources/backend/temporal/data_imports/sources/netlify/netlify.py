@@ -7,6 +7,10 @@ RFC-5988 `Link` headers (rel="next") for traversal — driven here by the framew
 (we attach the account token to every request, so following an off-host or scheme-downgraded link
 would leak it; refuse instead).
 
+`/sites` must be requested with `filter=all`: its undocumented default returns only sites the
+token's user personally owns, silently omitting team sites — and with it every site-scoped fan-out
+(netlify/open-api#225).
+
 No list endpoint accepts a server-side timestamp filter, so every table is full refresh — there is
 no reliable server-side cursor to sync incrementally on. The source is still resumable: top-level
 lists checkpoint the next page URL, and fan-out tables checkpoint the framework's per-parent fan-out
@@ -178,7 +182,7 @@ def _build_top_level_resource(
 ) -> Resource:
     endpoint: Endpoint = {
         "path": config.path,
-        "params": _params_with_page_size(config.page_size),
+        "params": _params_with_page_size(config.page_size, config.extra_params),
         "paginator": NetlifyHeaderLinkPaginator(),
     }
     if config.redact_keys:
@@ -236,7 +240,7 @@ def _build_fan_out_resource(
         "name": parent_config.name,
         "endpoint": {
             "path": parent_config.path,
-            "params": _params_with_page_size(parent_config.page_size),
+            "params": _params_with_page_size(parent_config.page_size, parent_config.extra_params),
             "paginator": NetlifyHeaderLinkPaginator(),
         },
     }
@@ -245,11 +249,12 @@ def _build_fan_out_resource(
         "params": _params_with_page_size(
             config.page_size,
             {
+                **config.extra_params,
                 config.fan_out_path_param: {
                     "type": "resolve",
                     "resource": parent_config.name,
                     "field": config.fan_out_parent_field,
-                }
+                },
             },
         ),
         "paginator": NetlifyCappedHeaderLinkPaginator(config.max_pages_per_parent, context={"table": config.name}),

@@ -510,7 +510,7 @@ mod tests {
     use super::*;
     use std::{
         fmt::Debug,
-        sync::{Arc, Mutex},
+        sync::{Arc, Mutex, MutexGuard},
     };
     use tracing::{field::Visit, Event, Subscriber};
     use tracing_subscriber::{layer::Context, prelude::*, registry::Registry, Layer};
@@ -549,6 +549,19 @@ mod tests {
         }
     }
 
+    // `tracing` caches each callsite's `Interest` in process-global state, resolved against
+    // whichever thread reaches the callsite first. A test that drives `retry` with no subscriber
+    // installed caches "never" on `retry`'s `warn!` callsites, so a concurrent
+    // `capture_tracing_messages` silently observes none of the events it asserts on. Serialize
+    // every test that reaches those callsites so registration happens under a known subscriber.
+    static RETRY_TRACING_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_retry_tracing() -> MutexGuard<'static, ()> {
+        RETRY_TRACING_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn capture_tracing_messages<F: FnOnce()>(f: F) -> Vec<String> {
         let messages = Arc::new(Mutex::new(Vec::new()));
         let subscriber = Registry::default().with(RecordingLayer {
@@ -563,6 +576,8 @@ mod tests {
 
     #[test]
     fn retry_does_not_log_retry_after_final_attempt() {
+        let _retry_tracing_lock = lock_retry_tracing();
+
         let messages = capture_tracing_messages(|| {
             let result: Result<(), &str> = retry(
                 vec![Duration::ZERO, Duration::ZERO, Duration::ZERO].into_iter(),
@@ -589,6 +604,9 @@ mod tests {
 
     #[test]
     fn finish_upload_failure_message_names_unattached_maps() {
+        // `finish_upload` retries, so it reaches the callsites `RETRY_TRACING_LOCK` protects.
+        let _retry_tracing_lock = lock_retry_tracing();
+
         crate::invocation_context::INVOCATION_CONTEXT.get_or_init(|| {
             let config = crate::invocation_context::InvocationConfig {
                 api_key: "phx_test".to_string(),

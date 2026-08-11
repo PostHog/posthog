@@ -29,9 +29,10 @@ SPEC_DESCRIPTION_MAX_LENGTH = 1024
 
 # Zip-bomb defense for import: bound member count and per-member *decompressed* read so a small
 # zip can't inflate into GBs of memory. These are coarse hard stops — the precise per-field/per-file
-# size caps are enforced downstream by the import validator. Kept comfortably above legit limits
-# (a SKILL.md body / bundled file is capped at ~1 MB each, ≤50 files).
-_MAX_ZIP_MEMBERS = 200
+# size caps are enforced downstream by the import validator. Member count is kept comfortably above
+# legit limits (≤200 bundled files plus SKILL.md and directory entries); the total is a memory stop
+# rather than a content limit, since MAX_IMPORT_ZIP_BYTES already bounds the compressed upload.
+_MAX_ZIP_MEMBERS = 500
 _MAX_ZIP_MEMBER_BYTES = 2_000_000
 _MAX_ZIP_TOTAL_UNCOMPRESSED_BYTES = 80_000_000
 

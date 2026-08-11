@@ -76,8 +76,8 @@ export function HogQLEditor({
                 onPressCmdEnter={
                     disableCmdEnter
                         ? undefined
-                        : (value) => {
-                              onChange(value)
+                        : () => {
+                              onChange(bufferedValue)
                           }
                 }
             />

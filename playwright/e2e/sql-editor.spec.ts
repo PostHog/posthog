@@ -11,6 +11,9 @@ async function dismissQuickStart(page: Page): Promise<void> {
 }
 
 async function goToSqlEditor(page: Page): Promise<void> {
+    await page.addInitScript(() => {
+        ;(window as any).__PERF_MONACO_HOOK__ = true
+    })
     await page.goto('/sql')
     await expect(page).toHaveURL(/\/sql(?:[?#].*)?$/)
     await expect(page.getByTestId('editor-scene')).toBeVisible({ timeout: 60000 })

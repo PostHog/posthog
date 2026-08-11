@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 
 from products.tasks.backend.exceptions import SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
@@ -7,9 +8,34 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     StartAgentServerInput,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _record_boot_total,
     _resolve_protected_base_branch,
     start_agent_server,
 )
+
+
+@freeze_time("2026-08-06T12:01:30Z")
+def test_record_boot_total_excludes_wizard_time_and_labels_runtime(mocker) -> None:
+    record_metric = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.record_boot_total_ms"
+    )
+    input = StartAgentServerInput(
+        context=_context(),
+        sandbox_id="sandbox-id",
+        sandbox_url="https://sandbox.example",
+        workflow_start_at="2026-08-06T12:00:00+00:00",
+        boot_excluded_ms=60_000,
+    )
+
+    assert _record_boot_total(input) == 30_000
+    record_metric.assert_called_once_with(
+        30_000,
+        boot_path="classic",
+        used_snapshot=None,
+        has_repo=False,
+        origin_product=None,
+        runtime="gvisor",
+    )
 
 
 def _context(

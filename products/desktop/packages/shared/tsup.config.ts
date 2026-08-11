@@ -5,6 +5,7 @@ export default defineConfig({
     "src/index.ts",
     "src/agent-platform-types.ts",
     "src/analytics-events.ts",
+    "src/announcements.ts",
     "src/constants.ts",
     "src/deeplink.ts",
     "src/dismissalReasons.ts",

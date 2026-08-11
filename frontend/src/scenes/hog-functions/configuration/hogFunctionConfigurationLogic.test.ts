@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionTemplateType, HogFunctionType } from '~/types'
@@ -233,6 +234,32 @@ describe('hogFunctionConfigurationLogic', () => {
             }).toDispatchActions(['upsertHogFunctionFailure'])
 
             expect(toastSpy).toHaveBeenCalledWith(detail)
+        })
+    })
+
+    describe('loading a missing function', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('resolves to null on a 404 so the not-found state renders without filing an exception', async () => {
+            // A cross-project deep link 404s here; the loader must swallow it rather than reject,
+            // which would surface as an unhandled rejection in error tracking.
+            mockApi.get.mockRejectedValue(new ApiError('Not found', 404))
+            logic = hogFunctionConfigurationLogic({ id: 'missing-id' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionSuccess'])
+            expect(logic.values.hogFunction).toBeNull()
+            expect(logic.values.loaded).toBe(false)
+        })
+
+        it('still rejects on non-404 errors', async () => {
+            mockApi.get.mockRejectedValue(new ApiError('Boom', 500))
+            logic = hogFunctionConfigurationLogic({ id: 'boom-id' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionFailure'])
         })
     })
 })

@@ -28,6 +28,7 @@ from parameterized import parameterized
 
 from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
@@ -1147,6 +1148,7 @@ class TestServiceFlagsDataFormat(BaseTest):
             },
             last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
             last_backfill_events_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+            last_realtime_cohort_calculation_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
         # 1) full-flag: exercises all optional nested structures.
@@ -1580,13 +1582,13 @@ class TestBatchOperations(BaseTest):
             refresh_expiring_flags_caches,
         )
 
-        mock_refresh.return_value = (2, 0)  # successful, failed
+        mock_refresh.return_value = CacheRefreshCounts(successful=2, failed=0)
 
-        successful, failed = refresh_expiring_flags_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_flags_caches(ttl_threshold_hours=24)
 
         # Should return result from generic function
-        self.assertEqual(successful, 2)
-        self.assertEqual(failed, 0)
+        self.assertEqual(counts.successful, 2)
+        self.assertEqual(counts.failed, 0)
 
         # Should call generic refresh_expiring_caches with correct config
         mock_refresh.assert_called_once_with(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, 24, settings.FLAGS_CACHE_REFRESH_LIMIT)
@@ -3613,6 +3615,7 @@ class TestSerializeCohort(BaseTest):
             team=self.team,
             name="Test",
             description="A test cohort",
+            last_realtime_cohort_calculation_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
             filters={
                 "properties": {
                     "type": "OR",
@@ -3622,7 +3625,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # Hypercache/service cohort schema: these 19 fields must always be present in the serialized payload
+        # Hypercache/service cohort schema: every one of these fields must be present in the serialized payload
         expected_fields = {
             "id",
             "name",
@@ -3643,6 +3646,7 @@ class TestSerializeCohort(BaseTest):
             "condition_type",
             "last_backfill_person_properties_at",
             "last_backfill_events_at",
+            "last_realtime_cohort_calculation_at",
         }
         assert set(result.keys()) == expected_fields
         assert result["id"] == cohort.id
@@ -3651,6 +3655,10 @@ class TestSerializeCohort(BaseTest):
         assert result["deleted"] is False
         assert result["is_static"] is False
         assert result["is_calculating"] is False
+        assert result["last_realtime_cohort_calculation_at"] == "2024-01-15T12:00:00+00:00"
+
+        cohort.last_realtime_cohort_calculation_at = None
+        assert _serialize_cohort(cohort)["last_realtime_cohort_calculation_at"] is None
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

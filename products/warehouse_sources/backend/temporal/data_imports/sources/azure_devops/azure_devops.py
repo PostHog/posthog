@@ -95,21 +95,60 @@ def _flatten_revision(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def validate_credentials(organization: str, personal_access_token: str, api_version: str) -> bool:
-    """Confirm the PAT and organization are valid with a cheap projects probe.
+# Actionable reasons returned by the create-time credential probe. The sync-time equivalents live in
+# AzureDevOpsSource.get_non_retryable_errors, keyed on the raw HTTP error text raise_for_status emits.
+_INVALID_ORGANIZATION_MESSAGE = "That doesn't look like a valid Azure DevOps organization name. Enter just the organization name, for example myorg."
+_INVALID_PAT_MESSAGE = (
+    "Azure DevOps authentication failed. Please check your personal access token (it may have expired)."
+)
+_FORBIDDEN_MESSAGE = (
+    "Azure DevOps denied access. Please check that your personal access token has read scopes for this data."
+)
+_ORGANIZATION_NOT_FOUND_MESSAGE = "Azure DevOps organization not found. Please check the organization name."
+_UNREACHABLE_MESSAGE = "Couldn't reach Azure DevOps to validate your credentials. Please try again in a few minutes."
+
+
+def _unexpected_status_message(status_code: int) -> str:
+    # Any status the probe doesn't map explicitly (a 429, a 5xx, an unexpected redirect) lands here.
+    # Name the status and point at both inputs rather than asserting the credentials are invalid,
+    # which misdirects the user when the real cause is throttling or an Azure-side error.
+    return (
+        f"Azure DevOps returned an unexpected response (HTTP {status_code}). "
+        "Check your organization name and personal access token, then try again."
+    )
+
+
+def validate_credentials(organization: str, personal_access_token: str, api_version: str) -> tuple[bool, str | None]:
+    """Confirm the PAT and organization are valid with a cheap projects probe, reporting an
+    actionable reason on failure rather than collapsing every cause into one generic message.
 
     Azure DevOps answers an invalid PAT with a 203 + HTML sign-in page rather
     than a 401, so only an exact 200 counts."""
     try:
         org = _validate_organization(organization)
+    except ValueError:
+        return False, _INVALID_ORGANIZATION_MESSAGE
+
+    try:
         wire_version = wire_api_version(api_version)
         response = _get_session(personal_access_token).get(
             f"{AZURE_DEVOPS_BASE_URL}/{quote(org)}/_apis/projects?{urlencode({'$top': 1, 'api-version': wire_version})}",
             timeout=10,
         )
-        return response.status_code == 200
     except Exception:
-        return False
+        return False, _UNREACHABLE_MESSAGE
+
+    status_code = response.status_code
+    if status_code == 200:
+        return True, None
+    # An invalid or expired PAT yields a 203 + HTML sign-in page rather than a 401.
+    if status_code in (203, 401):
+        return False, _INVALID_PAT_MESSAGE
+    if status_code == 403:
+        return False, _FORBIDDEN_MESSAGE
+    if status_code == 404:
+        return False, _ORGANIZATION_NOT_FOUND_MESSAGE
+    return False, _unexpected_status_message(status_code)
 
 
 def get_rows(

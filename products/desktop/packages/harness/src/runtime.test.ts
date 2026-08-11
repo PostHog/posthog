@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
@@ -63,6 +63,42 @@ describe("createHarnessRuntime", () => {
             "<inline:workflow>",
           ]),
         );
+      } finally {
+        await runtime.dispose();
+      }
+    },
+  );
+
+  it.each([
+    { label: "false", projectTrusted: () => false, loaded: false },
+    { label: "true", projectTrusted: () => true, loaded: true },
+  ])(
+    "loads project-local extensions when project trust is $label",
+    async ({ projectTrusted, loaded }) => {
+      vi.stubEnv("PI_OFFLINE", "1");
+      const pi = await import("@earendil-works/pi-coding-agent");
+      const cwd = await temporaryDirectory();
+      const agentDir = await temporaryDirectory();
+      const extensionPath = join(cwd, ".pi", "extensions", "project.ts");
+      await mkdir(join(cwd, ".pi", "extensions"), { recursive: true });
+      await writeFile(
+        extensionPath,
+        "export default function projectExtension() {}\n",
+      );
+
+      const runtime = await createHarnessRuntime({
+        agentDir,
+        credentialStore: new InMemoryCredentialStore(),
+        cwd,
+        projectTrusted,
+        sessionManager: pi.SessionManager.inMemory(cwd),
+      });
+
+      try {
+        const extensionPaths = runtime.services.resourceLoader
+          .getExtensions()
+          .extensions.map((extension) => extension.path);
+        expect(extensionPaths.includes(extensionPath)).toBe(loaded);
       } finally {
         await runtime.dispose();
       }

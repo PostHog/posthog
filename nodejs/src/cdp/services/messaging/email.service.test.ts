@@ -820,7 +820,10 @@ describe('EmailService', () => {
                     const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html
                         .Data
                     if (expectTracked) {
-                        expect(sentHtml).toContain('/redirect?ph_id=')
+                        // SES sends tag each anchor and let SES report the click, instead of
+                        // rewriting the href to a redirect URL. The open pixel is unchanged.
+                        expect(sentHtml).toContain('ses:tags="phl:')
+                        expect(sentHtml).toContain('ph_id=')
                     } else {
                         expect(sentHtml).toEqual(trackableHtml)
                     }
@@ -833,7 +836,8 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentHtml = (sendEmailSpy.mock.calls[0][0] as { input: any }).input.Content.Simple.Body.Html.Data
-                expect(sentHtml).toContain('/redirect?ph_id=')
+                expect(sentHtml).toContain('ses:tags="phl:')
+                expect(sentHtml).toContain('ph_id=')
             })
 
             it('the step-level toggle wins over consent: tracking_enabled false is untracked even for opted-in recipients', async () => {

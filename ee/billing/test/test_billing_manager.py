@@ -18,6 +18,7 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from ee.billing.billing_manager import (
@@ -423,6 +424,29 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         assert organization.available_product_features == [{"key": "surveys", "name": "Surveys"}]
         assert self.team.logs_settings == {"retention_days": 14}
+
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_update_available_product_features_reconciles_events_retention(self, mock_get: MagicMock):
+        organization = self.organization
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = {
+            "available_product_features": [
+                {"key": "product_analytics_data_retention", "name": "Data retention", "limit": 1, "unit": "year"}
+            ]
+        }
+
+        BillingManager(license).update_available_product_features(organization)
+
+        self.team.refresh_from_db()
+        assert self.team.event_retention_months == 12
 
     @patch("ee.billing.billing_manager.update_org_billing_quotas", side_effect=Exception("Redis unavailable"))
     def test_update_org_details_saves_org_fields_before_recomputing_existing_quota_limits(

@@ -1,5 +1,4 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import { CaretDown, ChartLineUp, Shapes } from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -11,7 +10,6 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import { getModeStyle } from "@posthog/ui/features/sessions/modeStyles";
 import { flattenSelectOptions } from "@posthog/ui/features/sessions/sessionStore";
 import { useRetainedConfigOption } from "@posthog/ui/features/sessions/useRetainedConfigOption";
 import { useRef, useState } from "react";
@@ -77,36 +75,28 @@ export function ModeSelector({
 
   const currentValue = displayOption.currentValue;
   const canvasActive = !!canvas?.active;
-  const currentStyle = canvasActive
-    ? { icon: <Shapes size={12} weight="fill" />, className: "text-teal-11" }
-    : getModeStyle(currentValue);
   const currentLabel = canvasActive
     ? "Canvas"
     : (allOptions.find((opt) => opt.value === currentValue)?.name ??
       currentValue);
+  // Running unsupervised is the only mode the trigger colours at all, and it
+  // does so as a whole destructive button rather than a tinted label — a mode
+  // tint per mode turns the toolbar into a palette and stops reading as a
+  // warning where it matters.
+  const bypassActive =
+    !canvasActive &&
+    (currentValue === "bypassPermissions" || currentValue === "full-access");
 
   const toggles: Array<{
     label: string;
     active: boolean;
     onToggle: () => void;
-    icon: React.ReactNode;
-    className: string;
   }> = [];
   if (canvas) {
-    toggles.push({
-      label: "Canvas",
-      ...canvas,
-      icon: <Shapes size={12} weight="fill" />,
-      className: "text-teal-11",
-    });
+    toggles.push({ label: "Canvas", ...canvas });
   }
   if (autoresearch) {
-    toggles.push({
-      label: "Autoresearch",
-      ...autoresearch,
-      icon: <ChartLineUp size={12} />,
-      className: "text-muted-foreground",
-    });
+    toggles.push({ label: "Autoresearch", ...autoresearch });
   }
 
   return (
@@ -130,18 +120,12 @@ export function ModeSelector({
         render={
           <Button
             type="button"
-            variant="default"
+            variant={bypassActive ? "destructive" : "default"}
             size="sm"
             disabled={isDisabled}
             aria-label="Mode"
           >
-            <span className={currentStyle.className}>{currentStyle.icon}</span>
-            <span className={currentStyle.className}>{currentLabel}</span>
-            <CaretDown
-              size={10}
-              weight="bold"
-              className="text-muted-foreground"
-            />
+            <span>{currentLabel}</span>
           </Button>
         }
       />
@@ -161,15 +145,11 @@ export function ModeSelector({
             setOpen(false);
           }}
         >
-          {options.map((option) => {
-            const style = getModeStyle(option.value);
-            return (
-              <DropdownMenuRadioItem key={option.value} value={option.value}>
-                <span className={`${style.className}`}>{style.icon}</span>
-                <span className="whitespace-nowrap">{option.name}</span>
-              </DropdownMenuRadioItem>
-            );
-          })}
+          {options.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value}>
+              <span className="whitespace-nowrap">{option.name}</span>
+            </DropdownMenuRadioItem>
+          ))}
         </DropdownMenuRadioGroup>
         {toggles.length > 0 && <DropdownMenuSeparator />}
         {toggles.map((toggle) => (
@@ -181,7 +161,6 @@ export function ModeSelector({
               setOpen(false);
             }}
           >
-            <span className={toggle.className}>{toggle.icon}</span>
             <span className="whitespace-nowrap">{toggle.label}</span>
           </DropdownMenuCheckboxItem>
         ))}

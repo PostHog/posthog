@@ -82,6 +82,7 @@ export function PlanContent({ id, plan }: PlanContentProps) {
               color="gray"
               onClick={() => setIsFullscreen(false)}
               title="Exit fullscreen"
+              aria-label="Exit fullscreen"
             >
               <ArrowsIn size={12} />
             </IconButton>
@@ -108,6 +109,7 @@ export function PlanContent({ id, plan }: PlanContentProps) {
                       variant="ghost"
                       color="gray"
                       onClick={handleCopy}
+                      aria-label="Copy plan to clipboard"
                     >
                       {copied ? <Check size={12} /> : <Copy size={12} />}
                     </IconButton>
@@ -118,6 +120,7 @@ export function PlanContent({ id, plan }: PlanContentProps) {
                       variant="ghost"
                       color="gray"
                       onClick={() => setIsFullscreen(false)}
+                      aria-label="Exit fullscreen"
                     >
                       <X size={14} />
                     </IconButton>
@@ -154,6 +157,7 @@ export function PlanContent({ id, plan }: PlanContentProps) {
             variant="ghost"
             color="gray"
             onClick={handleCopy}
+            aria-label="Copy plan to clipboard"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
           </IconButton>
@@ -164,6 +168,7 @@ export function PlanContent({ id, plan }: PlanContentProps) {
             variant="ghost"
             color="gray"
             onClick={() => setIsFullscreen(true)}
+            aria-label="Expand to fullscreen"
           >
             <ArrowsOut size={12} />
           </IconButton>

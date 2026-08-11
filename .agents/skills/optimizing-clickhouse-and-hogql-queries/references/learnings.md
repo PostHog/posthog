@@ -127,7 +127,7 @@ Also learned while measuring: ClickHouse 26.x's **query condition cache** makes 
 
 ## 2026-05-28: Dropping `FROM person FINAL` via `argMax` is worse than the original; materialization is the actual win
 
-**Context.** `posthog/temporal/messaging/backfill_precalculated_person_properties_workflow.py` builds a raw ClickHouse query that does `SELECT id, JSONExtract(properties, '<key>', 'String'), ... FROM person FINAL WHERE team_id = ... AND id BETWEEN ... AND is_deleted = 0 ORDER BY id FORMAT JSONEachRow`. We flagged the `FINAL` as a smell.
+**Context.** A now-deleted precalculated-person-properties backfill workflow built a raw ClickHouse query that did `SELECT id, JSONExtract(properties, '<key>', 'String'), ... FROM person FINAL WHERE team_id = ... AND id BETWEEN ... AND is_deleted = 0 ORDER BY id FORMAT JSONEachRow`. We flagged the `FINAL` as a smell.
 
 **Question.** Does dropping `FINAL` via the textbook `argMax(properties, version) GROUP BY id` rewrite actually make the query faster?
 

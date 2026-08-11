@@ -476,8 +476,10 @@ def _patch_session(monkeypatch):
     )
 
 
-def _config() -> GoogleAnalyticsSourceConfig:
-    return GoogleAnalyticsSourceConfig(property_id="123456789", google_analytics_integration_id=1)
+def _config(custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
+    return GoogleAnalyticsSourceConfig(
+        property_id="123456789", google_analytics_integration_id=1, custom_reports=custom_reports
+    )
 
 
 def test_source_yields_rows_and_advances_chunks(monkeypatch):
@@ -643,6 +645,35 @@ def test_source_response_has_partition_metadata(resource_name, expected_pk):
     assert response.partition_format == "month"
     assert response.partition_count == 1
     assert response.partition_size == 1
+
+
+def test_source_requests_user_defined_custom_report(monkeypatch):
+    # A custom report drives the exact dimensions/metrics sent to runReport (date prepended),
+    # proving user config reaches the generic fetch layer, and its primary key is date + dims.
+    fake_today = dt.date(2026, 4, 30)
+    monkeypatch.setattr(ga, "_today", lambda: fake_today)
+    _patch_session(monkeypatch)
+
+    seen: list[tuple[list[str], list[str]]] = []
+
+    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+        seen.append((dimensions, metrics))
+        return _report_payload([], [])
+
+    monkeypatch.setattr(ga, "_run_report", fake_run_report)
+
+    custom = '[{"name": "paid_campaigns", "dimensions": ["sessionCampaignName", "sessionSource"], "metrics": ["sessions", "purchaseRevenue"]}]'
+    response = google_analytics_source(
+        config=_config(custom_reports=custom),
+        resource_name="paid_campaigns",
+        team_id=1,
+        resumable_source_manager=mock.MagicMock(can_resume=mock.Mock(return_value=False)),
+    )
+
+    list(cast(Iterable[Any], response.items()))
+
+    assert response.primary_keys == ["date", "sessionCampaignName", "sessionSource"]
+    assert seen[0] == (["date", "sessionCampaignName", "sessionSource"], ["sessions", "purchaseRevenue"])
 
 
 def test_unknown_resource_name_raises():

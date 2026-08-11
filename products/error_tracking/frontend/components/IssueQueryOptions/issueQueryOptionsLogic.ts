@@ -38,6 +38,25 @@ const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 
+// The statuses the filter accepts: the query's status union minus archived/pending_release,
+// which are deprecated (writes rejected, legacy rows backfilled to resolved) and not offered by
+// the picker. Exhaustive over the rest, so removing a status from the schema fails typechecking.
+type FilterableStatus = Exclude<NonNullable<ErrorTrackingQueryStatus>, 'archived' | 'pending_release'>
+const VALID_STATUSES: Record<FilterableStatus, true> = {
+    all: true,
+    active: true,
+    resolved: true,
+    suppressed: true,
+}
+
+// Like isValidOrderBy: a persisted (localStorage), URL-provided, or tool-provided status can hold
+// a value outside the accepted set (a deprecated or renamed status, or free text produced by an
+// AI tool). Passing it through breaks the query or crashes the status filter render, so anything
+// unrecognized falls back to the default.
+export function isValidStatus(status: unknown): status is FilterableStatus {
+    return typeof status === 'string' && Object.hasOwn(VALID_STATUSES, status)
+}
+
 export interface IssueQueryOptionsLogicProps {
     logicKey: string
 }
@@ -116,7 +135,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             DEFAULT_STATUS as ErrorTrackingQueryStatus,
             { persist: true },
             {
-                setStatus: (_, { status }) => status,
+                setStatus: (_, { status }) => (isValidStatus(status) ? status : DEFAULT_STATUS),
             },
         ],
     }),
@@ -169,8 +188,12 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                     actions.setOrderBy(params.orderBy)
                 }
             }
-            if (params.status && !equal(params.status, values.status)) {
-                actions.setStatus(params.status)
+            // Presence check rather than truthiness, since kea-router decodes `?status=` as ''
+            // and bare `?status` as null, which must also reset instead of being ignored.
+            if ('status' in params && !equal(params.status, values.status)) {
+                // Fall back to the default (which also lets actionToUrl scrub the param) so a
+                // stale link doesn't silently keep querying the previously persisted status.
+                actions.setStatus(isValidStatus(params.status) ? params.status : DEFAULT_STATUS)
             }
             if (params.assignee && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)
@@ -185,10 +208,13 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        // The persisted orderBy is loaded straight into state (bypassing the reducer), so an
-        // invalid stored value would otherwise reach the query and break the page. Reset it.
+        // Persisted orderBy/status are loaded straight into state (bypassing the reducers), so an
+        // invalid stored value would otherwise reach the query and break the page. Reset them.
         if (!isValidOrderBy(values.orderBy)) {
             actions.setOrderBy(DEFAULT_ORDER_BY)
+        }
+        if (!isValidStatus(values.status)) {
+            actions.setStatus(DEFAULT_STATUS)
         }
     }),
 ])

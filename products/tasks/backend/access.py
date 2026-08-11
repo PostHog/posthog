@@ -40,7 +40,9 @@ def has_tasks_access(user: User) -> bool:
 
 
 def has_loops_access(user: User, team: "Team | None" = None) -> bool:
-    """Loops sits behind its own flag layered on tasks access (see docs/LOOPS.md Rollout)."""
-    if not has_tasks_access(user):
-        return False
+    """Loops sits behind its own `loops` flag (see docs/LOOPS.md Rollout).
+
+    Not layered on `has_tasks_access` any more: `tasks` gates the Desktop waitlist, and the
+    backend no longer enforces that on task execution — only the Desktop client's own UI reads it.
+    """
     return _is_flag_enabled("loops", user, team)

@@ -1,27 +1,4 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { normalizeChannelName } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-
-interface NamedChannel {
-  id: string;
-  name: string;
-}
-
-export function createChannelIdByName(
-  channels: NamedChannel[],
-): Map<string, string> {
-  return new Map(
-    channels.map((channel) => [normalizeChannelName(channel.name), channel.id]),
-  );
-}
-
-export function channelIdForName(
-  channelIdByName: Map<string, string>,
-  channelName: string | null,
-): string | null {
-  return channelName
-    ? (channelIdByName.get(normalizeChannelName(channelName)) ?? null)
-    : null;
-}
 
 export function getUnreadActivityItems(
   items: TaskActivityItem[],
@@ -29,10 +6,18 @@ export function getUnreadActivityItems(
   return items.filter((item) => item.isUnread);
 }
 
+export function getVisibleActivityItems(
+  items: TaskActivityItem[],
+  commentsEnabled: boolean,
+): TaskActivityItem[] {
+  return commentsEnabled ? items : items.filter((item) => !item.commentId);
+}
+
 export function activityReadPayload(items: TaskActivityItem[]) {
   return items.map((item) => ({
     task_id: item.taskId,
     seen_before: item.activityAt,
+    ...(item.commentId ? { activity_id: item.id } : {}),
   }));
 }
 
@@ -43,4 +28,19 @@ export function markLoadedReadLabel(
   return loadedUnreadCount === unreadCount
     ? "Mark all as read"
     : "Mark visible as read";
+}
+
+export function activityUnreadTotalForLabel({
+  commentsEnabled,
+  unreadCount,
+  loadedVisibleUnread,
+  hasNextPage,
+}: {
+  commentsEnabled: boolean;
+  unreadCount: number;
+  loadedVisibleUnread: number;
+  hasNextPage: boolean;
+}): number {
+  if (commentsEnabled) return unreadCount;
+  return loadedVisibleUnread + (hasNextPage ? 1 : 0);
 }

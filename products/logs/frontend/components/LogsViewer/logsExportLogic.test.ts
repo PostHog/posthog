@@ -43,13 +43,11 @@ describe('logsExportLogic', () => {
             localStorage.clear()
             initKeaTests()
             jest.clearAllMocks()
-            // logsViewerLogic fetches on mount; the automocked api.logs must resolve the
-            // shapes the loaders destructure (hasMore, maxExportableLogs).
-            ;(api.logs.query as jest.Mock).mockResolvedValue({ results: [], hasMore: false, maxExportableLogs: 10000 })
-            ;(api.logs.sparkline as jest.Mock).mockResolvedValue([])
-
-            // Mounting the viewer fires fetchLogs/fetchSparkline; the automock returns
-            // undefined, which would crash the loaders.
+            ;(api.get as jest.Mock).mockResolvedValue({
+                logs_distinct_id_attribute_key: 'posthogDistinctId',
+                logs_distinct_id_attribute_keys: ['posthogDistinctId'],
+                logs_session_id_attribute_keys: ['posthogSessionId'],
+            })
             ;(api.logs.query as jest.Mock).mockResolvedValue({
                 results: [],
                 hasMore: false,

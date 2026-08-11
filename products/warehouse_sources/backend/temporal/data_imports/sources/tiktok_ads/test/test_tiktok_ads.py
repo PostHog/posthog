@@ -243,6 +243,8 @@ class TestTikTokAdsSource:
             ("campaigns", False, None),
             ("ad_groups", False, None),
             ("ads", False, None),
+            ("creative_videos", False, None),
+            ("creative_images", False, None),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.tiktok_ads.rest_api_resource")

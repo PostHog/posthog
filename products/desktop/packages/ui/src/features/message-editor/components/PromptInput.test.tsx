@@ -70,19 +70,19 @@ vi.mock("./SlotMachineSubmit", () => ({
 }));
 
 vi.mock("@posthog/quill", () => ({
-  InputGroup: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  InputGroupAddon: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  InputGroupButton: ({
+  Button: ({
     children,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
     <button type="button" {...props}>
       {children}
     </button>
+  ),
+  InputGroup: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  InputGroupAddon: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
   ),
 }));
 

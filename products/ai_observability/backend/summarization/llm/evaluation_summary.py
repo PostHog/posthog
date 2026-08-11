@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from typing import Any, Literal, TypeVar, cast
+from uuid import uuid4
 
 import structlog
 from openai import AsyncOpenAI
@@ -19,7 +20,7 @@ from redis.exceptions import LockError
 from rest_framework import exceptions
 
 from posthog import redis as posthog_redis
-from posthog.llm.gateway_client import build_async_openai_client
+from posthog.llm.gateway_client import build_async_openai_client, team_distinct_id
 
 from ..constants import (
     EVALUATION_SUMMARY_CHUNK_SIZE,
@@ -485,6 +486,9 @@ async def _merge_summaries(
 async def _generate_evaluation_summary(
     evaluation_runs: list[dict],
     team_id: int,
+    evaluation_id: str,
+    trace_id: str,
+    session_id: str,
     model: OpenAIModel,
     filter_type: str,
     evaluation_name: str,
@@ -500,7 +504,20 @@ async def _generate_evaluation_summary(
         "evaluation_prompt": evaluation_prompt,
         "max_candidates": EVALUATION_SUMMARY_CHUNK_SIZE,
     }
-    client = build_async_openai_client("llma_eval_summary", ai_product="aio_eval_summary")
+    resolved_distinct_id = user_distinct_id or team_distinct_id(team_id)
+    observability_properties = {
+        "team_id": str(team_id),
+        "filter_type": filter_type,
+        **({"evaluation_id": evaluation_id} if evaluation_id else {}),
+    }
+    client = build_async_openai_client(
+        "llma_eval_summary",
+        ai_product="aio_eval_summary",
+        trace_id=trace_id,
+        session_id=session_id,
+        properties=observability_properties,
+        distinct_id=resolved_distinct_id,
+    )
     if len(evaluation_runs) <= EVALUATION_SUMMARY_CHUNK_SIZE:
         single_system_prompt = load_summarization_template("prompts/evaluation_summary.djt", prompt_context)
         single_user_prompt = _build_runs_prompt(evaluation_runs)
@@ -511,7 +528,7 @@ async def _generate_evaluation_summary(
                 system_prompt=single_system_prompt,
                 user_prompt=single_user_prompt,
                 team_id=team_id,
-                user_distinct_id=user_distinct_id,
+                user_distinct_id=resolved_distinct_id,
                 response_model=EvaluationSummaryResponse,
                 schema_name="evaluation_summary",
             )
@@ -533,7 +550,7 @@ async def _generate_evaluation_summary(
                 system_prompt=map_system_prompt,
                 evaluation_runs=chunk,
                 team_id=team_id,
-                user_distinct_id=user_distinct_id,
+                user_distinct_id=resolved_distinct_id,
             )
 
     batch_candidates = list(await asyncio.gather(*(summarize_chunk(chunk) for chunk in chunks)))
@@ -544,7 +561,7 @@ async def _generate_evaluation_summary(
         statistics=statistics,
         prompt_context=prompt_context,
         team_id=team_id,
-        user_distinct_id=user_distinct_id,
+        user_distinct_id=resolved_distinct_id,
         llm_call_semaphore=llm_call_semaphore,
     )
     summary.statistics = statistics
@@ -555,6 +572,7 @@ async def summarize_evaluation_runs(
     evaluation_runs: list[dict],
     team_id: int,
     model: OpenAIModel,
+    evaluation_id: str = "",
     filter_type: str = "all",
     evaluation_name: str = "",
     evaluation_description: str = "",
@@ -571,6 +589,7 @@ async def summarize_evaluation_runs(
         evaluation_runs: List of dicts with 'generation_id' (str), 'result' (bool or None), and 'reasoning' (str)
         team_id: Team ID for logging and tracking
         model: OpenAI model to use
+        evaluation_id: Evaluation identifier attached as observability metadata
         filter_type: The filter applied ('all', 'pass', 'fail', 'na')
         evaluation_name: Name of the evaluation being summarized
         evaluation_description: Description of what the evaluation tests for
@@ -583,11 +602,16 @@ async def summarize_evaluation_runs(
     if not evaluation_runs:
         raise exceptions.ValidationError("No evaluation runs provided")
 
+    trace_id = str(uuid4())
+    session_id = str(uuid4())
     try:
         async with _team_generation_lock(team_id):
             return await _generate_evaluation_summary(
                 evaluation_runs=evaluation_runs,
                 team_id=team_id,
+                evaluation_id=evaluation_id,
+                trace_id=trace_id,
+                session_id=session_id,
                 model=model,
                 filter_type=filter_type,
                 evaluation_name=evaluation_name,
@@ -598,5 +622,13 @@ async def summarize_evaluation_runs(
     except exceptions.APIException:
         raise
     except Exception as error:
-        logger.exception("evaluation_summary_failed", team_id=team_id, model=str(model), error=str(error))
+        logger.exception(
+            "evaluation_summary_failed",
+            team_id=team_id,
+            evaluation_id=evaluation_id,
+            trace_id=trace_id,
+            session_id=session_id,
+            model=str(model),
+            error=str(error),
+        )
         raise exceptions.APIException("Failed to generate evaluation summary") from error

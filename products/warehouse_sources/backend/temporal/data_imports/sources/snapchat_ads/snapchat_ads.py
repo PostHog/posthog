@@ -245,7 +245,10 @@ def _iter_rows(
                 rows = list(page)
 
             transformed = SnapchatStatsResource.apply_stream_transformations(
-                endpoint_type, rows, currency=account_currency
+                endpoint_type,
+                rows,
+                currency=account_currency,
+                entity_key=SNAPCHAT_ADS_CONFIG[endpoint].entity_key,
             )
             if transformed:
                 yield transformed

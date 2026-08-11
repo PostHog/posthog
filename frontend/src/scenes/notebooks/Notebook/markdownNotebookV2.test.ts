@@ -144,14 +144,14 @@ describe('markdownNotebookV2', () => {
 
 A **bold** paragraph.
 
-<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
 
-<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
+<Recording id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />
 
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
     })
 
-    it('preserves explicitly open legacy widget filters', () => {
+    it('removes legacy panel props that match the new defaults', () => {
         const content: JSONContent = {
             type: 'doc',
             content: [
@@ -220,9 +220,9 @@ Wrapped paragraph`)
         }
 
         expect(convertNotebookContentToMarkdown(content))
-            .toEqual(`<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
+            .toEqual(`<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />
 
-<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
+<Query query={{"kind":"SavedInsightNode","shortId":"def456"}} />`)
     })
 
     it('converts remaining legacy production node shapes without unknown nodes', () => {
@@ -247,7 +247,7 @@ Wrapped paragraph`)
 
 Dashboard 123
 
-<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
+<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event from events limit 1"}}} />`)
     })
 
     it('keeps the stable id vector for markdown query blocks without nodeId props', () => {
@@ -281,7 +281,7 @@ Dashboard 123
 
         // Nested undefined must be stripped, not cause the whole query prop to be dropped.
         expect(convertNotebookContentToMarkdown(content)).toEqual(
-            '<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
+            '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
         )
     })
 
@@ -669,7 +669,7 @@ after`)
 
 Users activated faster.
 
-<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
+<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
 
 <Recording id="018a8a51-a39d-7b18-897f-94054eec5f61" timestampMs={12000} title="Activation replay" />`)
     })
@@ -690,7 +690,7 @@ Users activated faster.
         }
 
         expect(notebookArtifactContentToMarkdown(content)).toEqual(
-            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
         )
     })
 
@@ -717,7 +717,7 @@ Users activated faster.
             ],
         })
         expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
-            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
+            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
     })
 
@@ -861,7 +861,7 @@ Body`)
                 '/insights/AbC123',
                 {
                     tagName: 'Query',
-                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' }, hideFilters: true },
+                    props: { query: { kind: 'SavedInsightNode', shortId: 'AbC123' } },
                 },
             ],
             [
@@ -916,12 +916,15 @@ Body`)
             })
         })
 
-        it('defaults dropped queries to hidden filters', () => {
+        it('uses the default panel visibility for dropped queries', () => {
             const node = convertDroppedRichContentNodeToMarkdownNode(NotebookNodeType.Query, {
                 query: { kind: NodeKind.EventsQuery, select: ['event'] },
             })
 
-            expect(node).toMatchObject({ tagName: 'Query', props: { hideFilters: true } })
+            expect(node).toMatchObject({
+                tagName: 'Query',
+                props: { query: { kind: NodeKind.EventsQuery, select: ['event'] } },
+            })
         })
 
         it('returns null for node types without a markdown counterpart', () => {

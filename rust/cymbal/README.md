@@ -11,12 +11,10 @@ pipeline, the `cymbal.resolution.v1` gRPC symbol-resolution service
 Temporal lifecycle workflow for every issue-created, issue-reopened, or
 issue-spiking notification.
 
-Symbol resolution can run either inline inside the processing binary (default)
-or be offloaded to resolution-mode pods via the `cymbal.resolution.v1`
-contract. The remote path is opt-in via
-`CYMBAL_REMOTE_RESOLUTION_ENABLED=true` and has **no silent local fallback**.
-See the [resolution mode README](src/modes/resolution/README.md) for rollout,
-configuration, and operator guidance.
+Symbol resolution runs in resolution-mode pods via the
+`cymbal.resolution.v1` contract. Processing has no inline fallback.
+See the [resolution mode README](src/modes/resolution/README.md) for
+configuration and operator guidance.
 
 ## Remote resolution behavior
 
@@ -27,17 +25,13 @@ Node.js error-tracking consumer can keep using its existing DNS routing
 and HTTP body-size chunking because remote symbol resolution happens behind
 the same cymbal HTTP boundary.
 
-When remote resolution is enabled, `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE`
-controls a deterministic event-level rollout. Events selected for remote
-processing are flattened into exception-level `ResolveItem`s, grouped by a
+Events are flattened into exception-level `ResolveItem`s, grouped by a
 symbol-set routing key when one is available, and submitted over a
 bidirectional `Resolve` stream. Items without a symbol-set reference fall back
 to the existing per-team key. Each item carries JSON
 `metadata` bytes for resolver-specific context such as
 `debug_images_json`, and each terminal `ResolveOutcome` is correlated by
-item id. Sampled remote attempts do not fall back to local resolution if the
-remote pool fails; unsampled events use the inline local exception and frame
-resolvers and then rejoin the same properties/grouping/linking pipeline.
+item id. Resolution failures do not fall back to inline processing.
 
 Backpressure is result-only on the `Resolve` stream: overload is surfaced as
 `ResolveOutcome.Error { kind: ERROR_KIND_OVERLOADED }`, which the cymbal client
@@ -56,7 +50,7 @@ Cymbal uses that load as a soft routing bias: busier endpoints are less likely t
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
 compatibility checklist and [`src/modes/resolution/README.md`](src/modes/resolution/README.md)
-for rollout and dashboard guidance.
+for dashboard guidance.
 
 Fetched JavaScript sources and external source maps are limited to 25 MB after HTTP decompression by default. Set `SOURCEMAP_MAX_RESPONSE_BYTES` to adjust this limit.
 

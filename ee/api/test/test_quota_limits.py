@@ -11,6 +11,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from ee.billing.quota_limiting import (
+    INFORMATIONAL_USAGE_RESOURCES,
     QuotaLimitingCaches,
     QuotaResource,
     add_limited_team_tokens,
@@ -93,6 +94,46 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(limited["signals_credits"], {"limited": False, "usage": None, "limit": 5000})
         # Never synced: unknown, not zero.
         self.assertEqual(limited["events"], {"limited": False, "usage": None, "limit": None})
+
+    def test_reports_desktop_component_usage(self) -> None:
+        self.organization.usage = {
+            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
+            "posthog_code_credits": {"usage": 50, "todays_usage": 7, "limit": 1000},
+            "posthog_code_token_credits": {"usage": 30, "todays_usage": 3, "limit": None},
+            "sandbox_compute_credits": {"usage": 20, "todays_usage": 4, "limit": None},
+            "sandbox_compute_cpu_millicore_seconds": {"usage": 0, "todays_usage": 0, "limit": None},
+            "sandbox_compute_memory_mib_seconds": {"usage": None, "todays_usage": None, "limit": None},
+        }
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        limited = response.json()["limited"]
+        self.assertEqual(limited["posthog_code_token_credits"], {"limited": False, "usage": 33, "limit": None})
+        self.assertEqual(limited["sandbox_compute_credits"], {"limited": False, "usage": 24, "limit": None})
+        # Explicit zero stays zero...
+        self.assertEqual(
+            limited["sandbox_compute_cpu_millicore_seconds"], {"limited": False, "usage": 0, "limit": None}
+        )
+        # ...while never-synced stays null (unknown), never coerced to zero.
+        self.assertEqual(
+            limited["sandbox_compute_memory_mib_seconds"], {"limited": False, "usage": None, "limit": None}
+        )
+
+    def test_components_absent_from_org_usage_read_as_unknown(self) -> None:
+        self.organization.usage = {
+            "period": ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"],
+            "posthog_code_credits": {"usage": 50, "todays_usage": 7, "limit": 1000},
+        }
+        self.organization.save()
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        limited = response.json()["limited"]
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            self.assertEqual(limited[field], {"limited": False, "usage": None, "limit": None}, field)
 
     def test_returns_limited_when_team_is_over_quota(self) -> None:
         self._set_ai_credits_limit(self.team.api_token, 9_999_999_999)
@@ -181,7 +222,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         limited = response.json()["limited"]
-        expected_keys = {resource.value for resource in QuotaResource}
+        expected_keys = {resource.value for resource in QuotaResource} | set(INFORMATIONAL_USAGE_RESOURCES)
         self.assertEqual(set(limited.keys()), expected_keys)
         self.assertTrue(limited["ai_credits"]["limited"])
         for resource in QuotaResource:

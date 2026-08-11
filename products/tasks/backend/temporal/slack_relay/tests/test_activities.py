@@ -724,3 +724,33 @@ class TestRelaySlackMessageChunking(TestCase):
 
         self.task_run.refresh_from_db()
         assert "relay-chunked" in self.task_run.state.get("slack_sent_relay_ids", [])
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_footer")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.deliver_pending_slack_file_artifacts")
+    @patch("products.tasks.backend.temporal.slack_relay.activities.has_pending_slack_file_artifacts")
+    def test_answer_consumed_by_a_file_upload_still_gets_its_footer(
+        self,
+        mock_has_files,
+        mock_deliver,
+        mock_delete_progress,
+        mock_post,
+        mock_post_footer,
+    ):
+        # A short answer rides out whole as the file's initial comment, leaving no message
+        # to close — without this the reply would carry no provenance at all.
+        mock_has_files.return_value = True
+        mock_deliver.return_value = 1
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-file-only",
+                text="Here you go.",
+                user_message_ts="1234.5",
+            )
+        )
+
+        mock_post.assert_not_called()
+        mock_post_footer.assert_called_once()

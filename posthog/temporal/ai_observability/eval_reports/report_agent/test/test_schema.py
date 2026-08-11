@@ -2,6 +2,8 @@
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.temporal.ai_observability.eval_reports.output_types import SUPPORTED_EVAL_REPORT_OUTPUT_TYPES
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -26,7 +28,7 @@ class TestCitation(SimpleTestCase):
         c = Citation(generation_id="a-gen-id", trace_id="a-trace-id", reason="high_cost")
         self.assertEqual(
             c.to_dict(),
-            {"generation_id": "a-gen-id", "trace_id": "a-trace-id", "reason": "high_cost"},
+            {"generation_id": "a-gen-id", "trace_id": "a-trace-id", "reason": "high_cost", "session_id": ""},
         )
 
     def test_from_dict(self):
@@ -34,15 +36,35 @@ class TestCitation(SimpleTestCase):
         self.assertEqual(c.generation_id, "g")
         self.assertEqual(c.trace_id, "t")
         self.assertEqual(c.reason, "refusal")
+        self.assertEqual(c.session_id, "")
 
     def test_from_dict_missing_fields(self):
         c = Citation.from_dict({})
         self.assertEqual(c.generation_id, "")
         self.assertEqual(c.trace_id, "")
         self.assertEqual(c.reason, "")
+        self.assertEqual(c.session_id, "")
 
-    def test_roundtrip(self):
-        original = Citation(generation_id="g1", trace_id="t1", reason="some reason")
+    @parameterized.expand(
+        [
+            ("generation", Citation(generation_id="g1", trace_id="t1", reason="r"), "g1"),
+            ("trace", Citation(trace_id="t1", reason="r"), "t1"),
+            # A session citation may name the trace the agent read inside it, but the report
+            # text and its link are about the session, so that is the ID it resolves to.
+            ("session", Citation(session_id="s1", trace_id="t1", reason="r"), "s1"),
+        ]
+    )
+    def test_cited_id_is_the_evaluated_unit(self, _name, citation, expected):
+        self.assertEqual(citation.cited_id(), expected)
+
+    @parameterized.expand(
+        [
+            ("generation", Citation(generation_id="g1", trace_id="t1", reason="some reason")),
+            ("trace", Citation(trace_id="t1", reason="some reason")),
+            ("session", Citation(session_id="s1", trace_id="t1", reason="some reason")),
+        ]
+    )
+    def test_roundtrip(self, _name, original):
         self.assertEqual(Citation.from_dict(original.to_dict()), original)
 
 

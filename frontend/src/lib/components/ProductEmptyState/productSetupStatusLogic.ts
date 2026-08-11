@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -148,16 +149,18 @@ export const productSetupStatusLogic = kea<productSetupStatusLogicType>([
                 status === 'waiting-for-data' ? 'waiting-for-data' : 'needs-setup',
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setDetectedStatus: ({ status }) => {
             actions.applyDetectedStatus(status, values.currentTeamId)
         },
         skipEmptyState: () => {
+            posthog.capture('product empty state skipped', { product_key: props.productKey })
             if (values.currentTeamId) {
                 actions.setSkippedForTeam(values.currentTeamId, true)
             }
         },
         unskipEmptyState: () => {
+            posthog.capture('product empty state setup resumed', { product_key: props.productKey })
             if (values.currentTeamId) {
                 actions.setSkippedForTeam(values.currentTeamId, false)
             }

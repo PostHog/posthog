@@ -12,6 +12,7 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError
 
+from posthog.models.integration import Integration
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
@@ -90,6 +91,30 @@ def team(organization):
 @pytest.fixture
 def user(organization):
     return create_user("test@user.com", "Test User", organization)
+
+
+@pytest.fixture
+def aws_s3_integration(team, user):
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.AWS_S3,
+        integration_id="prod-aws",
+        config={"name": "prod-aws", "aws_account_id": "123456789012"},
+        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        created_by=user,
+    )
+
+
+@pytest.fixture
+def s3_compatible_integration(team, user):
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
+        integration_id="my-r2",
+        config={"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"},
+        sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        created_by=user,
+    )
 
 
 def assert_is_daily_schedule(schedule: ScheduleDescription, expected_hour: int):

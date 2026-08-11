@@ -235,6 +235,11 @@ describe("parseGithubUrl", () => {
       "file:///path/to/repo",
       // Missing repo
       "https://github.com/PostHog",
+      // Path traversal + unsafe characters (scp-style paths skip WHATWG
+      // dot-segment normalization, and callers path.join the segments)
+      "git@github.com:PostHog/..",
+      "git@github.com:../../etc/passwd",
+      "git@github.com:PostHog/re po",
       // Multiple / leading slashes
       "https://github.com//PostHog/code.git",
       "https://github.com/PostHog//code.git",

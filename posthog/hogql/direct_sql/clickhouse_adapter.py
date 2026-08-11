@@ -6,6 +6,7 @@ import sqlparse
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import TokenList
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
@@ -301,7 +302,7 @@ class ClickHouseAdapter:
                     rows, column_names, column_types = _fetch_capped_clickhouse_rows(
                         client, request.sql, request.values or None, statement_timeout_seconds
                     )
-        except (ClickHouseError, OSError, ExposedHogQLError) as error:
+        except (ClickHouseError, OSError, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(

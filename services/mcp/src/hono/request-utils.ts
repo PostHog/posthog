@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
+import { classifyAuthFailure, mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -12,6 +12,7 @@ import { getRegionFromRequest } from '@/lib/routing'
 import { parseRequestProtocolMeta } from '@/lib/stateless-protocol'
 import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
+import { trackAuthFailure } from './analytics'
 import { authFailuresTotal } from './metrics'
 import type { HonoCtx } from './types'
 
@@ -116,6 +117,7 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
     if (authResponse) {
         const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'
         authFailuresTotal.inc({ reason })
+        trackAuthFailure(props, classifyAuthFailure(error))
         return authResponse
     }
     try {

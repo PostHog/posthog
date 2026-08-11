@@ -11,9 +11,20 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 
 # A job that failed in under this many seconds did no real work: it's a required-check aggregator
-# echoing a dependency's failure, which double-counts every real flake. Measured on PostHog/posthog,
-# aggregators settle in 3-5s and real jobs run 60s+. Run-level twin: NO_OP_RUN_MAX_SECONDS.
+# echoing a dependency's failure, which double-counts every real flake. The floor separates a job
+# that only reads its dependencies' results from one that runs anything. Run-level twin:
+# NO_OP_RUN_MAX_SECONDS.
 NO_OP_JOB_MAX_SECONDS = 10
+
+# These jobs commit an artifact, then exit 1 so the merge waits for review. The rerun passes because
+# the commit already landed, and they run too long for NO_OP_JOB_MAX_SECONDS to drop them.
+# Repo-qualified because job names are free text. This hides a real flake in either job too.
+BY_DESIGN_FAILURES = (
+    # .github/actions/commit-snapshots exits 1 after committing; ci-backend.yml, ci-mcp.yml
+    "posthog/posthog/Commit snapshot changes",
+    # `vr run complete` exits 1 on detected visual changes; ci-storybook.yml, ci-e2e-playwright.yml
+    "posthog/posthog/Complete Visual Review run",
+)
 
 _SELECT = """
     SELECT
@@ -31,6 +42,9 @@ _SELECT = """
     -- created_at_raw is the unparsed string the scan can prune on; the parsed j.created_at filter
     -- alone can't push down, so both floors keep the sweep off a full jobs+runs scan each hour.
     WHERE j.created_at >= {date_from} AND j.created_at_raw >= {job_created_floor} AND j.head_sha != ''
+    -- concat yields NULL when j.name is NULL, which a bare NOT IN would drop.
+       AND ifNull(concat(lower(r.repo_owner), '/', lower(r.repo_name), '/', j.name), '')
+           NOT IN {by_design_failures}
     GROUP BY r.repo_owner, r.repo_name, j.workflow_name, j.name, j.run_id, j.head_sha
     HAVING failed_attempt > 0
        AND passed_attempt > failed_attempt
@@ -71,6 +85,7 @@ def query_workflow_flakiness(
         placeholders={
             "date_from": ast.Constant(value=date_from),
             "min_failed_duration_seconds": ast.Constant(value=min_failed_duration_seconds),
+            "by_design_failures": ast.Constant(value=list(BY_DESIGN_FAILURES)),
             # Same date-only floor for both tables: prunes the runs subquery (run_started_floor) and
             # the jobs scan (job_created_floor via created_at_raw).
             "run_started_floor": run_started_floor_constant(date_from),

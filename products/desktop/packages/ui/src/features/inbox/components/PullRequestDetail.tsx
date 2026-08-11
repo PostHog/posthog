@@ -8,11 +8,13 @@ import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportActivitySection } from "@posthog/ui/features/inbox/components/detail/ReportActivitySection";
+import { ReportFeedbackFooter } from "@posthog/ui/features/inbox/components/detail/ReportFeedbackFooter";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
 import { InboxMetaSeparator } from "@posthog/ui/features/inbox/components/InboxMetaRow";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { PrDiffStats } from "@posthog/ui/features/inbox/components/PrDiffStats";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
+import { ReportRefundAction } from "@posthog/ui/features/inbox/components/ReportRefundAction";
 import { ReportTasksSection } from "@posthog/ui/features/inbox/components/ReportTasksSection";
 import { SuggestedReviewersSection } from "@posthog/ui/features/inbox/components/SuggestedReviewersSection";
 import { ReportImplementationPrLink } from "@posthog/ui/features/inbox/components/utils/ReportImplementationPrLink";
@@ -21,7 +23,6 @@ import { PrChecksSection } from "@posthog/ui/features/pr-review/PrChecksSection"
 import { PrCommentsSection } from "@posthog/ui/features/pr-review/PrCommentsSection";
 import { PrFilesChangedSection } from "@posthog/ui/features/pr-review/PrFilesChangedSection";
 import { PrReviewActions } from "@posthog/ui/features/pr-review/PrReviewActions";
-import { Text } from "@radix-ui/themes";
 
 interface PullRequestDetailProps {
   reportId: string;
@@ -60,9 +61,9 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
         prRef ? (
           <>
             <span className="text-(--gray-8)">/</span>
-            <Text className="font-mono text-[12px] text-gray-11">
+            <span className="font-mono text-[12px] text-gray-11">
               {prRef.repoSlug}#{prRef.number}
-            </Text>
+            </span>
           </>
         ) : undefined
       }
@@ -83,16 +84,6 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
       }
       primaryAction={
         <>
-          <ReportDetailActions report={report} />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => copyInboxReportLink(report)}
-            title="Copy a deep link to this report"
-          >
-            <CopyIcon size={12} />
-          </Button>
           {prRef && report.implementation_pr_url ? (
             <Button
               type="button"
@@ -112,26 +103,66 @@ function PullRequestDetailContent({ report }: { report: SignalReport }) {
               <ArrowSquareOutIcon size={12} />
             </Button>
           ) : null}
+          <ReportDetailActions report={report} />
+          <ReportRefundAction report={report} />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => copyInboxReportLink(report)}
+            title="Copy a deep link to this report"
+          >
+            <CopyIcon size={12} />
+          </Button>
         </>
       }
       summarySection={{ Icon: GitPullRequestIcon, title: "Summary" }}
+      secondaryTab={
+        prRef && report.implementation_pr_url
+          ? {
+              label: (
+                <>
+                  Files changed
+                  <PrDiffStats
+                    prUrl={report.implementation_pr_url}
+                    hideWhileLoading
+                  />
+                </>
+              ),
+              content: (
+                <PrFilesChangedSection
+                  prUrl={report.implementation_pr_url}
+                  bare
+                />
+              ),
+            }
+          : undefined
+      }
       belowSummary={
-        prRef && report.implementation_pr_url ? (
-          <>
-            <PrFilesChangedSection prUrl={report.implementation_pr_url} />
-            <PrCommentsSection prUrl={report.implementation_pr_url} />
-            <PrChecksSection prUrl={report.implementation_pr_url} />
-            <PrReviewActions prUrl={report.implementation_pr_url} />
-          </>
-        ) : undefined
+        <>
+          {prRef && report.implementation_pr_url && (
+            <>
+              <PrCommentsSection prUrl={report.implementation_pr_url} />
+              <PrReviewActions prUrl={report.implementation_pr_url} />
+            </>
+          )}
+          <ReportFeedbackFooter report={report} />
+        </>
       }
       evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
+      aboveEvidence={
+        <>
+          {prRef && report.implementation_pr_url && (
+            <PrChecksSection prUrl={report.implementation_pr_url} />
+          )}
+          <SuggestedReviewersSection report={report} />
+        </>
+      }
     >
       <ReportTasksSection report={report} />
-      <SuggestedReviewersSection report={report} />
       <ReportActivitySection
         reportId={report.id}
-        // The main column already lists every changed file, so the
+        // The Files changed tab already lists every changed file, so the
         // per-commit diff toggle in the activity log is redundant here.
         hideCommitDiffs={Boolean(prRef && report.implementation_pr_url)}
       />

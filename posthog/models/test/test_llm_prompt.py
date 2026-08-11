@@ -2,7 +2,9 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.models.llm_prompt import get_prompt_outline, normalize_prompt_to_string
+from posthog.llm_prompt import normalize_prompt_to_string
+
+from products.ai_observability.backend.models.llm_prompt import get_prompt_outline
 
 
 class TestNormalizePromptToString(TestCase):

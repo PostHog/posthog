@@ -2,8 +2,10 @@ import {
   BRAINROT_CELL,
   clampZoom,
   getCellCount,
+  getOptimalLayout,
   type LayoutPreset,
   makeTerminalCellValue,
+  reflowCells,
   resizeCells,
   ZOOM_STEP,
 } from "@posthog/core/command-center/grid";
@@ -26,6 +28,7 @@ interface CommandCenterStoreState {
   creatingCells: number[];
   // Persisted so autofill bootstraps the grid only once, not on every remount.
   hasAutofilled: boolean;
+  pendingPlacement: { taskId: string; taskTitle: string } | null;
 }
 
 interface CommandCenterStoreActions {
@@ -40,6 +43,7 @@ interface CommandCenterStoreActions {
     cwd?: string,
   ) => void;
   autofillCells: (taskIds: string[]) => void;
+  optimizeLayout: (keepIndices: number[]) => void;
   clearCell: (cellIndex: number) => void;
   removeTaskById: (taskId: string) => void;
   clearAll: () => void;
@@ -48,6 +52,8 @@ interface CommandCenterStoreActions {
   zoomOut: () => void;
   startCreating: (cellIndex: number) => void;
   stopCreating: (cellIndex: number) => void;
+  requestPlacement: (taskId: string, taskTitle: string) => void;
+  cancelPlacement: () => void;
 }
 
 export const COMMAND_CENTER_INITIAL_STATE: CommandCenterStoreState = {
@@ -58,6 +64,7 @@ export const COMMAND_CENTER_INITIAL_STATE: CommandCenterStoreState = {
   zoom: 1,
   creatingCells: [],
   hasAutofilled: false,
+  pendingPlacement: null,
 };
 
 type CommandCenterStore = CommandCenterStoreState & CommandCenterStoreActions;
@@ -70,18 +77,22 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
       setLayout: (preset) =>
         set((state) => {
           const newCount = getCellCount(preset);
+          const cells = reflowCells(state.cells, state.layout, preset);
+          const activeTaskId = cells.includes(state.activeTaskId)
+            ? state.activeTaskId
+            : null;
           return {
-            activeTaskId: resizeCells(state.cells, newCount).includes(
-              state.activeTaskId,
-            )
-              ? state.activeTaskId
-              : null,
-            activeCellIndex:
-              state.activeCellIndex !== null && state.activeCellIndex < newCount
+            activeTaskId,
+            // A column change moves cells between indices, so the highlight
+            // follows the active task rather than its old index.
+            activeCellIndex: activeTaskId
+              ? cells.indexOf(activeTaskId)
+              : state.activeCellIndex !== null &&
+                  state.activeCellIndex < newCount
                 ? state.activeCellIndex
                 : null,
             layout: preset,
-            cells: resizeCells(state.cells, newCount),
+            cells,
             creatingCells: state.creatingCells.filter((i) => i < newCount),
           };
         }),
@@ -102,9 +113,13 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
           return {
             cells,
             activeTaskId: taskId,
+            // Highlight where it landed — otherwise a task dropped into an
+            // empty tile of a busy grid is easy to miss.
+            activeCellIndex: cellIndex,
             creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
             // Manually placing a task counts as curating the grid.
             hasAutofilled: true,
+            pendingPlacement: null,
           };
         }),
 
@@ -151,6 +166,28 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             }
           }
           return { cells, hasAutofilled: true };
+        }),
+
+      // Packs the tiles worth keeping into the smallest grid that holds them.
+      // Resizing alone would drop whatever sat past the new bounds, so the kept
+      // cells move to the front first — the caller decides what's worth keeping.
+      optimizeLayout: (keepIndices) =>
+        set((state) => {
+          const kept = keepIndices
+            .map((index) => state.cells[index])
+            .filter((cell): cell is string => cell != null);
+          const layout = getOptimalLayout(kept.length);
+          const cells = resizeCells(kept, getCellCount(layout));
+          const activeTaskId = cells.includes(state.activeTaskId)
+            ? state.activeTaskId
+            : null;
+          return {
+            layout,
+            cells,
+            activeTaskId,
+            activeCellIndex: activeTaskId ? cells.indexOf(activeTaskId) : null,
+            creatingCells: [],
+          };
         }),
 
       clearCell: (cellIndex) =>
@@ -205,6 +242,10 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         set((state) => ({
           creatingCells: state.creatingCells.filter((i) => i !== cellIndex),
         })),
+
+      requestPlacement: (taskId, taskTitle) =>
+        set({ pendingPlacement: { taskId, taskTitle } }),
+      cancelPlacement: () => set({ pendingPlacement: null }),
     }),
     {
       name: "command-center-storage",

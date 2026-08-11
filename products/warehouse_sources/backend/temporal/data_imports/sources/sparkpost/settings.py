@@ -118,3 +118,52 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 # SparkPost retains message events for only 10 days, so the first sync of ``events`` can reach back
 # at most that far.
 LIMITED_RETENTION_ENDPOINTS = {"events"}
+
+# --- Event webhooks ---------------------------------------------------------------------------
+#
+# Only ``events`` can be fed by webhooks. It is the append-only message-event stream, keyed on an
+# immutable ``event_id``, and it is the only endpoint SparkPost pushes at all — the management
+# lists (templates, sending domains, suppression list, ...) have no webhook events. Push delivery
+# also outlives the 10-day retention window the poll path is bounded by, so events pushed today
+# stay in the warehouse long after SparkPost stops returning them.
+WEBHOOK_SCHEMA_NAMES = {"events"}
+
+# Every element of a SparkPost delivery is ``{"msys": {"<grouping>": {...}}}``. We only subscribe
+# to message-event types, so the only grouping we ever see is ``message_event``.
+WEBHOOK_EVENT_GROUPING = "message_event"
+
+# Our schema name -> the grouping the Hog template routes on.
+WEBHOOK_RESOURCE_MAP = {"events": WEBHOOK_EVENT_GROUPING}
+
+# The event types the webhook subscribes to. Deliberately the same set the Events Search API
+# (``/api/v1/events/message``) returns, so a pushed row and a polled row are the same object with
+# the same field names and merge cleanly on ``event_id``. Relay events (``relay_*``) and the A/B
+# test events are excluded on purpose: they are separate groupings the Events Search API does not
+# return, so they would land differently-shaped rows in the same table.
+WEBHOOK_EVENT_TYPES = [
+    "amp_click",
+    "amp_initial_open",
+    "amp_open",
+    "bounce",
+    "click",
+    "delay",
+    "delivery",
+    "generation_failure",
+    "generation_rejection",
+    "initial_open",
+    "injection",
+    "link_unsubscribe",
+    "list_unsubscribe",
+    "open",
+    "out_of_band",
+    "policy_rejection",
+    "spam_complaint",
+]
+
+# Name given to the webhook we register, so it is recognisable in the SparkPost UI.
+WEBHOOK_NAME = "PostHog data warehouse"
+
+# SparkPost POSTs a *batch* of events per delivery, but a Hog function may only produce one
+# payload per request. The template therefore hands the whole batch over as a JSON string under
+# this key and the source's table transformer explodes it into one row per event.
+WEBHOOK_BATCH_KEY = "sparkpost_webhook_batch"

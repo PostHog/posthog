@@ -367,7 +367,9 @@ def _create_response_actions_hook(
         action_type = matched.get("action") if matched else None
 
         if action_type == "ignore":
-            logger.info(f"Ignoring response with code {response.status_code} and content '{response.json()}'.")
+            # Use response.text, not response.json(): an ignored response (e.g. a 404) often has an
+            # empty or non-JSON body, and parsing it here would raise before the ignore takes effect.
+            logger.info(f"Ignoring response with code {response.status_code} and content '{response.text[:500]}'.")
             raise IgnoreResponseException
 
         # Re-issue the request. This is how a source classifies an HTTP-200 body-level error

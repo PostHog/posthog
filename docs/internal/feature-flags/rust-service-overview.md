@@ -267,11 +267,12 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### S3 / HyperCache
 
-| Variable                  | Default     | Purpose                          |
-| ------------------------- | ----------- | -------------------------------- |
-| `OBJECT_STORAGE_BUCKET`   | `posthog`   | S3 bucket name                   |
-| `OBJECT_STORAGE_REGION`   | `us-east-1` | AWS region                       |
-| `OBJECT_STORAGE_ENDPOINT` | (empty)     | Custom S3 endpoint for local dev |
+| Variable                             | Default     | Purpose                                                                                                                                                                                    |
+| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                             |
+| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                 |
+| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                           |
+| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair) |
 
 ### Team lookup
 

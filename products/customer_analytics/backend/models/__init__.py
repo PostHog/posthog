@@ -17,6 +17,7 @@ from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
 from .customer_profile_config import CustomerProfileConfig
 from .event_stream import EventStream, EventStreamMember
+from .meeting import Meeting, MeetingParticipant, MeetingResponseStatus, MeetingStatus
 from .relationship import AccountRelationship, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
@@ -40,6 +41,10 @@ __all__ = [
     "DisplayType",
     "EventStream",
     "EventStreamMember",
+    "Meeting",
+    "MeetingParticipant",
+    "MeetingResponseStatus",
+    "MeetingStatus",
     "RelationshipDefinition",
     "SlackSummaryCadence",
     "SyncStatus",

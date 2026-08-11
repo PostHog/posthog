@@ -496,7 +496,7 @@ Same shell as Dialog (shared `quill-dialog__*` styles) but `role="alertdialog"`,
 </DropdownMenu>
 ```
 
-Destructive items (`variant="destructive"` on DropdownMenuItem/ContextMenuItem/MenubarItem) render red text on a transparent background, with a red-tinted background only on hover/highlight — they are styled by the menu item itself, not by Button's filled `destructive` variant. Don't pass a Button variant through `render` to restyle a menu item.
+Destructive items (`variant="destructive"` on DropdownMenuItem/ContextMenuItem/MenubarItem) forward straight to Button's `destructive` variant, so a delete row in a menu reads exactly like a standalone destructive Button: a red fill at rest, brighter on hover or keyboard highlight. The item owns that mapping — don't pass a Button variant through `render` to restyle a menu item.
 
 Checkbox/radio items:
 
@@ -1008,7 +1008,7 @@ Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableC
 </Menubar>
 ```
 
-MenubarItem wraps DropdownMenuItem, so the same item API applies — including `variant="destructive"` (red text, red-tinted highlight, transparent at rest).
+MenubarItem wraps DropdownMenuItem, so the same item API applies — including `variant="destructive"` (Button's filled destructive look).
 
 ### Toast
 

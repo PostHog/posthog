@@ -32,7 +32,7 @@ from posthog.llm.gateway_client import get_llm_client
 from posthog.models import Team
 
 from ee.billing.dags.customer_archetype_prompt import SYSTEM_PROMPT
-from ee.billing.salesforce_enrichment.enrichment import bulk_update_salesforce_accounts
+from ee.billing.salesforce_enrichment.enrichment import BulkUpdateResult, bulk_update_salesforce_accounts
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 
 ARCHETYPE_TEAM_ID = 2
@@ -630,18 +630,18 @@ def classify_and_push_accounts_batch(
 
     # Push to Salesforce (fresh client per batch to avoid session timeouts)
     sf = get_salesforce_client()
-    succeeded, failed = bulk_update_salesforce_accounts(sf, records) if records else (0, 0)
+    sf_result = bulk_update_salesforce_accounts(sf, records) if records else BulkUpdateResult(succeeded=0, failed=0)
 
     context.log.info(
         f"Accounts batch {batch_index + 1}/{total_batches}: "
-        f"classified {len(new_classifications)}, SF succeeded {succeeded}, SF failed {failed}, "
+        f"classified {len(new_classifications)}, SF succeeded {sf_result.succeeded}, SF failed {sf_result.failed}, "
         f"LLM batches failed {len(failed_batches)}"
     )
 
     return {
         "classified": len(new_classifications),
-        "sf_succeeded": succeeded,
-        "sf_failed": failed,
+        "sf_succeeded": sf_result.succeeded,
+        "sf_failed": sf_result.failed,
         "llm_batches_failed": len(failed_batches),
     }
 

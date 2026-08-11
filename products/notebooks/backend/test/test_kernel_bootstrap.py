@@ -5,6 +5,7 @@ import tempfile
 from django.test import SimpleTestCase
 
 import pyarrow as pa
+from parameterized import parameterized
 
 from products.notebooks.backend.sandbox.kernel.bootstrap import _MEDIA_MAX_FIGURES, KernelSession
 
@@ -57,6 +58,22 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(len(envelope["media"]), 1)
         self.assertEqual(envelope["media"][0]["mime_type"], "image/png")
         self.assertTrue(envelope["media"][0]["data"])
+
+    @parameterized.expand(
+        [
+            ("integers", "pd.DataFrame({'c': [1, 2]})", "Int64"),
+            ("floats", "pd.DataFrame({'c': [1.5, 2.5]})", "Float64"),
+            ("booleans", "pd.DataFrame({'c': [True, False]})", "Bool"),
+            ("timestamps", "pd.DataFrame({'c': pd.to_datetime(['2026-01-01', '2026-01-02'])})", "DateTime"),
+            ("strings", "pd.DataFrame({'c': ['a', 'b']})", "String"),
+        ]
+    )
+    def test_column_types_use_the_envelope_vocabulary(self, _name, frame, expected):
+        # The frontend reads these names to decide which columns a chart can put on a numeric
+        # axis, and only knows the ClickHouse spellings the data plane emits. A raw pandas
+        # dtype ('float64') reads as non-numeric there, which drops the column from every chart.
+        envelope = self._run(f"import pandas as pd\n{frame}")
+        self.assertEqual(envelope["types"], [["c", expected]])
 
     def test_exception_surfaces_as_error_envelope(self):
         envelope = self._run("raise ValueError('boom')")

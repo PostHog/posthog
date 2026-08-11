@@ -9,7 +9,7 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.temporal.session_replay.count_playlist_items.types import CountPlaylistInput, PlaylistInfo
+from posthog.temporal.session_replay.count_playlist_items.types import CountPlaylistInput, PlaylistToCount
 from posthog.temporal.session_replay.count_playlist_items.workflow import (
     CountAllPlaylistsWorkflow,
     CountPlaylistWorkflow,
@@ -18,11 +18,11 @@ from posthog.temporal.session_replay.count_playlist_items.workflow import (
 
 @pytest.mark.asyncio
 async def test_fans_out_child_workflows():
-    playlists = [PlaylistInfo(playlist_id=1), PlaylistInfo(playlist_id=2), PlaylistInfo(playlist_id=3)]
+    playlists = [PlaylistToCount(playlist_id=1), PlaylistToCount(playlist_id=2), PlaylistToCount(playlist_id=3)]
     counted_ids: list[int] = []
 
     @activity.defn(name="fetch-playlists-to-count")
-    async def mock_fetch() -> list[PlaylistInfo]:
+    async def mock_fetch() -> list[PlaylistToCount]:
         return playlists
 
     @activity.defn(name="count-recordings-for-playlist")
@@ -51,7 +51,7 @@ async def test_fans_out_child_workflows():
 @pytest.mark.asyncio
 async def test_no_playlists_completes_immediately():
     @activity.defn(name="fetch-playlists-to-count")
-    async def mock_fetch() -> list[PlaylistInfo]:
+    async def mock_fetch() -> list[PlaylistToCount]:
         return []
 
     @activity.defn(name="count-recordings-for-playlist")
@@ -77,10 +77,10 @@ async def test_no_playlists_completes_immediately():
 
 @pytest.mark.asyncio
 async def test_partial_failure_raises_application_error():
-    playlists = [PlaylistInfo(playlist_id=1), PlaylistInfo(playlist_id=2)]
+    playlists = [PlaylistToCount(playlist_id=1), PlaylistToCount(playlist_id=2)]
 
     @activity.defn(name="fetch-playlists-to-count")
-    async def mock_fetch() -> list[PlaylistInfo]:
+    async def mock_fetch() -> list[PlaylistToCount]:
         return playlists
 
     @activity.defn(name="count-recordings-for-playlist")
@@ -137,11 +137,11 @@ async def test_count_playlist_workflow_calls_activity():
 
 @pytest.mark.asyncio
 async def test_large_playlist_set_is_batched():
-    playlists = [PlaylistInfo(playlist_id=i) for i in range(1200)]
+    playlists = [PlaylistToCount(playlist_id=i) for i in range(1200)]
     counted_ids: list[int] = []
 
     @activity.defn(name="fetch-playlists-to-count")
-    async def mock_fetch() -> list[PlaylistInfo]:
+    async def mock_fetch() -> list[PlaylistToCount]:
         return playlists
 
     @activity.defn(name="count-recordings-for-playlist")

@@ -12,7 +12,7 @@ use crate::{HyperCacheConfig, HyperCacheError, KeyType, ETAG_KEY_SUFFIX, HYPER_C
 
 const HYPERCACHE_OPERATION_COUNTER_NAME: &str = "posthog_hypercache_operation";
 /// HyperCache always writes Redis values in Pickle format for Django compatibility.
-const REDIS_FORMAT: RedisValueFormat = RedisValueFormat::Pickle;
+pub(crate) const REDIS_FORMAT: RedisValueFormat = RedisValueFormat::Pickle;
 
 /// Multi-tier cache writer for PostHog, matching Django's HyperCache write behavior.
 ///

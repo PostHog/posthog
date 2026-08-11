@@ -6,12 +6,15 @@ import {
     LifecycleQuery,
     NodeKind,
     PathsQuery,
+    PathsV2Query,
     RetentionQuery,
     StickinessComputationModes,
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'
+
+import { STEP_SOURCE_PRESETS } from 'products/product_analytics/frontend/insights/journeys/stepSourcePresets'
 
 function getTrendsQueryDefault(): TrendsQuery {
     const defaultEvent = getDefaultEventName()
@@ -111,6 +114,16 @@ function getPathsQueryDefault(): PathsQuery {
     }
 }
 
+function getPathsV2QueryDefault(): PathsV2Query {
+    const preset = getDefaultEventName() === '$screen' ? STEP_SOURCE_PRESETS.screenViews : STEP_SOURCE_PRESETS.pageViews
+    return {
+        kind: NodeKind.PathsV2Query,
+        pathsV2Filter: {
+            stepSources: preset.stepSources,
+        },
+    }
+}
+
 function getStickinessQueryDefault(): StickinessQuery {
     const defaultEvent = getDefaultEventName()
     const defaultLabel = getDefaultEventLabel()
@@ -162,6 +175,7 @@ export function getNodeKindToDefaultQuery(): Record<ProductAnalyticsInsightNodeK
         [NodeKind.FunnelsQuery]: getFunnelsQueryDefault(),
         [NodeKind.RetentionQuery]: getRetentionQueryDefault(),
         [NodeKind.PathsQuery]: getPathsQueryDefault(),
+        [NodeKind.PathsV2Query]: getPathsV2QueryDefault(),
         [NodeKind.StickinessQuery]: getStickinessQueryDefault(),
         [NodeKind.LifecycleQuery]: getLifecycleQueryDefault(),
     }

@@ -74,7 +74,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
 
     return (
         <BindLogic logic={engineeringAnalyticsLogic} props={{}}>
-            <SceneContent>
+            <SceneContent className="pb-16">
                 <SceneTitleSection
                     name="Engineering analytics"
                     description={VIEW_DESCRIPTIONS[activeView]}

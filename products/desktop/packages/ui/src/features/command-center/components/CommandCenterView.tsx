@@ -1,5 +1,5 @@
 import { Box, Flex } from "@radix-ui/themes";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
 import { useTaskViewed } from "../../sidebar/useTaskViewed";
 import { useCommandCenterStore } from "../commandCenterStore";
@@ -14,6 +14,16 @@ export function CommandCenterView() {
   const { markAsViewed } = useTaskViewed();
 
   useAutofillCommandCenter();
+
+  // A cell whose task has been deleted holds a dead id, so occupancy is judged
+  // on what actually renders — Optimize then packs the grid and drops the rest.
+  const occupiedCellIndices = useMemo(
+    () =>
+      cells
+        .filter((cell) => cell.task || cell.terminalId || cell.isBrainrot)
+        .map((cell) => cell.cellIndex),
+    [cells],
+  );
 
   const visibleTaskIdsKey = cells
     .map((c) => c.taskId)
@@ -35,7 +45,10 @@ export function CommandCenterView() {
 
   return (
     <Flex direction="column" height="100%">
-      <CommandCenterToolbar summary={summary} />
+      <CommandCenterToolbar
+        summary={summary}
+        occupiedCellIndices={occupiedCellIndices}
+      />
       <Box className="min-h-0 flex-1">
         <CommandCenterGrid layout={layout} cells={cells} />
       </Box>

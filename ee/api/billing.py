@@ -91,6 +91,17 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         return self._parse_date(value, "end_date")
 
 
+class BillingPeriodResponseSerializer(serializers.Serializer):
+    current_period_start = serializers.DateTimeField(
+        allow_null=True,
+        help_text="Start of the organization's current billing period, or null when billing has not synced a period.",
+    )
+    current_period_end = serializers.DateTimeField(
+        allow_null=True,
+        help_text="End of the organization's current billing period, or null when billing has not synced a period.",
+    )
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -134,6 +145,28 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response["external_billing_provider_invoices_url"] = f"{account_url}/invoices"
 
         return Response(response)
+
+    @extend_schema(
+        summary="Get the current organization billing period",
+        responses={200: BillingPeriodResponseSerializer},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="period",
+        permission_classes=[permissions.IsAuthenticated],
+        required_scopes=["llm_gateway:read"],
+    )
+    def period(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        billing_period = self._get_org_required().current_billing_period
+        return Response(
+            BillingPeriodResponseSerializer(
+                {
+                    "current_period_start": billing_period.start if billing_period else None,
+                    "current_period_end": billing_period.end if billing_period else None,
+                }
+            ).data
+        )
 
     @action(
         methods=["PATCH"],

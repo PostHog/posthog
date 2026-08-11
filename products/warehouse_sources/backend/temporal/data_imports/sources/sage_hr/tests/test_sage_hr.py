@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr import sage_hr
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.sage_hr import (
     SageHRResumeConfig,
@@ -208,7 +209,7 @@ class TestGetRows:
 
 
 class TestWindowedLeaveRequests:
-    RANGE = (date(2024, 1, 1), date(2024, 3, 31))
+    RANGE = SyncWindow(start=date(2024, 1, 1), end=date(2024, 3, 31))
 
     def _collect(
         self,
@@ -221,9 +222,9 @@ class TestWindowedLeaveRequests:
         return TestGetRows._collect(manager, monkeypatch, pages, "leave_requests", requested)
 
     def test_iter_windows_are_contiguous_and_capped(self) -> None:
-        windows = list(_iter_windows(*self.RANGE))
-        assert windows[0][0] == self.RANGE[0]
-        assert windows[-1][1] == self.RANGE[1]
+        windows = list(_iter_windows(self.RANGE.start, self.RANGE.end))
+        assert windows[0][0] == self.RANGE.start
+        assert windows[-1][1] == self.RANGE.end
         for window_start, window_end in windows:
             # The API rejects `from`/`to` ranges of 65 days or more.
             assert (window_end - window_start).days < 65

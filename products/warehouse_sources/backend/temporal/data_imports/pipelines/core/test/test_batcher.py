@@ -316,6 +316,122 @@ def test_batcher_does_not_split_small_table_under_byte_cap():
     assert drained[0].equals(table)
 
 
+def test_coalescing_pa_tables_accumulates_to_row_cap():
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=10, coalesce_tables=True)
+
+    tables = [pa.table({"id": [i * 2, i * 2 + 1]}) for i in range(6)]
+    yielded = []
+    for table in tables:
+        batcher.batch(table)
+        while batcher.should_yield():
+            yielded.append(batcher.get_table())
+
+    # 5 x 2-row tables buffer silently; the 5th reaches the 10-row cap and flushes as one batch.
+    assert len(yielded) == 1
+    assert yielded[0].num_rows == 10
+    while batcher.should_yield(include_incomplete_chunk=True):
+        yielded.append(batcher.get_table())
+    combined = pa.concat_tables(yielded)
+    assert combined.column("id").to_pylist() == list(range(12))
+
+
+def test_coalescing_disabled_by_default_keeps_one_yield_one_batch():
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=1_000)
+    table = pa.table({"id": [1, 2]})
+
+    batcher.batch(table)
+
+    assert batcher.should_yield() is True
+    assert batcher.get_table().equals(table)
+
+
+def test_coalescing_flushes_buffer_before_byte_cap_is_exceeded():
+    table = pa.table({"id": [1, 2], "val": ["aa", "bb"]})
+    per_table = table_payload_bytes(table)
+    # Cap fits 2 tables but not 3, so the 3rd must flush the buffer *without* joining it.
+    cap = per_table * 2 + per_table // 2
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size_bytes=cap, coalesce_tables=True)
+
+    batcher.batch(table)
+    batcher.batch(table)
+    assert batcher.should_yield() is False
+
+    # The flushed batch stays within chunk_size_bytes (which keeps it under max_table_bytes,
+    # so _split_table doesn't undo the coalescing) and the 3rd table starts the next buffer.
+    batcher.batch(table)
+    assert batcher.should_yield() is True
+    flushed = batcher.get_table()
+    assert flushed.num_rows == 4
+    assert table_payload_bytes(flushed) <= cap
+
+    assert batcher.should_yield(include_incomplete_chunk=True) is True
+    assert batcher.get_table().equals(table)
+
+
+def test_coalescing_oversized_single_table_flushes_alone_without_waiting():
+    table = pa.table({"id": [1, 2], "val": ["aa", "bb"]})
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size_bytes=1, coalesce_tables=True)
+
+    batcher.batch(table)
+
+    assert batcher.should_yield() is True
+    assert batcher.get_table().equals(table)
+
+
+def test_coalescing_promotes_compatible_schema_drift():
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=4, coalesce_tables=True)
+
+    batcher.batch(pa.table({"a": pa.array([1, 2], pa.int64()), "b": ["x", "y"]}))
+    batcher.batch(pa.table({"a": pa.array([1.5, 2.5], pa.float64())}))
+
+    assert batcher.should_yield() is True
+    flushed = batcher.get_table()
+    assert flushed.num_rows == 4
+    assert flushed.schema.field("a").type == pa.float64()
+    assert flushed.column("b").to_pylist() == ["x", "y", None, None]
+
+
+def test_coalescing_flushes_on_non_promotable_schema_drift():
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=1_000, coalesce_tables=True)
+    int_table = pa.table({"a": pa.array([1, 2], pa.int64())})
+    str_table = pa.table({"a": pa.array(["x", "y"], pa.string())})
+
+    batcher.batch(int_table)
+    assert batcher.should_yield() is False
+
+    # int64 -> string can't be promoted, so the buffered table flushes as-is and the
+    # incompatible one starts a new buffer instead of crashing pa.concat_tables.
+    batcher.batch(str_table)
+    assert batcher.should_yield() is True
+    assert batcher.get_table().equals(int_table)
+
+    assert batcher.should_yield(include_incomplete_chunk=True) is True
+    assert batcher.get_table().equals(str_table)
+
+
+def test_coalescing_partial_buffer_flushes_at_end_of_stream():
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=1_000, coalesce_tables=True)
+
+    batcher.batch(pa.table({"id": [1, 2]}))
+    batcher.batch(pa.table({"id": [3]}))
+
+    # Below the caps nothing is ready, but the end-of-stream drain must still see and
+    # flush the buffered tables; dropping them would silently lose the sync's tail.
+    assert batcher.should_yield() is False
+    assert batcher.should_yield(include_incomplete_chunk=True) is True
+    assert batcher.get_table().column("id").to_pylist() == [1, 2, 3]
+    assert batcher.should_yield(include_incomplete_chunk=True) is False
+
+
+def test_batching_list_while_tables_buffered_raises():
+    batcher = Batcher(logger=mock.MagicMock(), chunk_size=1_000, coalesce_tables=True)
+
+    batcher.batch(pa.table({"id": [1]}))
+
+    with pytest.raises(Exception, match="Cannot batch list/dict rows while pa.Tables are buffered"):
+        batcher.batch([{"id": 2}])
+
+
 def test_batching_should_not_yield_when_buffer_not_full():
     batcher = Batcher(logger=mock.MagicMock(), chunk_size=5, chunk_size_bytes=1000)
 

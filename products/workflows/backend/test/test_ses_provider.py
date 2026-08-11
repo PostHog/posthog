@@ -387,6 +387,20 @@ class TestSESResponseShapeContract(TestCase):
                 "AWS SES v2 ResourceTenantMetadata no longer exposes `TenantName`. "
                 "Update _list_identity_tenants in products/workflows/backend/providers/ses.py.",
             ),
+            (
+                "get_account_enforcement_status",
+                "EnforcementStatus",
+                lambda m: m.operation_model("GetAccount").output_shape.members.keys(),
+                "AWS SES v2 GetAccount response no longer exposes `EnforcementStatus`. "
+                "Update get_account_reputation in products/workflows/backend/providers/ses.py.",
+            ),
+            (
+                "recommendation_resource_arn",
+                "ResourceArn",
+                lambda m: m.shape_for("Recommendation").members.keys(),
+                "AWS SES v2 Recommendation no longer exposes `ResourceArn`. "
+                "Update get_account_reputation in products/workflows/backend/providers/ses.py.",
+            ),
         ]
     )
     def test_sdk_shape_exposes_field(self, _name, expected_key, get_members, message):
@@ -506,3 +520,67 @@ class TestGetTenantReputation(TestCase):
         first_call, second_call = self.mock_client.list_recommendations.call_args_list
         assert first_call.kwargs["Filter"] == {"RESOURCE_ARN": self.TENANT_ARN}
         assert second_call.kwargs["NextToken"] == "page-2"
+
+
+class TestGetAccountReputation(TestCase):
+    def setUp(self):
+        patcher = patch("products.workflows.backend.providers.ses.boto3.client")
+        mock_boto3_client = patcher.start()
+        self.addCleanup(patcher.stop)
+        self.mock_client = mock_boto3_client.return_value
+        self.provider = SESProvider()
+
+    def test_returns_enforcement_status_and_open_findings_across_pages(self):
+        self.mock_client.get_account.return_value = {"EnforcementStatus": "PROBATION"}
+        self.mock_client.list_recommendations.side_effect = [
+            {
+                "Recommendations": [
+                    {
+                        "Type": "BOUNCE",
+                        "Impact": "LOW",
+                        "Status": "OPEN",
+                        "ResourceArn": "arn:aws:ses:us-east-1:123:tenant/team-1/tn-abc",
+                        "Description": "Bounce rate exceeded 10%",
+                    },
+                ],
+                "NextToken": "page-2",
+            },
+            {
+                "Recommendations": [
+                    {
+                        "Type": "DMARC",
+                        "Impact": "HIGH",
+                        "Status": "OPEN",
+                        "ResourceArn": "arn:aws:ses:us-east-1:123:identity/customer.example.com",
+                        "Description": "DMARC5",
+                    },
+                    {
+                        "Type": "COMPLAINT",
+                        "Impact": "HIGH",
+                        "Status": "OPEN",
+                        "ResourceArn": "arn:aws:ses:us-east-1:123:configuration-set/posthog-messaging",
+                        "Description": "Complaint rate elevated",
+                    },
+                ]
+            },
+        ]
+
+        result = self.provider.get_account_reputation()
+
+        assert result["enforcement_status"] == "PROBATION"
+        assert [(f["finding_type"], f["impact"], f["scope"]) for f in result["findings"]] == [
+            ("BOUNCE", "LOW", "tenant"),
+            ("DMARC", "HIGH", "identity"),
+            ("COMPLAINT", "HIGH", "account"),
+        ]
+        # The listing must be account-wide with OPEN filtered server-side, and walk every page
+        first_call, second_call = self.mock_client.list_recommendations.call_args_list
+        assert first_call.kwargs["Filter"] == {"STATUS": "OPEN"}
+        assert second_call.kwargs["NextToken"] == "page-2"
+
+    def test_missing_enforcement_status_fails_the_poll(self):
+        self.mock_client.get_account.return_value = {}
+        self.mock_client.list_recommendations.return_value = {"Recommendations": []}
+
+        with pytest.raises(KeyError):
+            self.provider.get_account_reputation()

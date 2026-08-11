@@ -1,0 +1,57 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "expected_current_version_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded."
+        },
+        "id": {
+            "description": "ID of the canvas whose source to edit.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Optional new display name for the canvas.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "operations": {
+            "description": "Edits applied in order to the canvas's current source project.",
+            "items": {
+                "description": "One per-file edit: set a file's content, or delete it.",
+                "properties": {
+                    "content": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "The file's complete new content. Null (or omitted) deletes the file."
+                    },
+                    "path": {
+                        "description": "Project-relative path of the file to write or delete (e.g. \"src/canvas.tsx\").",
+                        "type": "string"
+                    }
+                },
+                "required": ["path"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "prompt": {
+            "description": "Short description of the change, stored on the appended version history entry.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "operations", "expected_current_version_id"],
+    "type": "object"
+}

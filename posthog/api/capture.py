@@ -218,16 +218,23 @@ def _resolve_scalar(
     return legacy
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class NormalizedEventParts:
+    options: dict[str, Any]
+    session_id: Optional[str]
+    window_id: Optional[str]
+    properties: dict[str, Any]
+
+
 def _normalize_options_and_properties(
     event_dict: dict[str, Any],
     *,
     process_person_profile: bool,
     event_source: str,
-) -> tuple[dict[str, Any], Optional[str], Optional[str], dict[str, Any]]:
+) -> NormalizedEventParts:
     """Separate typed ``options``/fields from free-form ``properties``.
 
-    Returns ``(options_dict, session_id, window_id, cleaned_properties)``.
-    The caller's dicts are never mutated.
+    Returns a ``NormalizedEventParts``. The caller's dicts are never mutated.
     """
     raw_options: dict[str, Any] = event_dict.get("options") or {}
     props: dict[str, Any] = dict(event_dict.get("properties") or {})
@@ -280,7 +287,7 @@ def _normalize_options_and_properties(
             CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field="process_person_profile").inc()
         options["process_person_profile"] = False
 
-    return options, session_id, window_id, props
+    return NormalizedEventParts(options=options, session_id=session_id, window_id=window_id, properties=props)
 
 
 # --------------------------------------------------------------------------- #
@@ -346,7 +353,7 @@ def prepare_capture_internal_batch(
         else:
             timestamp_str = str(raw_ts)
 
-        options, session_id, window_id, cleaned_props = _normalize_options_and_properties(
+        parts = _normalize_options_and_properties(
             ev, process_person_profile=process_person_profile, event_source=event_source
         )
 
@@ -355,14 +362,14 @@ def prepare_capture_internal_batch(
             "uuid": event_uuid,
             "distinct_id": distinct_id,
             "timestamp": timestamp_str,
-            "properties": cleaned_props,
+            "properties": parts.properties,
         }
-        if session_id is not None:
-            entry["session_id"] = session_id
-        if window_id is not None:
-            entry["window_id"] = window_id
-        if options:
-            entry["options"] = options
+        if parts.session_id is not None:
+            entry["session_id"] = parts.session_id
+        if parts.window_id is not None:
+            entry["window_id"] = parts.window_id
+        if parts.options:
+            entry["options"] = parts.options
 
         batch.append(entry)
 

@@ -516,7 +516,6 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
 export const featureFlagsUpdateBodyKeyMax = 400
 
 export const featureFlagsUpdateBodyVersionDefault = 0
-export const featureFlagsUpdateBodyShouldCreateUsageDashboardDefault = true
 
 export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -588,7 +587,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod.boolean().default(featureFlagsUpdateBodyShouldCreateUsageDashboardDefault),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -945,7 +943,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax = 400
 
 export const featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault = 0
-export const featureFlagsCreateStaticCohortForFlagCreateBodyShouldCreateUsageDashboardDefault = true
 
 export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1017,181 +1014,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
             .nullish()
             .describe('Last time this feature flag was called (from $feature_flag_called events)'),
         _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsCreateStaticCohortForFlagCreateBodyShouldCreateUsageDashboardDefault),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
- *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsDashboardCreateBodyKeyMax = 400
-
-export const featureFlagsDashboardCreateBodyVersionDefault = 0
-export const featureFlagsDashboardCreateBodyShouldCreateUsageDashboardDefault = true
-
-export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .optional()
-            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
-        key: zod.string().max(featureFlagsDashboardCreateBodyKeyMax),
-        filters: zod.record(zod.string(), zod.unknown()).optional(),
-        deleted: zod.boolean().optional(),
-        active: zod.boolean().optional(),
-        archived: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
-            ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
-        version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
-        ensure_experience_continuity: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-        evaluation_contexts: zod.array(zod.unknown()).optional(),
-        analytics_dashboards: zod.array(zod.number()).optional(),
-        has_enriched_analytics: zod.boolean().nullish(),
-        creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
-            .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
-            )
-            .optional()
-            .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
-            ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
-        evaluation_runtime: zod
-            .union([
-                zod
-                    .enum(['server', 'client', 'all'])
-                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
-            ),
-        bucketing_identifier: zod
-            .union([
-                zod
-                    .enum(['distinct_id', 'device_id'])
-                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
-            ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
-        _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsDashboardCreateBodyShouldCreateUsageDashboardDefault),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
- *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsEnrichUsageDashboardCreateBodyKeyMax = 400
-
-export const featureFlagsEnrichUsageDashboardCreateBodyVersionDefault = 0
-export const featureFlagsEnrichUsageDashboardCreateBodyShouldCreateUsageDashboardDefault = true
-
-export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .optional()
-            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
-        key: zod.string().max(featureFlagsEnrichUsageDashboardCreateBodyKeyMax),
-        filters: zod.record(zod.string(), zod.unknown()).optional(),
-        deleted: zod.boolean().optional(),
-        active: zod.boolean().optional(),
-        archived: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
-            ),
-        created_at: zod.iso.datetime({ offset: true }).optional(),
-        version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
-        ensure_experience_continuity: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-        evaluation_contexts: zod.array(zod.unknown()).optional(),
-        analytics_dashboards: zod.array(zod.number()).optional(),
-        has_enriched_analytics: zod.boolean().nullish(),
-        creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
-            .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
-            )
-            .optional()
-            .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
-            ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
-        evaluation_runtime: zod
-            .union([
-                zod
-                    .enum(['server', 'client', 'all'])
-                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
-            ),
-        bucketing_identifier: zod
-            .union([
-                zod
-                    .enum(['distinct_id', 'device_id'])
-                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
-            ),
-        last_called_at: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('Last time this feature flag was called (from $feature_flag_called events)'),
-        _create_in_folder: zod.string().optional(),
-        _should_create_usage_dashboard: zod
-            .boolean()
-            .default(featureFlagsEnrichUsageDashboardCreateBodyShouldCreateUsageDashboardDefault),
     })
     .describe('Serializer mixin that handles tags for objects.')
 

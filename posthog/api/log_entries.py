@@ -1,5 +1,5 @@
 import dataclasses
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
 from drf_spectacular.utils import extend_schema
@@ -13,6 +13,11 @@ from posthog.api.utils import action
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.schema_enums import ProductKey
+
+# Default lookback window applied when the caller does not pass `after`. Bounding the
+# query keeps reads on the hot storage tier of `log_entries` (older partitions are
+# tiered to object storage); callers can pass an explicit `after` to read further back.
+LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS = 7
 
 LOG_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
     "hog_function": ProductKey.PIPELINE_DESTINATIONS,
@@ -46,7 +51,10 @@ class LogEntryRequestSerializer(serializers.Serializer):
     )
     after = serializers.DateTimeField(
         required=False,
-        help_text="Only return entries after this ISO 8601 timestamp.",
+        help_text=(
+            "Only return entries after this ISO 8601 timestamp. "
+            f"Defaults to {LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS} days ago; pass an explicit value to read further back."
+        ),
     )
     before = serializers.DateTimeField(
         required=False,
@@ -89,6 +97,13 @@ def fetch_log_entries(
     clickhouse_kwargs["log_source_id"] = log_source_id
     clickhouse_where_parts.append("team_id = %(team_id)s")
     clickhouse_kwargs["team_id"] = team_id
+
+    if after is None:
+        # Always bound the query: unbounded reads scan all partitions, including those
+        # tiered to object storage. Anchor the window to `before` when provided so a
+        # historical `before` doesn't produce an impossible interval.
+        # See LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS.
+        after = (before or datetime.now(UTC)) - timedelta(days=LOG_ENTRIES_DEFAULT_LOOKBACK_DAYS)
 
     if instance_id:
         clickhouse_where_parts.append("instance_id = %(instance_id)s")

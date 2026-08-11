@@ -205,6 +205,37 @@ function compileForPreview(regex: string): RegExp | null {
     }
 }
 
+/**
+ * Expand an alias against one regex match, so the preview substitutes capture groups the same way
+ * the real query does. The alias is re2 replacement syntax: `\0` is the whole match, `\1` to `\9`
+ * are capture groups, `\\` is a literal backslash, and everything else is literal.
+ *
+ * Expanding against the match here, rather than translating to a `$1`-style replacement string,
+ * keeps three re2 rules JavaScript would otherwise break: `$` stays literal, `\10` is group 1
+ * followed by `0` rather than group 10, and an unfilled group substitutes as empty.
+ */
+export function expandAlias(alias: string, groups: (string | undefined)[]): string {
+    let out = ''
+    for (let i = 0; i < alias.length; i++) {
+        const char = alias[i]
+        if (char !== '\\') {
+            out += char
+            continue
+        }
+        const next = alias[i + 1]
+        if (next === '\\') {
+            out += '\\'
+            i++
+        } else if (next !== undefined && next >= '0' && next <= '9') {
+            out += groups[Number(next)] ?? ''
+            i++
+        } else {
+            out += '\\'
+        }
+    }
+    return out
+}
+
 /** Chain a path through every rule in order, mirroring ClickHouse `replaceRegexpAll` per rule. */
 function applyChain(path: string, rules: PathCleaningRule[]): string {
     let out = path
@@ -213,8 +244,14 @@ function applyChain(path: string, rules: PathCleaningRule[]): string {
         if (re === null) {
             continue
         }
-        // `alias` is a literal; escape `$` so JS's replace() doesn't treat it as a group ref.
-        out = out.replace(re, rule.alias.replace(/\$/g, '$$$$'))
+        out = out.replace(re, (match: string, ...rest: unknown[]): string => {
+            // Replacer arguments run (match, p1…pN, offset, whole string, named groups?). A group
+            // the pattern didn't fill arrives as undefined, so the first number is the offset and
+            // marks where the capture values stop.
+            const offsetIndex = rest.findIndex((arg) => typeof arg === 'number')
+            const captures = (offsetIndex === -1 ? [] : rest.slice(0, offsetIndex)) as (string | undefined)[]
+            return expandAlias(rule.alias, [match, ...captures])
+        })
     }
     return out
 }

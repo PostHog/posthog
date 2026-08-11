@@ -5,18 +5,22 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginUrl'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { SSOProvider } from '~/types'
+import { LoginMethod, SSOProvider } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { PreflightStatus } from '../../../types'
@@ -33,8 +37,36 @@ export interface PrecheckResponseType {
     saml_available: boolean
     status: 'pending' | 'completed'
     webauthn_credentials?: PublicKeyCredentialDescriptorJSON[]
+    /**
+     * False only when we know this account exists and has no usable password. Absent (from an older
+     * server or a failed precheck) is treated as true, so the password box never disappears by
+     * accident.
+     */
+    password_login_available?: boolean
+    // The account's linked social identities, already filtered to what this instance supports.
+    social_providers?: SSOProvider[]
     // The email this precheck resolved for, used to dedupe redundant prechecks.
     email?: string
+    /**
+     * Client-side only: the request failed, so the fields above are permissive defaults rather than
+     * server truth. Such a result is never deduped against — the next precheck for the same email
+     * retries, so a transient 429 can't hide this account's real SSO/SAML/passkey options for the
+     * rest of the page session.
+     */
+    precheckFailed?: boolean
+}
+
+// Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
+// would stay stuck at `status: 'pending'`, which keeps the password field hidden and swallows submits.
+function precheckFallback(email: string): PrecheckResponseType {
+    return {
+        status: 'completed',
+        saml_available: false,
+        password_login_available: true,
+        social_providers: [],
+        email,
+        precheckFailed: true,
+    }
 }
 
 // Routes that should be handled by Django, not the React router
@@ -44,6 +76,22 @@ const BACKEND_ONLY_ROUTES = [
     '/toolbar_oauth/authorize',
     '/toolbar_oauth/check',
 ]
+
+const PROJECT_PATH_PREFIX = '/project/'
+
+// True when the path targets a project other than the one we're currently in. A client-side
+// history replace can't switch the active project, so `AutoProjectMiddleware` never runs and any
+// team-scoped scene resolves against the wrong project and 404s. The project segment is either a
+// numeric team id or a token (a `phc_` project key, or a legacy api_token from the middleware's
+// switching allowlist), and only the server can resolve a token to a team, so anything that isn't
+// literally the current team id takes the full load.
+function pointsToDifferentProject(path: string): boolean {
+    if (!path.startsWith(PROJECT_PATH_PREFIX)) {
+        return false
+    }
+    const identifier = path.slice(PROJECT_PATH_PREFIX.length).split('/')[0]
+    return !!identifier && identifier !== String(getCurrentTeamIdOrNone())
+}
 
 export function handleLoginRedirect(): void {
     let nextURL = '/'
@@ -62,6 +110,14 @@ export function handleLoginRedirect(): void {
 
     // Check if this is a backend-only route that shouldn't go through the React router
     if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+        window.location.href = nextURL
+        return
+    }
+
+    // A cross-project deep link needs a full page load so `AutoProjectMiddleware` can switch the
+    // active project before the scene mounts. A client-side replace would strip the project id and
+    // resolve the scene against the project we were last in, 404ing a resource that really exists.
+    if (pointsToDifferentProject(nextURL)) {
         window.location.href = nextURL
         return
     }
@@ -98,6 +154,9 @@ export interface loginLogicValues {
     devUsersLoading: boolean // devLoginLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     preflight: PreflightStatus | null // preflightLogic
+    autoRedirectAttemptedForEmail: string | null
+    autoRedirectingToProvider: SSOProvider | null
+    availableLoginMethods: LoginMethod[]
     codeVerification: CodeVerificationForm
     codeVerificationAllErrors: Record<string, any>
     codeVerificationChanged: boolean
@@ -112,10 +171,12 @@ export interface loginLogicValues {
         code: string
         detail: string
     } | null
+    hasNoConfiguredLoginMethod: boolean
     isCodeVerificationSubmitting: boolean
     isCodeVerificationValid: boolean
     isLoginSubmitting: boolean
     isLoginValid: boolean
+    isPasswordLoginUnavailable: boolean
     login: LoginForm
     loginAllErrors: Record<string, any>
     loginChanged: boolean
@@ -132,6 +193,7 @@ export interface loginLogicValues {
         success: boolean
     } | null
     resendResponseLoading: boolean
+    restrictToProviders: SSOProvider[] | null
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
     signupUrl: string
@@ -150,8 +212,9 @@ export interface loginLogicActions {
     exitCodeVerification: () => {
         value: true
     }
-    precheck: ({ email }: { email: string }) => {
+    precheck: ({ email }: { autoAttempt?: boolean; email: string }) => {
         email: string
+        autoAttempt?: boolean
     }
     precheckFailure: (
         error: string,
@@ -164,11 +227,13 @@ export interface loginLogicActions {
         precheckResponse: PrecheckResponseType,
         payload?: {
             email: string
+            autoAttempt?: boolean
         }
     ) => {
         precheckResponse: PrecheckResponseType
         payload?: {
             email: string
+            autoAttempt?: boolean
         }
     }
     resendCodeBasedVerification: (_: any) => any
@@ -234,6 +299,13 @@ export interface loginLogicActions {
     setLoginValues: (values: DeepPartial<LoginForm>) => {
         values: DeepPartial<LoginForm>
     }
+    startAutoRedirectToProvider: (
+        provider: SSOProvider,
+        email: string
+    ) => {
+        email: string
+        provider: SSOProvider
+    }
     submitCodeVerification: () => {
         value: boolean
     }
@@ -277,6 +349,17 @@ export interface loginLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        isPasswordLoginUnavailable: (precheckResponse: PrecheckResponseType) => boolean
+        availableLoginMethods: (precheckResponse: PrecheckResponseType) => LoginMethod[]
+        hasNoConfiguredLoginMethod: (
+            precheckResponse: PrecheckResponseType,
+            isPasswordLoginUnavailable: boolean,
+            availableLoginMethods: LoginMethod[]
+        ) => boolean
+        restrictToProviders: (
+            precheckResponse: PrecheckResponseType,
+            isPasswordLoginUnavailable: boolean
+        ) => SSOProvider[] | null
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
@@ -302,6 +385,7 @@ export const loginLogic = kea<loginLogicType>([
         clearGeneralError: true,
         setCodeVerificationRequired: true,
         exitCodeVerification: true,
+        startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -322,6 +406,21 @@ export const loginLogic = kea<loginLogicType>([
                 exitCodeVerification: () => false,
             },
         ],
+        // The provider we're currently bouncing the user to, so the form can say so out loud. The
+        // manual button stays rendered, so a blocked or slow redirect still leaves them a way in.
+        autoRedirectingToProvider: [
+            null as SSOProvider | null,
+            {
+                startAutoRedirectToProvider: (_, { provider }) => provider,
+            },
+        ],
+        // Auto-redirect at most once per email, so a blur → focus → blur cycle can't re-fire it.
+        autoRedirectAttemptedForEmail: [
+            null as string | null,
+            {
+                startAutoRedirectToProvider: (_, { email }) => email,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         precheckResponse: [
@@ -332,6 +431,7 @@ export const loginLogic = kea<loginLogicType>([
                         email,
                     }: {
                         email: string
+                        autoAttempt?: boolean
                     },
                     breakpoint
                 ) => {
@@ -341,14 +441,24 @@ export const loginLogic = kea<loginLogicType>([
 
                     // The autofill effect and the email field's onBlur can both fire for the same
                     // value — skip the redundant network call (and the duplicate passkey trigger it
-                    // would cause) when we've already resolved this email.
-                    if (email === values.precheckResponse.email && values.precheckResponse.status === 'completed') {
+                    // would cause) when we've already *successfully* resolved this email. A failed
+                    // precheck is never cached, so re-blurring or pressing Enter retries it.
+                    if (
+                        email === values.precheckResponse.email &&
+                        values.precheckResponse.status === 'completed' &&
+                        !values.precheckResponse.precheckFailed
+                    ) {
                         return values.precheckResponse
                     }
 
                     breakpoint()
-                    const response = await api.create<any>('api/login/precheck', { email })
-                    return { status: 'completed', ...response, email }
+                    try {
+                        const response = await api.create<any>('api/login/precheck', { email })
+                        return { status: 'completed', ...response, email }
+                    } catch {
+                        // Never let a failed precheck lock the user out of password login.
+                        return precheckFallback(email)
+                    }
                 },
             },
         ],
@@ -375,6 +485,57 @@ export const loginLogic = kea<loginLogicType>([
         ],
     })),
     selectors(() => ({
+        // True only when we know this account exists and has no usable password, so every variant
+        // hides the password field for the same reason. The explicit `=== false` matters: an older
+        // server or a failed precheck omits the field, and those must keep the password box.
+        // (Variants still decide for themselves whether to hide it while precheck is in flight.)
+        isPasswordLoginUnavailable: [
+            (s) => [s.precheckResponse],
+            (precheckResponse: PrecheckResponseType): boolean => precheckResponse.password_login_available === false,
+        ],
+        // Every way this specific account can get in. Empty until precheck resolves, and empty when
+        // SSO is enforced (that path takes over the whole form).
+        availableLoginMethods: [
+            (s) => [s.precheckResponse],
+            (precheckResponse: PrecheckResponseType): LoginMethod[] => {
+                if (precheckResponse.status !== 'completed' || precheckResponse.sso_enforcement) {
+                    return []
+                }
+                const methods: LoginMethod[] = []
+                if (precheckResponse.password_login_available !== false) {
+                    methods.push('password')
+                }
+                for (const provider of precheckResponse.social_providers ?? []) {
+                    methods.push(provider)
+                }
+                if (precheckResponse.saml_available && !methods.includes('saml')) {
+                    methods.push('saml')
+                }
+                if (precheckResponse.webauthn_credentials?.length) {
+                    methods.push('passkey')
+                }
+                return methods
+            },
+        ],
+        // A passwordless account with nothing else linked. They can only get back in via a reset.
+        hasNoConfiguredLoginMethod: [
+            (s) => [s.precheckResponse, s.isPasswordLoginUnavailable, s.availableLoginMethods],
+            (
+                precheckResponse: PrecheckResponseType,
+                isPasswordLoginUnavailable: boolean,
+                availableLoginMethods: LoginMethod[]
+            ): boolean =>
+                // `availableLoginMethods` is deliberately empty when SSO is enforced — that path owns
+                // the whole form, so it isn't a dead end.
+                !precheckResponse.sso_enforcement && isPasswordLoginUnavailable && availableLoginMethods.length === 0,
+        ],
+        // Allowlist for the social button row: only narrow it once we know the account is passwordless
+        // and which providers it has. `null` means "show everything the instance offers", as before.
+        restrictToProviders: [
+            (s) => [s.precheckResponse, s.isPasswordLoginUnavailable],
+            (precheckResponse: PrecheckResponseType, isPasswordLoginUnavailable: boolean): SSOProvider[] | null =>
+                isPasswordLoginUnavailable ? (precheckResponse.social_providers ?? []) : null,
+        ],
         signupUrl: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>) => {
@@ -427,6 +588,14 @@ export const loginLogic = kea<loginLogicType>([
                         )
                         throw e
                     }
+                    // A response with no parseable JSON body (a 5xx HTML page, a 502 from the edge, a
+                    // dropped connection) leaves code/detail null, so the user gets the generic catch-all
+                    // message below. Capture the underlying status/message so these aren't untraceable.
+                    if (!code && !detail) {
+                        posthog.captureException(e, {
+                            extra: { status: (e as ApiError)?.status, message: (e as ApiError)?.message },
+                        })
+                    }
                     actions.setGeneralError(code, detail)
                     throw e
                 }
@@ -473,7 +642,7 @@ export const loginLogic = kea<loginLogicType>([
         exitCodeVerification: () => {
             actions.resetCodeVerification()
         },
-        precheckSuccess: async (_, breakpoint) => {
+        precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
@@ -488,6 +657,28 @@ export const loginLogic = kea<loginLogicType>([
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
+                return
+            }
+
+            // A passwordless account with exactly one way in: send them straight to it, the same way
+            // an SSO-enforced domain does. Only ever on an explicit blur/Enter (`autoAttempt`), never
+            // on autofill or a `?email=` deep link, so a mistyped address can't bounce the user out
+            // of the form.
+            const { email } = values.login
+            const [onlyMethod] = values.availableLoginMethods
+            if (
+                payload?.autoAttempt &&
+                values.isPasswordLoginUnavailable &&
+                values.availableLoginMethods.length === 1 &&
+                onlyMethod !== 'passkey' &&
+                onlyMethod !== 'password' &&
+                onlyMethod !== null &&
+                values.autoRedirectAttemptedForEmail !== email
+            ) {
+                breakpoint()
+                actions.startAutoRedirectToProvider(onlyMethod, email)
+                // `assign` rather than `replace` so the browser Back button returns to /login.
+                window.location.assign(getSocialLoginUrl(onlyMethod, { email }))
             }
         },
     })),

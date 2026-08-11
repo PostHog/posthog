@@ -1,6 +1,7 @@
-import { Link } from '@tiptap/extension-link'
 import { TaskItem, TaskList } from '@tiptap/extension-list'
 import StarterKit from '@tiptap/starter-kit'
+
+import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 
 // Shared building blocks for the markdown editors (text card, AI prompt, etc). Each editor starts
 // from these and only layers on what makes it different — images, a placeholder, tables, and so on.
@@ -15,6 +16,12 @@ const MARKDOWN_BASE_EXTENSIONS = [
     TaskItem.configure({ nested: true }),
 ]
 
-export const MARKDOWN_BASE_EDITABLE_EXTENSIONS = [...MARKDOWN_BASE_EXTENSIONS, Link.configure({ openOnClick: false })]
+export const MARKDOWN_BASE_EDITABLE_EXTENSIONS = [
+    ...MARKDOWN_BASE_EXTENSIONS,
+    LinkExtension.configure({ openOnClick: false }),
+]
 
-export const MARKDOWN_BASE_READONLY_EXTENSIONS = [...MARKDOWN_BASE_EXTENSIONS, Link.configure({ openOnClick: true })]
+export const MARKDOWN_BASE_READONLY_EXTENSIONS = [
+    ...MARKDOWN_BASE_EXTENSIONS,
+    LinkExtension.configure({ openOnClick: true }),
+]

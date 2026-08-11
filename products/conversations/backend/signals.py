@@ -14,10 +14,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.signals import secret_api_token_rotated
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
-from .events import capture_message_received, capture_message_sent, capture_ticket_created
-from .models import EmailOutboxMessage, Ticket
+from .events import capture_message_received, capture_message_sent, capture_private_message_sent, capture_ticket_created
+from .models import EmailOutboxMessage, SigningSecret, Ticket
 from .models.constants import Channel
 from .tasks import (
     post_reply_to_github,
@@ -102,6 +103,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
     Private messages are excluded from denormalized stats to prevent leaking
     to widget via last_message_text and to keep message_count accurate for customers.
+    Human team notes emit `$conversation_private_message_sent` instead of the public event.
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
     """
@@ -124,12 +126,27 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     created_by_id = _get_comment_created_by_id(instance)
 
     def do_update():
-        # Private messages don't update denormalized stats (to avoid leaking to widget)
+        author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+
+        # Private messages don't update denormalized stats (to avoid leaking to widget).
+        # Human team notes emit `$conversation_private_message_sent` — a separate event
+        # that carries no note body — so workflows on `$conversation_message_sent`
+        # (e.g. customer notifications) never receive private content, and the event
+        # stream never exposes note text to members without access to the ticket.
         if _is_private_message(item_context):
+            if not (created_by_id and author_type != "customer"):
+                return
+            try:
+                ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
+                author = User.objects.filter(id=created_by_id).first()
+                capture_private_message_sent(ticket, comment_id, author=author)
+            except Ticket.DoesNotExist:
+                pass
+            except Exception as e:
+                capture_exception(e, {"ticket_id": item_id})
             return
 
         # New message: update denormalized stats
-        author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
         is_team_message = (created_by_id and author_type != "customer") or (
             author_type == "AI" and not _is_private_message(item_context)
         )
@@ -580,3 +597,17 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
             logger.exception("github_reply_signal_failed", item_id=item_id)
 
     transaction.on_commit(do_post_to_github)
+
+
+@receiver(secret_api_token_rotated)
+def sync_signing_secret_on_rotation(sender, team, **kwargs):
+    """Mirror the rotated legacy token into the conversations signing secret.
+
+    Never breaks rotation: while both stores exist, widget identity verification
+    falls back to the legacy token, so a failed sync degrades to current behavior.
+    """
+    try:
+        SigningSecret.objects.for_team(team.id).update_or_create(team=team, defaults={"secret": team.secret_api_token})
+    except Exception as e:
+        logger.exception("conversations_signing_secret_sync_failed", team_id=team.id)
+        capture_exception(e)

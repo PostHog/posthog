@@ -14,7 +14,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 from posthog.tasks import exporter
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_USER,
@@ -95,6 +95,35 @@ class TestExporterTask(APIBaseTest):
 
 
 class TestExportAssetFailureRecording(APIBaseTest):
+    @parameterized.expand(
+        [
+            (
+                "missing_dataset_kind",
+                {"dataset_id": "caller-metadata"},
+                "JSONL exports require a dataset export context.",
+            ),
+            (
+                "invalid_dataset_context",
+                {"kind": DATASET_EXPORT_KIND},
+                "The dataset export configuration is invalid.",
+            ),
+        ]
+    )
+    def test_invalid_jsonl_context_is_a_user_error(
+        self, _name: str, export_context: dict[str, str], expected_exception: str
+    ) -> None:
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context=export_context,
+        )
+
+        exporter.export_asset(asset.id)
+
+        asset.refresh_from_db()
+        assert asset.exception == expected_exception
+        assert asset.failure_type == FAILURE_TYPE_USER
+
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_non_retriable_error_records_failure_and_does_not_raise(self, mock_export_direct: MagicMock) -> None:
         mock_export_direct.side_effect = QueryError("Invalid query syntax")

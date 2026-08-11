@@ -102,6 +102,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     update_task_run_status,
 )
 from products.tasks.backend.temporal.process_task.credential_refresh import (
+    TASK_ROWS_GONE_ERROR_MESSAGE,
     CredentialRefreshExitReason,
     run_credential_refresh_loop,
 )
@@ -1353,6 +1354,23 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 run_id=self.context.run_id,
                 sandbox_id=sandbox_id,
             )
+        elif exit_reason == CredentialRefreshExitReason.TASK_GONE:
+            workflow.logger.warning(
+                "execute_sandbox_task_rows_gone_detected",
+                run_id=self.context.run_id,
+                sandbox_id=sandbox_id,
+            )
+            # Ends the main loop through the sandbox-gone event so the workflow winds down
+            # instead of waiting on signals that can never arrive. Recording failure here is
+            # what makes the end visible: an interactive run is exempt from the terminal
+            # status write on its normal completion path, so without this it would report
+            # success for a run whose rows no longer exist. The write itself then fails
+            # non-retryably, since those rows are gone, which fails the workflow in both
+            # modes rather than only for background runs.
+            self._completion_status = "failed"
+            self._completion_error = TASK_ROWS_GONE_ERROR_MESSAGE
+            self._completion_error_type = "TaskRunDeletedError"
+            self._sandbox_gone = True
 
     def _mark_sandbox_gone(self) -> None:
         self._task_completed = True
@@ -1366,7 +1384,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         agent_server_output: StartAgentServerOutput,
         sandbox_id: str | None = None,
     ) -> None:
-        await workflow.execute_activity(
+        sandbox_gone = await workflow.execute_activity(
             relay_sandbox_events,
             RelaySandboxEventsInput(
                 run_id=self.context.run_id,
@@ -1397,6 +1415,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             ),
             cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
         )
+        if sandbox_gone and not self._task_completed:
+            self._sandbox_gone = True
 
     @staticmethod
     async def _cancel_relay(relay_task: "asyncio.Task[None]") -> None:

@@ -32,7 +32,10 @@ import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import APITestCase as DRFTestCase
+from rest_framework.test import (
+    APITestCase as DRFTestCase,
+    APITransactionTestCase,
+)
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -1109,6 +1112,39 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     def assertFasterThan(self, duration_ms: float):
         with assert_faster_than(duration_ms):
             yield
+
+
+class NonAtomicAPIBaseTest(PostHogTestCase, ErrorResponsesMixin, APITransactionTestCase):
+    """Like APIBaseTest, but on TransactionTestCase (via DRF's APITransactionTestCase) rather
+    than TestCase - for endpoints that hand work to real worker threads which must see this
+    test's own DB writes. TestCase wraps each test in an outer, never-committed transaction that
+    only the test's own connection can see; a worker thread opens its own connection and a fresh
+    query on it finds no such row at all, not a stale one. See NonAtomicBaseTest for the same
+    trade-off outside DRF, and its docstring's link for background.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def setUp(self):
+        super().setUp()
+
+        cache.clear()
+        TEST_clear_instance_license_cache()
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
+
+        if self.CONFIG_AUTO_LOGIN and self.user:
+            self.client.force_login(self.user)
+
+    def _fixture_teardown(self):
+        for db_name in cast(Any, self)._databases_names(include_mirrors=False):
+            try:
+                _selective_flush(db_name, reset_sequences=True)
+            except Exception:
+                logger.exception("Selective flush of %r failed; falling back to the stock flush command", db_name)
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):

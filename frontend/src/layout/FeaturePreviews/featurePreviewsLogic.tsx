@@ -194,11 +194,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         name: values.user.first_name,
                         email: values.user.email,
                         kind: 'feedback',
-                        // NOTE: We don't know which area the flag should be - for now we just override it to be the key...
-                        target_area: values.activeFeedbackFlagKey as any,
-                        severity_level: 'low',
-                        // The feature identity must live in the message itself: conversations tickets
-                        // carry no target_area, so without this the feedback arrives context-free
+                        // The feature identity has to live in the message itself — a conversations
+                        // ticket carries only the message, so without this the feedback arrives
+                        // context-free
                         message: `Feedback on feature preview "${feature?.name ?? values.activeFeedbackFlagKey}":\n\n${message}`,
                     })
                     const ticketId = supportLogic.values.lastSubmittedTicketId

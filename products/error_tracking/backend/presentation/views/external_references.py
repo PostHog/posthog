@@ -114,6 +114,7 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
                 issue_id=issue_id,
                 integration_id=serializer.validated_data["integration_id"],
                 config=serializer.validated_data["config"],
+                distinct_id=request.user.pk,
             )
         except ExternalReferenceValidationError as error:
             logger.warning("Failed to create external reference", exc_info=error)

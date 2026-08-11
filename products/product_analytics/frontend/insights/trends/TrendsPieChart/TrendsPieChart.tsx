@@ -128,16 +128,23 @@ export function TrendsPieChart({
         [trendsFilter, baseCurrency]
     )
 
+    // Values and percentages are independent on a pie: either one alone puts that number on the
+    // slice, and both together read as `352 (18.4%)`, matching the tooltip.
+    const showValue = !!showValuesOnSeries
+    const showPercent = isPercentStackView
+
     const pieConfig: PieChartConfig<TrendsSeriesMeta> = useMemo(
         () => ({
-            showValueOnSlice: !!showValuesOnSeries,
+            showValueOnSlice: showValue || showPercent,
+            sliceValueDisplay: showValue && showPercent ? 'both' : showPercent ? 'percent' : 'value',
             showLabelOnSlice: !!showLabelOnSeries,
             isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
             legend: legendConfig,
         }),
         [
-            showValuesOnSeries,
+            showValue,
+            showPercent,
             showLabelOnSeries,
             isPercentStackView,
             pieChartVizOptions?.disableHoverOffset,

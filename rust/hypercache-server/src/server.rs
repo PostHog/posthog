@@ -118,6 +118,12 @@ async fn create_hypercache_reader(
         config.object_storage_bucket.clone(),
     );
     hc_config.token_based = true;
+    // Neither namespace here is etag-paired, so a payload-only repair is safe for both.
+    hc_config.read_repair_ttl_seconds = if config.read_repair_ttl_seconds == 0 {
+        None
+    } else {
+        Some(config.read_repair_ttl_seconds)
+    };
 
     if !config.object_storage_endpoint.is_empty() {
         hc_config.s3_endpoint = Some(config.object_storage_endpoint.clone());

@@ -54,6 +54,11 @@ class TestMetricAPI(APIBaseTest):
         assert response.json()["status"] == MetricStatus.PROPOSED
         assert response.json()["approved_at"] is None
 
+    def test_overlong_description_rejected(self) -> None:
+        response = self.client.post(self.url, {"name": "mrr", "description": "x" * 1_001}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "description"
+
     def test_create_is_upsert_on_name(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
         response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")

@@ -78,6 +78,19 @@ class TestResolveSlackUser:
         assert "email" in mock_client.chat_postMessage.call_args.kwargs["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
+    def test_placeholder_user_skipped_silently(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        slack = SlackIntegration(self.integration)
+        result = resolve_slack_user(slack, self.integration, "U00", "C001", "1234.5678")
+
+        assert result is None
+        mock_client.users_info.assert_not_called()
+        mock_client.chat_postMessage.assert_not_called()
+        mock_client.chat_postEphemeral.assert_not_called()
+
+    @patch("posthog.models.integration.WebClient")
     def test_no_org_membership(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client

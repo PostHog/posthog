@@ -221,7 +221,8 @@ class TestTeam(BaseTest):
         project = Project.objects.filter(id=team.id).first()
 
         assert project is not None
-        self.assertEqual(project.name, "Default project")
+        # The fixture project already holds the plain default name, so this one gets a suffix
+        self.assertEqual(project.name, "Default project 2")
 
     def test_each_team_gets_project_with_custom_name_and_same_id(self):
         # Can be removed once environments are fully rolled out

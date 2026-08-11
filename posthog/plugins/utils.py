@@ -3,6 +3,7 @@ import os
 import re
 import json
 import tarfile
+from dataclasses import dataclass
 from tarfile import ReadError
 from typing import Any, Optional
 from urllib.parse import parse_qs, quote
@@ -311,9 +312,15 @@ def find_index_ts_in_archive(archive: bytes, main_filename: Optional[str] = None
     raise ValueError(f"Could not find main file {' or '.join(main_filenames_to_try)}")
 
 
-def extract_plugin_code(
-    archive: bytes | None, plugin_json_parsed: Optional[dict[str, Any]] = None
-) -> tuple[str, Optional[str], Optional[str], Optional[str]]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class PluginCode:
+    plugin_json: str
+    index_ts: Optional[str]
+    frontend_tsx: Optional[str]
+    site_ts: Optional[str]
+
+
+def extract_plugin_code(archive: bytes | None, plugin_json_parsed: Optional[dict[str, Any]] = None) -> PluginCode:
     """Extract plugin.json, index.ts (which can be aliased) and frontend.tsx out of an archive.
 
     If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
@@ -342,7 +349,7 @@ def extract_plugin_code(
     except ValueError:
         if frontend_tsx is None and site_ts is None:
             raise
-    return plugin_json, index_ts, frontend_tsx, site_ts
+    return PluginCode(plugin_json=plugin_json, index_ts=index_ts, frontend_tsx=frontend_tsx, site_ts=site_ts)
 
 
 def put_json_into_zip_archive(archive: bytes, json_data: dict, filename: str):

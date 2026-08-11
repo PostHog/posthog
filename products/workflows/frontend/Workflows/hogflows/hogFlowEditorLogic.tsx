@@ -172,6 +172,7 @@ export interface hogFlowEditorLogicValues {
     highlightedDropzoneNodeId: string | null
     isCopyingNode: boolean
     isMovingNode: boolean
+    isZoomedOutFar: boolean
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -716,18 +717,22 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
-                                          properties: any[]
-                                      }
-                                      type: 'batch'
-                                  }
-                                | {
-                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
                                           properties?: any[] | undefined
                                       }
                                       type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -854,18 +859,22 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
-                            }
-                            type: 'batch'
-                        }
-                      | {
-                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
                         }
                       | {
                             filters: {
@@ -1502,18 +1511,22 @@ export interface hogFlowEditorLogicActions {
                                   }
                                 | {
                                       filters: {
-                                          properties: any[]
-                                      }
-                                      type: 'batch'
-                                  }
-                                | {
-                                      filters: {
                                           actions?: any[] | undefined
                                           events?: any[] | undefined
                                           filter_test_accounts?: boolean | undefined
                                           properties?: any[] | undefined
                                       }
                                       type: 'event'
+                                  }
+                                | {
+                                      filters: {
+                                          all_roles_unassigned?: boolean | undefined
+                                          assigned_to_user_ids?: number[] | undefined
+                                          audience_type?: 'accounts' | 'persons' | undefined
+                                          properties: any[]
+                                          tag_names?: string[] | undefined
+                                      }
+                                      type: 'batch'
                                   }
                                 | {
                                       filters: {
@@ -1640,18 +1653,22 @@ export interface hogFlowEditorLogicActions {
                         }
                       | {
                             filters: {
-                                properties: any[]
-                            }
-                            type: 'batch'
-                        }
-                      | {
-                            filters: {
                                 actions?: any[] | undefined
                                 events?: any[] | undefined
                                 filter_test_accounts?: boolean | undefined
                                 properties?: any[] | undefined
                             }
                             type: 'event'
+                        }
+                      | {
+                            filters: {
+                                all_roles_unassigned?: boolean | undefined
+                                assigned_to_user_ids?: number[] | undefined
+                                audience_type?: 'accounts' | 'persons' | undefined
+                                properties: any[]
+                                tag_names?: string[] | undefined
+                            }
+                            type: 'batch'
                         }
                       | {
                             filters: {
@@ -1870,6 +1887,9 @@ export interface hogFlowEditorLogicActions {
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
     }
+    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
+        isZoomedOutFar: boolean
+    }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
     }
@@ -1988,6 +2008,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ) => ({ params, timezone }),
         fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
         handlePaneClick: true,
+        setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
     reducers(() => ({
         mode: [
@@ -2038,6 +2059,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 startMovingNode: () => true,
                 stopMovingNode: () => false,
+            },
+        ],
+        isZoomedOutFar: [
+            false,
+            {
+                setIsZoomedOutFar: (_, { isZoomedOutFar }) => isZoomedOutFar,
             },
         ],
         movingNodeId: [

@@ -15,6 +15,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
+
 
 @dataclass(frozen=True)
 class ErrorTrackingIssueAssignee:
@@ -54,6 +56,7 @@ class ErrorTrackingFingerprint:
 class ErrorTrackingIssuePreview:
     id: UUID
     status: str
+    severity: str | None
     name: str | None
     description: str | None
     first_seen: datetime | None
@@ -64,6 +67,7 @@ class ErrorTrackingIssuePreview:
 class ErrorTrackingIssue:
     id: UUID
     status: str
+    severity: str | None
     name: str | None
     description: str | None
     first_seen: datetime | None

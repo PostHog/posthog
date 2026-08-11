@@ -10,6 +10,7 @@ export enum ReplayScannerTab {
     Observations = 'observations',
     Calibration = 'calibration',
     OnDemand = 'on-demand',
+    Backfills = 'backfills',
     Configuration = 'configuration',
     Actions = 'actions',
 }

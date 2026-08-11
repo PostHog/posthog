@@ -8,6 +8,7 @@ use crate::{
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
+    cohorts::cohort_models::MembershipStampPolicy,
     cohorts::membership::{
         CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
     },
@@ -222,6 +223,7 @@ async fn test_evaluate_feature_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -307,6 +309,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -699,6 +702,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -782,6 +786,7 @@ async fn test_evaluate_feature_flags_details() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -938,6 +943,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1020,6 +1026,7 @@ async fn test_long_distinct_id() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1627,6 +1634,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1658,6 +1666,7 @@ async fn test_parallel_path_matches_sequential_results() {
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1750,6 +1759,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_disabled.clone(),
         enable_realtime_cohort_evaluation: false,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };
@@ -1787,6 +1797,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         skip_writes: false,
         cohort_membership_provider: provider_enabled.clone(),
         enable_realtime_cohort_evaluation: true,
+        membership_stamp_policy: MembershipStampPolicy::default(),
         detailed_analysis: false,
         only_use_override_person_properties: false,
     };

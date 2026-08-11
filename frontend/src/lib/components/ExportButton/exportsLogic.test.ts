@@ -269,6 +269,22 @@ describe('exportsLogic', () => {
             expect(downloadExportSpy).toHaveBeenCalledWith(finished)
         })
 
+        it('uses a registered status fetcher for exports created outside the generic endpoint', async () => {
+            const pending = asset({ id: 23, export_format: ExporterFormat.JSONL })
+            const finished = asset({ id: 23, export_format: ExporterFormat.JSONL, has_content: true })
+            const fetchLatest = jest.fn().mockResolvedValue(finished)
+
+            logic.actions.trackExport(pending, fetchLatest)
+            logic.actions.loadExportsSuccess([])
+            await flush()
+
+            expect(fetchLatest).toHaveBeenCalledTimes(1)
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                'Export complete!',
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Download' }) })
+            )
+        })
+
         it('downloadExport triggers the download, clears the highlight, and confirms', async () => {
             const tracked = asset({ id: 41, export_format: ExporterFormat.MP4, has_content: true })
             logic.actions.addFresh(tracked)

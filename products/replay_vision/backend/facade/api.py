@@ -4,10 +4,10 @@ from django.db.models import Case, When
 
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.replay_vision.backend.feature_flag import is_replay_vision_enabled
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, read_output
+from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
@@ -29,8 +29,7 @@ def fetch_page_session_observations(
     """Replay Vision observations for the given sessions, already fenced and ready to embed in a Max report.
 
     Returns an `<observations>` block wrapped by the shared indirect-prompt-injection fence, or `None` when
-    Replay Vision is disabled for the project, the user can read no scanners, or none of the sessions were
-    observed. `None` (not an empty string) is the "no Vision enrichment" signal the caller degrades on.
+    the user can read no scanners, or none of the sessions were observed. `None` (not an empty string) is the "no Vision enrichment" signal the caller degrades on.
 
     Access: an observation inherits its scanner's RBAC, so the scanner set is filtered by the user's access
     level — never `team_id` alone — otherwise output from scanners the user can't read would leak. This
@@ -43,13 +42,10 @@ def fetch_page_session_observations(
     """
     if not session_ids:
         return None
-    if not is_replay_vision_enabled(user, team):
-        return None
-
     readable_scanner_ids = [
         str(sid)
         for sid in UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-        .filter_queryset_by_access_level(ReplayScanner.objects.filter(team_id=team.id))
+        .filter_queryset_by_access_level(scanners_for_reading_observations(team.id))
         .values_list("id", flat=True)
     ]
     if not readable_scanner_ids:

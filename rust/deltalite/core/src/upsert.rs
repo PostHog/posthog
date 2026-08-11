@@ -146,6 +146,7 @@ impl std::str::FromStr for PruneStrategy {
 }
 
 /// Options controlling a single `upsert` call.
+#[derive(Clone)]
 pub struct UpsertOptions {
     /// Column names forming the primary key, in order.
     pub primary_keys: Vec<String>,

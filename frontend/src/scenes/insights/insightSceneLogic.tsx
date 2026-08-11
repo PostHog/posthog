@@ -717,6 +717,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
         upgradeQuery: async ({ query }) => {
+            // Capture the target insight before the await — a navigation while the upgrade request
+            // is in flight remounts insightLogicRef/insightDataLogicRef for the new insight, and
+            // applying the old URL's query to them would leak it onto the wrong insight.
+            const insightIdAtStart = values.insightId
+            const insightLogicRefAtStart = values.insightLogicRef
+            const insightDataLogicRefAtStart = values.insightDataLogicRef
+
             let upgradedQuery: Node | null = null
 
             if (!checkLatestVersionsOnQuery(query)) {
@@ -727,6 +734,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             upgradedQuery = convertDataTableNodeToDataVisualizationNode(upgradedQuery)
+
+            if (
+                values.insightId !== insightIdAtStart ||
+                values.insightLogicRef !== insightLogicRefAtStart ||
+                values.insightDataLogicRef !== insightDataLogicRefAtStart
+            ) {
+                return
+            }
 
             if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
                 values.insightLogicRef?.logic.actions.setInsight(
@@ -741,7 +756,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     }
                 )
             } else {
-                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery)
+                values.insightDataLogicRef?.logic.actions.setQuery(upgradedQuery, true)
             }
         },
     })),
@@ -887,6 +902,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     }
 
                     eventUsageLogic.actions.reportInsightStarted(query)
+                } else {
+                    // queryFromUrl can also come from the insightType hash param (above), so only
+                    // treat it as a shared link's query when q itself is present.
+                    const sharedQueryFromUrl = q ? queryFromUrl : null
+                    if (sharedQueryFromUrl) {
+                        // In-app navigation to a shared link — the saved insight loads fresh, so the
+                        // query the link carries has to be applied on top of it.
+                        actions.upgradeQuery(sharedQueryFromUrl)
+                    }
                 }
             }
         },

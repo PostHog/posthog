@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { SupportTicketTargetArea, supportLogic } from 'lib/components/Support/supportLogic'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -78,13 +78,12 @@ function FeaturePreviewGateContent({ config }: { config: FeaturePreviewGateConfi
                             <LemonButton type="primary" to={urls.featurePreview(config.flag)}>
                                 Open feature previews
                             </LemonButton>
-                            {config.supportTargetArea && preflight?.cloud && (
+                            {config.offerRequestAccess && preflight?.cloud && (
                                 <LemonButton
                                     type="secondary"
                                     onClick={() =>
                                         openSupportForm({
                                             kind: 'support',
-                                            target_area: config.supportTargetArea as SupportTicketTargetArea,
                                             message: `I'd like to request access to ${config.title}.`,
                                         })
                                     }

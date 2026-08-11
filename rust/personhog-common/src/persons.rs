@@ -20,6 +20,15 @@ pub fn person_uuid(team_id: i64, distinct_id: &str) -> Uuid {
     )
 }
 
+/// Validate a configured table identifier before it is interpolated into
+/// SQL (identifiers cannot be bound as parameters).
+pub fn validate_table_name(table: &str) -> Result<(), String> {
+    if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(format!("invalid table name: {table:?}"));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone)]
 pub struct Person {
     pub id: i64,
@@ -58,6 +67,9 @@ impl From<Person> for personhog_proto::personhog::types::v1::Person {
             is_identified: person.is_identified,
             is_user_id: person.is_user_id,
             last_seen_at: person.last_seen_at.map(|t| t.timestamp_millis()),
+            // Read-plane rows: the queries behind this struct filter
+            // tombstones out.
+            is_deleted: false,
         }
     }
 }

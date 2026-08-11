@@ -18,10 +18,12 @@ vi.mock("../hooks/usePrCommentActions", () => ({
 
 vi.mock("../../sessions/sendPromptToAgent", () => ({ sendPromptToAgent }));
 
-function makeComment(): PrReviewComment {
+function makeComment(
+  body = "Could this use the shared helper?",
+): PrReviewComment {
   return {
     id: 42,
-    body: "Could this use the shared helper?",
+    body,
     created_at: "2026-07-14T12:00:00Z",
     user: {
       login: "reviewer",
@@ -30,13 +32,13 @@ function makeComment(): PrReviewComment {
   } as PrReviewComment;
 }
 
-function makeMetadata(): PrCommentMetadata {
+function makeMetadata(body?: string): PrCommentMetadata {
   return {
     kind: "pr-comment",
     threadId: 42,
     nodeId: "thread-node",
     isResolved: false,
-    comments: [makeComment()],
+    comments: [makeComment(body)],
     isOutdated: false,
     isFileLevel: false,
     startLine: 8,
@@ -45,14 +47,14 @@ function makeMetadata(): PrCommentMetadata {
   };
 }
 
-function renderThread() {
+function renderThread(body?: string) {
   return render(
     <Theme>
       <PrCommentThread
         taskId="task-1"
         prUrl="https://github.com/PostHog/posthog/pull/1"
         filePath="src/example.ts"
-        metadata={makeMetadata()}
+        metadata={makeMetadata(body)}
       />
     </Theme>,
   );
@@ -64,6 +66,18 @@ describe("PrCommentThread", () => {
     reply.mockResolvedValue(true);
     resolve.mockResolvedValue(true);
     sendPromptToAgent.mockResolvedValue(true);
+  });
+
+  it("renders only GitHub-hosted images", () => {
+    renderThread(
+      [
+        "![GitHub image](https://user-images.githubusercontent.com/1/example.png)",
+        "![External image](https://example.com/tracking.png)",
+      ].join("\n\n"),
+    );
+
+    expect(screen.getByAltText("GitHub image")).toBeInTheDocument();
+    expect(screen.queryByAltText("External image")).toBeNull();
   });
 
   it("sends a custom chat message with the review context", async () => {

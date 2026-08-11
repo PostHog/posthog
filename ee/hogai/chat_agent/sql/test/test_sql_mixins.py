@@ -270,7 +270,9 @@ class TestSQLMixins(NonAtomicBaseTest):
     async def test_quality_check_output_with_unsupported_filter_placeholder(self):
         mixin = self._node
 
-        invalid_output = self._sql_output("SELECT dateTrunc({filters.interval}, timestamp) FROM events WHERE {filters}")
+        invalid_output = self._sql_output(
+            "SELECT dateTrunc({filters.granularity}, timestamp) FROM events WHERE {filters}"
+        )
 
         with self.assertRaises(PydanticOutputParserException):
             await mixin._quality_check_output(invalid_output)

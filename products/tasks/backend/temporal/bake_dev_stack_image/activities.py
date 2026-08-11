@@ -2,7 +2,7 @@ import logging
 import threading
 import contextvars
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from temporalio import activity
 
@@ -24,9 +24,10 @@ BAKE_HEARTBEAT_INTERVAL_SECONDS = 30
 @dataclass
 class BakeDevStackImageInput:
     publish_name: str = DEV_STACK_IMAGE_NAME
+    trigger: Literal["nightly", "base_changed", "manual"] = "manual"
 
     def to_log_context(self) -> dict[str, Any]:
-        return {"publish_name": self.publish_name}
+        return {"publish_name": self.publish_name, "trigger": self.trigger}
 
 
 @activity.defn
@@ -56,12 +57,12 @@ def bake_and_publish_dev_stack_image(input: BakeDevStackImageInput) -> str:
             try:
                 image_id = bake_dev_stack_image(input.publish_name)
             except DevStackImageBakeError:
-                observe_dev_stack_image_bake("bake_failed")
+                observe_dev_stack_image_bake("bake_failed", trigger=input.trigger)
                 raise
             except Exception:
-                observe_dev_stack_image_bake("failed")
+                observe_dev_stack_image_bake("failed", trigger=input.trigger)
                 raise
-            observe_dev_stack_image_bake("succeeded")
+            observe_dev_stack_image_bake("succeeded", trigger=input.trigger)
             return image_id
     finally:
         stop_heartbeat.set()

@@ -36,8 +36,8 @@ class KindPolicy:
 
 KIND_POLICIES: dict[FailureKind, KindPolicy] = {
     "memory_limit": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
-    "timeout": KindPolicy(open_threshold=3, max_backoff=timedelta(minutes=30), timeout_independent=False),
-    "too_slow": KindPolicy(open_threshold=3, max_backoff=timedelta(minutes=30), timeout_independent=False),
+    "timeout": KindPolicy(open_threshold=3, max_backoff=timedelta(hours=4), timeout_independent=False),
+    "too_slow": KindPolicy(open_threshold=3, max_backoff=timedelta(hours=4), timeout_independent=False),
     "query_size": KindPolicy(open_threshold=1, max_backoff=timedelta(hours=4), timeout_independent=True),
 }
 

@@ -1,7 +1,7 @@
 // A canvas-generation task's initial prompt carries the standing authoring
 // contract + publishing/data rules wrapped in a
 // `<canvas_generation_instructions> ... </canvas_generation_instructions>`
-// element (see buildFreeformGenerationPrompt). The conversation UI collapses
+// element (see buildCanvasGenerationPrompt in @posthog/core). The conversation UI collapses
 // that element into a single clickable tag instead of rendering the whole body
 // inline, so these helpers detect and pull it out of the stored message text.
 //

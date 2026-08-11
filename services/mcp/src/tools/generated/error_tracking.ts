@@ -295,6 +295,9 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             if (params.status !== undefined) {
                 body['status'] = params.status
             }
+            if (params.severity !== undefined) {
+                body['severity'] = params.severity
+            }
             if (params.name !== undefined) {
                 body['name'] = params.name
             }

@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from posthog.models.remote_config import RemoteConfig
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 from posthog.storage.remote_config_cache import (
     cleanup_stale_expiry_tracking,
     refresh_expiring_caches,
@@ -63,9 +64,9 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = [self.team.api_token.encode()]
 
-        successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_caches(ttl_threshold_hours=24)
 
-        assert (successful, failed) == (1, 0)
+        assert counts == CacheRefreshCounts(successful=1, failed=0)
         mock_redis.zrangebyscore.assert_called_once_with(
             "remote_config_cache_expiry",
             "-inf",
@@ -84,7 +85,7 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
         mock_get_client.return_value = mock_redis
         mock_redis.zrangebyscore.return_value = []
 
-        assert refresh_expiring_caches(ttl_threshold_hours=24) == (0, 0)
+        assert refresh_expiring_caches(ttl_threshold_hours=24) == CacheRefreshCounts(successful=0, failed=0)
 
 
 class TestCleanupStaleRemoteConfigExpiryTracking(BaseTest):

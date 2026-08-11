@@ -1,5 +1,6 @@
 import type { WorkspaceMode } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import type { RunMode } from "./buildSidebarData";
 import type {
   TaskGroup as GenericTaskGroup,
   TaskRepositoryInfo,
@@ -19,6 +20,7 @@ export interface TaskData {
   folderId?: string;
   taskRunStatus?: TaskRunStatus;
   taskRunEnvironment?: "local" | "cloud";
+  runMode?: RunMode;
   workspaceMode?: WorkspaceMode;
   originProduct?: string;
   slackThreadUrl?: string;

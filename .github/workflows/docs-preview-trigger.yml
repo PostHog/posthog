@@ -15,6 +15,11 @@ permissions:
 
 jobs:
     trigger-preview:
+        # The queue's branch is deleted the moment it merges, so its Vercel
+        # preview is torn down before anyone could open it. No gate coverage is
+        # lost either: the frontmatter, internal-docs and link checks below are
+        # all continue-on-error, so they never blocked a merge anyway.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         name: Trigger posthog.com preview build
         runs-on: ubuntu-latest
         timeout-minutes: 5

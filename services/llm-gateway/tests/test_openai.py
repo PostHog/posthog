@@ -280,8 +280,8 @@ class TestChatCompletionsEndpoint:
         assert forwarded_metadata["nested"]["keep"] == "ok"
 
     @patch("llm_gateway.api.openai.litellm.acompletion")
-    @patch("llm_gateway.glm_routing.make_cloudflare_completion_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_completion_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_cf_model_routes_through_cloudflare(
         self,
         mock_ensure_configured: MagicMock,
@@ -309,8 +309,8 @@ class TestChatCompletionsEndpoint:
         mock_acompletion.assert_not_called()
 
     @patch("llm_gateway.api.openai.litellm.acompletion")
-    @patch("llm_gateway.glm_routing.make_cloudflare_completion_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_completion_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_cf_model_streams_through_cloudflare(
         self,
         mock_ensure_configured: MagicMock,
@@ -351,8 +351,8 @@ class TestChatCompletionsEndpoint:
         mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
         mock_acompletion.assert_not_called()
 
-    @patch("llm_gateway.glm_routing.make_cloudflare_completion_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_completion_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_unpriced_cf_model_rejected_before_routing(
         self,
         mock_ensure_configured: MagicMock,
@@ -383,8 +383,8 @@ class TestChatCompletionsEndpoint:
 # zero generations.
 class TestResponsesRoutedModels:
     @patch("llm_gateway.api.openai.litellm.aresponses")
-    @patch("llm_gateway.glm_routing.make_cloudflare_responses_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_responses_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_cf_model_routes_through_cloudflare(
         self,
         mock_ensure_configured: MagicMock,
@@ -426,19 +426,20 @@ class TestResponsesRoutedModels:
         mock_response.model_dump = MagicMock(return_value={"id": "resp_1", "output": []})
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
-        response = authenticated_client.post(
-            "/v1/responses",
-            json={"model": "moonshotai/kimi-k3", "input": "Hello"},
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
+        with patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)):  # entitle the gated model
+            response = authenticated_client.post(
+                "/v1/responses",
+                json={"model": "moonshotai/kimi-k3", "input": "Hello"},
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
 
         assert response.status_code == 200
         mock_make_call.assert_called_once_with("https://kimi.modal.test/v1", "key", "secret")
         mock_aresponses.assert_not_called()
 
     @patch("llm_gateway.api.openai.litellm.aresponses")
-    @patch("llm_gateway.glm_routing.make_cloudflare_responses_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_responses_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_cf_model_streams_through_cloudflare(
         self,
         mock_ensure_configured: MagicMock,
@@ -477,8 +478,8 @@ class TestResponsesRoutedModels:
         mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
         mock_aresponses.assert_not_called()
 
-    @patch("llm_gateway.glm_routing.make_cloudflare_responses_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_responses_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_unpriced_cf_model_rejected_before_routing(
         self,
         mock_ensure_configured: MagicMock,
@@ -502,8 +503,8 @@ class TestResponsesRoutedModels:
         mock_ensure_configured.assert_not_called()
         mock_make_call.assert_not_called()
 
-    @patch("llm_gateway.glm_routing.make_cloudflare_responses_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_responses_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_previous_response_id_rejected_for_cf_model(
         self,
         mock_ensure_configured: MagicMock,
@@ -530,8 +531,8 @@ class TestResponsesRoutedModels:
         mock_ensure_configured.assert_not_called()
         mock_make_call.assert_not_called()
 
-    @patch("llm_gateway.glm_routing.make_cloudflare_responses_call")
-    @patch("llm_gateway.glm_routing.ensure_cloudflare_configured")
+    @patch("llm_gateway.inference_routing.make_cloudflare_responses_call")
+    @patch("llm_gateway.inference_routing.ensure_cloudflare_configured")
     def test_tools_rejected_for_cf_model(
         self,
         mock_ensure_configured: MagicMock,

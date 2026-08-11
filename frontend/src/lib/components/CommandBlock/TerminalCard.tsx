@@ -17,6 +17,8 @@ interface TerminalCardProps {
     command: string
     /** Label passed to the copy-to-clipboard toast (e.g. "MCP wizard command"). */
     copyLabel: string
+    /** Called after the command is copied, e.g. to capture an analytics event. */
+    onCopy?: () => void
     className?: string
 }
 
@@ -29,7 +31,7 @@ interface TerminalCardProps {
  * a `steps(var(--steps))` timing function and a `width: var(--chars)` keyframe
  * can't be expressed as utilities.
  */
-export function TerminalCard({ command, copyLabel, className }: TerminalCardProps): JSX.Element {
+export function TerminalCard({ command, copyLabel, onCopy, className }: TerminalCardProps): JSX.Element {
     const [copied, setCopied] = useState(false)
 
     // Freeze the typewriter in storybook so visual snapshots are deterministic.
@@ -39,9 +41,13 @@ export function TerminalCard({ command, copyLabel, className }: TerminalCardProp
     const displayCommand = condenseCommand(command)
 
     const handleCopy = (): void => {
-        void copyToClipboard(command, copyLabel)
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
+        void copyToClipboard(command, copyLabel).then((copied) => {
+            if (copied) {
+                onCopy?.()
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), COPIED_RESET_MS)
+            }
+        })
     }
 
     return (

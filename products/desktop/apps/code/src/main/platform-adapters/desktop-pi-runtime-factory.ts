@@ -13,11 +13,9 @@ export class DesktopPiRuntimeFactory implements PiRuntimeFactory {
     private readonly clientFactory: PiRpcClientFactory,
   ) {}
 
-  async create(input: {
-    cwd: string;
-    model?: string;
-    sessionFile?: string;
-  }): Promise<PiRuntime> {
+  async create(
+    input: Parameters<PiRuntimeFactory["create"]>[0],
+  ): Promise<PiRuntime> {
     const client = await this.clientFactory.create(input);
     return new PiRuntime(client);
   }

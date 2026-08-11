@@ -1,0 +1,22 @@
+// Magnitude bars behind every conversions column, the same affordance DataTable gives web analytics
+// tables. Painted as the cell's own background rather than an absolutely positioned overlay: the table
+// collapses borders, so an overlay wide enough to reach the cell edge paints over the column-group
+// separator line, while a background clipped to the padding box can never touch a border.
+.AttributionTable {
+    td.AttributionTable__magnitude-cell {
+        background-image: linear-gradient(
+            to right,
+            color-mix(in sRGB, var(--color-bg-fill-info-secondary) 50%, transparent) var(--attribution-fill, 0%),
+            transparent var(--attribution-fill, 0%)
+        );
+        background-clip: padding-box;
+    }
+
+    // Column-group separators, drawn on the first cell of each group. LemonTable draws these with a
+    // collapsed border-left, but collapsed borders paint unreliably in the body once the table scrolls
+    // horizontally past a sticky column. An inset shadow moves with the cell and paints above its
+    // background, so it stays visible over the magnitude fill too.
+    td.AttributionTable__group-boundary {
+        box-shadow: inset 1px 0 0 var(--color-border-primary);
+    }
+}

@@ -6,7 +6,7 @@ from parameterized import parameterized
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
 from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod
 from products.experiments.stats.shared.cuped import (
-    CupedData,
+    CupedCovariate,
     _adjust_group,
     _compute_covariance,
     compute_theta,
@@ -38,11 +38,11 @@ class TestComputeTheta(TestCase):
 
         treatment_post = SampleMeanStatistic(n=n_t, sum=float(np.sum(post_t)), sum_squares=float(np.sum(post_t**2)))
         control_post = SampleMeanStatistic(n=n_c, sum=float(np.sum(post_c)), sum_squares=float(np.sum(post_c**2)))
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n_t, sum=float(np.sum(pre_t)), sum_squares=float(np.sum(pre_t**2))),
             sum_of_cross_products=float(np.sum(post_t * pre_t)),
         )
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n_c, sum=float(np.sum(pre_c)), sum_squares=float(np.sum(pre_c**2))),
             sum_of_cross_products=float(np.sum(post_c * pre_c)),
         )
@@ -58,8 +58,8 @@ class TestComputeTheta(TestCase):
 
         # Constant pre-exposure values: all 5.0
         constant_pre = SampleMeanStatistic(n=n, sum=500.0, sum_squares=2500.0)
-        treatment_cuped = CupedData(pre_statistic=constant_pre, sum_of_cross_products=2500.0)
-        control_cuped = CupedData(pre_statistic=constant_pre, sum_of_cross_products=2400.0)
+        treatment_cuped = CupedCovariate(pre_statistic=constant_pre, sum_of_cross_products=2500.0)
+        control_cuped = CupedCovariate(pre_statistic=constant_pre, sum_of_cross_products=2400.0)
 
         theta = compute_theta(treatment_post, control_post, treatment_cuped, control_cuped)
         self.assertEqual(theta, 0.0)
@@ -73,7 +73,7 @@ class TestComputeTheta(TestCase):
         post = rng.normal(20, 5, n)
 
         treatment_post = SampleMeanStatistic(n=n, sum=float(np.sum(post)), sum_squares=float(np.sum(post**2)))
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
             sum_of_cross_products=float(np.sum(post * pre)),
         )
@@ -96,11 +96,11 @@ class TestCupedAdjust(TestCase):
 
         treatment_post = SampleMeanStatistic(n=n_t, sum=float(np.sum(post_t)), sum_squares=float(np.sum(post_t**2)))
         control_post = SampleMeanStatistic(n=n_c, sum=float(np.sum(post_c)), sum_squares=float(np.sum(post_c**2)))
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n_t, sum=float(np.sum(pre_t)), sum_squares=float(np.sum(pre_t**2))),
             sum_of_cross_products=float(np.sum(post_t * pre_t)),
         )
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n_c, sum=float(np.sum(pre_c)), sum_squares=float(np.sum(pre_c**2))),
             sum_of_cross_products=float(np.sum(post_c * pre_c)),
         )
@@ -129,11 +129,11 @@ class TestCupedAdjust(TestCase):
 
         treatment_post = SampleMeanStatistic(n=n, sum=float(np.sum(post_t)), sum_squares=float(np.sum(post_t**2)))
         control_post = SampleMeanStatistic(n=n, sum=float(np.sum(post_c)), sum_squares=float(np.sum(post_c**2)))
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
             sum_of_cross_products=float(np.sum(post_t * pre)),
         )
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
             sum_of_cross_products=float(np.sum(post_c * pre)),
         )
@@ -150,8 +150,8 @@ class TestCupedAdjust(TestCase):
         control_post = SampleMeanStatistic(n=n, sum=480.0, sum_squares=2800.0)
 
         constant_pre = SampleMeanStatistic(n=n, sum=500.0, sum_squares=2500.0)
-        treatment_cuped = CupedData(pre_statistic=constant_pre, sum_of_cross_products=2500.0)
-        control_cuped = CupedData(pre_statistic=constant_pre, sum_of_cross_products=2400.0)
+        treatment_cuped = CupedCovariate(pre_statistic=constant_pre, sum_of_cross_products=2500.0)
+        control_cuped = CupedCovariate(pre_statistic=constant_pre, sum_of_cross_products=2400.0)
 
         result = cuped_adjust(treatment_post, control_post, treatment_cuped, control_cuped)
 
@@ -172,11 +172,11 @@ class TestCupedAdjust(TestCase):
         pre_c = rng.normal(0.12, 0.05, n)
 
         # Generate correlated cross products
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre_t)), sum_squares=float(np.sum(pre_t**2))),
             sum_of_cross_products=float(np.sum(rng.binomial(1, 0.15, n) * pre_t)),
         )
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre_c)), sum_squares=float(np.sum(pre_c**2))),
             sum_of_cross_products=float(np.sum(rng.binomial(1, 0.12, n) * pre_c)),
         )
@@ -202,7 +202,7 @@ class TestCupedAdjust(TestCase):
         post = correlation * (3 / 3) * pre + rng.normal(0, noise_std, n)
 
         stat_post = SampleMeanStatistic(n=n, sum=float(np.sum(post)), sum_squares=float(np.sum(post**2)))
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
             sum_of_cross_products=float(np.sum(post * pre)),
         )
@@ -216,11 +216,11 @@ class TestCupedEdgeCases(TestCase):
         treatment_post = SampleMeanStatistic(n=100, sum=500.0, sum_squares=3000.0)
         control_post = SampleMeanStatistic(n=100, sum=480.0, sum_squares=2800.0)
 
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=99, sum=490.0, sum_squares=2500.0),  # wrong n
             sum_of_cross_products=2450.0,
         )
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=100, sum=480.0, sum_squares=2400.0),
             sum_of_cross_products=2300.0,
         )
@@ -232,7 +232,7 @@ class TestCupedEdgeCases(TestCase):
         treatment_post = SampleMeanStatistic(n=100, sum=500.0, sum_squares=3000.0)
         control_post = ProportionStatistic(n=100, sum=50)
 
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=100, sum=480.0, sum_squares=2400.0),
             sum_of_cross_products=2300.0,
         )
@@ -248,7 +248,7 @@ class TestCupedEdgeCases(TestCase):
         post = pre + rng.normal(1, 1, n)
 
         stat_post = SampleMeanStatistic(n=n, sum=float(np.sum(post)), sum_squares=float(np.sum(post**2)))
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
             sum_of_cross_products=float(np.sum(post * pre)),
         )
@@ -265,7 +265,7 @@ class TestCupedIntegration(TestCase):
         pre = rng.normal(pre_mean, 3, n)
         post = pre + rng.normal(effect, noise_std, n)
         post_stat = SampleMeanStatistic(n=n, sum=float(np.sum(post)), sum_squares=float(np.sum(post**2)))
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=n, sum=float(np.sum(pre)), sum_squares=float(np.sum(pre**2))),
             sum_of_cross_products=float(np.sum(post * pre)),
         )
@@ -360,7 +360,7 @@ class TestCupedReferenceData(TestCase):
     def test_adjust_group_theta_zero(self):
         """theta=0 gives unadjusted mean and variance."""
         post = SampleMeanStatistic(n=5, sum=14, sum_squares=48)
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=5, sum=28.5, sum_squares=520.3),
             sum_of_cross_products=85.2,
         )
@@ -373,7 +373,7 @@ class TestCupedReferenceData(TestCase):
     def test_adjust_group_nonzero_theta(self):
         """Nonzero theta adjusts mean and variance."""
         post = SampleMeanStatistic(n=5, sum=14, sum_squares=48)
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=5, sum=28.5, sum_squares=520.3),
             sum_of_cross_products=85.2,
         )
@@ -390,7 +390,7 @@ class TestCupedReferenceData(TestCase):
     def test_adjust_group_single_observation(self):
         """n=1 gives variance=0 regardless of theta."""
         post = SampleMeanStatistic(n=1, sum=8.0, sum_squares=64.0)
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=1, sum=15.3, sum_squares=15.3**2),
             sum_of_cross_products=50.0,
         )
@@ -403,7 +403,7 @@ class TestCupedReferenceData(TestCase):
     def test_theta_pooled_identical_groups(self):
         """Theta from pooling identical control and treatment."""
         post = SampleMeanStatistic(n=5, sum=14, sum_squares=48)
-        cuped_data = CupedData(
+        cuped_data = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=5, sum=28.5, sum_squares=520.3),
             sum_of_cross_products=85.2,
         )
@@ -418,11 +418,11 @@ class TestCupedReferenceData(TestCase):
         """Verify theta, adjusted means, and adjusted variances for mean metric."""
         control_post = SampleMeanStatistic(n=2801, sum=280, sum_squares=560)
         treatment_post = SampleMeanStatistic(n=2800, sum=205, sum_squares=510)
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2801, sum=195, sum_squares=390),
             sum_of_cross_products=-18,
         )
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2800, sum=110, sum_squares=380),
             sum_of_cross_products=-8,
         )
@@ -441,11 +441,11 @@ class TestCupedReferenceData(TestCase):
         """Verify relative effect for mean metric with unadjusted_mean override."""
         control_post = SampleMeanStatistic(n=2801, sum=280, sum_squares=560)
         treatment_post = SampleMeanStatistic(n=2800, sum=205, sum_squares=510)
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2801, sum=195, sum_squares=390),
             sum_of_cross_products=-18,
         )
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2800, sum=110, sum_squares=380),
             sum_of_cross_products=-8,
         )
@@ -467,11 +467,11 @@ class TestCupedReferenceData(TestCase):
         """Verify unadjusted_mean works with Bayesian method too."""
         control_post = SampleMeanStatistic(n=2801, sum=280, sum_squares=560)
         treatment_post = SampleMeanStatistic(n=2800, sum=205, sum_squares=510)
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2801, sum=195, sum_squares=390),
             sum_of_cross_products=-18,
         )
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2800, sum=110, sum_squares=380),
             sum_of_cross_products=-8,
         )
@@ -493,11 +493,11 @@ class TestCupedReferenceData(TestCase):
         """Binomial metric with CUPED: ProportionStatistic post, binary pre (ss=sum)."""
         control_post = ProportionStatistic(n=2801, sum=280)
         treatment_post = ProportionStatistic(n=2800, sum=205)
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2801, sum=195, sum_squares=195),
             sum_of_cross_products=-18,
         )
-        treatment_cuped = CupedData(
+        treatment_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2800, sum=110, sum_squares=110),
             sum_of_cross_products=-8,
         )
@@ -525,12 +525,12 @@ class TestCupedReferenceData(TestCase):
             (
                 "control_with_theta_from_treatment2",
                 SampleMeanStatistic(n=2801, sum=280, sum_squares=560),
-                CupedData(
+                CupedCovariate(
                     pre_statistic=SampleMeanStatistic(n=2801, sum=195, sum_squares=390), sum_of_cross_products=-18
                 ),
                 # theta computed from control + treatment2
                 SampleMeanStatistic(n=3500, sum=420, sum_squares=840),
-                CupedData(
+                CupedCovariate(
                     pre_statistic=SampleMeanStatistic(n=3500, sum=280, sum_squares=560), sum_of_cross_products=-25
                 ),
                 0.434365539,
@@ -538,12 +538,12 @@ class TestCupedReferenceData(TestCase):
             (
                 "treatment1_with_theta_from_treatment1",
                 SampleMeanStatistic(n=2800, sum=205, sum_squares=510),
-                CupedData(
+                CupedCovariate(
                     pre_statistic=SampleMeanStatistic(n=2800, sum=110, sum_squares=380), sum_of_cross_products=-8
                 ),
                 # theta computed from control + treatment1
                 SampleMeanStatistic(n=2800, sum=205, sum_squares=510),
-                CupedData(
+                CupedCovariate(
                     pre_statistic=SampleMeanStatistic(n=2800, sum=110, sum_squares=380), sum_of_cross_products=-8
                 ),
                 0.420353709,
@@ -551,12 +551,12 @@ class TestCupedReferenceData(TestCase):
             (
                 "treatment2_with_theta_from_treatment2",
                 SampleMeanStatistic(n=3500, sum=420, sum_squares=840),
-                CupedData(
+                CupedCovariate(
                     pre_statistic=SampleMeanStatistic(n=3500, sum=280, sum_squares=560), sum_of_cross_products=-25
                 ),
                 # theta computed from control + treatment2
                 SampleMeanStatistic(n=3500, sum=420, sum_squares=840),
-                CupedData(
+                CupedCovariate(
                     pre_statistic=SampleMeanStatistic(n=3500, sum=280, sum_squares=560), sum_of_cross_products=-25
                 ),
                 0.473119119,
@@ -578,7 +578,7 @@ class TestCupedReferenceData(TestCase):
         The control's stats use the last treatment pair's theta.
         """
         control_post = SampleMeanStatistic(n=2801, sum=280, sum_squares=560)
-        control_cuped = CupedData(
+        control_cuped = CupedCovariate(
             pre_statistic=SampleMeanStatistic(n=2801, sum=195, sum_squares=390),
             sum_of_cross_products=-18,
         )

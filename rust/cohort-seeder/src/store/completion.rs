@@ -7,6 +7,15 @@
 //! status = 'reconciling'`. A miss returns [`CompletionStoreError::CompletionFenceLost`], mirroring
 //! the chunk store's `LeaseLost`: a stale writer (an older dispatch superseded by a re-dispatch, or a
 //! run Django has already moved on) can never clobber the ruling dispatch's state.
+//!
+//! The two backfill kinds share these tables and are kept disjoint three different ways, so it is
+//! worth naming them separately: every statement that *selects* a run by id — discovery, the CAS,
+//! the claim, the unreconcilable observe — binds the caller's [`RunKind`] in SQL, so a run id under
+//! the wrong kind matches no row; the participation loads carry no kind predicate and instead parse
+//! only the matching hash column, where the other kind's `''` fails closed; and `backfill_kind` is
+//! write-once at run creation, which is what lets a kind read at discovery stay authoritative for
+//! the rest of the dispatch. The observation writes are the exception that proves it: they fence on
+//! the dispatch epoch alone, which a kind-bound claim is the only way to mint.
 
 use chrono::{DateTime, Utc};
 use cohort_core::filters::{CohortId, TeamId};
@@ -18,9 +27,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::domain::{
-    BehavioralShapeHash, BehavioralShapeHashError, CompletionParts, CompletionPhase,
-    CompletionStatus, DispatchEpoch, MarkerWatch, ObservationEnds, PartitionBitmap,
-    PartitionBitmapError, ReconcileHwms, RunId, WatchPositions, MARKER_WATCH_SCHEMA,
+    CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch, MarkerWatch,
+    ObservationEnds, PartitionBitmap, PartitionBitmapError, ReconcileHwms, ReconcileScope, RunId,
+    ScopeKind, ShapeHashError, WatchPositions, MARKER_WATCH_SCHEMA,
 };
 
 use super::runs::RunKind;
@@ -31,7 +40,7 @@ use super::{RenderedError, PERSISTED_ERROR_LIMIT};
 /// byte-identical and the composed SQL is a compile-time constant (mirrors `runs::run_columns!`).
 macro_rules! completion_columns {
     () => {
-        "id, team_id, status, chunks_planned_at, reconcile_dispatched_at, \
+        "id, team_id, backfill_kind, status, chunks_planned_at, reconcile_dispatched_at, \
          reconcile_observed_at, reconcile_hwms, marker_watch"
     };
 }
@@ -55,6 +64,15 @@ macro_rules! confirmed_chunk_status {
     };
 }
 
+// The kind predicate binds the caller's allowed-kind set, mirroring `runs::discover_runs`: with the
+// person gate off, discovery binds `['behavioral']` and the person path stays inert.
+//
+// An already-observed reconciling run is excluded, because the driver has no work left for one —
+// Django terminalizes it. Returning it is not free: `completion_columns!` hydrates `reconcile_hwms`
+// and `marker_watch`, two per-partition JSONB documents, for every row. A person run observed while
+// `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` is shut holds `reconciling` until the gate opens,
+// so the pass would decode the whole parked backlog every tick to reach a gauge. That gauge comes
+// from [`count_reconciling_by_kind`] instead.
 const DISCOVER_COMPLETION_ALL: &str = concat!(
     "\n    SELECT ",
     completion_columns!(),
@@ -64,7 +82,10 @@ const DISCOVER_COMPLETION_ALL: &str = concat!(
     ", ",
     reconciling_status!(),
     ")",
-    "\n      AND backfill_kind = 'behavioral'",
+    "\n      AND backfill_kind = ANY($1)",
+    "\n      AND (status = ",
+    seeding_status!(),
+    " OR reconcile_observed_at IS NULL)",
     "\n    ORDER BY created_at\n"
 );
 
@@ -77,9 +98,35 @@ const DISCOVER_COMPLETION_ONLY: &str = concat!(
     ", ",
     reconciling_status!(),
     ")",
-    "\n      AND backfill_kind = 'behavioral'",
+    "\n      AND backfill_kind = ANY($2)",
     "\n      AND team_id = ANY($1)",
+    "\n      AND (status = ",
+    seeding_status!(),
+    " OR reconcile_observed_at IS NULL)",
     "\n    ORDER BY created_at\n"
+);
+
+// Counts rather than rows, and no `reconcile_observed_at` predicate: the point is to report the
+// runs discovery drops as well as the ones it keeps. Driven by `cohort_bfr_reconciling_idx`, whose
+// partial `status = 'reconciling'` predicate and leading `backfill_kind` make this cost the live
+// reconciling set rather than the table's terminal history.
+const COUNT_RECONCILING_ALL: &str = concat!(
+    "\n    SELECT backfill_kind, count(*) AS runs",
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE status = ",
+    reconciling_status!(),
+    "\n      AND backfill_kind = ANY($1)",
+    "\n    GROUP BY backfill_kind\n"
+);
+
+const COUNT_RECONCILING_ONLY: &str = concat!(
+    "\n    SELECT backfill_kind, count(*) AS runs",
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE status = ",
+    reconciling_status!(),
+    "\n      AND backfill_kind = ANY($2)",
+    "\n      AND team_id = ANY($1)",
+    "\n    GROUP BY backfill_kind\n"
 );
 
 const CAS_RUN_RECONCILING: &str = concat!(
@@ -87,7 +134,7 @@ const CAS_RUN_RECONCILING: &str = concat!(
     "\n        SET status = ",
     reconciling_status!(),
     ", updated_at = now()",
-    "\n        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = ",
+    "\n        WHERE id = $1 AND backfill_kind = $2 AND status = ",
     seeding_status!(),
     " AND chunks_planned_at IS NOT NULL",
     "\n          AND NOT EXISTS (",
@@ -153,12 +200,13 @@ pub enum CompletionStoreError {
         #[source]
         source: PartitionBitmapError,
     },
-    #[error("run {run_id:?} cohort {cohort_id:?} has an invalid pinned behavioral shape hash")]
-    InvalidBehavioralShapeHash {
+    #[error("run {run_id:?} cohort {cohort_id:?} has an invalid pinned {kind} shape hash")]
+    InvalidShapeHash {
         run_id: RunId,
         cohort_id: CohortId,
+        kind: ScopeKind,
         #[source]
-        source: BehavioralShapeHashError,
+        source: ShapeHashError,
     },
 }
 
@@ -173,8 +221,8 @@ pub enum PlanningStampOutcome {
 /// ([`cas_run_reconciling`]) or by re-confirming an already-reconciling run ([`confirm_reconciling`]).
 /// It is linear: [`ReconcilingClaim::record`] persists the dispatch or [`ReconcilingClaim::revert`]
 /// releases it back to `seeding`, and either consumes the claim so a dispatch can never be recorded
-/// twice off one CAS. Both minting queries filter `backfill_kind`, so a claim also proves the run
-/// belongs to this protocol.
+/// twice off one CAS. Both minting queries bind the caller's [`RunKind`], so a claim also proves the
+/// run is of the kind the caller believes it is dispatching.
 #[must_use]
 #[derive(Debug)]
 pub struct ReconcilingClaim {
@@ -269,10 +317,8 @@ impl ReconcilingClaim {
 
 /// Stamp the planning proof (`chunks_planned_at`) exactly once for a seeding run — the durable
 /// evidence that chunk planning ran, which distinguishes a legitimately zero-chunk run from one
-/// whose planning has not yet happened. The stamp pair is the one kind-parameterized exception to
-/// this module's hardcoded behavioral filters: person runs earn their planning proof here too,
-/// while every other entry point stays behavioral-only, so a `person_property` run id handed to
-/// the reconcile protocol can never enter it.
+/// whose planning has not yet happened. Kind-bound like every other entry point here: a run id
+/// presented under the wrong kind matches nothing.
 pub async fn mark_chunks_planned(
     pool: &PgPool,
     run_id: RunId,
@@ -323,9 +369,11 @@ pub async fn read_planning_stamp(
 pub async fn cas_run_reconciling(
     pool: &PgPool,
     run_id: RunId,
+    kind: RunKind,
 ) -> Result<Option<ReconcilingClaim>, CompletionStoreError> {
     let claimed = sqlx::query_as::<_, ClaimRow>(CAS_RUN_RECONCILING)
         .bind(run_id)
+        .bind(kind.as_str())
         .fetch_optional(pool)
         .await?;
     Ok(claimed.map(ClaimRow::into_claim))
@@ -337,16 +385,18 @@ pub async fn cas_run_reconciling(
 pub async fn confirm_reconciling(
     pool: &PgPool,
     run_id: RunId,
+    kind: RunKind,
 ) -> Result<Option<ReconcilingClaim>, CompletionStoreError> {
     let claimed = sqlx::query_as::<_, ClaimRow>(
         r#"
         UPDATE cohort_backfill_runs
         SET updated_at = now()
-        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = 'reconciling'
+        WHERE id = $1 AND backfill_kind = $2 AND status = 'reconciling'
         RETURNING id, reconcile_dispatched_at
         "#,
     )
     .bind(run_id)
+    .bind(kind.as_str())
     .fetch_optional(pool)
     .await?;
     Ok(claimed.map(ClaimRow::into_claim))
@@ -362,12 +412,18 @@ pub async fn persist_observation_ends(
     run_id: RunId,
     epoch: DispatchEpoch,
     ends: &ObservationEnds,
+    marker_topic: &str,
 ) -> Result<(), CompletionStoreError> {
     let updated = sqlx::query_scalar::<_, RunId>(
         r#"
         UPDATE cohort_backfill_runs
         SET marker_watch = jsonb_set(
-                coalesce(marker_watch, jsonb_build_object('schema', $4::bigint, 'positions', '{}'::jsonb)),
+                coalesce(
+                    marker_watch,
+                    jsonb_build_object(
+                        'schema', $4::bigint, 'topic', $5::text, 'positions', '{}'::jsonb
+                    )
+                ),
                 '{ends}', $3::jsonb, true
             ),
             updated_at = now()
@@ -379,6 +435,7 @@ pub async fn persist_observation_ends(
     .bind(epoch.as_datetime())
     .bind(Json(ends))
     .bind(i64::from(MARKER_WATCH_SCHEMA))
+    .bind(marker_topic)
     .fetch_optional(pool)
     .await?;
     fence(updated, run_id, CompletionOperation::PersistEnds)
@@ -394,6 +451,7 @@ pub async fn persist_marker_observations(
     epoch: DispatchEpoch,
     bit_updates: &[(CohortId, PartitionBitmap)],
     positions: &WatchPositions,
+    marker_topic: &str,
 ) -> Result<(), CompletionStoreError> {
     let mut tx = pool.begin().await?;
     // The positions write also proves the fence: its RETURNING gates the whole transaction.
@@ -404,7 +462,10 @@ pub async fn persist_marker_observations(
         r#"
         UPDATE cohort_backfill_runs
         SET marker_watch = jsonb_set(
-                coalesce(marker_watch, jsonb_build_object('schema', $4::bigint, 'ends', NULL)),
+                coalesce(
+                    marker_watch,
+                    jsonb_build_object('schema', $4::bigint, 'topic', $5::text, 'ends', NULL)
+                ),
                 '{positions}', $3::jsonb, true
             ),
             updated_at = now()
@@ -416,6 +477,7 @@ pub async fn persist_marker_observations(
     .bind(epoch.as_datetime())
     .bind(Json(positions))
     .bind(i64::from(MARKER_WATCH_SCHEMA))
+    .bind(marker_topic)
     .fetch_optional(&mut *tx)
     .await?;
     if fenced.is_none() {
@@ -593,12 +655,13 @@ pub async fn mark_run_observed(
 pub async fn mark_run_observed_unreconcilable(
     pool: &PgPool,
     run_id: RunId,
+    kind: RunKind,
 ) -> Result<(), CompletionStoreError> {
     let updated = sqlx::query_scalar::<_, RunId>(
         r#"
         UPDATE cohort_backfill_runs
         SET reconcile_observed_at = now(), updated_at = now()
-        WHERE id = $1 AND backfill_kind = 'behavioral' AND status = 'reconciling'
+        WHERE id = $1 AND backfill_kind = $2 AND status = 'reconciling'
           AND NOT EXISTS (
               SELECT 1 FROM cohort_backfill_run_cohorts
               WHERE run_id = $1 AND superseded_at IS NULL
@@ -607,6 +670,7 @@ pub async fn mark_run_observed_unreconcilable(
         "#,
     )
     .bind(run_id)
+    .bind(kind.as_str())
     .fetch_optional(pool)
     .await?;
     fence(
@@ -620,7 +684,9 @@ pub async fn mark_run_observed_unreconcilable(
 #[derive(Debug, Clone)]
 pub struct ObservationParticipation {
     pub cohort_id: CohortId,
-    pub behavioral_filters_shape_hash: BehavioralShapeHash,
+    /// The fence the run pinned, of the run's own kind. Comparing it against the cohort's current
+    /// shape is what splits a shortfall into retryable and terminal.
+    pub scope: ReconcileScope,
     pub bits: PartitionBitmap,
     pub reconcile_completed_at: Option<DateTime<Utc>>,
     pub superseded_at: Option<DateTime<Utc>>,
@@ -628,15 +694,17 @@ pub struct ObservationParticipation {
 }
 
 /// Load every participation's observation state for a run. Superseded rows are included so the
-/// caller can let supersession trump completion.
+/// caller can let supersession trump completion. Only the column matching `kind` is parsed; the
+/// other is `''` for a single-kind run and is never read.
 pub async fn load_observation_participations(
     pool: &PgPool,
     run_id: RunId,
+    kind: RunKind,
 ) -> Result<Vec<ObservationParticipation>, CompletionStoreError> {
     let rows = sqlx::query_as::<_, ObservationParticipationRow>(
         r#"
-        SELECT cohort_id, behavioral_filters_shape_hash, reconcile_marker_bits,
-               reconcile_completed_at, superseded_at, stamped_at
+        SELECT cohort_id, behavioral_filters_shape_hash, person_filters_shape_hash,
+               reconcile_marker_bits, reconcile_completed_at, superseded_at, stamped_at
         FROM cohort_backfill_run_cohorts
         WHERE run_id = $1
         ORDER BY cohort_id
@@ -646,6 +714,7 @@ pub async fn load_observation_participations(
     .fetch_all(pool)
     .await?;
 
+    let kind = kind.scope();
     let mut participations = Vec::with_capacity(rows.len());
     for row in rows {
         let cohort_id = CohortId(row.cohort_id);
@@ -656,17 +725,17 @@ pub async fn load_observation_participations(
                 source,
             }
         })?;
-        let behavioral_filters_shape_hash =
-            BehavioralShapeHash::parse(&row.behavioral_filters_shape_hash).map_err(|source| {
-                CompletionStoreError::InvalidBehavioralShapeHash {
-                    run_id,
-                    cohort_id,
-                    source,
-                }
-            })?;
+        let scope = ReconcileScope::parse(kind, row.pinned_hash(kind)).map_err(|source| {
+            CompletionStoreError::InvalidShapeHash {
+                run_id,
+                cohort_id,
+                kind,
+                source,
+            }
+        })?;
         participations.push(ObservationParticipation {
             cohort_id,
-            behavioral_filters_shape_hash,
+            scope,
             bits,
             reconcile_completed_at: row.reconcile_completed_at,
             superseded_at: row.superseded_at,
@@ -676,30 +745,31 @@ pub async fn load_observation_participations(
     Ok(participations)
 }
 
-/// The cohort's current behavioral shape, read from `posthog_cohort` to attribute a shortfall. An
-/// absent row is treated as `Deleted`; a NULL or unparseable hash is `Indeterminate` (the caller
-/// treats it as diverged).
+/// The cohort's current shape of one kind, read from `posthog_cohort` to attribute a shortfall. An
+/// absent row is treated as `Deleted`; a NULL, empty, or unparseable hash is `Indeterminate` (the
+/// caller treats it as diverged).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CurrentBehavioralHash {
-    Present(BehavioralShapeHash),
+pub enum CurrentShapeHash {
+    Present(ReconcileScope),
     Deleted,
     Indeterminate,
 }
 
-/// Read the current behavioral shape hash for each requested cohort. Cohorts with no row are absent
-/// from the map, which the caller reads as [`CurrentBehavioralHash::Deleted`].
-pub async fn load_current_behavioral_hashes(
+/// Read each requested cohort's current shape hash of `kind`. Cohorts with no row are absent from
+/// the map, which the caller reads as [`CurrentShapeHash::Deleted`].
+pub async fn load_current_shape_hashes(
     pool: &PgPool,
     team_id: TeamId,
     cohort_ids: &[CohortId],
-) -> Result<HashMap<CohortId, CurrentBehavioralHash>, CompletionStoreError> {
+    kind: RunKind,
+) -> Result<HashMap<CohortId, CurrentShapeHash>, CompletionStoreError> {
     if cohort_ids.is_empty() {
         return Ok(HashMap::new());
     }
     let ids: Vec<i32> = cohort_ids.iter().map(|cohort| cohort.0).collect();
     let rows = sqlx::query_as::<_, CurrentCohortRow>(
         r#"
-        SELECT id, behavioral_filters_shape_hash, deleted
+        SELECT id, behavioral_filters_shape_hash, person_filters_shape_hash, deleted
         FROM posthog_cohort
         WHERE team_id = $1 AND id = ANY($2)
         "#,
@@ -709,17 +779,18 @@ pub async fn load_current_behavioral_hashes(
     .fetch_all(pool)
     .await?;
 
+    let kind = kind.scope();
     let mut current = HashMap::with_capacity(rows.len());
     for row in rows {
         let state = if row.deleted {
-            CurrentBehavioralHash::Deleted
+            CurrentShapeHash::Deleted
         } else {
-            match row.behavioral_filters_shape_hash {
-                Some(hash) => match BehavioralShapeHash::parse(&hash) {
-                    Ok(hash) => CurrentBehavioralHash::Present(hash),
-                    Err(_) => CurrentBehavioralHash::Indeterminate,
-                },
-                None => CurrentBehavioralHash::Indeterminate,
+            match row
+                .current_hash(kind)
+                .map(|hash| ReconcileScope::parse(kind, hash))
+            {
+                Some(Ok(scope)) => CurrentShapeHash::Present(scope),
+                Some(Err(_)) | None => CurrentShapeHash::Indeterminate,
             }
         };
         current.insert(CohortId(row.id), state);
@@ -750,18 +821,25 @@ pub async fn runs_with_all_chunks_confirmed(
 pub struct DiscoveredCompletion {
     pub run_id: RunId,
     pub team_id: TeamId,
+    pub kind: RunKind,
     pub phase: CompletionPhase,
 }
 
-/// Discover every seeding/reconciling behavioral run and classify each. Rows whose status is not one
-/// of the two the query selects are skipped defensively.
+/// Discover every seeding run, and every not-yet-observed reconciling run, of an allowed kind, and
+/// classify each. Rows whose status or kind is outside the vocabulary the query already bounds are
+/// skipped defensively. An observed run is the driver's exit condition, so it is filtered in SQL
+/// rather than hydrated and then matched away — [`count_reconciling_by_kind`] still sees it.
 pub async fn discover_completions(
     pool: &PgPool,
     allowlist: &TeamAllowlist,
+    kinds: &[RunKind],
+    marker_topic: &str,
 ) -> Result<Vec<DiscoveredCompletion>, CompletionStoreError> {
+    let bound_kinds = kinds.iter().map(|kind| kind.as_str()).collect::<Vec<_>>();
     let rows = match allowlist {
         TeamAllowlist::All => {
             sqlx::query_as::<_, CompletionRunRow>(DISCOVER_COMPLETION_ALL)
+                .bind(bound_kinds)
                 .fetch_all(pool)
                 .await?
         }
@@ -770,19 +848,60 @@ pub async fn discover_completions(
             team_ids.sort_unstable();
             sqlx::query_as::<_, CompletionRunRow>(DISCOVER_COMPLETION_ONLY)
                 .bind(team_ids)
+                .bind(bound_kinds)
                 .fetch_all(pool)
                 .await?
         }
     };
-    Ok(rows.into_iter().filter_map(classify_row).collect())
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| classify_row(row, marker_topic))
+        .collect())
 }
 
-fn classify_row(row: CompletionRunRow) -> Option<DiscoveredCompletion> {
+/// How many runs hold `reconciling`, per kind — including the observed ones discovery drops, which
+/// is the whole point: while the person readiness gate is shut, that backlog is the only thing the
+/// `seeder_runs_reconciling` gauge has to report, and it is exactly what the driver cannot act on.
+/// One aggregate, so the gauge costs a count rather than a hydration of every parked row.
+pub async fn count_reconciling_by_kind(
+    pool: &PgPool,
+    allowlist: &TeamAllowlist,
+    kinds: &[RunKind],
+) -> Result<HashMap<RunKind, u64>, CompletionStoreError> {
+    let bound_kinds = kinds.iter().map(|kind| kind.as_str()).collect::<Vec<_>>();
+    let rows = match allowlist {
+        TeamAllowlist::All => {
+            sqlx::query_as::<_, ReconcilingCountRow>(COUNT_RECONCILING_ALL)
+                .bind(bound_kinds)
+                .fetch_all(pool)
+                .await?
+        }
+        TeamAllowlist::Only(team_ids) => {
+            let mut team_ids = team_ids.iter().copied().collect::<Vec<_>>();
+            team_ids.sort_unstable();
+            sqlx::query_as::<_, ReconcilingCountRow>(COUNT_RECONCILING_ONLY)
+                .bind(team_ids)
+                .bind(bound_kinds)
+                .fetch_all(pool)
+                .await?
+        }
+    };
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let kind = row.backfill_kind.parse::<RunKind>().ok()?;
+            Some((kind, row.runs.max(0) as u64))
+        })
+        .collect())
+}
+
+fn classify_row(row: CompletionRunRow, marker_topic: &str) -> Option<DiscoveredCompletion> {
     let status = match row.status.as_str() {
         "seeding" => CompletionStatus::Seeding,
         "reconciling" => CompletionStatus::Reconciling,
         _ => return None,
     };
+    let kind = row.backfill_kind.parse::<RunKind>().ok()?;
     let phase = CompletionPhase::from_parts(CompletionParts {
         status,
         chunks_planned_at: row.chunks_planned_at,
@@ -790,10 +909,12 @@ fn classify_row(row: CompletionRunRow) -> Option<DiscoveredCompletion> {
         reconcile_observed_at: row.reconcile_observed_at,
         reconcile_hwms: row.reconcile_hwms.map(|json| json.0),
         marker_watch: row.marker_watch.map(|json| json.0),
+        expected_marker_topic: marker_topic,
     });
     Some(DiscoveredCompletion {
         run_id: row.id,
         team_id: TeamId(row.team_id),
+        kind,
         phase,
     })
 }
@@ -850,6 +971,7 @@ impl ClaimRow {
 struct CompletionRunRow {
     id: RunId,
     team_id: i32,
+    backfill_kind: String,
     status: String,
     chunks_planned_at: Option<DateTime<Utc>>,
     reconcile_dispatched_at: Option<DateTime<Utc>>,
@@ -859,20 +981,46 @@ struct CompletionRunRow {
 }
 
 #[derive(Debug, FromRow)]
+struct ReconcilingCountRow {
+    backfill_kind: String,
+    runs: i64,
+}
+
+#[derive(Debug, FromRow)]
 struct ObservationParticipationRow {
     cohort_id: i32,
     behavioral_filters_shape_hash: String,
+    person_filters_shape_hash: String,
     reconcile_marker_bits: i64,
     reconcile_completed_at: Option<DateTime<Utc>>,
     superseded_at: Option<DateTime<Utc>>,
     stamped_at: Option<DateTime<Utc>>,
 }
 
+impl ObservationParticipationRow {
+    fn pinned_hash(&self, kind: ScopeKind) -> &str {
+        match kind {
+            ScopeKind::Behavioral => &self.behavioral_filters_shape_hash,
+            ScopeKind::PersonProperty => &self.person_filters_shape_hash,
+        }
+    }
+}
+
 #[derive(Debug, FromRow)]
 struct CurrentCohortRow {
     id: i32,
     behavioral_filters_shape_hash: Option<String>,
+    person_filters_shape_hash: Option<String>,
     deleted: bool,
+}
+
+impl CurrentCohortRow {
+    fn current_hash(&self, kind: ScopeKind) -> Option<&str> {
+        match kind {
+            ScopeKind::Behavioral => self.behavioral_filters_shape_hash.as_deref(),
+            ScopeKind::PersonProperty => self.person_filters_shape_hash.as_deref(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -901,5 +1049,7 @@ mod tests {
         assert!(CAS_RUN_RECONCILING.contains(confirmed_chunk_status!()));
         assert!(RUNS_WITH_ALL_CHUNKS_CONFIRMED.contains(confirmed_chunk_status!()));
         assert!(DISCOVER_COMPLETION_ALL.contains(seeding_status!()));
+        assert!(COUNT_RECONCILING_ALL.contains(reconciling_status!()));
+        assert!(COUNT_RECONCILING_ONLY.contains(reconciling_status!()));
     }
 }

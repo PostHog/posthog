@@ -18,7 +18,7 @@ import { ActivityScope } from '~/types'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
-import { shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
+import { shouldShowManagedSourceMetricsTab, shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
 import { SyncsTab } from '../SourceScene/tabs/SyncsTab'
 import { ConfigurationTab } from './ConfigurationTab'
 import { MetricsTab } from './MetricsTab'
@@ -65,7 +65,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showSyncs = shouldShowManagedSourceSyncsTab(source)
-    const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const showMetrics = shouldShowManagedSourceMetricsTab(source, !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS])
     const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
     const showColumnsSection = supportsColumnSelection
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
@@ -73,22 +73,19 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     )
 
     useEffect(() => {
-        if (!showMetrics && currentTab === 'metrics') {
-            setCurrentTab('configuration')
-        }
-    }, [showMetrics, currentTab, setCurrentTab])
-
-    useEffect(() => {
-        // Wait for the source before deciding the tab is unavailable. While it's null `showSyncs` is
-        // false, so a URL-selected "syncs" tab would get bounced to Configuration and push a bogus
-        // history entry over the URL the user actually navigated to.
+        // Wait for the source before deciding a tab is unavailable. While it's null `showSyncs` and
+        // `showMetrics` are false, so a URL-selected "syncs" tab would get bounced to Configuration
+        // and push a bogus history entry over the URL the user actually navigated to.
         if (!source) {
             return
         }
         if (!showSyncs && currentTab === 'syncs') {
             setCurrentTab('configuration')
         }
-    }, [source, showSyncs, currentTab, setCurrentTab])
+        if (!showMetrics && currentTab === 'metrics') {
+            setCurrentTab('configuration')
+        }
+    }, [source, showSyncs, showMetrics, currentTab, setCurrentTab])
 
     useEffect(() => {
         if (!showColumnsSection && currentSection === 'columns') {

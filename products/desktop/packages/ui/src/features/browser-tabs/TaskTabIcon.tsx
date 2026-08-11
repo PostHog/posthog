@@ -41,6 +41,7 @@ export function TaskTabIcon({
       isSuspended={taskData.isSuspended}
       needsPermission={taskData.needsPermission}
       taskRunStatus={taskData.taskRunStatus}
+      runMode={taskData.runMode}
       originProduct={taskData.originProduct}
       slackThreadUrl={taskData.slackThreadUrl}
       prState={prState}

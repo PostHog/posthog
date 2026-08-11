@@ -27,8 +27,6 @@ from posthog.kafka_client.client import _AsyncKafkaProducer, _KafkaProducer
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.topics import (
     KAFKA_APP_METRICS2,
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
     KAFKA_CDP_INTERNAL_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
@@ -54,8 +52,6 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ,
-    KAFKA_WAREHOUSE_SOURCES_JOBS,
-    KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ,
 )
 from posthog.settings.kafka import KafkaProfileSettings
 
@@ -92,8 +88,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     # so it needs no Django producer routing entry.
     KAFKA_FLAGS_CACHE_INVALIDATION: KafkaClusterProfile.SHARED,
     # --- WAREHOUSE_SOURCES (Warpstream warehouse-pipelines) ---
-    KAFKA_WAREHOUSE_SOURCES_JOBS: KafkaClusterProfile.WAREHOUSE_SOURCES,
-    KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS_DLQ: KafkaClusterProfile.WAREHOUSE_SOURCES,
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES: KafkaClusterProfile.WAREHOUSE_SOURCES,
@@ -102,8 +96,6 @@ _DEFAULT_TOPIC_ROUTING: dict[str, KafkaClusterProfile] = {
     KAFKA_CDP_INTERNAL_EVENTS: KafkaClusterProfile.CYCLOTRON,
     KAFKA_DWH_CDP_RAW_TABLE: KafkaClusterProfile.CYCLOTRON,
     # --- CALCULATED_EVENTS (Warpstream calculated-events) ---
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES: KafkaClusterProfile.CALCULATED_EVENTS,
-    KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS: KafkaClusterProfile.CALCULATED_EVENTS,
     KAFKA_COHORT_MEMBERSHIP_CHANGED: KafkaClusterProfile.CALCULATED_EVENTS,
     # --- REPLAY (Session replay) ---
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS: KafkaClusterProfile.REPLAY,

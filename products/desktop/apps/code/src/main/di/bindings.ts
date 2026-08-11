@@ -241,6 +241,7 @@ import type { ElectronDialog } from "../platform-adapters/electron-dialog";
 import type { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import type { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import type { ElectronMainWindow } from "../platform-adapters/electron-main-window";
+import type { MissionControlService } from "../platform-adapters/electron-mission-control";
 import type { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import type { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import type { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -296,6 +297,7 @@ import type {
   LLM_GATEWAY_SERVICE as MAIN_LLM_GATEWAY_SERVICE,
   LOOP_LINK_SERVICE as MAIN_LOOP_LINK_SERVICE,
   MCP_APPS_SERVICE as MAIN_MCP_APPS_SERVICE,
+  MISSION_CONTROL_SERVICE as MAIN_MISSION_CONTROL_SERVICE,
   NEW_TASK_LINK_SERVICE as MAIN_NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE as MAIN_OPEN_TARGET_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE as MAIN_POSTHOG_PLUGIN_SERVICE,
@@ -490,6 +492,7 @@ export interface MainBindings {
   [LOGS_SERVICE]: ILogsService;
   [MAIN_ENCRYPTION_SERVICE]: EncryptionService;
   [MAIN_DISCORD_PRESENCE_SERVICE]: DiscordPresenceService;
+  [MAIN_MISSION_CONTROL_SERVICE]: MissionControlService;
 
   // Dev toolbar diagnostics
   [MAIN_DEV_FLAGS_SERVICE]: DevFlagsService;

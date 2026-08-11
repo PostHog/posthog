@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 INSIGHT_ALERT_POLICY = AlertPolicy(
     max_consecutive_failures=None,
-    notify_error_on_every_failure=True,
+    notify_error_on_every_failure=False,
     renotify_while_firing=True,
     notify_resolve=False,
     errors_set_errored_state=True,
@@ -41,7 +41,7 @@ def snapshot_from_alert(alert: AlertConfiguration) -> AlertSnapshot:
         cooldown=timedelta(0),
         last_notified_at=alert.last_notified_at,
         snooze_until=alert.snoozed_until,
-        consecutive_failures=0,
+        consecutive_failures=1 if alert.state == InsightAlertState.ERRORED else 0,
     )
 
 

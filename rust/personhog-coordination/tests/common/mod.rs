@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use personhog_coordination::authority::AuthorityClock;
 use std::collections::{HashMap, HashSet};
 use std::future::{pending, Future};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -73,6 +74,33 @@ where
         tokio::time::sleep(interval).await;
     }
     panic!("condition not met within {timeout:?}");
+}
+
+/// `wait_for_condition` with a description of what is being waited on.
+///
+/// A bare timeout reports "condition not met", which names nothing —
+/// and for tests whose whole assertion *is* the wait, that is the entire
+/// failure message. Worth using wherever the timeout is the assertion
+/// rather than a setup step. (`#[track_caller]` would be the zero-churn
+/// answer, but it is a no-op on async fns.)
+#[allow(dead_code)]
+pub async fn wait_for_condition_named<F, Fut>(
+    timeout: Duration,
+    interval: Duration,
+    what: &str,
+    f: F,
+) where
+    F: Fn() -> Fut,
+    Fut: Future<Output = bool>,
+{
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if f().await {
+            return;
+        }
+        tokio::time::sleep(interval).await;
+    }
+    panic!("timed out after {timeout:?} waiting for {what}");
 }
 
 // ── Component builders ──────────────────────────────────────────
@@ -176,6 +204,7 @@ pub fn start_pod_with_address(
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     let join_handle = tokio::spawn(async move { pod.run(token).await });
@@ -183,6 +212,425 @@ pub fn start_pod_with_address(
         events,
         join_handle: Some(join_handle),
     }
+}
+
+/// A handler whose `resume_partition` fails a fixed number of times
+/// before succeeding — the shape of a resume that has to take broker
+/// state and hits a transient error.
+pub struct FlakyResumeHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    remaining_failures: AtomicUsize,
+}
+
+#[async_trait]
+impl HandoffHandler for FlakyResumeHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        if self.remaining_failures.load(Ordering::SeqCst) > 0 {
+            self.remaining_failures.fetch_sub(1, Ordering::SeqCst);
+            return Err(personhog_coordination::error::Error::invalid_state(
+                "resume failed (test)",
+            ));
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose first `failures` resume attempts fail.
+pub fn start_pod_with_flaky_resume(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    failures: usize,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = FlakyResumeHandler {
+        events: Arc::clone(&events),
+        remaining_failures: AtomicUsize::new(failures),
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
+/// A handler whose first `failures` release attempts fail — the shape of
+/// a release that has to give back broker state and hits a transient
+/// error.
+pub struct FlakyReleaseHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    remaining_failures: AtomicUsize,
+}
+
+#[async_trait]
+impl HandoffHandler for FlakyReleaseHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        if self.remaining_failures.load(Ordering::SeqCst) > 0 {
+            self.remaining_failures.fetch_sub(1, Ordering::SeqCst);
+            return Err(personhog_coordination::error::Error::invalid_state(
+                "release failed (test)",
+            ));
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose first `failures` release attempts fail.
+pub fn start_pod_with_flaky_release(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    failures: usize,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = FlakyReleaseHandler {
+        events: Arc::clone(&events),
+        remaining_failures: AtomicUsize::new(failures),
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
+/// A handler whose `drain_partition_inflight` always fails for one
+/// partition — the shape of a drain that cannot quiesce whatever the
+/// pod does.
+pub struct StuckDrainHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    stuck: u32,
+}
+
+#[async_trait]
+impl HandoffHandler for StuckDrainHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        if partition == self.stuck {
+            self.events
+                .lock()
+                .await
+                .push(HandoffEvent::DrainFailed(partition));
+            return Err(personhog_coordination::error::Error::invalid_state(
+                format!("drain refuses for partition {partition}"),
+            ));
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose drain refuses for exactly one partition.
+pub fn start_pod_with_stuck_drain(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    stuck: u32,
+    lease_ttl: i64,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = StuckDrainHandler {
+        events: Arc::clone(&events),
+        stuck,
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl,
+            heartbeat_interval: Duration::from_secs((lease_ttl / 5).max(1) as u64),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
+/// A handler whose `drain_partition_inflight` hangs forever for one
+/// partition — the shape of in-flight work that never quiesces, which
+/// only the self-fence's own timeout can end.
+pub struct HangingDrainHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    hung: u32,
+}
+
+#[async_trait]
+impl HandoffHandler for HangingDrainHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        if partition == self.hung {
+            pending::<()>().await;
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose drain hangs forever for exactly one partition.
+pub fn start_pod_with_hanging_drain(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    hung: u32,
+    lease_ttl: i64,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = HangingDrainHandler {
+        events: Arc::clone(&events),
+        hung,
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl,
+            heartbeat_interval: Duration::from_secs((lease_ttl / 5).max(1) as u64),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
+/// A handler whose `release_partition` always fails, recording every
+/// partition it was asked to give up before it does.
+///
+/// Failing for *every* partition is what makes the attempt log
+/// order-independent: the release loop walks a `HashSet`, so a handler
+/// that failed for only one would prove nothing when that one happened to
+/// be walked last.
+pub struct FailingReleaseHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    attempts: Arc<Mutex<Vec<u32>>>,
+}
+
+#[async_trait]
+impl HandoffHandler for FailingReleaseHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.attempts.lock().await.push(partition);
+        Err(personhog_coordination::error::Error::invalid_state(
+            format!("release refuses for partition {partition}"),
+        ))
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose every release fails, alongside the log of which
+/// partitions it was asked to release.
+pub fn start_pod_with_failing_release(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    lease_ttl: i64,
+    cancel: CancellationToken,
+) -> (PodHandles, Arc<Mutex<Vec<u32>>>) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let attempts = Arc::new(Mutex::new(Vec::new()));
+    let handler = FailingReleaseHandler {
+        events: Arc::clone(&events),
+        attempts: Arc::clone(&attempts),
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl,
+            heartbeat_interval: Duration::from_secs((lease_ttl / 5).max(1) as u64),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+        Arc::new(AuthorityClock::unclaimed()),
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    (
+        PodHandles {
+            events,
+            join_handle: Some(join_handle),
+        },
+        attempts,
+    )
 }
 
 /// Start a pod whose warm_partition blocks forever. Useful for testing
@@ -208,6 +656,7 @@ pub fn start_pod_blocking(
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     let join_handle = tokio::spawn(async move { pod.run(token).await });
@@ -277,6 +726,7 @@ pub fn start_pod_slow(
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     let join_handle = tokio::spawn(async move { pod.run(token).await });
@@ -422,6 +872,10 @@ impl Drop for FlakyProxy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandoffEvent {
     Drained(u32),
+    /// A drain attempt that returned an error — pushed by handlers whose
+    /// failures are the scenario, so tests can sequence on the attempt
+    /// having happened rather than racing the watch.
+    DrainFailed(u32),
     Warmed(u32),
     Released(u32),
     Resumed(u32),
@@ -664,6 +1118,7 @@ pub fn start_pod_gated(
         },
         Arc::new(handler),
         None,
+        Arc::new(AuthorityClock::unclaimed()),
     );
     let token = cancel.child_token();
     let join_handle = tokio::spawn(async move { pod.run(token).await });

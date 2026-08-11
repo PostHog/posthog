@@ -28,6 +28,11 @@ DEFAULT_CONVERSION_METRIC_NAME = "Placed Order"
 # Accounts have tens of metrics, so the fallback lookup stays bounded rather than walking forever.
 MAX_CONVERSION_METRIC_PAGES = 20
 
+# Klaviyo's exact detail string when a metric (configured or auto-resolved) can't be used as a
+# values report's conversion metric, e.g. a system metric Klaviyo doesn't allow for conversion
+# statistics. The same metric would be re-resolved on every retry, so this can never self-heal.
+CONVERSION_METRIC_INELIGIBLE_DETAIL = "does not support querying for values data"
+
 
 class KlaviyoRetryableError(Exception):
     pass
@@ -197,6 +202,38 @@ def _build_initial_params(
     return params
 
 
+def _extract_error_detail(response: requests.Response) -> str | None:
+    """Pull the human-readable reason out of a Klaviyo JSON:API error body, if there is one."""
+    try:
+        errors = response.json().get("errors", [])
+        details = [
+            str(detail)
+            for error in errors
+            if isinstance(error, dict) and (detail := error.get("detail") or error.get("title"))
+        ]
+        return "; ".join(details)[:500] if details else None
+    except Exception:
+        return None
+
+
+def _raise_for_status_with_detail(response: requests.Response) -> None:
+    """`raise_for_status`, with Klaviyo's error detail appended to the exception message.
+
+    requests builds the HTTPError message from the status and URL alone, but a Klaviyo 403 carries
+    the actual denial reason only in the body — a key missing a read scope and an endpoint the
+    account's plan doesn't include (e.g. webhooks without Advanced KDP) are indistinguishable
+    without it. Non-retryable classification matches on the exception message, so the detail must
+    ride along. The response stays attached for handlers that branch on `exc.response`.
+    """
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = _extract_error_detail(response)
+        if detail:
+            raise requests.HTTPError(f"{exc} ({detail})", response=response) from exc
+        raise
+
+
 @retry(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
@@ -232,7 +269,7 @@ def _fetch_page(
         # 404 is expected and handled during a fan-out (a parent deleted mid-sync).
         log = logger.warning if response.status_code == 404 else logger.error
         log(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
-        response.raise_for_status()
+        _raise_for_status_with_detail(response)
 
     return response.json()
 
@@ -457,26 +494,39 @@ def _get_values_report_rows(
     post_headers = {**headers, "Content-Type": "application/vnd.api+json"}
     url = f"{KLAVIYO_BASE_URL}{config.path}"
 
-    while True:
-        data = _fetch_page(session, url, post_headers, logger, json_body=body)
-        attributes = data.get("data", {}).get("attributes", {})
+    try:
+        while True:
+            data = _fetch_page(session, url, post_headers, logger, json_body=body)
+            attributes = data.get("data", {}).get("attributes", {})
 
-        for result in attributes.get("results", []):
-            batcher.batch(
-                {
-                    **result.get("groupings", {}),
-                    **result.get("statistics", {}),
-                    "timeframe_key": report.timeframe_key,
-                    "conversion_metric_id": metric_id,
-                }
+            for result in attributes.get("results", []):
+                batcher.batch(
+                    {
+                        **result.get("groupings", {}),
+                        **result.get("statistics", {}),
+                        "timeframe_key": report.timeframe_key,
+                        "conversion_metric_id": metric_id,
+                    }
+                )
+                if batcher.should_yield():
+                    yield batcher.get_table()
+
+            next_url = data.get("links", {}).get("next")
+            if not next_url:
+                break
+            url = next_url
+    except requests.HTTPError as exc:
+        if (
+            exc.response is not None
+            and exc.response.status_code == 400
+            and CONVERSION_METRIC_INELIGIBLE_DETAIL in exc.response.text
+        ):
+            logger.warning(
+                f"Klaviyo: conversion metric {metric_id} isn't eligible for values reporting on "
+                f"{config.name}; set a different conversion metric ID on the source, skipping"
             )
-            if batcher.should_yield():
-                yield batcher.get_table()
-
-        next_url = data.get("links", {}).get("next")
-        if not next_url:
-            break
-        url = next_url
+            return
+        raise
 
 
 def get_rows(

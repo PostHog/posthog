@@ -12,6 +12,7 @@ export interface PosthogToolMeta {
   toolName: string;
   /** Set only for MCP tool calls — the originating server + tool. */
   mcp?: { server: string; tool: string };
+  mcpInstallationId?: string;
   /** Parent subagent tool call for nested activity. */
   parentToolCallId?: string;
 }
@@ -90,4 +91,8 @@ export function readMcpToolDescriptor(
 export function readMcpToolName(meta: unknown): string | undefined {
   const mcp = readMcpToolDescriptor(meta);
   return mcp ? mcpToolKey(mcp) : undefined;
+}
+
+export function readMcpInstallationId(meta: unknown): string | undefined {
+  return asToolCallMeta(meta)?.posthog?.mcpInstallationId;
 }

@@ -1,4 +1,4 @@
-"""Kafka profile resolution and a bounded shadow-topic drain.
+"""Kafka profile resolution and a bounded topic drain.
 
 The drain reads each partition from `offsets_for_times(--since)` up to a high-watermark
 snapshot taken at start, so a still-producing topic terminates. Uses a throwaway
@@ -21,6 +21,8 @@ from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_profile_settings
 
 DEFAULT_SHADOW_TOPIC = "cohort_membership_changed_shadow"
+# Reconcile completion markers ride their own topic, on the same cluster as the shadow topic.
+DEFAULT_MARKER_TOPIC = "cohort_reconcile_markers"
 
 
 @dataclass
@@ -42,10 +44,10 @@ def consumer_config(
     hosts_override: Optional[str] = None,
     security_protocol_override: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Consumer config for the shadow topic's cluster (Warpstream ingestion).
+    """Consumer config for the shadow and marker topics' cluster (Warpstream ingestion).
 
-    The shadow topic is not in the Django routing table, so the INGESTION profile is
-    resolved explicitly; overrides serve local runs against a dev stack.
+    Neither topic is in the Django routing table, so the INGESTION profile is resolved
+    explicitly; overrides serve local runs against a dev stack.
     """
     profile = get_profile_settings(profile=KafkaClusterProfile.INGESTION)
     hosts = hosts_override or ",".join(profile.hosts)

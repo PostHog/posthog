@@ -23,7 +23,13 @@ import { experimentLogic } from '../experimentLogic'
 import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
-import { getFlagVariants, getOrderedMetricsWithResults } from '../utils'
+import {
+    getFlagVariants,
+    getOrderedMetricsWithResults,
+    initializeMetricOrdering,
+    isExperimentConflictError,
+    toConcurrencyPayload,
+} from '../utils'
 import {
     ManualCalculatorMetricType,
     baselineStatsFromResults,
@@ -62,6 +68,7 @@ export interface runningTimeLogicValues {
         result: any
     }[] // experimentLogic
     primaryMetricsResultsLoading: boolean // experimentLogic
+    unmodifiedExperiment: Experiment | null // experimentLogic
     recalcPrimaryMetricsResults: CachedNewExperimentQueryResponse[] // experimentMetricsLogic
     recalcPrimaryMetricsResultsErrors: (unknown | null)[] // experimentMetricsLogic
     defaultMinimumDetectableEffect: number // experimentsConfigLogic
@@ -100,6 +107,9 @@ export interface runningTimeLogicValues {
 export interface runningTimeLogicActions {
     setExperiment: (experiment: Partial<Experiment>) => {
         experiment: Partial<Experiment>
+    } // experimentLogic
+    setUnmodifiedExperiment: (experiment: Experiment) => {
+        experiment: Experiment
     } // experimentLogic
     closeRunningTimeConfigModal: () => {
         value: true
@@ -263,7 +273,13 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         return {
             values: [
                 experimentLogic({ experimentId }),
-                ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
+                [
+                    'experiment',
+                    'unmodifiedExperiment',
+                    'orderedPrimaryMetricsWithResults',
+                    'primaryMetricsResultsLoading',
+                    'currentProjectId',
+                ],
                 // On the recalculation flow, metric results live in experimentMetricsLogic, not experimentLogic.
                 experimentMetricsLogic({ experiment: props.experiment }),
                 [
@@ -279,7 +295,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             ],
             actions: [
                 experimentLogic({ experimentId }),
-                ['setExperiment'],
+                ['setExperiment', 'setUnmodifiedExperiment'],
                 modalsLogic,
                 ['closeRunningTimeConfigModal'],
             ],
@@ -614,11 +630,38 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 recommended_sample_size: targetSampleSize,
             }
 
-            await api.update(`api/projects/${currentProjectId}/experiments/${props.experiment.id}`, {
-                running_time_calculation: updatedRunningTimeCalculation,
-            })
-
-            actions.setExperiment({ running_time_calculation: updatedRunningTimeCalculation })
+            // This write bumps the experiment's concurrency version like any other, so it must
+            // carry the handshake and absorb the response — otherwise every open tab of a running
+            // experiment goes silently stale on results load and later scalar saves 409.
+            try {
+                const response: Experiment = await api.update(
+                    `api/projects/${currentProjectId}/experiments/${props.experiment.id}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        running_time_calculation: updatedRunningTimeCalculation,
+                    }
+                )
+                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setExperiment({
+                    running_time_calculation: response.running_time_calculation ?? updatedRunningTimeCalculation,
+                })
+            } catch (error: any) {
+                if (!isExperimentConflictError(error)) {
+                    throw error
+                }
+                // A machine-written estimate losing a race is not a user problem: drop it silently
+                // and resync the snapshot so this tab stops being stale (and the guard above stops
+                // re-persisting the same values against fresh server state).
+                try {
+                    const fresh: Experiment = await api.get(
+                        `api/projects/${currentProjectId}/experiments/${props.experiment.id}`
+                    )
+                    actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(fresh)))
+                    actions.setExperiment({ running_time_calculation: fresh.running_time_calculation })
+                } catch {
+                    // Leave state as-is; the next full experiment load resyncs the snapshot.
+                }
+            }
         },
 
         save: async () => {

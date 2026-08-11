@@ -18,9 +18,9 @@ export function useFileTaskToChannel(): (
   const { channels } = useChannels();
 
   return useCallback(
-    async (channelId: string, taskId: string, taskTitle: string) => {
+    async (channelId: string, taskId: string) => {
       try {
-        await fileTask(channelId, taskId, taskTitle);
+        await fileTask(channelId, taskId);
         const channelName = channels.find(
           (channel) => channel.id === channelId,
         )?.name;

@@ -178,15 +178,16 @@ pub enum DataType {
     ExceptionErrorTracking,
     SnapshotMain,
     /// Dedicated `$ai_*` lane, mirroring v1's `Destination::AiEvents`. Only
-    /// produced when the deployment's `AiRouting` policy diverts the batch
-    /// token; the kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`. Like heatmaps and
-    /// exceptions, AI events never overflow and never reroute historical.
+    /// produced on deployments whose capture mode routes AI events (see
+    /// `CaptureMode::routes_ai_events`); the kafka sink maps it to
+    /// `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`. Like heatmaps and exceptions, AI events never
+    /// reroute historical.
     AiEvents,
 }
 
 /// Event names diverted to the dedicated AI lane. Must stay in sync with the
-/// ingestion AI subpipeline's allowlist (`AI_EVENT_TYPES` in
-/// `nodejs/src/ingestion/common/subpipelines/ai-event-types.ts`), which DLQs
+/// AI lane's allowlist (`AI_EVENT_TYPES` in
+/// `nodejs/src/ingestion/pipelines/ai/ai-event-types.ts`), which DLQs
 /// anything it receives that isn't on the list. Matching on the `$ai_` prefix
 /// instead would divert prefixed-but-unlisted names (e.g. `$ai_call`) into the
 /// AI topic only for the ingestion pipeline to DLQ them.
@@ -216,12 +217,11 @@ impl DataType {
     /// `apply_restrictions` so the analytics → exception → heatmap →
     /// ingestion-warning split stays in one place.
     ///
-    /// `route_ai_events` reflects the per-batch `AiRouting` decision,
+    /// `route_ai_events` reflects the deployment's `CaptureMode::routes_ai_events`,
     /// mirroring v1's `destination_for_event_name`: when set, AI events (per
     /// [`is_ai_event`]) divert to `AiEvents`, winning over historical (in v1
     /// the historical reroute only applies to the analytics-main destination).
-    /// When unset the mapping is a strict no-op relative to the pre-AI-lane
-    /// behavior.
+    /// When unset the mapping keeps AI events on the main/historical lanes.
     ///
     /// `SnapshotMain` is not produced here — replay events arrive on a
     /// separate endpoint and never flow through analytics processing.
@@ -284,9 +284,14 @@ pub struct ProcessedEvent {
 /// for overflow beyond this mapping.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OverflowReason {
-    /// Governor matched a configured `keys_to_reroute` entry for this event's
-    /// key. Events in this state always have `skip_person_processing = true`
-    /// and are routed to the overflow topic with a null partition key.
+    /// The overflow governor matched a configured `keys_to_reroute` entry
+    /// for this event's key, or the global rate limiter put the key over its
+    /// window. Routed to the overflow topic with a null partition key, with
+    /// person processing off: the reason itself implies the skip
+    /// ([`ProcessedEventMetadata::person_processing_disabled`]), so a
+    /// stamping site cannot keep person processing on for a force-limited
+    /// key by forgetting the flag. Stamping sites still set
+    /// `skip_person_processing = true` alongside for pipeline-level readers.
     ForceLimited,
     /// Per-key rate exceeded the configured governor quota. Routed to the
     /// overflow topic. `preserve_locality` mirrors the
@@ -325,6 +330,17 @@ pub struct ProcessedEventMetadata {
     /// Feeds the `distinct_id_truncated` ingestion warning; nothing routes on
     /// it.
     pub distinct_id_truncated_from: Option<usize>,
+}
+
+impl ProcessedEventMetadata {
+    /// Whether person processing is off for this event: the stamped flag, or
+    /// a `ForceLimited` reason — force-limiting implies the skip, so the
+    /// sink's header and ordering cannot silently keep person processing on
+    /// for a force-limited key whose stamping site forgot the flag.
+    pub fn person_processing_disabled(&self) -> bool {
+        self.skip_person_processing
+            || matches!(self.overflow_reason, Some(OverflowReason::ForceLimited))
+    }
 }
 
 #[cfg(test)]

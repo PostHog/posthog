@@ -12,7 +12,7 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
-import { AnyCohortCriteriaType, BehavioralEventType } from '~/types'
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -605,6 +605,66 @@ describe('cohortEditLogic', () => {
             // a LemonSelect would render the data-attr onto a <button>
             expect(typeContainer?.tagName).not.toBe('BUTTON')
             expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+        })
+    })
+
+    describe('criteria with unmapped behavioral value', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        // Stored criteria can carry a behavioral value with no ROWS entry. Values that instead
+        // resolve to an Object.prototype member are covered against getRowShape in cohortUtils.test,
+        // since this scene render is the most expensive place to assert the same lookup.
+        it('renders an empty, recoverable criteria row for an unmapped value', async () => {
+            const cohortId = 11
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Unmapped Criteria Cohort',
+                        is_static: false,
+                        filters: {
+                            properties: {
+                                id: '1',
+                                type: FilterLogicalOperator.Or,
+                                values: [
+                                    {
+                                        id: '2',
+                                        type: FilterLogicalOperator.Or,
+                                        values: [
+                                            {
+                                                type: BehavioralFilterKey.Behavioral,
+                                                value: 'legacy_unknown_value',
+                                                key: '$pageview',
+                                            },
+                                        ],
+                                    },
+                                ],
+                            },
+                        },
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            // The name only gates on the cohort having loaded; a throw in the row builder has no
+            // error boundary between here and the test, so it fails the render outright.
+            expect(await screen.findByText('Unmapped Criteria Cohort')).toBeInTheDocument()
+            expect(document.querySelector('.CohortCriteriaRow')).toBeInTheDocument()
+            expect(screen.getByText('Choose criterion')).toBeInTheDocument()
+            // Counting fields is what catches a revert to the PerformEvent fallback: the stored
+            // key would label the event picker rather than leave its placeholder visible, so the
+            // placeholder assertion above would still pass.
+            expect(document.querySelectorAll('.CohortCriteriaRow__Criteria__Field')).toHaveLength(1)
+            expect(document.querySelector('.CohortCriteriaRow__Criteria__arrow')).not.toBeInTheDocument()
+            expect(screen.getByText("This criterion isn't valid. Choose a new one to replace it.")).toBeInTheDocument()
         })
     })
 })

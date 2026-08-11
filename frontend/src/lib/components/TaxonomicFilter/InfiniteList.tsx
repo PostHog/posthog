@@ -6,7 +6,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
 import { List, useListRef } from 'react-window'
 
-import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import { IconArchive, IconCheck, IconPin, IconPinFilled, IconPlus, IconSearch, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
@@ -824,6 +824,26 @@ function InfiniteListEmptyState(): JSX.Element {
     )
 }
 
+function InfiniteListErrorState(): JSX.Element {
+    const { retryRemoteItems } = useActions(infiniteListLogic)
+
+    return (
+        <div className="no-infinite-results flex flex-col gap-y-1 items-center">
+            <IconWarning className="text-5xl text-tertiary" />
+            <span className="text-center">Couldn't load results</span>
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                data-attr="taxonomic-retry-remote-items"
+                onClick={retryRemoteItems}
+            >
+                Try again
+            </LemonButton>
+            <span className="text-center text-secondary italic">If it keeps happening, contact support.</span>
+        </div>
+    )
+}
+
 export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: InfiniteListProps): JSX.Element {
     const {
         mouseInteractionsEnabled,
@@ -852,6 +872,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         showPopover,
         showNonCapturedEventOption,
         showEmptyState,
+        showErrorState,
         showLoadingState,
         isSuggestedFilters,
         isActiveTab,
@@ -878,12 +899,14 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         <div
             className={cn(
                 'taxonomic-infinite-list',
-                showEmptyState && 'empty-infinite-list',
+                (showEmptyState || showErrorState) && 'empty-infinite-list',
                 'h-full',
                 isSuggestedFilters && 'empty-infinite-list--start'
             )}
         >
-            {showEmptyState ? (
+            {showErrorState ? (
+                <InfiniteListErrorState />
+            ) : showEmptyState ? (
                 <InfiniteListEmptyState />
             ) : showLoadingState ? (
                 <div className="flex items-center justify-center h-full">

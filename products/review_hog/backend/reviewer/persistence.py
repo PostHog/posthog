@@ -44,6 +44,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
+from products.review_hog.backend.reviewer.constants import ReviewArm, draw_review_arm, resolve_review_arm
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
@@ -84,6 +85,9 @@ def upsert_review_report(
             qs, repository=repository, pr_number=pr_number, head_branch=pr_metadata.head_branch
         )
         if report is None:
+            # The experiment arm is drawn exactly once, here: the update path below never touches
+            # these fields, so every later turn of the report reviews on the same model.
+            arm = draw_review_arm()
             create_kwargs: dict[str, object] = {
                 "team_id": team_id,
                 "repository": repository,
@@ -94,6 +98,10 @@ def upsert_review_report(
                 "author_login": pr_metadata.author or None,
                 "status": ReviewReport.Status.ACTIVE,
                 "signal_report_id": signal_report_id,
+                "review_runtime_adapter": arm.runtime_adapter.value,
+                "review_model": arm.model,
+                "review_reasoning_effort": arm.reasoning_effort.value,
+                "review_initial_permission_mode": arm.initial_permission_mode,
             }
             if trigger_source is not None:
                 create_kwargs["trigger_source"] = trigger_source
@@ -128,6 +136,26 @@ def upsert_review_report(
             updates["signal_report_id"] = signal_report_id
         qs.filter(pk=report.pk).update(**updates)
     return str(report.id)
+
+
+def load_review_arm(*, team_id: int, report_id: str) -> ReviewArm:
+    """The arm this report's review units run on: its persisted assignment resolved with fallback.
+
+    A light values read because every review unit (13+ per turn) loads it. A missing row resolves
+    to the default pins; the unit will fail properly a step later on its real load, and the arm
+    loader must not be the thing that decides that.
+    """
+    row = (
+        ReviewReport.objects.for_team(team_id)
+        .filter(id=report_id)
+        .values_list(
+            "review_runtime_adapter", "review_model", "review_reasoning_effort", "review_initial_permission_mode"
+        )
+        .first()
+    )
+    if row is None:
+        return resolve_review_arm(None, None, None, None)
+    return resolve_review_arm(*row)
 
 
 def _locate_review_report(

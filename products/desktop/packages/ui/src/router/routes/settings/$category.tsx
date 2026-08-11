@@ -1,6 +1,6 @@
 import { SettingsPanel } from "@posthog/ui/features/settings/components/SettingsPanel";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
-import { isSettingsCategory } from "@posthog/ui/features/settings/types";
+import { resolveSettingsCategory } from "@posthog/ui/features/settings/types";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 
@@ -10,7 +10,7 @@ export const Route = createFileRoute("/settings/$category")({
 
 function SettingsRoute() {
   const { category } = Route.useParams();
-  const cat = isSettingsCategory(category) ? category : "general";
+  const cat = resolveSettingsCategory(category) ?? "general";
 
   // Reset transient state when leaving the route entirely. Switching between
   // categories (e.g. general → environments) does not unmount this component,

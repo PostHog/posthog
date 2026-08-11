@@ -42,7 +42,7 @@ const FILTERS: { id: string; label: string; logo?: string }[] = [
     { id: 'openai', label: 'Codex', logo: openaiLogo },
 ]
 
-// Clients shown under the sparkline (the PostHog Code link is rendered separately, first).
+// Clients shown under the sparkline (the PostHog Desktop link is rendered separately, first).
 const CLIENT_LOGOS = [claudeLogo, openaiLogo, cursorLogo, windsurfLogo]
 
 // A hand-authored series for the sparkline — abstract, just enough to read as a rising trend.
@@ -151,11 +151,11 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                 <div className="MCPSpark__clients">
                     <Link
                         className="MCPSpark__code"
-                        to="https://posthog.com/code?utm_medium=in-product&utm_campaign=mcp-analytics-empty-state"
+                        to="https://posthog.com/desktop?utm_medium=in-product&utm_campaign=mcp-analytics-empty-state"
                         target="_blank"
-                        title="PostHog Code"
+                        title="PostHog Desktop"
                     >
-                        <img src={posthogCodeLogo} alt="PostHog Code" />
+                        <img src={posthogCodeLogo} alt="PostHog Desktop" />
                     </Link>
                     {CLIENT_LOGOS.map((logo, i) => (
                         <img key={i} src={logo} alt="" />

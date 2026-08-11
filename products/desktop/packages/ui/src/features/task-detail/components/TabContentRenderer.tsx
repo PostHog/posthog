@@ -6,6 +6,7 @@ import {
   LazyReviewPage as ReviewPage,
 } from "../../code-review/components/LazyReviewPages";
 import type { Tab } from "../../panels/panelTypes";
+import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
 import { useIsWorkspaceCloudRun } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
@@ -27,12 +28,22 @@ export function TabContentRenderer({
   taskId,
   task,
 }: TabContentRendererProps) {
-  const isCloud = useIsWorkspaceCloudRun(taskId);
+  const isCloud =
+    useIsWorkspaceCloudRun(taskId) || task.latest_run?.environment === "cloud";
   const { data } = tab;
 
   switch (data.type) {
     case "logs":
-      return <TaskLogsPanel taskId={taskId} task={task} />;
+      return task.runtime === "pi" ? (
+        <PiSessionView
+          key={taskId}
+          taskId={taskId}
+          taskRunId={task.latest_run?.id}
+          isCloud={isCloud}
+        />
+      ) : (
+        <TaskLogsPanel taskId={taskId} task={task} />
+      );
 
     case "terminal":
       return (

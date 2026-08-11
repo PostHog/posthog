@@ -16,7 +16,12 @@ from posthog.utils import absolute_uri
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 
-from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
+from ee.tasks.subscriptions.subscription_utils import (
+    ASSET_GENERATION_FAILED_MESSAGE,
+    UTM_TAGS_BASE,
+    _has_asset_failed,
+    subscription_asset_error_message,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -85,7 +90,7 @@ def _block_for_asset(asset: ExportedAsset, resource_url: str) -> dict:
         max_error_length = 2000
 
         if asset.exception:
-            exception_text = str(asset.exception)
+            exception_text = subscription_asset_error_message(asset)
             if len(exception_text) > max_error_length:
                 exception_text = exception_text[:max_error_length] + "... (truncated)"
         else:

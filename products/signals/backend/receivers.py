@@ -470,6 +470,13 @@ def capture_status_change_analytics(
     if prior_status is None or prior_status == instance.status:
         return
 
+    # Set by mark_report_pending_input_activity right before this save, so the pipeline's two
+    # doors into PENDING_INPUT (repo-selection failure vs. the agent requesting human input) are
+    # distinguishable in the training stream — mirrors failure_reason on signal_report_completed.
+    pending_reason = (
+        getattr(instance, "_pending_reason", None) if instance.status == SignalReport.Status.PENDING_INPUT else None
+    )
+
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = {
         "team_id": instance.team_id,
@@ -481,6 +488,7 @@ def capture_status_change_analytics(
         "run_count": instance.run_count,
         "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
         "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
+        "pending_reason": pending_reason,
     }
     report_id = str(instance.id)
     new_status = instance.status

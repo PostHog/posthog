@@ -12,6 +12,8 @@ import {
     IntegrationsLinearTeamsRetrieveParams,
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
+    PosthogConnectionsForwardCreateBody,
+    PosthogConnectionsForwardCreateParams,
 } from '@/generated/integrations/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -169,6 +171,40 @@ const integrationsList = (): ToolBase<
     },
 })
 
+const PosthogConnectionForwardSchema = PosthogConnectionsForwardCreateParams.omit({ project_id: true }).extend(
+    PosthogConnectionsForwardCreateBody.shape
+)
+
+const posthogConnectionForward = (): ToolBase<
+    typeof PosthogConnectionForwardSchema,
+    Schemas.PostHogConnectionForwardResponse
+> => ({
+    name: 'posthog-connection-forward',
+    schema: PosthogConnectionForwardSchema,
+    handler: async (context: Context, params: z.infer<typeof PosthogConnectionForwardSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.method !== undefined) {
+            body['method'] = params.method
+        }
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.data !== undefined) {
+            body['data'] = params.data
+        }
+        const result = await context.api.request<Schemas.PostHogConnectionForwardResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/posthog_connections/${encodeURIComponent(String(params.id))}/forward/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
@@ -177,4 +213,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
+    'posthog-connection-forward': posthogConnectionForward,
 }

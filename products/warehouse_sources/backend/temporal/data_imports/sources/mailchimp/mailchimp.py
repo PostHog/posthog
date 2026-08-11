@@ -4,7 +4,8 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from requests import Request, Response, Session
-from requests.exceptions import RequestException
+from requests.exceptions import HTTPError, RequestException
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -24,6 +25,38 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailchimp.
 )
 
 REQUEST_TIMEOUT_SECONDS = 120
+MAX_RETRY_ATTEMPTS = 5
+
+
+class MailchimpRetryableError(Exception):
+    pass
+
+
+@retry(
+    retry=retry_if_exception_type(MailchimpRetryableError),
+    stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=2, max=90),
+    reraise=True,
+)
+def _get_with_retry(
+    session: Session, url: str, params: dict[str, Any] | None = None, timeout: int = REQUEST_TIMEOUT_SECONDS
+) -> Response:
+    # Mailchimp's account-level rate limit windows can outlast the transport-level retry
+    # already in `make_tracked_session`, so back off further here on 429/5xx.
+    response = session.get(url, params=params, timeout=timeout)
+
+    try:
+        response.raise_for_status()
+    except HTTPError as e:
+        # Reraise 429/5xx under a retryable type but keep `raise_for_status`'s wording verbatim:
+        # a failure that outlives this retry budget is classified downstream by message
+        # (`import_data_sync` matching `MailchimpSource.get_retryable_errors`), so rephrasing it
+        # here would make those "429 Client Error"/"Server Error" prefixes stop matching.
+        if response.status_code == 429 or response.status_code >= 500:
+            raise MailchimpRetryableError(str(e)) from e
+        raise
+
+    return response
 
 
 @dataclasses.dataclass
@@ -217,12 +250,12 @@ def _fetch_all_lists(api_key: str, dc: str) -> list[dict[str, Any]]:
     session = _mailchimp_session(api_key)
 
     while True:
-        response = session.get(
+        response = _get_with_retry(
+            session,
             f"https://{dc}.api.mailchimp.com/3.0/lists",
             params={"count": page_size, "offset": offset},
             timeout=120,
         )
-        response.raise_for_status()
 
         data = response.json()
         lists.extend(data.get("lists", []))
@@ -259,12 +292,12 @@ def _fetch_contacts_for_list(
         if since_last_changed:
             params["since_last_changed"] = since_last_changed
 
-        response = session.get(
+        response = _get_with_retry(
+            session,
             f"https://{dc}.api.mailchimp.com/3.0/lists/{list_id}/members",
             params=params,
             timeout=120,
         )
-        response.raise_for_status()
 
         data = response.json()
         contacts = data.get("members", [])
@@ -368,8 +401,7 @@ def _iter_pages(
         if pagination == "offset":
             params["offset"] = offset
 
-        response = session.get(f"{base_url}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
+        response = _get_with_retry(session, f"{base_url}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
 
         data = response.json()
         records = data.get(data_selector) or []
@@ -432,8 +464,9 @@ def _fetch_endpoint_rows(
     parent_ids: Optional[list[str]],
 ) -> Iterator[dict[str, Any]]:
     if config.single_object:
-        response = session.get(f"{base_url}{path}", params=dict(extra_params), timeout=REQUEST_TIMEOUT_SECONDS)
-        response.raise_for_status()
+        response = _get_with_retry(
+            session, f"{base_url}{path}", params=dict(extra_params), timeout=REQUEST_TIMEOUT_SECONDS
+        )
         record = response.json()
         if isinstance(record, dict):
             yield {**record, **id_map}

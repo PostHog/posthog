@@ -57,6 +57,10 @@ describe('ingestion general server', () => {
         server = new IngestionGeneralServer({
             LOG_LEVEL: 'debug',
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2_combined,
+            // The AI consumer requires a personhog client; the gRPC connection
+            // is lazy, so startup doesn't need a live router.
+            PERSONHOG_ENABLED: true,
+            PERSONHOG_ADDR: 'localhost:50052',
         })
         await server.start()
         expect(process.exit).not.toHaveBeenCalledWith(1)

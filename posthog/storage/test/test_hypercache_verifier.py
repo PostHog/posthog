@@ -13,8 +13,9 @@ from functools import partial
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
+from django.db import InterfaceError, OperationalError
 from django.db.models import QuerySet
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
@@ -23,7 +24,10 @@ from posthog.models.team.team import Team
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.storage.hypercache_verifier import (
     MAX_FIXED_TEAM_IDS_TO_LOG,
+    TEAM_BATCH_FETCH_MAX_ATTEMPTS,
+    TeamBatchFetchError,
     VerificationResult,
+    _fetch_team_batch,
     _fix_and_record,
     _verify_and_fix_batch,
     verify_and_fix_all_teams,
@@ -1139,3 +1143,100 @@ class TestVerifyAndFixAllTeamsQuerysetScoping(BaseTest):
 
         # Should have verified at least self.team
         assert result.total >= 1
+
+
+class _FlakyTeamQuerySet:
+    """Fake queryset that raises the given errors before yielding teams, mimicking a
+    connection dropped by the pooler mid-sweep."""
+
+    def __init__(self, errors: list[Exception], teams: list[Team]) -> None:
+        self.errors = errors
+        self.teams = teams
+        self.requested_after_ids: list[int] = []
+
+    def filter(self, *, id__gt: int) -> "_FlakyTeamQuerySet":
+        self.requested_after_ids.append(id__gt)
+        return self
+
+    def order_by(self, *_fields: str) -> "_FlakyTeamQuerySet":
+        return self
+
+    def __getitem__(self, _key) -> list[Team]:
+        if self.errors:
+            raise self.errors.pop(0)
+        return self.teams
+
+
+class TestFetchTeamBatch(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("connection_timeout", OperationalError("connection timeout expired")),
+            ("connection_closed", InterfaceError("the connection is closed")),
+        ]
+    )
+    def test_reconnects_and_resumes_from_last_id(self, _name, error):
+        team = Team(id=7)
+        base_qs = _FlakyTeamQuerySet([error], [team])
+
+        with (
+            patch("posthog.storage.hypercache_verifier.close_old_connections") as mock_close,
+            patch("posthog.storage.hypercache_verifier.time.sleep"),
+        ):
+            teams = _fetch_team_batch(base_qs, last_id=3, chunk_size=10)  # type: ignore[arg-type]
+
+        assert teams == [team]
+        mock_close.assert_called_once()
+        # The retry resumes from the same cursor, so no team is skipped.
+        assert base_qs.requested_after_ids == [3, 3]
+
+    def test_raises_team_batch_fetch_error_once_retries_are_exhausted(self):
+        errors: list[Exception] = [
+            OperationalError("too many clients already") for _ in range(TEAM_BATCH_FETCH_MAX_ATTEMPTS)
+        ]
+        base_qs = _FlakyTeamQuerySet(errors, [])
+
+        with (
+            patch("posthog.storage.hypercache_verifier.close_old_connections"),
+            patch("posthog.storage.hypercache_verifier.time.sleep"),
+            self.assertRaises(TeamBatchFetchError),
+        ):
+            _fetch_team_batch(base_qs, last_id=0, chunk_size=10)  # type: ignore[arg-type]
+
+        assert len(base_qs.requested_after_ids) == TEAM_BATCH_FETCH_MAX_ATTEMPTS
+
+    @parameterized.expand(
+        [
+            ("soft_time_limit", SoftTimeLimitExceeded()),
+            ("unexpected_error", ValueError("bad verify data")),
+        ]
+    )
+    def test_non_connection_error_propagates_without_retry_or_wrapping(self, _name, error):
+        base_qs = _FlakyTeamQuerySet([error], [Team(id=7)])
+
+        with (
+            patch("posthog.storage.hypercache_verifier.close_old_connections") as mock_close,
+            patch("posthog.storage.hypercache_verifier.time.sleep"),
+            self.assertRaises(type(error)),
+        ):
+            _fetch_team_batch(base_qs, last_id=0, chunk_size=10)  # type: ignore[arg-type]
+
+        assert base_qs.requested_after_ids == [0]
+        mock_close.assert_not_called()
+
+    def test_sweep_aborts_when_batch_fetch_retries_are_exhausted(self):
+        errors: list[Exception] = [OperationalError("connection dropped") for _ in range(TEAM_BATCH_FETCH_MAX_ATTEMPTS)]
+        flaky_qs = _FlakyTeamQuerySet(errors, [])
+        config = MagicMock()
+        config.narrow_team_queryset.return_value = flaky_qs
+
+        with (
+            patch("posthog.storage.hypercache_verifier.close_old_connections"),
+            patch("posthog.storage.hypercache_verifier.time.sleep"),
+            self.assertRaises(TeamBatchFetchError),
+        ):
+            verify_and_fix_all_teams(
+                config=config,
+                verify_team_fn=lambda team, db, cached: {"status": "match", "issue": None},
+                cache_type="test_cache",
+                chunk_size=10,
+            )

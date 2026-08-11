@@ -284,6 +284,15 @@ class EventSource(StrEnum):
     SUBSCRIPTION = "subscription"
 
 
+# Surfaces where an LLM drives the request through a managed channel (classification is stamped by
+# the harness, not self-reported by the model). Callers use this to hold agent writes to a
+# review-then-apply path; the web app has its own confirm UI, and headless callers (raw API keys,
+# Terraform) apply in one call.
+AGENT_EVENT_SOURCES = frozenset(
+    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
+)
+
+
 class McpProps(TypedDict):
     mcp_user_agent: str | None
     mcp_client_name: str | None

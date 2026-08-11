@@ -9,11 +9,17 @@ import type {
 import type {
   AgentConversationEvent,
   GatewayLimitCause,
+  McpToolPermissionRequest,
   PromptFailureKind,
   SessionStatus,
   TaskRunStatus,
 } from "@posthog/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
+
+export interface PiProjectTrustState {
+  trusted: boolean;
+  hasProjectResources: boolean;
+}
 
 export interface PiSessionError {
   id: string;
@@ -41,6 +47,8 @@ export interface PiControllerSessionState {
   error?: PiSessionError;
   authRestoring: boolean;
   isBashRunning: boolean;
+  mcpToolPermissionRequests: Map<string, McpToolPermissionRequest>;
+  projectTrust?: PiProjectTrustState;
 }
 
 export interface PiSessionState {
@@ -63,6 +71,7 @@ export function createEmptyPiControllerSession(): PiControllerSessionState {
     thinkingLevelsLoaded: false,
     commands: [],
     queue: { steering: [], followUp: [] },
+    mcpToolPermissionRequests: new Map(),
     authRestoring: false,
     isBashRunning: false,
   };

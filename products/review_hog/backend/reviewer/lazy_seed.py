@@ -56,7 +56,7 @@ _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
 # bypasses the service layer, so they're checked at parse time).
 _MAX_SKILL_BODY_BYTES = 1_000_000
 _MAX_SKILL_FILE_BYTES = 1_000_000
-_MAX_SKILL_FILE_COUNT = 50
+_MAX_SKILL_FILE_COUNT = 200
 _MAX_SKILL_FILE_PATH_LENGTH = 500
 
 # Stamped on `LLMSkill.metadata.seeded_by` for every ReviewHog-managed row. Its presence is the

@@ -4,10 +4,12 @@ from datetime import datetime
 from typing import cast
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
+
+from products.surveys.backend.responses.fetch_rows import SUBMISSION_GROUPING_KEY
 
 
 def fetch_responses(
@@ -40,24 +42,39 @@ def fetch_responses(
     """
     paginator = HogQLHasMorePaginator(limit=limit, offset=0)
 
-    # Build the base query
-    # Use uniqueSurveySubmissionsFilter to deduplicate by $survey_submission_id
-    # This ensures multiple "survey sent" events for the same submission are rolled up
+    # Merge a submission's events instead of picking a single one: for each
+    # $survey_submission_id, keep the latest non-null answer to this question. This stops
+    # multi-event submissions (e.g. AI-feedback manual capture, where each answer can arrive
+    # on its own event) from dropping answers that only appeared on a non-final event.
+    # Events without a submission ID are keyed by uuid, so each stays its own response.
     base_query = """
-        SELECT getSurveyResponse({question_index}, {question_id})
-        FROM events
-        WHERE event == 'survey sent'
-            AND timestamp >= {start_date}
-            AND timestamp <= {end_date}
-            AND properties.`$survey_id` = {survey_id}
-            AND uniqueSurveySubmissionsFilter({survey_id}, {start_date}, {end_date})
-            AND trim(getSurveyResponse({question_index}, {question_id})) != ''
+        SELECT merged_response
+        FROM (
+            SELECT
+                argMaxIf(response, timestamp, isNotNull(response)) AS merged_response,
+                argMax(uuid, timestamp) AS representative_uuid
+            FROM (
+                SELECT
+                    getSurveyResponse({question_index}, {question_id}) AS response,
+                    timestamp,
+                    uuid,
+                    {grouping_key} AS submission_key
+                FROM events
+                WHERE event == 'survey sent'
+                    AND timestamp >= {start_date}
+                    AND timestamp <= {end_date}
+                    AND properties.`$survey_id` = {survey_id}
+            )
+            GROUP BY submission_key
+        )
+        WHERE length(trim(coalesce(merged_response, ''))) > 0
     """
 
-    # Add archived response filter if there are UUIDs to exclude
+    # Add archived response filter if there are UUIDs to exclude. Archiving records the
+    # submission's representative (latest) uuid, which is what argMax(uuid) surfaces above.
     # UUIDs are pre-validated by Django's UUIDField when stored in SurveyResponseArchive
     if exclude_uuids:
-        base_query += " AND uuid NOT IN {exclude_uuids}"
+        base_query += " AND representative_uuid NOT IN {exclude_uuids}"
 
     placeholders: dict[str, ast.Expr] = {
         "survey_id": ast.Constant(value=survey_id),
@@ -65,6 +82,7 @@ def fetch_responses(
         "end_date": ast.Constant(value=end_date),
         "question_index": ast.Constant(value=question_index),
         "question_id": ast.Constant(value=question_id),
+        "grouping_key": parse_expr(SUBMISSION_GROUPING_KEY),
     }
 
     if exclude_uuids:

@@ -47,6 +47,13 @@ const CHECK_META: Record<string, CheckMeta> = {
             'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
     },
+    path_cleaning_suggestions: {
+        title: 'Path cleaning',
+        description:
+            'AI-suggested path cleaning rules are ready to review. Applying them groups similar pages (like /users/123 and /users/456) in your breakdowns.',
+        docsUrl: urls.settings('environment-product-analytics', 'path-cleaning'),
+        linkLabel: 'Review suggestions',
+    },
 }
 
 export function WebAnalyticsHealthTable({

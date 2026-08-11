@@ -82,7 +82,7 @@ async def _drive(recorder: _Recorder) -> None:
             await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
             terminal = recorder.gate_reached if recorder.over_quota else recorder.flow_done
             await asyncio.wait_for(terminal.wait(), timeout=30)
-            await handle.terminate()
+            await env.client.get_workflow_handle(handle.id).terminate()
 
 
 @pytest.mark.asyncio

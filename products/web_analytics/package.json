@@ -6,13 +6,25 @@
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:",
+        "query-selector-shadow-dom": "catalog:"
+    },
+    "devDependencies": {
+        "@types/query-selector-shadow-dom": "catalog:",
+        "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
+        "@posthog/lemon-ui": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",
-        "react": "*"
+        "react": "*",
+        "use-debounce": "*",
+        "use-resize-observer": "*"
     }
 }

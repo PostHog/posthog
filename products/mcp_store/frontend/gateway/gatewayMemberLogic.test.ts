@@ -12,7 +12,7 @@ import {
     mcpGatewayServiceAccountsList,
     mcpServersList,
 } from '../generated/api'
-import type { GatewayMemberSummaryApi } from '../generated/api.schemas'
+import type { GatewayMemberSummaryApi, MCPGatewayServerApi } from '../generated/api.schemas'
 import { gatewayMemberLogic } from './gatewayMemberLogic'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
@@ -59,6 +59,32 @@ function gatewayMember(): GatewayMemberSummaryApi {
     }
 }
 
+function gatewayServer(overrides: Partial<MCPGatewayServerApi>): MCPGatewayServerApi {
+    return {
+        id: 'server-id',
+        name: 'Test server',
+        url: 'https://mcp.example.com/mcp',
+        description: '',
+        category: 'dev',
+        template_auth_type: null,
+        is_team_enabled: true,
+        icon_key: '',
+        icon_domain: '',
+        docs_url: '',
+        template_id: null,
+        tool_count: 0,
+        connections: [],
+        your_connection: null,
+        agents: [],
+        revoked_user_ids: [],
+        is_revoked_for_you: false,
+        created_by: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+        ...overrides,
+    }
+}
+
 describe('gatewayMemberLogic', () => {
     let parentLogic: ReturnType<typeof mcpGatewayLogic.build>
     let logic: ReturnType<typeof gatewayMemberLogic.build>
@@ -68,6 +94,7 @@ describe('gatewayMemberLogic', () => {
         jest.resetAllMocks()
         mockConfigList.mockResolvedValue({
             is_admin: true,
+            registered_template_ids: [],
             allow_custom_servers: true,
             allow_member_agent_access: true,
         })
@@ -106,5 +133,37 @@ describe('gatewayMemberLogic', () => {
         expect(mockServersList).toHaveBeenCalledTimes(1)
         expect(logic.values.member).toEqual(member)
         expect(logic.values.memberInitialized).toBe(true)
+    })
+
+    it('ignores deleted server ids in the access count and keeps connection details', async () => {
+        const member = gatewayMember()
+        const lastUsedAt = '2026-07-24T12:00:00Z'
+        parentLogic.actions.loadServersSuccess([
+            gatewayServer({
+                id: 'connected-server',
+                connections: [
+                    {
+                        installation_id: 'installation-id',
+                        user: member.user,
+                        last_used_at: lastUsedAt,
+                        pending_oauth: false,
+                        needs_reauth: false,
+                    },
+                ],
+            }),
+            gatewayServer({ id: 'revoked-server' }),
+        ])
+        mockMemberRetrieve.mockResolvedValue({
+            ...member,
+            connected_server_ids: ['connected-server'],
+            revoked_server_ids: ['revoked-server', 'deleted-server'],
+        })
+
+        logic = gatewayMemberLogic({ id: String(member.user.id) })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.allowedServerCount).toBe(1)
+        expect(logic.values.memberConnectionsByServerId['connected-server'].last_used_at).toBe(lastUsedAt)
     })
 })

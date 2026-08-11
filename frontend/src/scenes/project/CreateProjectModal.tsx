@@ -35,6 +35,10 @@ export function CreateProjectModal({
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
     const [name, setName] = useState<string>('')
 
+    const isNameTaken = !!currentOrganization?.projects?.some(
+        (project) => project.name.trim().toLowerCase() === name.trim().toLowerCase()
+    )
+
     const closeModal: () => void = () => {
         if (onClose) {
             onClose()
@@ -44,6 +48,10 @@ export function CreateProjectModal({
         }
     }
     const handleSubmit = (): void => {
+        // Also guards Enter-key submission, which bypasses the button's disabledReason
+        if (!name || isNameTaken || currentProjectLoading) {
+            return
+        }
         createProject({ name })
         reportProjectCreationSubmitted(
             currentOrganization?.projects ? currentOrganization.projects.length : 0,
@@ -103,7 +111,13 @@ export function CreateProjectModal({
                         type="primary"
                         onClick={handleSubmit}
                         loading={currentProjectLoading}
-                        disabledReason={!name ? 'Think of a name!' : null}
+                        disabledReason={
+                            !name
+                                ? 'Think of a name!'
+                                : isNameTaken
+                                  ? 'There is already a project with this name in this organization. Choose a different name.'
+                                  : null
+                        }
                     >
                         Create project
                     </LemonButton>

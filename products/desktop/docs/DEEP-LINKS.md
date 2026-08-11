@@ -14,6 +14,8 @@ All schemes route through the same dispatcher. The host portion of the URL selec
 
 If the app is not running, the OS launches it and the link is queued until the renderer is ready. If the app is minimised, it is restored and focused before the link is handled.
 
+Links can also be dispatched from inside the app: the `deepLink.open` tRPC route forwards a URL through the same handlers, with no OS hop. Remote announcement CTAs use this — author payloads with the production scheme; dev builds swap in their scheme automatically.
+
 ## User-facing links
 
 These are the deep links you would share with someone or wire up from another tool.

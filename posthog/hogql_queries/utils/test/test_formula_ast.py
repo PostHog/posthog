@@ -2,6 +2,8 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 
 
@@ -85,3 +87,16 @@ class TestFormulaAST(APIBaseTest):
         formula = self._get_formula_ast()
         response = formula.call(formula_str)
         self.assertListEqual([100, 100, 100, 100], response)
+
+    @parameterized.expand(
+        [
+            # Function-call syntax passes the frontend character filter but isn't computable,
+            # so it must fail with a user-facing error rather than a raw TypeError (500).
+            ("function_call", "AVG(A+B)"),
+            ("nested_function_call", "A + SUM(B)"),
+        ]
+    )
+    def test_unsupported_operations_raise_exposed_error(self, _name: str, expression: str):
+        formula = self._get_formula_ast()
+        with self.assertRaises(ExposedHogQLError):
+            formula.call(expression)

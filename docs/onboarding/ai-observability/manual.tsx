@@ -25,9 +25,11 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        If you're using a different server-side SDK or prefer to use the API, you can manually capture
-                        the data by calling the `capture` method or using the [capture
-                        API](https://posthog.com/docs/api/capture).
+                        {dedent`
+                            If you use a different server-side SDK, or prefer to use the API, capture the data
+                            manually. Call the \`capture\` method, or use the [capture
+                            API](https://posthog.com/docs/api/capture).
+                        `}
                     </Markdown>
 
                     <Tab.Group tabs={languages.map((l) => l.label)}>

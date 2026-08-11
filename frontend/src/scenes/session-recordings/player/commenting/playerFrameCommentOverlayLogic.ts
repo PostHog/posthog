@@ -41,6 +41,7 @@ export interface playerCommentOverlayLogicValues {
     currentTimestamp: number | undefined // sessionRecordingPlayerLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingPlayerLogic
     asTask: boolean
+    dateForCurrentTimestamp: Dayjs | null
     formattedTimestamp: string
     isEmpty: boolean
     isLoading: boolean
@@ -65,6 +66,9 @@ export interface playerCommentOverlayLogicActions {
     ensureAllMembersLoaded: () => {
         value: true
     } // membersLogic
+    commentEdited: (recordingId: string) => {
+        recordingId: string
+    } // playerCommentModel
     setIsCommenting: (isCommenting: boolean) => {
         isCommenting: boolean
     } // sessionRecordingPlayerLogic
@@ -132,6 +136,11 @@ export interface playerCommentOverlayLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         timestampUnits: (sessionPlayerData: SessionPlayerData) => 2 | 3
         formattedTimestamp: (currentPlayerTime: number, timestampUnits: 2 | 3) => string
+        dateForCurrentTimestamp: (
+            currentTimestamp: number | undefined,
+            currentPlayerTime: number,
+            sessionPlayerData: SessionPlayerData
+        ) => Dayjs | null
     }
 }
 
@@ -148,7 +157,15 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     props({} as PlayerCommentOverlayLogicProps),
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
-        actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting'], membersLogic, ['ensureAllMembersLoaded']],
+        actions: [
+            sessionRecordingPlayerLogic(props),
+            ['setIsCommenting'],
+            membersLogic,
+            ['ensureAllMembersLoaded'],
+            // bound at build time, so notifying the bus can't depend on it still being mounted
+            playerCommentModel,
+            ['commentEdited'],
+        ],
     })),
     actions({
         editComment: (comment: RecordingCommentForm) => ({ comment }),
@@ -202,13 +219,28 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 return colonDelimitedDuration(currentPlayerTime / 1000, timestampUnits)
             },
         ],
+        // currentTimestamp is unset until the player seeks, so fall back to the recording start
+        // plus the playhead offset rather than leaving a comment with no date to anchor to
+        dateForCurrentTimestamp: [
+            (s) => [s.currentTimestamp, s.currentPlayerTime, s.sessionPlayerData],
+            (
+                currentTimestamp: number | undefined,
+                currentPlayerTime: number,
+                sessionPlayerData: SessionPlayerData
+            ): Dayjs | null => {
+                if (currentTimestamp) {
+                    return dayjs(currentTimestamp)
+                }
+                return sessionPlayerData?.start ? sessionPlayerData.start.add(currentPlayerTime, 'milliseconds') : null
+            },
+        ],
     }),
     subscriptions(({ actions, values }) => ({
         formattedTimestamp: (formattedTimestamp) => {
             // as the timestamp from the player changes we track three representations of it
             actions.setRecordingCommentValue('timeInRecording', formattedTimestamp)
             actions.setRecordingCommentValue('timestampInRecording', values.currentPlayerTime)
-            actions.setRecordingCommentValue('dateForTimestamp', dayjs(values.currentTimestamp))
+            actions.setRecordingCommentValue('dateForTimestamp', values.dateForCurrentTimestamp)
         },
     })),
     listeners(({ actions, props, values }) => ({
@@ -248,6 +280,11 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 lemonToast.error(`Emoji comments must be emojis 🙈, this string was too long: "${emoji}"`)
                 return
             }
+            const dateForTimestamp = values.dateForCurrentTimestamp
+            if (!dateForTimestamp) {
+                lemonToast.error('Could not save your comment: the recording has no timestamp yet.')
+                return
+            }
             const loadingTimeout = setTimeout(() => {
                 actions.setLoading(true)
             }, 250)
@@ -259,12 +296,14 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     item_id: props.recordingId,
                     item_context: {
                         is_emoji: true,
-                        time_in_recording: dayjs(values.currentTimestamp).toISOString(),
+                        time_in_recording: dateForTimestamp.toISOString(),
                         milliseconds_into_recording: values.currentPlayerTime,
                     },
                     slug: `/replay/${props.recordingId}#panel=discussion`,
                 })
-                playerCommentModel.actions.commentEdited(props.recordingId)
+                actions.commentEdited(props.recordingId)
+            } catch (e) {
+                lemonToast.error(`Could not save your comment: ${(e as Error).message}`)
             } finally {
                 if (loadingTimeout) {
                     clearTimeout(loadingTimeout)
@@ -292,7 +331,11 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                 }
             },
             submit: async (data) => {
-                const { commentId, content, richContent, dateForTimestamp } = data
+                const { commentId, content, richContent } = data
+
+                // the form's copy only refreshes on whole-second changes, so read the live position
+                // to keep this in step with milliseconds_into_recording below
+                const dateForTimestamp = values.dateForCurrentTimestamp
 
                 if (!dateForTimestamp) {
                     throw new Error('Cannot comment without a timestamp.')
@@ -316,11 +359,21 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     await api.comments.create({ ...apiPayload, is_task: values.asTask })
                 }
 
-                playerCommentModel.actions.commentEdited(props.recordingId)
+                actions.commentEdited(props.recordingId)
                 actions.resetRecordingComment()
                 actions.setAsTask(false)
                 actions.setIsCommenting(false)
             },
+        },
+    })),
+    listeners(({ values }) => ({
+        // kea-forms discards anything thrown in submit, so a failed save is otherwise silent
+        submitRecordingCommentFailure: ({ error }) => {
+            if (values.recordingCommentHasErrors) {
+                // already rendered against the field
+                return
+            }
+            lemonToast.error(`Could not save your comment: ${error.message}`)
         },
     })),
 ])

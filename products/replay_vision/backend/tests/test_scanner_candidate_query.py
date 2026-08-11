@@ -17,14 +17,15 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     BALANCED_SURFACING_THRESHOLD,
     DEFAULT_CANDIDATE_LIMIT,
     FOCUSED_SURFACING_THRESHOLD,
-    NULL_SURFACING_SCORE_FALLBACK,
     SETTLE_INTERVAL,
+    BackfillCandidateQuery,
     ScannerCandidateQuery,
     surfacing_score_predicate,
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
-    ESTIMATE_WINDOW_DAYS,
+    _ESTIMATE_SCAN_WINDOW_DAYS,
     estimate_scanner_session_volume,
+    project_monthly_observations,
 )
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
@@ -158,8 +159,10 @@ def test_surfacing_score_predicate_rejects_unknown_mode():
         surfacing_score_predicate("focussed")
 
 
-def test_null_fallback_stays_below_balanced_threshold():
-    assert NULL_SURFACING_SCORE_FALLBACK < BALANCED_SURFACING_THRESHOLD
+def test_unscored_fallback_passes_filtered_thresholds():
+    from posthog.session_recordings.queries.session_recording_list_from_query import UNSCORED_SURFACING_SCORE
+
+    assert UNSCORED_SURFACING_SCORE >= FOCUSED_SURFACING_THRESHOLD
 
 
 @pytest.mark.parametrize(
@@ -429,9 +432,9 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert estimate.matched_sessions == 1
 
     @pytest.mark.django_db
-    def test_volume_estimate_window_is_exactly_30_days(self, team) -> None:
-        # A relative "-30d" date_from truncates to start-of-day, counting up to 31 days against the /30 divisor.
-        bound = _NOW - dt.timedelta(days=ESTIMATE_WINDOW_DAYS)
+    def test_volume_estimate_window_is_exactly_the_scan_window(self, team) -> None:
+        # An exact-timestamp date_from keeps the boundary sharp: a relative form would truncate to start-of-day.
+        bound = _NOW - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
         self._produce(
             team.id,
             "same-day-but-outside",
@@ -452,15 +455,16 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         assert estimate.matched_sessions == 1
 
     @pytest.mark.django_db
-    def test_volume_estimate_divisor_stays_full_for_old_but_quiet_teams(self, team) -> None:
-        # The bounded earliest-recording probe must not shrink the divisor for teams older than the window.
+    def test_volume_estimate_projects_zero_for_old_but_quiet_teams(self, team) -> None:
+        # Recordings older than the probe fall back to the full scan-window divisor, which is inert: matched is 0.
         old = _NOW - dt.timedelta(days=40)
         self._produce(team.id, "old-session", old, old + dt.timedelta(seconds=60), active_milliseconds=30_000)
 
         estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
 
         assert estimate.matched_sessions == 0
-        assert estimate.effective_window_days == ESTIMATE_WINDOW_DAYS
+        assert estimate.effective_window_days == _ESTIMATE_SCAN_WINDOW_DAYS
+        assert project_monthly_observations(estimate, 1.0) == 0
 
     @pytest.mark.django_db
     def test_filter_test_accounts_excludes_internal_users(self, team) -> None:
@@ -649,3 +653,77 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
         ).run()
+
+
+@freeze_time(_FROZEN_TIME)
+class TestBackfillCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
+    def setup_method(self, _method) -> None:
+        sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
+
+    @staticmethod
+    def _produce(team_id: int, session_id: str, first: dt.datetime, last: dt.datetime, **kwargs) -> None:
+        kwargs.setdefault("active_milliseconds", 30_000)
+        produce_replay_summary(
+            team_id=team_id,
+            session_id=session_id,
+            first_timestamp=first.isoformat(),
+            last_timestamp=last.isoformat(),
+            **kwargs,
+        )
+
+    @staticmethod
+    def _query(*, team, window_start: dt.datetime, window_end: dt.datetime, **kwargs) -> BackfillCandidateQuery:
+        return BackfillCandidateQuery(
+            team=team,
+            query=kwargs.pop("query", RecordingsQuery()),
+            window_start=window_start,
+            window_end=window_end,
+            sampling_rate=kwargs.pop("sampling_rate", 1.0),
+            sampling_salt=kwargs.pop("sampling_salt", "scanner-1"),
+            **kwargs,
+        )
+
+    @pytest.mark.django_db
+    def test_rejects_inverted_window(self, team) -> None:
+        with pytest.raises(ValueError, match="window_start must be before window_end"):
+            self._query(team=team, window_start=_NOW, window_end=_NOW - dt.timedelta(days=1))
+
+    @pytest.mark.django_db
+    def test_descending_keyset_walk_partitions_the_enumerated_window(self, team) -> None:
+        window_end = _NOW - dt.timedelta(days=1)
+        window_start = window_end - dt.timedelta(days=7)
+        inside = [f"sess-{i}" for i in range(5)]
+        for i, session_id in enumerate(inside):
+            end = window_end - dt.timedelta(hours=6 * (i + 1))
+            self._produce(team.id, session_id, end - dt.timedelta(minutes=10), end)
+        # Same end time as sess-0: exercises the (end_time, session_id) tie-breaker.
+        tied_end = window_end - dt.timedelta(hours=6)
+        self._produce(team.id, "sess-tied", tied_end - dt.timedelta(minutes=10), tied_end)
+        # Outside the window on both sides: never enumerated, never walked.
+        self._produce(
+            team.id, "before-window", window_start - dt.timedelta(hours=2), window_start - dt.timedelta(hours=1)
+        )
+        self._produce(
+            team.id, "after-window", window_end + dt.timedelta(minutes=1), window_end + dt.timedelta(minutes=30)
+        )
+
+        assert self._query(team=team, window_start=window_start, window_end=window_end).count() == 6
+
+        walked: list[str] = []
+        cursor_end, cursor_sid = None, None
+        for _ in range(10):
+            batch = self._query(
+                team=team,
+                window_start=window_start,
+                window_end=window_end,
+                cursor_end_time=cursor_end,
+                cursor_session_id=cursor_sid,
+                candidate_limit=2,
+            ).run()
+            if not batch:
+                break
+            walked.extend(c.session_id for c in batch)
+            cursor_end, cursor_sid = batch[-1].session_end, batch[-1].session_id
+
+        # Newest-first, tie broken by descending session_id, every enumerated session exactly once.
+        assert walked == ["sess-tied", "sess-0", "sess-1", "sess-2", "sess-3", "sess-4"]

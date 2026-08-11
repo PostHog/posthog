@@ -8,13 +8,18 @@ import type {
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
+export type TaskRunArtifactDTO = Schemas.TaskRunArtifactResponse & {
+  metadata?: unknown;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
+  dismissed_at?: string | null;
+};
+
 type TaskRunResponseDTO = Partial<
   Omit<Schemas.TaskRunDetail, "artifacts" | "status">
 > & {
   id: string;
-  artifacts?: Array<
-    Schemas.TaskRunArtifactResponse & { metadata?: unknown }
-  > | null;
+  artifacts?: Array<TaskRunArtifactDTO> | null;
   status?: Schemas.StatusA35Enum | "started" | null;
   team?: number | null;
 };
@@ -29,6 +34,7 @@ type TaskResponseDTO = Partial<
   json_schema?: unknown | null;
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
+  repositories?: string[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -100,8 +106,8 @@ function normalizeArtifactMetadata(
   };
 }
 
-function normalizeTaskRunArtifact(
-  artifact: NonNullable<TaskRunResponseDTO["artifacts"]>[number],
+export function normalizeTaskRunArtifact(
+  artifact: TaskRunArtifactDTO,
 ): TaskRunArtifact {
   const metadata = normalizeArtifactMetadata(artifact.metadata);
 
@@ -109,7 +115,11 @@ function normalizeTaskRunArtifact(
     ...(artifact.id === undefined ? {} : { id: artifact.id }),
     name: artifact.name,
     type: normalizeArtifactType(artifact.type),
-    ...(artifact.source === undefined ? {} : { source: artifact.source }),
+    ...(artifact.source === "agent_output" ||
+    artifact.source === "user_attachment" ||
+    artifact.source === "posthog_code_skill"
+      ? { source: artifact.source }
+      : {}),
     ...(artifact.size === undefined ? {} : { size: artifact.size }),
     ...(artifact.content_type === undefined
       ? {}
@@ -121,6 +131,15 @@ function normalizeTaskRunArtifact(
     ...(artifact.uploaded_at === undefined
       ? {}
       : { uploaded_at: artifact.uploaded_at }),
+    ...(artifact.uploaded_by === undefined
+      ? {}
+      : { uploaded_by: artifact.uploaded_by }),
+    ...(artifact.uploaded_by_user_id === undefined
+      ? {}
+      : { uploaded_by_user_id: artifact.uploaded_by_user_id }),
+    ...(artifact.dismissed_at === undefined
+      ? {}
+      : { dismissed_at: artifact.dismissed_at }),
   };
 }
 
@@ -185,6 +204,7 @@ export function normalizeTaskResponse(
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
     origin_product: dto.origin_product ?? "",
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),
+    repositories: dto.repositories ?? (dto.repository ? [dto.repository] : []),
     ...(dto.github_integration === undefined
       ? {}
       : { github_integration: dto.github_integration }),

@@ -6,9 +6,8 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
+from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
-
-from products.ai_observability.backend.models.llm_prompt import normalize_prompt_to_string
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

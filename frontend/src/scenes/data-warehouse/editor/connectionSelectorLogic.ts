@@ -85,6 +85,14 @@ function getConnectionEngine(
     return 'postgres'
 }
 
+export function getConnectionOptionLabel(source: ExternalDataSourceConnectionOptionApi): string {
+    const engine = getConnectionEngine(source)
+    const isSynced = source.access_method === 'warehouse'
+    // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
+    const name = source.description || source.prefix || source.source_type || source.id
+    return `${name} (${ENGINE_LABELS[engine]}${isSynced ? ' · synced' : ''})`
+}
+
 export function getConnectionSelectorValue(
     connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
     connectionOptionsLoading: boolean,
@@ -251,19 +259,12 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
             ): ConnectionSelectOptionGroup[] => {
                 const sourceOptions = connectionOptionsLoading
                     ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
-                    : (connectionOptions ?? []).map((source) => {
-                          const engine = getConnectionEngine(source)
-                          const isSynced = source.access_method === 'warehouse'
-                          // Prefer the user-set description, then the prefix; fall back to the source type name (never the raw UUID).
-                          const name = source.description || source.prefix || source.source_type || source.id
-
-                          return {
-                              value: source.id,
-                              label: `${name} (${ENGINE_LABELS[engine]}${isSynced ? ' · synced' : ''})`,
-                              iconSrc: ENGINE_ICONS[engine],
-                              managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
-                          }
-                      })
+                    : (connectionOptions ?? []).map((source) => ({
+                          value: source.id,
+                          label: getConnectionOptionLabel(source),
+                          iconSrc: ENGINE_ICONS[getConnectionEngine(source)],
+                          managementUrl: urls.dataWarehouseSource(`managed-${source.id}`),
+                      }))
 
                 // Driven by the backend direct-SQL capability surface so the menu never drifts from
                 // the engines we actually support (a new direct source shows up with no frontend change).

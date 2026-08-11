@@ -29,6 +29,7 @@ _ANALYTICS_INSIGHT_QUERY_KINDS = frozenset(
         "FunnelsQuery",
         "RetentionQuery",
         "PathsQuery",
+        "PathsV2Query",
         "StickinessQuery",
         "LifecycleQuery",
         "CalendarHeatmapQuery",

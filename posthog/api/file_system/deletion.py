@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from django.apps import apps
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+    ValidationError as DjangoValidationError,
+)
 
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
 from posthog.models.signals import mute_selected_signals
@@ -156,6 +159,22 @@ def get_file_system_registration(type_string: str) -> ModelRegistration | None:
     return _MODEL_REGISTRY.get(type_string)
 
 
+def is_pk_keyed_file_system_type(registration: ModelRegistration) -> bool:
+    """Whether a type's file system `ref` holds its object's primary key.
+
+    Compares against the model's own pk name rather than the literal "id", because Django lets a
+    model name its primary key any column: a registration whose lookup field is that column is
+    pk-keyed even when it isn't called "id".
+    """
+    model = apps.get_model(registration.app_label, registration.model_name)
+    return registration.lookup_field == model._meta.pk.name
+
+
+def get_non_pk_keyed_file_system_types() -> list[str]:
+    """Registered types whose file system `ref` is something other than the object's primary key."""
+    return [type_string for type_string, reg in _MODEL_REGISTRY.items() if not is_pk_keyed_file_system_type(reg)]
+
+
 def _resolve_user(user: Any | None) -> Any | None:
     if user is not None and getattr(user, "is_authenticated", False):
         return user
@@ -176,8 +195,11 @@ def _get_object(
     *,
     ref: str,
     team_id: int | None,
+    for_update: bool = False,
 ) -> Any:
     queryset = _get_queryset(registration)
+    if for_update:
+        queryset = queryset.select_for_update()
     filters: dict[str, Any] = {registration.lookup_field: ref, f"{registration.team_field}_id": team_id}
     return queryset.get(**filters)
 
@@ -289,7 +311,10 @@ def delete_file_system_object(
 
     try:
         instance = _get_object(registration, ref=ref, team_id=entry.team_id)
-    except ObjectDoesNotExist:
+    except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
+        # A ref the lookup field can't hold (`FileSystem.ref` is a plain CharField, set by the
+        # caller when the row is created) is the same situation as one that resolves to nothing:
+        # the row references no object, so drop the row itself.
         logger.warning("File system entry for type '%s' with ref '%s' has no backing object.", type_string, ref)
         entry.delete()
         return DeletionResult(
@@ -342,6 +367,37 @@ def delete_file_system_object(
     )
 
 
+def get_restorable_object(type_string: str, ref: str, *, team_id: int | None) -> Any | None:
+    """Resolve the object an `undo_delete` would restore, or None when there is nothing to restore.
+
+    Returns None for unregistered types, types that can't be restored, refs with no backing object,
+    and objects that aren't currently soft-deleted. Callers must treat every None the same way:
+    a per-case outcome would let a caller probe which refs exist.
+    """
+    registration = _MODEL_REGISTRY.get(type_string)
+    if registration is None:
+        return None
+
+    capabilities = _introspect_model_capabilities(registration)
+    if not capabilities.has_soft_delete or not capabilities.can_restore:
+        return None
+
+    try:
+        instance = _get_object(registration, ref=ref, team_id=team_id)
+    except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
+        # `ref` is caller-supplied and every model's lookup field rejects a different shape: an
+        # integer pk raises ValueError on "oops", a UUID pk raises ValidationError. Those are all
+        # the same answer as a missing object, and must return it identically so a caller can't
+        # tell a malformed ref from one that resolves to something they aren't allowed to see.
+        return None
+
+    assert capabilities.soft_delete_field is not None
+    if not getattr(instance, capabilities.soft_delete_field, False):
+        return None
+
+    return instance
+
+
 def undo_delete(
     *,
     type_string: str,
@@ -374,15 +430,25 @@ def undo_delete(
 
     team_id = getattr(team, "id", None)
     try:
-        instance = _get_object(registration, ref=ref, team_id=team_id)
+        instance = _get_object(registration, ref=ref, team_id=team_id, for_update=True)
     except ObjectDoesNotExist as exc:
         raise ValueError(f"Unable to restore {type_string} with ref '{ref}'") from exc
+
+    # Re-check the soft-delete flag here rather than trusting the caller's earlier check
+    # (get_restorable_object): that check and this restore run as separate queries, so a
+    # concurrent change to this object in between must not be silently overwritten by an
+    # unconditional restore - e.g. reviving a feature flag someone deliberately disabled in the
+    # gap between the check and this call. The row is locked for the rest of the caller's
+    # transaction, because reading it unlocked would leave the same gap between this check and
+    # the save below that the check exists to close.
+    assert capabilities.soft_delete_field is not None
+    if not getattr(instance, capabilities.soft_delete_field):
+        raise ValueError(f"{type_string} with ref '{ref}' is not currently deleted")
 
     pre_hook = _PRE_RESTORE_HOOKS.get(type_string)
     if pre_hook:
         pre_hook(context, instance)
 
-    assert capabilities.soft_delete_field is not None
     setattr(instance, capabilities.soft_delete_field, False)
 
     if restore_path and hasattr(instance, "_create_in_folder"):

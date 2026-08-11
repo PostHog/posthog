@@ -8,12 +8,14 @@ import { VariableType } from '../../types'
 import { variableDataLogic } from './variableDataLogic'
 import { VariableForm } from './VariableForm'
 import { variableModalLogic } from './variableModalLogic'
+import { variablesLogic } from './variablesLogic'
 
 export const NewVariableModal = (): JSX.Element => {
     const { closeModal, updateVariable, save, openNewVariableModal, changeTypeExistingVariable } =
         useActions(variableModalLogic)
     const { isModalOpen, variable, modalType, insightsUsingVariable, insightsLoading, isSaving } =
         useValues(variableModalLogic)
+    const { query } = useValues(variablesLogic)
     const { deleteVariable } = useActions(variableDataLogic)
     const title = modalType === 'new' ? `New ${variable.type} variable` : `Editing ${variable.name}`
 
@@ -53,22 +55,20 @@ export const NewVariableModal = (): JSX.Element => {
             onClose={closeModal}
             maxWidth={modalType === 'existing' && insightsUsingVariable.length > 0 ? '60rem' : '30rem'}
             footer={
-                variable.type !== 'Date' && (
-                    <div className="flex flex-1 justify-end gap-2">
-                        {modalType === 'existing' && (
-                            <LemonButton type="secondary" status="danger" onClick={handleDelete} disabled={isSaving}>
-                                Delete variable
-                            </LemonButton>
-                        )}
-                        <div className="flex-1" />
-                        <LemonButton type="secondary" onClick={closeModal} disabled={isSaving}>
-                            Close
+                <div className="flex flex-1 justify-end gap-2">
+                    {modalType === 'existing' && (
+                        <LemonButton type="secondary" status="danger" onClick={handleDelete} disabled={isSaving}>
+                            Delete variable
                         </LemonButton>
-                        <LemonButton type="primary" onClick={() => save()} loading={isSaving}>
-                            Save
-                        </LemonButton>
-                    </div>
-                )
+                    )}
+                    <div className="flex-1" />
+                    <LemonButton type="secondary" onClick={closeModal} disabled={isSaving}>
+                        Close
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={() => save()} loading={isSaving}>
+                        Save
+                    </LemonButton>
+                </div>
             }
         >
             <VariableForm
@@ -77,6 +77,7 @@ export const NewVariableModal = (): JSX.Element => {
                 onSave={save}
                 modalType={modalType}
                 onTypeChange={handleTypeChange}
+                defaultValuesQueryConnectionId={query?.source?.connectionId ?? null}
             />
 
             {modalType === 'existing' && (

@@ -6,6 +6,7 @@ email HTML body and Slack Block Kit payloads from that shape.
 """
 
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import quote, urlencode
 
@@ -45,8 +46,17 @@ _OUTCOME_LABELS = {
     "sentiment": (("positive", "Positive"), ("neutral", "Neutral"), ("negative", "Negative")),
 }
 
-type CitationMap = dict[str, tuple[str, str | None]]
+type CitationMap = dict[str, CitationLink]
 _SAFE_CITATION_LABEL_RE = re.compile(r"^[A-Za-z0-9._~-]{1,8}$")
+
+
+@dataclass(frozen=True, kw_only=True)
+class CitationLink:
+    """Where a cited ID should take the reader, and what to call it if the ID doesn't render."""
+
+    trace_id: str
+    generation_id: str | None
+    session_id: str | None
 
 
 def _inline_email_styles(html: str) -> str:
@@ -71,34 +81,48 @@ def _format_period_for_display(iso_str: str) -> str:
 
 
 def _build_citation_map(citations: list[Citation]) -> CitationMap:
-    """Map each cited ID to its trace and optional focused generation."""
+    """Map each cited ID to the unit the reader should land on."""
     citation_map: CitationMap = {}
     for citation in citations:
-        if citation.generation_id and citation.trace_id:
-            citation_map[citation.generation_id] = (citation.trace_id, citation.generation_id)
+        if citation.session_id:
+            citation_map[citation.session_id] = CitationLink(
+                trace_id=citation.trace_id, generation_id=None, session_id=citation.session_id
+            )
+        elif citation.generation_id and citation.trace_id:
+            citation_map[citation.generation_id] = CitationLink(
+                trace_id=citation.trace_id, generation_id=citation.generation_id, session_id=None
+            )
         elif citation.trace_id:
-            citation_map[citation.trace_id] = (citation.trace_id, None)
+            citation_map[citation.trace_id] = CitationLink(
+                trace_id=citation.trace_id, generation_id=None, session_id=None
+            )
     return citation_map
 
 
-def _make_trace_link(project_id: int, trace_id: str, generation_id: str | None) -> str:
-    """Build a trace URL, optionally focused on a cited generation."""
+def _make_citation_link(project_id: int, link: CitationLink) -> str:
+    """Build the URL for a cited unit: its session, or its trace optionally focused on a generation."""
     from posthog.utils import absolute_uri
 
-    # kea-router decodes the pathname once before matching, so preserve an encoded layer for the scene.
-    encoded_trace_id = quote(quote(trace_id, safe=""), safe="")
+    # One encoded layer each, matching what the app's own URL builders emit: the session scene
+    # reads the ID straight off the decoded pathname, while the trace scene decodes once more.
+    if link.session_id:
+        return absolute_uri(f"/project/{project_id}/ai-observability/sessions/{quote(link.session_id, safe='')}")
+
+    encoded_trace_id = quote(quote(link.trace_id, safe=""), safe="")
     path = f"/project/{project_id}/ai-observability/traces/{encoded_trace_id}"
-    if generation_id:
-        path = f"{path}?{urlencode({'event': generation_id})}"
+    if link.generation_id:
+        path = f"{path}?{urlencode({'event': link.generation_id})}"
     return absolute_uri(path)
 
 
-def _citation_link_label(cited_id: str, generation_id: str | None) -> str:
+def _citation_link_label(cited_id: str, link: CitationLink) -> str:
     """Keep arbitrary IDs from breaking the generated Markdown link label."""
     preview = cited_id[:8]
     if _SAFE_CITATION_LABEL_RE.fullmatch(preview):
         return f"{preview}..."
-    return "generation" if generation_id else "trace"
+    if link.session_id:
+        return "session"
+    return "generation" if link.generation_id else "trace"
 
 
 def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) -> str:
@@ -120,19 +144,18 @@ def _linkify_citations(text: str, project_id: int, citation_map: CitationMap) ->
     for i, cited_id in enumerate(citation_map):
         placeholder = f"\x00CITE{i}\x00"
         placeholders[placeholder] = cited_id
-        _, generation_id = citation_map[cited_id]
 
         for wrapper in [f"`` `{cited_id}` ``", f"`{cited_id}`", f"<{cited_id}>"]:
             text = text.replace(wrapper, placeholder)
-        if generation_id:
+        if citation_map[cited_id].generation_id:
             text = text.replace(cited_id, placeholder)
 
     # Phase 2: replace placeholders with markdown links.
     for placeholder, cited_id in placeholders.items():
-        trace_id, generation_id = citation_map[cited_id]
-        link = _make_trace_link(project_id, trace_id, generation_id)
-        label = _citation_link_label(cited_id, generation_id)
-        text = text.replace(placeholder, f"[{label}]({link})")
+        link = citation_map[cited_id]
+        url = _make_citation_link(project_id, link)
+        label = _citation_link_label(cited_id, link)
+        text = text.replace(placeholder, f"[{label}]({url})")
 
     return text
 

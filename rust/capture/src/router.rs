@@ -14,7 +14,6 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use crate::ai_s3::BlobStorage;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
@@ -27,7 +26,7 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
-use crate::config::{AiRouting, CaptureMode};
+use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use metrics_exporter_prometheus::PrometheusHandle;
@@ -54,7 +53,6 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
-    pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -91,14 +89,6 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
-    /// Routing policy for diverting `$ai_*` events to the dedicated AI topic
-    /// (`CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`), derived from `CAPTURE_ANALYTICS_AI_EVENTS_MODE` and
-    /// `CAPTURE_ANALYTICS_AI_EVENTS_ALLOWLIST_TOKENS`. `Primary` keeps everything on the
-    /// analytics main topic; the other modes divert per batch token, in both
-    /// the v0 pipeline (via `DataType::AiEvents`, mapped to the topic in the
-    /// kafka sink) and the v1 pipeline (via `Destination::AiEvents`, mapped
-    /// via the `topic_ai` injected into each sink config at setup).
-    pub ai_routing: AiRouting,
     /// Whether the AI overflow valve is armed (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
     /// set). Gates overflow stamping for the AI lane in both pipelines: when
     /// false, AI events never overflow (pre-overflow behavior).
@@ -173,7 +163,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
-    ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -184,7 +173,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
-    ai_routing: AiRouting,
     ai_events_overflow_enabled: bool,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
@@ -204,7 +192,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
-        ai_blob_storage,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,
@@ -215,7 +202,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
         ai_gateway_signing_secret,
-        ai_routing,
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
         capture_mode,

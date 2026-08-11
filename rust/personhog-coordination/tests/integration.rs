@@ -2272,7 +2272,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
     store.put_handoff(&handoff).await.unwrap();
 
     // Start the coordinator and a real pod. The new pod registering
-    // triggers a pod-change event and runs `cleanup_stale_handoffs`,
+    // triggers a pod-change event and runs the dead-new-owner cancellation,
     // which must leave the handoff alone: the new owner is live, and the
     // old owner's state is not cleanup's concern.
     let strategy: Arc<dyn AssignmentStrategy> = Arc::new(StickyBalancedStrategy);
@@ -2414,7 +2414,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register both owner pods: the new owner so `cleanup_stale_handoffs`
+    // Register both owner pods: the new owner so the dead-new-owner cancellation
     // doesn't delete the injected handoff, the old owner so the scenario
     // matches a live in-flight handoff. They don't run real handlers — we
     // just need their etcd registrations to exist.
@@ -2531,7 +2531,7 @@ async fn initial_assignment_skips_draining_phase() {
 
     store.set_total_partitions(NUM_PARTITIONS).await.unwrap();
 
-    // Register the new_owner pod so `cleanup_stale_handoffs` doesn't
+    // Register the new_owner pod so the dead-new-owner cancellation doesn't
     // delete the injected handoff for missing-target reasons.
     let lease = store.grant_lease(60).await.unwrap();
     let new_pod = RegisteredPod {

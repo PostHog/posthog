@@ -1,0 +1,142 @@
+{
+    "viewConventions": {
+        "summary": "Compact read-only overview for reports and mixed-product notebooks.",
+        "detail": "Full read-only product view for notebooks focused on this object.",
+        "editor": "Inline controls for changing the object.",
+        "results": "Measured outcomes, responses, or experiment results.",
+        "preview": "The object as an end user would see it.",
+        "conditions": "Targeting, audience, or evaluation conditions.",
+        "implementation": "Setup instructions or integration code.",
+        "activity": "Chronological events and changes for the object."
+    },
+    "widgets": {
+        "FeatureFlag": {
+            "label": "Feature flag",
+            "description": "Feature flag configuration, targeting, and implementation.",
+            "nodeType": "ph-feature-flag",
+            "idProp": "id",
+            "idDescription": "Feature flag numeric ID or key.",
+            "idExample": 123,
+            "picker": "feature-flag",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable feature flag overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the flag status, type, and release condition count."
+                },
+                "editor": {
+                    "label": "Editor",
+                    "description": "Edit the flag status and release conditions in the notebook."
+                },
+                "conditions": {
+                    "label": "Conditions",
+                    "description": "Show the flag release conditions."
+                },
+                "implementation": {
+                    "label": "Implementation",
+                    "description": "Show SDK implementation instructions."
+                }
+            }
+        },
+        "Survey": {
+            "label": "Survey",
+            "description": "Survey configuration, appearance, display conditions, and responses.",
+            "nodeType": "ph-survey",
+            "idProp": "id",
+            "idDescription": "Survey ID.",
+            "idExample": "survey-id",
+            "picker": "survey",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable survey overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the survey status, display mode, and question count."
+                },
+                "preview": {
+                    "label": "Preview",
+                    "description": "Show the first page of the survey."
+                },
+                "conditions": {
+                    "label": "Conditions",
+                    "description": "Show when and where the survey appears."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show survey responses and question results."
+                }
+            }
+        },
+        "Experiment": {
+            "label": "Experiment",
+            "description": "Experiment configuration, status, and results.",
+            "nodeType": "ph-experiment",
+            "idProp": "id",
+            "idDescription": "Experiment numeric ID.",
+            "idExample": 456,
+            "picker": "experiment",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable experiment overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the experiment status and result significance."
+                },
+                "results": {
+                    "label": "Results",
+                    "description": "Show experiment exposures and primary metric results."
+                }
+            }
+        },
+        "EarlyAccessFeature": {
+            "label": "Early access feature",
+            "description": "Early access feature stage, documentation, and enrollment.",
+            "nodeType": "ph-early-access-feature",
+            "idProp": "id",
+            "idDescription": "Early access feature ID.",
+            "idExample": "feature-id",
+            "picker": "early-access-feature",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable early access feature overview."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the feature stage, name, and description."
+                }
+            }
+        },
+        "Cohort": {
+            "label": "Cohort",
+            "description": "Cohort definition, size, and matching people.",
+            "nodeType": "ph-cohort",
+            "idProp": "id",
+            "idDescription": "Cohort numeric ID.",
+            "idExample": 789,
+            "picker": "cohort",
+            "defaultView": {
+                "name": "detail",
+                "label": "Detail",
+                "description": "Show the expandable cohort overview and matching people."
+            },
+            "views": {
+                "summary": {
+                    "label": "Summary",
+                    "description": "Show the cohort name, size, and type."
+                }
+            }
+        }
+    }
+}

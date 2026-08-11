@@ -10,6 +10,23 @@ vi.mock('@/lib/posthog/flags', () => ({
     resolveFeatureFlagOverrides: vi.fn(() => ({})),
 }))
 
+vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
+    McpSessionRedisStore: class {
+        async resolve(requestContext: Record<string, unknown>): Promise<Record<string, unknown>> {
+            const keys = ['mcpClientName', 'mcpClientVersion', 'mcpProtocolVersion', 'mcpConsumer', 'mcpVendorClient']
+            const resolved = Object.fromEntries(
+                keys.map((key) => [key, mockSessionStore.get(key) ?? requestContext[key]])
+            )
+            for (const key of keys) {
+                if (!mockSessionStore.has(key) && requestContext[key] !== undefined) {
+                    mockSessionStore.set(key, requestContext[key])
+                }
+            }
+            return resolved
+        }
+    },
+}))
+
 vi.mock('@/hono/request-context', () => {
     type MockCache = {
         get: (key: string) => Promise<unknown>
@@ -40,16 +57,9 @@ vi.mock('@/hono/request-context', () => {
     })
 
     return {
-        RequestContext: vi.fn().mockImplementation(function (_redis, _env, props: { mcpSessionId?: string } = {}) {
-            const sessionCache = makeCache(mockSessionStore)
+        RequestContext: vi.fn().mockImplementation(function () {
             return {
                 tokenCache: makeCache(mockTokenStore),
-                get sessionCache() {
-                    if (!props.mcpSessionId) {
-                        throw new Error('Session ID is required to use the session cache')
-                    }
-                    return sessionCache
-                },
                 getContext: vi.fn(async () => ({
                     stateManager: {
                         setDefaultOrganizationAndProject: vi.fn(async () => {}),
@@ -72,6 +82,7 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
+import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import type { Env } from '@/tools/types'
 
 function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
@@ -90,10 +101,21 @@ function makeProps(overrides: Partial<RequestProperties> = {}): RequestPropertie
 }
 
 function makeResolver(): RequestStateResolver {
+    return makeResolverWithCatalog().resolver
+}
+
+function makeResolverWithCatalog(): {
+    resolver: RequestStateResolver
+    getFilteredTools: ReturnType<typeof vi.fn>
+} {
+    const getFilteredTools = vi.fn(() => [])
     const catalog = {
-        getFilteredTools: vi.fn(() => []),
+        getFilteredTools,
     }
-    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
+    return {
+        resolver: new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env),
+        getFilteredTools,
+    }
 }
 
 describe('RequestStateResolver MCP client contexts', () => {
@@ -325,5 +347,22 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
+    })
+
+    it.each([
+        ['PostHog Code task', { mcpConsumer: 'posthog-code', taskId: 'task-1' }, false],
+        ['PostHog Code without a task', { mcpConsumer: 'posthog-code', taskId: undefined }, true],
+        ['non-PostHog Code task', { mcpConsumer: 'other', taskId: 'task-1' }, true],
+    ] as const)('advertises task artifacts and comments for %s', async (_label, overrides, excluded) => {
+        const { resolver, getFilteredTools } = makeResolverWithCatalog()
+
+        await resolver.resolve(makeProps(overrides))
+
+        const options = getFilteredTools.mock.calls[0]?.[0]
+        expect(options?.excludeTools).toEqual(
+            excluded
+                ? expect.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+                : expect.not.arrayContaining([...TASKS_CONTEXT_TOOL_NAMES])
+        )
     })
 })

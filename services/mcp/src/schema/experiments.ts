@@ -58,6 +58,9 @@ const ExperimentExposureConfigSchema = z.union([
 const ExperimentExposureCriteriaSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
     exposure_config: ExperimentExposureConfigSchema.optional(),
+    // Zod 4 z.object strips unknown keys on parse, and getExposures round-trips the stored
+    // criteria through this schema, so omitting a field here silently degrades the query.
+    activation_config: ExperimentExposureConfigSchema.optional(),
     multiple_variant_handling: z.enum(['exclude', 'first_seen']).optional(),
 })
 

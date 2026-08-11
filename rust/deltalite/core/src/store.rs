@@ -24,11 +24,11 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use deltalake::kernel::transaction::TransactionError;
 use deltalake::logstore::{CommitOrBytes, LogStore, LogStoreConfig};
-use futures::stream::BoxStream;
+use futures::stream::{BoxStream, StreamExt};
 use object_store::path::Path;
 use object_store::{
-    GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, PutMode,
-    PutMultipartOptions, PutOptions, PutPayload, PutResult,
+    GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore, ObjectStoreExt,
+    PutMode, PutMultipartOptions, PutOptions, PutPayload, PutResult,
 };
 use uuid::Uuid;
 
@@ -37,6 +37,9 @@ pub const DEFAULT_MULTIPART_THRESHOLD: usize = 64 * 1024 * 1024;
 /// Part size for multipart uploads. Must be >= 5 MiB for S3; 16 MiB balances request
 /// count against retry granularity.
 pub const DEFAULT_MULTIPART_PART_SIZE: usize = 16 * 1024 * 1024;
+
+/// Objects deleted concurrently by the per-object `delete_stream` override.
+const DELETE_CONCURRENCY: usize = 16;
 
 /// An [`ObjectStore`] wrapper that turns large plain-overwrite `put`s into multipart
 /// uploads and delegates everything else.
@@ -162,7 +165,24 @@ impl ObjectStore for MultipartPutStore {
         &self,
         locations: BoxStream<'static, object_store::Result<Path>>,
     ) -> BoxStream<'static, object_store::Result<Path>> {
-        self.inner.delete_stream(locations)
+        // object_store 0.13.2's S3 bulk `DeleteObjects` mis-parses a partial-error response
+        // ("unknown variant `Code`, expected `Deleted` or `Error`") and times out on very large
+        // delete batches (tables with many small files, e.g. GoogleAds) -- either failure aborts
+        // the whole upsert and forces a fallback to the delta-rs MERGE. Delete each object
+        // individually instead: a plain DELETE per key, run concurrently, sidesteps both the XML
+        // parse bug and the batch-size timeout. Delete volume is small next to the rewrite.
+        let inner = self.inner.clone();
+        locations
+            .map(move |loc| {
+                let inner = inner.clone();
+                async move {
+                    let path = loc?;
+                    inner.delete(&path).await?;
+                    Ok(path)
+                }
+            })
+            .buffer_unordered(DELETE_CONCURRENCY)
+            .boxed()
     }
 
     fn list(&self, prefix: Option<&Path>) -> BoxStream<'static, object_store::Result<ObjectMeta>> {

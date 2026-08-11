@@ -45,6 +45,16 @@ SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
 
+@pytest.fixture(autouse=True)
+def _stub_sync_teardown_dispatch():
+    # These suites run with transaction=True and eager Celery, so a real auto-disable
+    # (non-retryable source error) would execute the disable-teardown task inline,
+    # reaching for the queue DB and Temporal mid-workflow. The dispatch has its own
+    # tests (test_sync_teardown.py); keep it out of these runs.
+    with mock.patch("products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"):
+        yield
+
+
 @pytest.fixture(scope="package")
 def _ensure_sourcebatch_tables(django_db_setup, django_db_blocker):
     """Create sourcebatch/sourcebatchstatus tables in the default test database.

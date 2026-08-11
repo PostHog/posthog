@@ -10,7 +10,7 @@ import structlog
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
@@ -45,6 +45,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     build_enriched_prompt,
     build_frozen_prompt,
 )
+from products.exports.backend.temporal.subscriptions.types import safe_error_message, undisclosed_query_error_type
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
@@ -101,22 +102,6 @@ def _all_queries_failed_notice(total_steps: int) -> str:
         f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
         "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
     )
-
-
-def _safe_error_message(exc: BaseException) -> Optional[str]:
-    # HogQL/ClickHouse error text can echo team-scoped identifiers, so only the query-structure error
-    # classes (which describe the field/property the planner referenced) are safe to surface to the
-    # subscription owner — the same trust boundary the HogQL repair loop uses when forwarding to the
-    # fixer. Everything else stays type-only. Executors often wrap a resolution/exposed error in a
-    # generic Exception, so walk the __cause__/__context__ chain and surface the wrapped safe message.
-    seen: set[int] = set()
-    current: Optional[BaseException] = exc
-    while current is not None and id(current) not in seen:
-        if isinstance(current, (ExposedHogQLError, ResolutionError)):
-            return str(current)
-        seen.add(id(current))
-        current = current.__cause__ or current.__context__
-    return None
 
 
 class ReportStage(StrEnum):
@@ -448,7 +433,7 @@ async def _run_steps(
                     original_hogql=current_hogql,
                     # Forward the safe message (exposed/resolution errors describe the field/property the
                     # planner referenced, which is what the fixer needs); fall back to the type name.
-                    error_message=_safe_error_message(exc) or type(exc).__name__,
+                    error_message=safe_error_message(exc) or type(exc).__name__,
                     step_description=safe_description,
                     # The planner's project schema (event/property names) — a schema-blind fixer just
                     # re-guesses the wrong name, so give it the same grounding the planner had.
@@ -461,26 +446,27 @@ async def _run_steps(
                     break
                 current_hogql = fixed
 
+        # type only — ClickHouse errors can echo team-scoped identifiers
+        type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
+        undisclosed_type = undisclosed_query_error_type(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
             step_description=safe_description,
+            error_type=type_name,
             exc_info=last_exc,
         )
         if last_exc is not None:
             capture_exception(last_exc, {"trace_correlation_id": trace_correlation_id, "stage": "query"})
-        # type only — ClickHouse errors can echo team-scoped identifiers
-        type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        # Explicit failure marker, distinct from a genuinely-empty result, so synthesis reports the
-        # metric as "could not be computed" instead of paraphrasing the failure into "no data".
+        cause = "" if undisclosed_type is not None else f" ({type_name})"
         return (
-            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX} ({type_name}) — metric not computed, not empty data._",
+            f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._",
             QueryStepDiagnostic(
                 description=safe_description,
                 hogql=window.render_window_filter(current_hogql),
                 ok=False,
-                error_type=type_name,
-                human_readable_error=_safe_error_message(last_exc) if last_exc is not None else None,
+                error_type=undisclosed_type or type_name,
+                human_readable_error=safe_error_message(last_exc) if last_exc is not None else None,
             ),
         )
 

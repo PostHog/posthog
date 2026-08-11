@@ -1,13 +1,4 @@
 database "posthog" {
-  table "ai_events" {
-    extend = "_ai_events_columns"
-    engine "distributed" {
-      cluster_name    = "ai_events"
-      remote_database = "posthog"
-      remote_table    = "sharded_ai_events"
-      sharding_key    = "cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp))))"
-    }
-  }
   table "kafka_ai_events_json" {
     column "uuid" {
       type = "UUID"

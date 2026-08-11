@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
-use capture::config::{AiRouting, CaptureMode};
+use capture::config::CaptureMode;
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
@@ -68,7 +68,6 @@ async fn setup_analytics_router_with_restriction(
     restriction_type: RestrictionType,
     restriction_pipeline: Pipeline,
     token: &str,
-    ai_routing: AiRouting,
     ai_events_overflow_enabled: bool,
 ) -> (Router, CapturingSink) {
     let (readiness, liveness, _monitor) = test_lifecycle_handlers();
@@ -124,7 +123,6 @@ async fn setup_analytics_router_with_restriction(
         false,
         0.0_f32,
         26_214_400,
-        None, // no blob storage for analytics
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
@@ -135,7 +133,6 @@ async fn setup_analytics_router_with_restriction(
         None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
-        ai_routing,
         ai_events_overflow_enabled,
         None, // ingestion_warning_emitter
     );
@@ -220,7 +217,6 @@ async fn test_analytics_drop_event_restriction() {
         RestrictionType::DropEvent,
         Pipeline::Analytics,
         restricted_token,
-        AiRouting::Primary,
         false,
     )
     .await;
@@ -257,7 +253,6 @@ async fn test_analytics_redirect_to_dlq_restriction() {
         RestrictionType::RedirectToDlq,
         Pipeline::Analytics,
         restricted_token,
-        AiRouting::Primary,
         false,
     )
     .await;
@@ -304,7 +299,6 @@ async fn test_analytics_force_overflow_restriction() {
         RestrictionType::ForceOverflow,
         Pipeline::Analytics,
         restricted_token,
-        AiRouting::Primary,
         false,
     )
     .await;
@@ -350,8 +344,8 @@ async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event(
     // restrictions — the same Pipeline::Ai slice the dedicated AI endpoints
     // consult — so this test inserts its ForceOverflow under Pipeline::Ai.
     //
-    // The restriction must follow the event onto the lane: with secondary
-    // routing and the overflow valve armed, the event keeps
+    // The restriction must follow the event onto the lane: with the overflow
+    // valve armed, the event keeps
     // DataType::AiEvents and carries force_overflow (the sink maps that pair
     // to the AI overflow topic, never the analytics one). Catches the
     // restriction pipeline or the router dropping restrictions for diverted
@@ -361,7 +355,6 @@ async fn test_analytics_force_overflow_restriction_applies_to_diverted_ai_event(
         RestrictionType::ForceOverflow,
         Pipeline::Ai,
         restricted_token,
-        AiRouting::Secondary,
         true,
     )
     .await;
@@ -412,7 +405,6 @@ async fn test_analytics_skip_person_processing_restriction() {
         RestrictionType::SkipPersonProcessing,
         Pipeline::Analytics,
         restricted_token,
-        AiRouting::Primary,
         false,
     )
     .await;
@@ -459,7 +451,6 @@ async fn test_analytics_restriction_does_not_apply_to_other_tokens() {
         RestrictionType::DropEvent,
         Pipeline::Analytics,
         restricted_token,
-        AiRouting::Primary,
         false,
     )
     .await;
@@ -558,19 +549,17 @@ async fn setup_analytics_router_with_redirect_to_topic(
         0.0_f32,
         26_214_400,
         None,
-        None,
-        256,                // body_read_chunk_size_kb
-        10 * 1024 * 1024,   // capture_v1_max_compressed_body_bytes
-        50 * 1024 * 1024,   // capture_v1_max_decompressed_body_bytes
-        None,               // overflow_limiter
-        None,               // ai_events_overflow_limiter
-        None,               // replay_overflow_limiter
-        None,               // v1_sink_router
-        8,                  // capture_v1_scatter_gather_min_batch
-        None,               // ai_gateway_signing_secret
-        AiRouting::Primary, // ai_routing
-        false,              // ai_events_overflow_enabled
-        None,               // ingestion_warning_emitter
+        256,              // body_read_chunk_size_kb
+        10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
+        50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
+        None,             // overflow_limiter
+        None,             // ai_events_overflow_limiter
+        None,             // replay_overflow_limiter
+        None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
+        false,            // ai_events_overflow_enabled
+        None,             // ingestion_warning_emitter
     );
 
     (router, sink_clone)

@@ -265,7 +265,7 @@ the name already obviously matches; don't add noise.
 ## Self-driving Inbox candidacy (issues / tickets / conversations)
 
 Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
-table of _actionable records_ and emits findings into the PostHog Code Inbox. Shipped today: GitHub,
+table of _actionable records_ and emits findings into the PostHog Desktop Inbox. Shipped today: GitHub,
 Linear, Zendesk, pganalyze, and Jira.
 
 The signal is the **table you sync**, not the vendor: a source is an inbox candidate when one of its
@@ -647,7 +647,7 @@ If new:
 3. **Register the client + deploy the credentials.** Registering the OAuth client with the provider,
    the redirect URIs (US/EU/dev/localhost), the **charts** PR (wiring the env vars into both
    `posthog-django-shared-secrets` for the web app and the worker's `secret_env_app_specific` store),
-   and writing the values into AWS Secrets Manager via the `PostHog/secrets` CLI — plus which of these
+   and writing the values into AWS Secrets Manager via the `PostHog/secrets` UI or CLI — plus which of these
    an agent can vs. must not automate — are all in
    [references/oauth-app-deployment.md](references/oauth-app-deployment.md).
 

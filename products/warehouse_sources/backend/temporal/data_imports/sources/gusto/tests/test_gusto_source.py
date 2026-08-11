@@ -13,7 +13,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.cano
     CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
-    GUSTO_API_VERSION,
+    GUSTO_API_VERSION_2024_04_01,
+    GUSTO_API_VERSION_2026_06_15,
     GustoResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.settings import (
@@ -73,9 +74,17 @@ class TestGustoSource:
         assert field.defaultValue == "production"
 
     def test_api_version_is_pinned_to_what_the_client_sends(self) -> None:
-        assert self.source.supported_versions == (GUSTO_API_VERSION,)
-        assert self.source.default_version == GUSTO_API_VERSION
+        # Declared oldest→newest; new sources start on the newest version.
+        assert self.source.supported_versions == (GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15)
+        assert self.source.default_version == GUSTO_API_VERSION_2026_06_15
         assert self.source.api_docs_url.startswith("https://")
+
+    def test_older_version_is_deprecated_without_a_sunset_date(self) -> None:
+        # Gusto publishes no end-of-life date for 2024-04-01, so the deprecation is advisory only
+        # (sunset_at=None) and the default is never itself deprecated.
+        deprecation = self.source.get_version_deprecation(GUSTO_API_VERSION_2024_04_01)
+        assert deprecation is not None and deprecation.sunset_at is None
+        assert self.source.get_version_deprecation(GUSTO_API_VERSION_2026_06_15) is None
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
@@ -130,6 +139,8 @@ class TestGustoSource:
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.gusto.com/oauth/token"),
             ("bad_request", "400 Client Error: Bad Request for url: https://api.gusto.com/oauth/token"),
             ("forbidden", "403 Client Error: Forbidden for url: https://api.gusto.com/v1/companies/c-1/payrolls"),
+            # A pin that reaches end of life 406s; retrying can't recover it.
+            ("version_end_of_life", "406 Client Error: Not Acceptable for url: https://api.gusto.com/v1/me"),
         ]
     )
     def test_auth_failures_are_non_retryable(self, _name: str, observed_error: str) -> None:
@@ -155,7 +166,7 @@ class TestGustoSource:
             "client_id": "cid",
             "client_secret": "secret",
             "refresh_token": "refresh",
-            "api_version": GUSTO_API_VERSION,
+            "api_version": GUSTO_API_VERSION_2026_06_15,
         }
 
     @mock.patch(
@@ -191,8 +202,16 @@ class TestGustoSource:
         assert kwargs["client_secret"] == "secret"
         assert kwargs["refresh_token"] == "refresh"
         assert kwargs["endpoint"] == "employees"
-        assert kwargs["api_version"] == GUSTO_API_VERSION
+        assert kwargs["api_version"] == GUSTO_API_VERSION_2026_06_15
         assert kwargs["resumable_source_manager"] is manager
+
+    @parameterized.expand([(GUSTO_API_VERSION_2024_04_01,), (GUSTO_API_VERSION_2026_06_15,)])
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.gusto_source")
+    def test_source_for_pipeline_honors_the_pinned_version(self, pin: str, mock_source: mock.MagicMock) -> None:
+        # A source pinned to a still-supported (including deprecated) version syncs under that pin,
+        # never silently on the new default.
+        self.source.source_for_pipeline(self.config, mock.MagicMock(), self._inputs(api_version=pin))
+        assert mock_source.call_args.kwargs["api_version"] == pin
 
     @parameterized.expand(
         [

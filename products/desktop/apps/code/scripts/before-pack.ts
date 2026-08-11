@@ -1,6 +1,7 @@
 import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import {
+  koffiPackageFor,
   macOnlyNativeModules,
   requiredNativeModules,
   runtimeNativeModules,
@@ -80,6 +81,13 @@ export default async function beforePack(context: BeforePackContext) {
   if (platformName === "mac") {
     for (const dep of macOnlyNativeModules) {
       copyDep(dep, rootNodeModules, localNodeModules);
+    }
+
+    // copyDep, not copyRequiredDep: a missing koffi prebuild only loses the
+    // Mission Control overlay and should not fail a release build.
+    const koffiPkg = koffiPackageFor(platformName, arch);
+    if (koffiPkg) {
+      copyDep(koffiPkg, rootNodeModules, localNodeModules);
     }
   }
 

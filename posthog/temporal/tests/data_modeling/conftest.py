@@ -15,6 +15,9 @@ import pytest_asyncio
 # fixture setup. Importing the chain here — while structlog is still the default config —
 # runs that module-level code safely and caches it, so the signal's lazy import is a no-op.
 import posthog.api.advanced_activity_logs  # noqa: F401, E402 — warm import; see comment above
+from posthog.sync import database_sync_to_async
+
+from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 
 TEST_ROOT_BUCKET = "test-data-modeling"
 SESSION = aioboto3.Session()
@@ -42,3 +45,47 @@ async def minio_client(bucket_name):
             await client.create_bucket(Bucket=bucket_name)
 
         yield client
+
+
+@pytest_asyncio.fixture
+async def asaved_query(ateam, auser):
+    query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+        team=ateam,
+        name="test_model",
+        query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        created_by=auser,
+    )
+    yield query
+    await database_sync_to_async(query.delete)()
+
+
+@pytest_asyncio.fixture
+async def adag(ateam):
+    dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-dag")
+    yield dag
+    await database_sync_to_async(dag.delete)()
+
+
+@pytest_asyncio.fixture
+async def anode(ateam, asaved_query, adag):
+    node = await database_sync_to_async(Node.objects.create)(
+        team=ateam,
+        saved_query=asaved_query,
+        dag=adag,
+        name="test_model",
+        type=NodeType.MAT_VIEW,
+    )
+    yield node
+    await database_sync_to_async(node.delete)()
+
+
+@pytest_asyncio.fixture
+async def ajob(ateam, asaved_query):
+    job = await database_sync_to_async(DataModelingJob.objects.create)(
+        team=ateam,
+        saved_query=asaved_query,
+        status=DataModelingJob.Status.RUNNING,
+        workflow_id="test-workflow",
+    )
+    yield job
+    await database_sync_to_async(job.delete)()

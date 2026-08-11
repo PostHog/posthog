@@ -87,6 +87,19 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # These are the messages `ShopifyRetryableError` carries once `_make_paginated_shopify_
+        # request`'s `execute` exhausts its own tenacity retries (5 attempts, exponential backoff
+        # honoring Shopify's throttle refill time — retried alongside transient `ConnectionError`/
+        # `Timeout`) and re-raises. Surviving all 5 attempts means the rate limit or upstream blip
+        # is still live, but Temporal retries the whole activity and it's self-recovering, so keep
+        # it out of error tracking as noise.
+        return {
+            "Shopify: rate limit exceeded",
+            "Shopify: internal error",
+            "Shopify: connection broken while reading response",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

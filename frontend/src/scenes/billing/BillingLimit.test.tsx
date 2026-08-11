@@ -18,6 +18,7 @@ import { billingLogic } from './billingLogic'
 // dialog — this test is about the Save/Remove button wiring, not that branch.
 const makeProduct = (): BillingProductV2Type => ({
     ...(billingJson.products.find((p) => p.type === 'product_analytics') as BillingProductV2Type),
+    name: 'PostHog Desktop (usage-based)',
     subscribed: true,
     inclusion_only: false,
     current_amount_usd: null,
@@ -83,7 +84,7 @@ describe('BillingLimit', () => {
             await userEvent.click(screen.getByTestId('save-billing-limit-product_analytics'))
 
             expect(await screen.findByTestId('billing-limit-set-product_analytics')).toHaveTextContent(
-                `You have a ${renderedAmount} billing limit set`
+                `You have a ${renderedAmount} billing limit set for PostHog Desktop (usage-based).`
             )
             expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: savedLimit } })
         }
@@ -101,7 +102,7 @@ describe('BillingLimit', () => {
         await userEvent.click(screen.getByTestId('remove-billing-limit-product_analytics'))
 
         expect(await screen.findByTestId('billing-limit-not-set-product_analytics')).toHaveTextContent(
-            'You do not have a billing limit set'
+            'You do not have a billing limit set for PostHog Desktop (usage-based).'
         )
         expect(patchedBody).toEqual({ custom_limits_usd: { product_analytics: null } })
     })

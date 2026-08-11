@@ -167,7 +167,7 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     const sub = await context.getDistinctId()
     const payload: SignedConfirmedActionPayload = {
         args: options.args,
-        scope: options.boundScope ?? null,
+        scope: withConnectionScope(context, options.boundScope),
     }
     // Digest the exact string that gets stashed — execute re-hashes the
     // stored string, so serialization only has to be stable across this
@@ -357,7 +357,7 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
     // signed into the token. If the active scope has since changed (e.g. the
     // agent ran `switch-project` after the user confirmed), the same
     // confirmation must not authorize the action against a different target.
-    if (!scopesMatch(wrapper.scope ?? null, options.expectedScope ?? null)) {
+    if (!scopesMatch(wrapper.scope ?? null, withConnectionScope(context, options.expectedScope))) {
         return refuse(
             options.purpose,
             'scope_mismatch',
@@ -374,6 +374,26 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
  * execute time. Both are shallow string maps (or `null` when the action is
  * unscoped). A mismatch on any key — or a differing key set — fails closed.
  */
+/**
+ * Fold the connection a context runs through into its bound scope.
+ *
+ * A scope is keyed by project id, which is only unique within a region — two connections can point
+ * at different organizations whose projects happen to share a number, and the signed `sub` is the
+ * local user either way. Without this, a confirmation the user gave for one connection would spend
+ * against the other. Keying on the connection also separates a confirmation prepared through a
+ * connection from one prepared locally, since `scopesMatch` fails closed on a differing key set.
+ */
+function withConnectionScope(context: Context, scope?: ConfirmedActionScope): ConfirmedActionScope | null {
+    if (!context.connection) {
+        return scope ?? null
+    }
+    return {
+        ...scope,
+        connectionId: context.connection.connectionId,
+        connectionLocalProjectId: context.connection.localProjectId,
+    }
+}
+
 function scopesMatch(signed: ConfirmedActionScope | null, expected: ConfirmedActionScope | null): boolean {
     const a = signed ?? {}
     const b = expected ?? {}

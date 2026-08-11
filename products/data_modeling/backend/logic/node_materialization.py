@@ -1,12 +1,11 @@
 import asyncio
 from dataclasses import asdict
-from datetime import timedelta
-from uuid import uuid4
+from datetime import UTC, datetime, timedelta
 
 from django.conf import settings
 
 import structlog
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
@@ -34,14 +33,17 @@ def start_node_materialization(node: Node, *, is_v2: bool) -> None:
             node_id=str(node.id),
         )
         workflow_name = "data-modeling-materialize-view"
-        workflow_id = f"materialize-view-{node.id}-{uuid4()}"
+        workflow_id = f"materialize-view-{node.id}"
     else:
         inputs = RunWorkflowInputs(
             team_id=node.team_id,
             select=[Selector(label=str(node.saved_query_id), ancestors=0, descendants=0)],
         )
         workflow_name = "data-modeling-run"
-        workflow_id = f"data-modeling-run-{node.id}-{uuid4()}"
+        # Mirror the scheduled-run id shape ({saved_query_id}-{iso timestamp}) so
+        # resolve_log_source can recover the saved query id and the run's logs show up
+        # in the materialization history UI.
+        workflow_id = f"{node.saved_query_id}-{datetime.now(UTC).isoformat()}"
 
     temporal = sync_connect()
     asyncio.run(
@@ -50,6 +52,8 @@ def start_node_materialization(node: Node, *, is_v2: bool) -> None:
             asdict(inputs),
             id=workflow_id,
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),
                 maximum_interval=timedelta(seconds=60),

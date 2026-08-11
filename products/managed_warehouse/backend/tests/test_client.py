@@ -16,11 +16,17 @@ from products.managed_warehouse.backend.client import (
 
 @pytest.fixture(autouse=True)
 def _cp_no_rows():
-    # Compilation resolves the data-import schema through the typed team-state facade;
-    # keep these tests independent from the control plane.
-    with mock.patch(
-        "products.managed_warehouse.backend.facade.team_state.data_imports_schema",
-        side_effect=lambda team_id: f"posthog_data_imports_team_{team_id}",
+    # Compilation resolves managed table metadata through the typed team-state facade,
+    # so pin both organization policies to keep these tests independent from the control plane.
+    with (
+        mock.patch(
+            "products.managed_warehouse.backend.facade.team_state.data_imports_schema",
+            side_effect=lambda team_id: f"posthog_data_imports_team_{team_id}",
+        ),
+        mock.patch(
+            "products.managed_warehouse.backend.facade.team_state.data_imports_table_naming_version",
+            return_value="copy_v1",
+        ),
     ):
         yield
 

@@ -13,6 +13,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.organization import BillingPeriod
 from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
@@ -342,9 +343,9 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
     # bounds here is exactly the drift that loses the credit. The fallback covers rows created
     # before the bounds were snapshotted.
     if refund.period_start is not None and refund.period_end is not None:
-        period_start, period_end = refund.period_start, refund.period_end
+        period = BillingPeriod(start=refund.period_start, end=refund.period_end)
     else:
-        period_start, period_end = current_billing_period_bounds(organization)
+        period = current_billing_period_bounds(organization)
     payload = {
         "refund_id": str(refund.id),
         "credits": refund.credits,
@@ -353,8 +354,8 @@ def sync_signals_refund_credit(self, refund_id: str) -> None:
             "report_id": str(refund.report_id),
             "pr_url": refund.pr_url,
             "pr_run_created_at": refund.pr_run_created_at.isoformat(),
-            "period_start": period_start.isoformat(),
-            "period_end": period_end.isoformat(),
+            "period_start": period.start.isoformat(),
+            "period_end": period.end.isoformat(),
         },
     }
 

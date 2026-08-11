@@ -3,7 +3,7 @@
     "properties": {
         "all_team_tasks": {
             "default": false,
-            "description": "Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.",
+            "description": "Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.",
             "type": "boolean"
         },
         "archived": {

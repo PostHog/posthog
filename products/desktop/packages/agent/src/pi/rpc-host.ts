@@ -1,15 +1,27 @@
 import { readFileSync } from "node:fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
+import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
 import type { PosthogProviderOptions } from "@posthog/harness/extensions/posthog-provider/provider";
+import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
+import type {
+  McpToolPermissionDecision,
+  McpToolPermissionRequest,
+  McpToolPolicy,
+} from "@posthog/shared";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
 } from "./queue-persistence";
+import { createPiRepositoryToolsExtension } from "./repository-tools-extension";
 import { sanitizePiHostEnvironment } from "./rpc-environment";
 
 interface PiRpcBootstrap {
   providerOptions?: PosthogProviderOptions;
+  runtimeMcpServers?: McpConfig["mcpServers"];
+  mcpToolPolicies?: McpToolPolicy[];
+  projectTrusted?: boolean;
+  channelMode?: boolean;
 }
 
 interface PiHostRequest {
@@ -35,10 +47,49 @@ const sessionFile = argumentValue("--session-file");
 const sessionManager = sessionFile
   ? SessionManager.open(sessionFile, undefined, cwd)
   : SessionManager.create(cwd);
+function requestMcpToolPermission(
+  request: McpToolPermissionRequest,
+): Promise<McpToolPermissionDecision> {
+  return new Promise((resolve) => {
+    const onMessage = (message: unknown) => {
+      const response = message as {
+        type?: string;
+        requestId?: string;
+        decision?: McpToolPermissionDecision;
+      };
+      if (
+        response.type !== "posthog_pi_mcp_permission_response" ||
+        response.requestId !== request.requestId ||
+        !response.decision
+      ) {
+        return;
+      }
+      process.off("message", onMessage);
+      resolve(response.decision);
+    };
+    process.on("message", onMessage);
+    process.send?.({ type: "posthog_pi_mcp_permission_request", request });
+  });
+}
+
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
+  projectTrusted: createPiRuntimeTrustResolver(
+    cwd,
+    bootstrap.projectTrusted ?? false,
+  ),
+  ...(bootstrap.channelMode
+    ? {
+        resourceLoaderOptions: {
+          extensionFactories: [createPiRepositoryToolsExtension(cwd)],
+        },
+      }
+    : {}),
   ...providerOptions,
+  runtimeMcpServers: bootstrap.runtimeMcpServers,
+  mcpToolPolicies: bootstrap.mcpToolPolicies,
+  requestMcpToolPermission,
 });
 
 const persistedQueue = readPersistedPiQueue(sessionManager.getEntries());

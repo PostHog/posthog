@@ -80,7 +80,7 @@ export function ProjectPendingDeletion(): JSX.Element {
                             </Popover>
                         )}
                     </div>
-                    <SupportModalButton kind="support" target_area="login" label="Contact support" />
+                    <SupportModalButton kind="support" label="Contact support" />
                 </div>
             </LemonCard>
         </div>

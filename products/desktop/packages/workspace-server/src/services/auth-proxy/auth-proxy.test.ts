@@ -56,6 +56,21 @@ describe("AuthProxyService", () => {
     expect(url).toBe("https://gateway.example/v1/messages");
   });
 
+  it("forwards trusted headers instead of client-supplied values", async () => {
+    authMock.authenticatedFetch.mockResolvedValue(new Response("ok"));
+
+    const proxyUrl = await service.start("https://gateway.example", {
+      "X-PostHog-Project-Id": "1",
+    });
+    await fetch(`${proxyUrl}/v1/messages`, {
+      headers: { "X-PostHog-Project-Id": "999" },
+    });
+
+    const [, options] = authMock.authenticatedFetch.mock.calls[0];
+    const headers = new Headers(options.headers);
+    expect(headers.get("X-PostHog-Project-Id")).toBe("1");
+  });
+
   it("rejects requests that do not include the generated access token", async () => {
     const proxyUrl = await service.start("https://gateway.example");
     const proxyOrigin = new URL(proxyUrl).origin;

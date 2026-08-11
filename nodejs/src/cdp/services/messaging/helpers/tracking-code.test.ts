@@ -197,12 +197,77 @@ describe('email tracking code', () => {
                 },
             },
             {
+                // The version sits immediately before the greedy distinctId tail, so a distinctId
+                // containing colons is where an off-by-one in the split would surface — either the
+                // version leaks into distinctId or distinctId loses its leading segment.
+                name: 'roundtrips the workflow version alongside a colon-bearing distinctId',
+                encoded: signer.generate(
+                    {
+                        functionId: 'fn-1',
+                        id: 'inv-2',
+                        teamId: 3,
+                        state: { actionId: 'act-5' },
+                        distinctId: 'urn:user:42',
+                        workflowVersion: 3,
+                    },
+                    false,
+                    true
+                ),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: undefined,
+                    isTest: false,
+                    distinctId: 'urn:user:42',
+                    workflowVersion: 3,
+                    format: 'signed',
+                },
+            },
+            {
+                // Security: same rule as distinct_id above — a version is only honored from a signed
+                // code, so a forged one can't pin another version's engagement metrics onto a chosen
+                // version. The unsigned tag carrier never mints a version, so nothing legitimate is lost.
+                name: 'ignores a workflow version on an unsigned (forged) code',
+                encoded: encodeRaw('v2:fn-1:inv-2:3:act-5:batch-4::9:'),
+                expected: {
+                    functionId: 'fn-1',
+                    invocationId: 'inv-2',
+                    teamId: '3',
+                    actionId: 'act-5',
+                    parentRunId: 'batch-4',
+                    isTest: false,
+                    distinctId: undefined,
+                    workflowVersion: undefined,
+                    format: 'unsigned',
+                },
+            },
+            {
                 name: 'returns null when the encoded string is empty',
                 encoded: '',
                 expected: null,
             },
         ])('$name', ({ encoded, expected }) => {
             expect(signer.parse(encoded)).toEqual(expected)
+        })
+    })
+
+    describe('versioned payload rollout', () => {
+        it('does not emit the marker by default, so pods on the old parser still read new codes', () => {
+            // Phase one ships the marker-aware parser only. Emitting the marker before the fleet can
+            // parse it shifts every field for an old pod — functionId becomes the literal marker, the
+            // flow lookup misses, and the engagement metric is dropped for the whole rolling deploy.
+            const decoded = Buffer.from(
+                signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }).split('.')[0],
+                'base64'
+            ).toString('utf8')
+
+            expect(decoded.startsWith('fn-1:')).toBe(true)
+            expect(
+                signer.parse(signer.generate({ functionId: 'fn-1', id: 'inv-2', teamId: 3, workflowVersion: 3 }))
+                    ?.workflowVersion
+            ).toBeUndefined()
         })
     })
 

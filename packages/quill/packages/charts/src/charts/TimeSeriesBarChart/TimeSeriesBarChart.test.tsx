@@ -38,6 +38,21 @@ describe('TimeSeriesBarChart', () => {
             expect(chart.xTicks()).toEqual(['tick-0', 'tick-1', 'tick-2'])
         })
 
+        it('rotates rendered ticks when xAxis.tickLabelRotation is set', () => {
+            const { chart } = renderHogChart(
+                <TimeSeriesBarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ xAxis: { tickLabelRotation: -45 } }}
+                />
+            )
+            const ticks = chart.element.querySelectorAll<HTMLElement>('[data-attr="hog-chart-axis-tick-x"]')
+
+            expect(ticks.length).toBeGreaterThan(0)
+            expect(Array.from(ticks).every((tick) => tick.style.transform === 'rotate(-45deg)')).toBe(true)
+        })
+
         it('builds an auto date formatter from xAxis.timezone + xAxis.interval', () => {
             const labels = ['2024-06-10', '2024-06-11', '2024-06-12']
             const { chart } = renderHogChart(
@@ -321,6 +336,29 @@ describe('TimeSeriesBarChart', () => {
                 />
             )
             expect(chart.xTicks().length).toBeGreaterThan(0)
+        })
+    })
+
+    describe('config.margins', () => {
+        // Guards against `margins` being misplaced under `bars` instead of top-level, where `Chart`
+        // reads it as `marginsOverride` — a misplacement like that would silently no-op with a green
+        // suite otherwise, since nothing else here reaches `useChartMargins`' override path.
+        it('widens the left gutter and shifts the y-axis ticks over', () => {
+            const { chart: defaultChart } = renderHogChart(
+                <TimeSeriesBarChart series={SERIES} labels={LABELS} theme={THEME} />
+            )
+            const defaultTick = defaultChart.element.querySelector<HTMLElement>('[data-attr="hog-chart-axis-tick-y"]')
+            const { chart: widenedChart } = renderHogChart(
+                <TimeSeriesBarChart series={SERIES} labels={LABELS} theme={THEME} config={{ margins: { left: 200 } }} />
+            )
+            const widenedTick = widenedChart.element.querySelector<HTMLElement>(
+                '[data-attr="hog-chart-axis-tick-y"]'
+            )
+            expect(defaultTick).not.toBeNull()
+            expect(widenedTick).not.toBeNull()
+            // Left-side tick position is `right: box.width - box.plotLeft + gap` — widening the left
+            // margin increases `plotLeft`, which decreases this `right` offset.
+            expect(parseFloat(widenedTick!.style.right)).toBeLessThan(parseFloat(defaultTick!.style.right))
         })
     })
 

@@ -2,13 +2,15 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
-import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
+import { IconPerson, IconTrends } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { COHORT_NOTEBOOK_WIDGET_VIEWS, CohortNotebookWidgetAttributes } from 'scenes/cohorts/cohortNotebookWidgetViews'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -18,31 +20,21 @@ import { PropertyFilterType } from '~/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
+function CohortNotebookToolbar({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): null {
     const { id } = attributes
-
-    const { expanded } = useValues(notebookNodeLogic)
-    const { setExpanded, setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
-
-    const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id }))
-    const { setQuery } = useActions(cohortEditLogic({ id }))
-
-    const modifiedQuery = useMemo<DataTableNode>(() => {
-        return {
-            ...query,
-            embedded: true,
-            // TODO: Add back in controls in a way that actually works - maybe sync with NotebookNodeQuery
-            full: false,
-            showElapsedTime: false,
-            showTimings: false,
-            showOpenEditorButton: false,
-        }
-    }, [query])
+    const { cohort, cohortMissing } = useValues(cohortEditLogic({ id }))
+    const { setExpanded, setActions, insertAfter, setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
 
     useEffect(() => {
-        const title = cohort ? `Cohort: ${cohort.name}` : 'Cohort'
-
-        setTitlePlaceholder(title)
+        setTitlePlaceholder(cohort?.name || 'Cohort')
+        setTitleStatus(
+            cohort
+                ? {
+                      label: cohort.is_static ? 'Static' : 'Dynamic',
+                      type: 'default',
+                  }
+                : null
+        )
         setActions(
             !cohortMissing
                 ? [
@@ -72,7 +64,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                               })
                           },
                       },
-
                       {
                           text: 'Cohort trends',
                           icon: <IconTrends color="currentColor" />,
@@ -122,8 +113,29 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                   ]
                 : []
         )
-        // oxlint-disable-next-line exhaustive-deps
-    }, [cohort, cohortMissing])
+    }, [cohort, cohortMissing, id, insertAfter, setActions, setExpanded, setTitlePlaceholder, setTitleStatus])
+
+    return null
+}
+
+const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): JSX.Element => {
+    const { id } = attributes
+
+    const { expanded } = useValues(notebookNodeLogic)
+    const { cohort, cohortLoading, cohortMissing, query } = useValues(cohortEditLogic({ id }))
+    const { setQuery } = useActions(cohortEditLogic({ id }))
+
+    const modifiedQuery = useMemo<DataTableNode>(() => {
+        return {
+            ...query,
+            embedded: true,
+            // TODO: Add back in controls in a way that actually works - maybe sync with NotebookNodeQuery
+            full: false,
+            showElapsedTime: false,
+            showTimings: false,
+            showOpenEditorButton: false,
+        }
+    }, [query])
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -134,12 +146,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                 {cohortLoading ? (
                     <LemonSkeleton className="h-6" />
                 ) : (
-                    <div className="flex items-center gap-2">
-                        <IconPeople className="text-secondary text-lg" />
-                        <span className="flex-1 font-semibold truncate">{cohort.name}</span>
-                        <span className="italic text-secondary">({cohort.count} persons)</span>
-                        <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
-                    </div>
+                    <span className="text-secondary">
+                        {cohort.count} {cohort.count === 1 ? 'person' : 'persons'}
+                    </span>
                 )}
             </div>
 
@@ -153,20 +162,21 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
     )
 }
 
-type NotebookNodeCohortAttributes = {
-    id: number
-}
-
-export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttributes>({
+export const NotebookNodeCohort = createPostHogWidgetNode<CohortNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.Cohort,
     titlePlaceholder: 'Cohort',
+    editableTitle: false,
     Component,
+    ToolbarComponent: CohortNotebookToolbar,
     heightEstimate: 300,
     minHeight: 100,
     href: (attrs) => urls.cohort(attrs.id),
     attributes: {
         id: {},
+        view: {},
     },
+    defaultView: getNotebookWidgetDefaultView('Cohort'),
+    views: COHORT_NOTEBOOK_WIDGET_VIEWS,
     serializedText: (attrs) => {
         const title = attrs?.title || ''
         const id = attrs?.id || ''

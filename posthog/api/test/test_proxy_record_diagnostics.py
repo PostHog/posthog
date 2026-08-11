@@ -9,7 +9,7 @@ from parameterized import parameterized
 from posthog.api import proxy_record_diagnostics as diagnostics
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
-    CustomHostnameInfo,
+    CustomHostname,
     CustomHostnameSSL,
     CustomHostnameSSLStatus,
     CustomHostnameStatus,
@@ -36,8 +36,8 @@ def _hostname_info(
     http_url: str | None = "http://e.example.com/.well-known/acme-challenge/tok",
     http_body: str | None = "tok.body",
     certificate_authority: str | None = "google",
-) -> CustomHostnameInfo:
-    return CustomHostnameInfo(
+) -> CustomHostname:
+    return CustomHostname(
         id="hostname-id",
         hostname="e.example.com",
         status=CustomHostnameStatus.ACTIVE,

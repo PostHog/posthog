@@ -8,6 +8,7 @@ from posthog.temporal.data_modeling.activities import (
     materialize_view_duckgres_activity,
     preempt_dag_run_activity,
     prepare_queryable_table_activity,
+    record_skipped_data_modeling_jobs_activity,
     succeed_materialization_activity,
 )
 from posthog.temporal.data_modeling.run_workflow import (
@@ -37,6 +38,7 @@ SEMANTIC_ENRICHMENT_ACTIVITIES = [enrich_view_semantics_activity]
 ACTIVITIES = [
     check_duckgres_shadow_enabled_activity,
     create_data_modeling_job_activity,
+    record_skipped_data_modeling_jobs_activity,
     get_dag_structure_activity,
     fail_materialization_activity,
     materialize_view_activity,

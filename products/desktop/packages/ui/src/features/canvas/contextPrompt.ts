@@ -49,7 +49,7 @@ let the user refine it before you publish. Investigate two sources:
    analytics, and persons. Operate only on this project.
 
 Once the plan is approved, PUBLISH the document by calling the PostHog MCP
-tool \`desktop-file-system-instructions-partial-update\` exactly once with:
+tool \`channel-instructions-update\` exactly once with:
 - id: "${channelId}"
 - content: the full CONTEXT.md markdown
 - base_version: the current instructions version, or 0 if none exists yet

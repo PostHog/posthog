@@ -18,7 +18,9 @@ from posthog.models.instance_setting import get_instance_settings
 GITHUB_INSTALL_STATE_CACHE_PREFIX = "github_user_install_state:"
 GITHUB_INSTALL_STATE_TTL_SECONDS = 10 * 60
 
-GITHUB_INSTALLATION_ID_PATTERN = re.compile(r"\d{1,20}")
+# No leading zeros: security checks compare these ids as strings against DB-stored canonical
+# values, so "0111" must not validate and then miss an equality check against "111".
+GITHUB_INSTALLATION_ID_PATTERN = re.compile(r"[1-9]\d{0,19}")
 
 GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS = 60 * 15
 GITHUB_UNIFIED_AUTHORIZE_CACHE_PREFIX = "github_authorize:"

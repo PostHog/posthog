@@ -1,13 +1,16 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
+from typing import cast
 from uuid import uuid4
 
 from freezegun import freeze_time
 
+from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
     ReadinessState,
@@ -20,66 +23,68 @@ from products.data_warehouse.backend.logic.managed_warehouse_data_status import 
 )
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 from products.managed_warehouse.backend.facade.contracts import (
-    DuckgresSinkState,
-    DuckgresSinkStateCreateInput,
-    DuckgresSinkStateRecord,
+    ManagedWarehouseSourceJobRecord,
+    ManagedWarehouseSourceJobStatus,
+    ManagedWarehouseSourceJobUpdate,
+    ManagedWarehouseSourceJobWorkflow,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
-from products.managed_warehouse.backend.facade.testing import create_sink_state
+from products.managed_warehouse.backend.facade.testing import record_source_job_state
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 Granularity = ManagedWarehouseBackfillPartition.Granularity
 LifecycleState = ManagedWarehouseBackfillPartition.LifecycleState
 
 
+class _AllowAllSourceAccess:
+    def filter_queryset_by_access_level(self, queryset: QuerySet[ExternalDataSource]) -> QuerySet[ExternalDataSource]:
+        return queryset
+
+
+ALLOW_ALL_SOURCE_ACCESS = cast(UserAccessControl, _AllowAllSourceAccess())
+
+
 class TestSourceTableReadiness(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "persistent_failure_streak_needs_attention_even_mid_backfill",
-                DuckgresSinkState.BACKFILLING,
-                3,
-                "needs_attention",
-            ),
-            (
-                "pending_backfill_is_waiting",
-                DuckgresSinkState.PENDING_BACKFILL,
-                0,
-                "waiting",
-            ),
-            (
-                "backfilling_reports_backfilling",
-                DuckgresSinkState.BACKFILLING,
-                0,
-                "backfilling",
-            ),
-            (
-                "primed_schema_is_up_to_date",
-                DuckgresSinkState.PRIMED,
-                0,
-                "up_to_date",
-            ),
+            ("failed_needs_attention", ManagedWarehouseSourceJobStatus.FAILED, "needs_attention"),
+            ("running_is_backfilling", ManagedWarehouseSourceJobStatus.RUNNING, "backfilling"),
+            ("completed_is_up_to_date", ManagedWarehouseSourceJobStatus.COMPLETED, "up_to_date"),
+            ("skipped_is_waiting", ManagedWarehouseSourceJobStatus.SKIPPED, "waiting"),
+            ("stale_is_waiting", ManagedWarehouseSourceJobStatus.STALE, "waiting"),
         ]
     )
     def test_state_precedence(
         self,
         _name: str,
-        lifecycle_state: DuckgresSinkState,
-        consecutive_failures: int,
+        workflow_status: ManagedWarehouseSourceJobStatus,
         expected_readiness: ReadinessState,
     ) -> None:
-        state = DuckgresSinkStateRecord(
+        state = ManagedWarehouseSourceJobRecord(
             id=uuid4(),
             team_id=1,
+            environment_id=1,
             schema_id=uuid4(),
-            state=lifecycle_state,
-            consecutive_failures=consecutive_failures,
+            source_job_id="job-1",
+            attempt_id="attempt-1",
+            workflow_type=ManagedWarehouseSourceJobWorkflow.COPY,
+            status=workflow_status,
+            started_at=datetime(2026, 8, 1, tzinfo=UTC),
+            finished_at=None,
+            latest_error=None,
+            workflow_id=None,
+            workflow_run_id=None,
         )
 
         readiness, _ = source_table_readiness(state)
 
         assert readiness == expected_readiness
+
+    def test_missing_workflow_is_waiting(self) -> None:
+        readiness, _ = source_table_readiness(None)
+
+        assert readiness == "waiting"
 
 
 @freeze_time("2026-07-13")
@@ -181,7 +186,7 @@ def _table(
     table_name: str,
     readiness_state: ReadinessState,
     source_id: str | None = None,
-    backfilled: bool = True,
+    applied: bool = True,
     last_applied_at: datetime | None = None,
     last_synced_at: datetime | None = None,
 ) -> SourceTableStatus:
@@ -193,9 +198,10 @@ def _table(
         "table_name": table_name,
         "readiness_state": readiness_state,
         "detail": "",
-        "backfilled": backfilled,
-        "completed_chunks": 0,
-        "total_chunks": None,
+        "workflow_type": ManagedWarehouseSourceJobWorkflow.COPY,
+        "workflow_status": ManagedWarehouseSourceJobStatus.COMPLETED,
+        "workflow_started_at": datetime(2026, 8, 1, tzinfo=UTC),
+        "applied": applied,
         "last_applied_at": last_applied_at,
         "last_synced_at": last_synced_at,
     }
@@ -236,10 +242,7 @@ class TestSortSourceTables(SimpleTestCase):
 
 
 class TestRollupSources(SimpleTestCase):
-    def test_counts_backfilled_schemas_independent_of_readiness_label(self) -> None:
-        # A schema can be fully backfilled while a sibling is still copying. The rollup's
-        # backfilled count must track the one-time historical copy, not the readiness label,
-        # or a source with one slow schema would undercount how much history actually landed.
+    def test_counts_applied_schemas_independent_of_readiness_label(self) -> None:
         stripe_id = str(uuid4())
         tables = [
             _table(
@@ -247,28 +250,28 @@ class TestRollupSources(SimpleTestCase):
                 source_name="Stripe",
                 table_name="charges",
                 readiness_state="up_to_date",
-                backfilled=True,
+                applied=True,
             ),
             _table(
                 source_id=stripe_id,
                 source_name="Stripe",
                 table_name="customers",
                 readiness_state="up_to_date",
-                backfilled=True,
+                applied=True,
             ),
             _table(
                 source_id=stripe_id,
                 source_name="Stripe",
                 table_name="invoices",
                 readiness_state="waiting",
-                backfilled=False,
+                applied=False,
             ),
         ]
 
         [summary] = _rollup_sources(tables)
 
         assert summary["total_schemas"] == 3
-        assert summary["backfilled_schemas"] == 2
+        assert summary["applied_schemas"] == 2
         # waiting outranks up_to_date in READINESS_PRIORITY, so it wins the rollup.
         assert summary["readiness_state"] == "waiting"
 
@@ -353,8 +356,7 @@ class TestRollupSources(SimpleTestCase):
         assert paused_summary["readiness_state"] == "sync_paused"
         assert problem_summary["readiness_state"] == "needs_attention"
 
-    def test_a_paused_schema_still_counts_toward_backfilled(self) -> None:
-        # Pausing future syncs doesn't undo a historical backfill that already completed.
+    def test_a_paused_schema_still_counts_as_applied(self) -> None:
         source_id = str(uuid4())
         tables = [
             _table(
@@ -362,19 +364,54 @@ class TestRollupSources(SimpleTestCase):
                 source_name="Stripe",
                 table_name="charges",
                 readiness_state="sync_paused",
-                backfilled=True,
+                applied=True,
             ),
         ]
 
         [summary] = _rollup_sources(tables)
 
-        assert summary["backfilled_schemas"] == 1
+        assert summary["applied_schemas"] == 1
+
+
+def _record_source_workflow(
+    *,
+    team: Team,
+    schema: ExternalDataSchema,
+    status: ManagedWarehouseSourceJobStatus = ManagedWarehouseSourceJobStatus.COMPLETED,
+    workflow_type: ManagedWarehouseSourceJobWorkflow = ManagedWarehouseSourceJobWorkflow.COPY,
+    started_at: datetime | None = None,
+    attempt_id: str | None = None,
+) -> datetime:
+    started_at = started_at or datetime(2026, 7, 14, 11, 0, tzinfo=UTC)
+    finished_at = started_at + timedelta(minutes=1)
+    record_source_job_state(
+        ManagedWarehouseSourceJobUpdate(
+            team_id=team.id,
+            schema_ids=[schema.id],
+            source_job_id="external-job-1",
+            attempt_id=attempt_id or f"{workflow_type.value}-attempt-1",
+            workflow_type=workflow_type,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+    )
+    return finished_at
 
 
 class TestGetSourceSchemaStatuses(TestCase):
-    # The read side reports only what the sink jobs stamped onto the (main-DB) sink-state rows,
-    # so it must not touch the warehouse-sources queue DB at all — leaving it out of `databases`
-    # turns any accidentally re-introduced queue query into a test failure.
+    def test_configured_schema_waits_before_a_workflow_runs(self) -> None:
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        source = ExternalDataSource.objects.create(
+            team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
+        )
+        schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source)
+
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
+
+        assert result["schema_id"] == str(schema.id)
+        assert result["readiness_state"] == "waiting"
+        assert result["workflow_status"] is None
 
     def test_scopes_to_the_requested_source_only(self) -> None:
         # The modal fetches one source's schemas on click; a filter bug here would leak every
@@ -388,14 +425,10 @@ class TestGetSourceSchemaStatuses(TestCase):
         )
         schema_a = ExternalDataSchema.objects.create(team=team, name="charges", source=source_a)
         schema_b = ExternalDataSchema.objects.create(team=team, name="orders", source=source_b)
-        create_sink_state(
-            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=schema_a.id, state=DuckgresSinkState.PRIMED)
-        )
-        create_sink_state(
-            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=schema_b.id, state=DuckgresSinkState.PRIMED)
-        )
+        _record_source_workflow(team=team, schema=schema_a)
+        _record_source_workflow(team=team, schema=schema_b)
 
-        result = get_source_schema_statuses(team.id, str(source_a.id))
+        result = get_source_schema_statuses(team.id, str(source_a.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert [row["schema_id"] for row in result] == [str(schema_a.id)]
 
@@ -407,14 +440,12 @@ class TestGetSourceSchemaStatuses(TestCase):
             team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
         )
         paused_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, should_sync=False)
-        create_sink_state(
-            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=paused_schema.id, state=DuckgresSinkState.PRIMED)
-        )
+        _record_source_workflow(team=team, schema=paused_schema)
 
-        [result] = get_source_schema_statuses(team.id, str(source.id))
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result["readiness_state"] == "sync_paused"
-        assert result["backfilled"] is True
+        assert result["applied"] is True
 
     def test_a_deleted_schema_stays_excluded_even_though_should_sync_no_longer_filters(self) -> None:
         team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
@@ -422,34 +453,49 @@ class TestGetSourceSchemaStatuses(TestCase):
             team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
         )
         deleted_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, deleted=True)
-        create_sink_state(
-            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=deleted_schema.id, state=DuckgresSinkState.PRIMED)
-        )
+        _record_source_workflow(team=team, schema=deleted_schema)
 
-        result = get_source_schema_statuses(team.id, str(source.id))
+        result = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result == []
 
-    def test_reports_the_last_apply_the_sink_stamped(self) -> None:
-        # The row surfaces exactly what the sink recorded at apply time — the incident regression
-        # was deriving this live from a database the web tier can't reach; now a primed schema
-        # must read up_to_date and pass the stamped timestamp through untouched.
+    def test_reports_the_last_completed_workflow(self) -> None:
         team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
         source = ExternalDataSource.objects.create(
             team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
         )
         schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source)
-        applied_at = datetime(2026, 7, 14, 12, 0, tzinfo=UTC)
-        create_sink_state(
-            DuckgresSinkStateCreateInput(
-                team_id=team.id,
-                schema_id=schema.id,
-                state=DuckgresSinkState.PRIMED,
-                queue_last_applied_at=applied_at,
-            )
+        applied_at = _record_source_workflow(
+            team=team,
+            schema=schema,
+            workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
+            started_at=datetime(2026, 7, 14, 11, 59, tzinfo=UTC),
         )
 
-        [result] = get_source_schema_statuses(team.id, str(source.id))
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result["readiness_state"] == "up_to_date"
+        assert result["last_applied_at"] == applied_at
+        assert result["workflow_type"] == ManagedWarehouseSourceJobWorkflow.REGISTER
+
+    def test_failed_latest_attempt_keeps_the_last_completed_application(self) -> None:
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        source = ExternalDataSource.objects.create(
+            team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
+        )
+        schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source)
+        applied_at = _record_source_workflow(team=team, schema=schema)
+        _record_source_workflow(
+            team=team,
+            schema=schema,
+            status=ManagedWarehouseSourceJobStatus.FAILED,
+            workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
+            started_at=applied_at + timedelta(minutes=1),
+        )
+
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
+
+        assert result["readiness_state"] == "needs_attention"
+        assert result["workflow_status"] == ManagedWarehouseSourceJobStatus.FAILED
+        assert result["applied"] is True
         assert result["last_applied_at"] == applied_at

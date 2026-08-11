@@ -92,7 +92,7 @@ function RankedTermList({
                 {top.map(([term, count]) => (
                     <div key={term} className="flex items-center gap-2">
                         {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
-                        <div className="w-40 shrink-0 flex">
+                        <div className="w-24 sm:w-40 shrink-0 flex">
                             <LemonTag type="option" title={term} className="max-w-full truncate">
                                 {term}
                             </LemonTag>
@@ -163,7 +163,7 @@ function ImpactOverview({ scannerId }: { scannerId: string }): JSX.Element | nul
     }
     return (
         <OverviewPanel title="Impact" subtitle={`last ${overviewImpact.window_days} days`} fill>
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
                 <div className="text-sm">
                     Matched{' '}
                     <strong className="tabular-nums">{overviewImpact.affected_sessions.toLocaleString()}</strong>{' '}
@@ -342,7 +342,7 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
                     theme={theme}
                 />
             </div>
-            <div className="flex justify-between gap-4 text-xs text-muted tabular-nums pt-1 border-t">
+            <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-muted tabular-nums pt-1 border-t">
                 <span>min {scorerSummary.min.toFixed(1)}</span>
                 <span>median {scorerSummary.median.toFixed(1)}</span>
                 <span>avg {scorerSummary.mean.toFixed(1)}</span>

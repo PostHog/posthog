@@ -106,19 +106,19 @@ def close_implementation_pr_for_report(
         if parsed is None:
             logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
             return False
-        owner, repo, pr_number = parsed
-        repository = f"{owner}/{repo}"
 
-        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
         if github is None:
-            logger.info("close_implementation_pr_no_integration", report_id=str(report_id), repository=repository)
+            logger.info(
+                "close_implementation_pr_no_integration", report_id=str(report_id), repository=parsed.repository
+            )
             return False
 
         # Only comment on and close a PR that's still open. A merged PR reports state "closed" with
         # merged=True, and an already-closed PR reports state "closed" — in either case there's
         # nothing to close, and leaving a comment would just be noise. If the state can't be
         # confirmed, skip rather than risk commenting on a PR that already shipped.
-        pr_status = github.get_pull_request(repository, pr_number)
+        pr_status = github.get_pull_request(parsed.repository, parsed.number)
         if not pr_status.get("success"):
             logger.warning(
                 "close_implementation_pr_status_fetch_failed",
@@ -139,7 +139,7 @@ def close_implementation_pr_for_report(
             return False
 
         # Explain first, close second — a failed comment shouldn't stop the close.
-        comment_outcome = github.comment_on_pull_request(repository, pr_number, _PR_CLOSE_COMMENTS[reason])
+        comment_outcome = github.comment_on_pull_request(parsed.repository, parsed.number, _PR_CLOSE_COMMENTS[reason])
         if not comment_outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_comment_failed",
@@ -149,7 +149,7 @@ def close_implementation_pr_for_report(
                 status_code=comment_outcome.get("status_code"),
             )
 
-        outcome = github.close_pull_request(repository, pr_number)
+        outcome = github.close_pull_request(parsed.repository, parsed.number)
         if not outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_failed",

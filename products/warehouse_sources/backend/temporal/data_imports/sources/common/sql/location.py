@@ -6,6 +6,7 @@ delegates to, so the Postgres routing logic isn't re-derived per source.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -35,9 +36,13 @@ def _str_or_none(value: object) -> Optional[str]:
     return value if isinstance(value, str) else None
 
 
-def fill_missing_from_dotted_name(
-    schema: Optional[str], table: Optional[str], display_name: str
-) -> tuple[Optional[str], Optional[str]]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class DottedNameParts:
+    schema: Optional[str]
+    table: Optional[str]
+
+
+def fill_missing_from_dotted_name(*, schema: Optional[str], table: Optional[str], display_name: str) -> DottedNameParts:
     """Fill a missing `schema`/`table` by splitting a dotted `display_name` (`analytics.users`).
 
     Shared by the resolver and the migration so the rule can't drift between them.
@@ -46,7 +51,7 @@ def fill_missing_from_dotted_name(
         inferred_schema, _, inferred_table = display_name.partition(".")
         schema = schema or normalize_namespace(inferred_schema)
         table = table or inferred_table or None
-    return schema, table
+    return DottedNameParts(schema=schema, table=table)
 
 
 def resolve_source_location(
@@ -64,12 +69,12 @@ def resolve_source_location(
     metadata = inputs.schema_metadata if isinstance(inputs.schema_metadata, dict) else {}
     source_schema = normalize_namespace(metadata.get("source_schema"))
     source_table_name = _str_or_none(metadata.get("source_table_name"))
-    source_schema, source_table_name = fill_missing_from_dotted_name(
-        source_schema, source_table_name, inputs.schema_name
+    parts = fill_missing_from_dotted_name(
+        schema=source_schema, table=source_table_name, display_name=inputs.schema_name
     )
 
-    schema = source_schema or normalize_namespace(config_namespace) or default
-    table_name = source_table_name or inputs.schema_name
+    schema = parts.schema or normalize_namespace(config_namespace) or default
+    table_name = parts.table or inputs.schema_name
 
     storage_key = inputs.s3_folder_name if isinstance(inputs.s3_folder_name, str) and inputs.s3_folder_name else None
     response_name = NamingConvention.normalize_identifier(storage_key or inputs.schema_name)

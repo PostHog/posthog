@@ -17,12 +17,15 @@ from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRIN
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 
 logger = structlog.get_logger(__name__)
 
 
-class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreakdownsQueryResponse]):
+class ErrorTrackingBreakdownsQueryRunner(
+    ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingBreakdownsQueryResponse]
+):
     query: ErrorTrackingBreakdownsQuery
     cached_response: CachedErrorTrackingBreakdownsQueryResponse
 

@@ -16,6 +16,7 @@ from temporalio.worker import (
 
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.exceptions_capture import ambient_exception_properties
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
@@ -92,6 +93,17 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             ):
                 raise
             activity_info = activity.info()
+            # A saturated connection pool clears on its own and Temporal retries the activity, so
+            # a burst of them would otherwise mint a fresh error tracking issue per module for a
+            # condition nobody can action per-activity. Log it instead, and leave the retry to
+            # Temporal — a pool problem that outlives the retries surfaces as a workflow failure.
+            if is_transient_db_error(e):
+                await logger.awarning(
+                    "Transient database error in activity %s, leaving retry to Temporal",
+                    activity_info.activity_type,
+                    exc_info=e,
+                )
+                raise
             capture_kwargs = {
                 "properties": {
                     # Ambient properties (e.g. warehouse-sources JobContext) first so the explicit

@@ -2,7 +2,19 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# Source-level vendor API version labels. Distinct from the per-endpoint URL versions baked into
+# LANGFUSE_ENDPOINTS below (Langfuse versions each resource route independently). The source already
+# reads Langfuse's current route for every resource that has one (`/v2/observations`, `/v3/scores`,
+# `/v2/prompts`, `/v2/datasets`), so both labels resolve to the same wire — the bump is a declaration
+# plus deprecation with no request-layer branching. v1 keeps the pre-versioning UNVERSIONED default
+# so already-pinned rows resolve unchanged.
+LANGFUSE_API_VERSION_V1 = UNVERSIONED_API_VERSION
+LANGFUSE_API_VERSION_V2 = "v2"
+SUPPORTED_VERSIONS = (LANGFUSE_API_VERSION_V1, LANGFUSE_API_VERSION_V2)
+DEFAULT_VERSION = LANGFUSE_API_VERSION_V2
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:

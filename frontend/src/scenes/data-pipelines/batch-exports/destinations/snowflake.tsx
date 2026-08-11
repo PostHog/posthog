@@ -3,6 +3,7 @@ import { LemonBanner, LemonInput, LemonSelect, LemonTextArea } from '@posthog/le
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { PERSON_PROPERTIES_EVENT_FIELD } from './common'
 import type { DestinationDefinition } from './types'
 
 // New Snowflake exports must store credentials in a linked Integration. Exports created before
@@ -39,6 +40,7 @@ export const snowflakeDefinition: DestinationDefinition = {
         setOnceName: 'people_set_once',
     },
     eventTableExtraFields: {
+        ...PERSON_PROPERTIES_EVENT_FIELD,
         snowflake_ingested_timestamp: {
             name: 'snowflake_ingested_timestamp',
             hogql_value: 'NOW64()',

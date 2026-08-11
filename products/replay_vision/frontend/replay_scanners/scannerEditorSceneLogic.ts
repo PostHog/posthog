@@ -14,6 +14,21 @@ export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     self_driving: 3,
 }
 
+/** Earliest step rendering an errored form field; must match which step component mounts which fields. */
+export function firstErroredScannerStep(errors: {
+    name?: unknown
+    scanner_config?: unknown
+    sampling_rate?: unknown
+}): ScannerEditorStep | null {
+    if (errors.name || errors.scanner_config) {
+        return 'configure'
+    }
+    if (errors.sampling_rate) {
+        return 'triggers'
+    }
+    return null
+}
+
 export function scannerStepUrl(step: ScannerEditorStep, scannerId: string): string {
     switch (step) {
         case 'template':

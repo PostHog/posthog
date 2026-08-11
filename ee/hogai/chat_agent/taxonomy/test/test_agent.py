@@ -61,9 +61,9 @@ class TestTaxonomyAgent(BaseTest):
         self.assertFalse(self.agent._has_start_node)
 
     def test_get_state_class(self):
-        state_class, partial_state_class = self.agent._get_state_class(TaxonomyAgent)
-        self.assertEqual(state_class, TaxonomyAgentState)
-        self.assertEqual(partial_state_class, TaxonomyAgentState)
+        state_classes = self.agent._get_state_class(TaxonomyAgent)
+        self.assertEqual(state_classes.state_class, TaxonomyAgentState)
+        self.assertEqual(state_classes.partial_state_class, TaxonomyAgentState)
 
     def test_get_state_class_no_generic(self):
         # Create an agent without proper generic typing to test error case

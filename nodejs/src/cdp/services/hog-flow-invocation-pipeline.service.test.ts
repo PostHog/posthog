@@ -26,7 +26,12 @@ function makeHogFlowInvocation(hogFlowId = 'flow-1', overrides: { billable_actio
         functionId: hogFlowId,
         queue: 'hogflow',
         queuePriority: 0,
-        hogFlow: { id: hogFlowId, name: 'test flow', billable_action_types: overrides.billable_action_types ?? [] },
+        hogFlow: {
+            id: hogFlowId,
+            name: 'test flow',
+            version: 5,
+            billable_action_types: overrides.billable_action_types ?? [],
+        },
         state: { event: { uuid: 'evt-1' } },
         person: undefined,
     } as any
@@ -77,16 +82,19 @@ describe('HogFlowInvocationPipeline', () => {
             hogFlowManager,
             hogFlowExecutor,
             hogWatcher,
-            hogWatcherMirror: null,
+            hogWatcherMirror: hogWatcher,
             hogMasker,
             hogFunctionMonitoringService,
             quotaLimiting,
             redis: {} as any,
-            valkeyShadow: null,
+            valkeyShadow: { writer: {} as any, reader: {} as any },
         })
 
         rateLimitGroupedMock = (pipeline as any).hogRateLimiter.rateLimitGrouped as jest.Mock
         rateLimitGroupedMock.mockResolvedValue([])
+        // Both pools return the same result while reads still come from the primary, so the
+        // mirror shares the primary's mock rather than drifting to a stale default.
+        ;(pipeline as any).hogRateLimiterMirror.rateLimitGrouped = rateLimitGroupedMock
     })
 
     it('returns empty when no hogflows match', async () => {
@@ -105,7 +113,12 @@ describe('HogFlowInvocationPipeline', () => {
 
         expect(result).toEqual([inv])
         expect(hogFunctionMonitoringService.queueAppMetrics).toHaveBeenCalledWith(
-            expect.arrayContaining([expect.objectContaining({ metric_name: 'triggered' })]),
+            expect.arrayContaining([
+                expect.objectContaining({
+                    metric_name: 'triggered',
+                    app_source_version: { id: expect.any(String), version: 5 },
+                }),
+            ]),
             'hog_flow'
         )
     })

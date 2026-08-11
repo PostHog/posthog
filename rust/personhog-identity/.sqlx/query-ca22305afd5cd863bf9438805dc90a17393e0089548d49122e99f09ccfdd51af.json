@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT op_id, op_type\n            FROM lifecycle_op\n            WHERE completed_at IS NULL\n              AND parked_at IS NULL\n              AND ((lease_expires_at IS NULL AND created_at < now() - make_interval(secs => $1))\n                   OR lease_expires_at < now())\n            ORDER BY created_at\n            LIMIT $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "op_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "op_type",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ca22305afd5cd863bf9438805dc90a17393e0089548d49122e99f09ccfdd51af"
+}

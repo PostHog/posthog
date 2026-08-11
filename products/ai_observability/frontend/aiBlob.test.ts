@@ -1,4 +1,8 @@
-import { parseAiBlobPointer, resolveAiBlobUrl, resolveDataUri } from './aiBlob'
+import posthog from 'posthog-js'
+
+import { aiBlobRenderHandlers, parseAiBlobPointer, resolveAiBlobUrl, resolveDataUri } from './aiBlob'
+
+jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
 
 const HASH = 'a'.repeat(64)
 const POINTER = `phaiblob://v1/sha256/${HASH}?mime=image%2Fpng&size=131072`
@@ -48,5 +52,69 @@ describe('aiBlob', () => {
 
     it('builds a data: URI from raw base64 when the data field is not a pointer', () => {
         expect(resolveDataUri('AAAA', 'image/png', 1)).toBe('data:image/png;base64,AAAA')
+    })
+
+    describe('aiBlobRenderHandlers', () => {
+        beforeEach(() => {
+            jest.mocked(posthog.capture).mockClear()
+        })
+
+        it.each([
+            ['a data uri', 'data:image/png;base64,AAAA'],
+            ['an external url', 'https://example.com/a.png'],
+            ['an unresolved pointer', POINTER],
+        ])('attaches no handlers for %s', (_name, src) => {
+            expect(aiBlobRenderHandlers(src, 'image')).toEqual({})
+        })
+
+        it('captures success and error once per src, deduping repeat renders', () => {
+            const src = `/api/projects/1/ai_blob/v1/sha256/${'b'.repeat(64)}`
+            const handlers = aiBlobRenderHandlers(src, 'image')
+            handlers.onLoad!()
+            handlers.onLoad!()
+            handlers.onError!()
+            expect(posthog.capture).toHaveBeenCalledTimes(2)
+            expect(posthog.capture).toHaveBeenCalledWith('llma ai blob render', {
+                outcome: 'success',
+                media_kind: 'image',
+                transfer_size_bytes: null,
+                decoded_body_bytes: null,
+                from_browser_cache: null,
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('llma ai blob render', {
+                outcome: 'error',
+                media_kind: 'image',
+                transfer_size_bytes: null,
+                decoded_body_bytes: null,
+                from_browser_cache: null,
+            })
+        })
+
+        it('keeps capturing new srcs after the dedup cache fills up', () => {
+            for (let i = 0; i < 1000; i++) {
+                const src = `/api/projects/1/ai_blob/v1/sha256/${i.toString().padStart(64, '0')}`
+                aiBlobRenderHandlers(src, 'image').onLoad!()
+            }
+            jest.mocked(posthog.capture).mockClear()
+
+            const src = `/api/projects/1/ai_blob/v1/sha256/${'d'.repeat(64)}`
+            aiBlobRenderHandlers(src, 'image').onLoad!()
+
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'llma ai blob render',
+                expect.objectContaining({ outcome: 'success', media_kind: 'image' })
+            )
+        })
+
+        it('signals audio success via canplay, which media elements fire instead of load', () => {
+            const src = `/api/projects/1/ai_blob/v1/sha256/${'c'.repeat(64)}`
+            const handlers = aiBlobRenderHandlers(src, 'audio')
+            expect(handlers.onLoad).toBeUndefined()
+            handlers.onCanPlay!()
+            expect(posthog.capture).toHaveBeenCalledWith(
+                'llma ai blob render',
+                expect.objectContaining({ outcome: 'success', media_kind: 'audio' })
+            )
+        })
     })
 })

@@ -12,6 +12,10 @@
       "types": "./dist/analytics-events.d.ts",
       "import": "./dist/analytics-events.js"
     },
+    "./announcements": {
+      "types": "./dist/announcements.d.ts",
+      "import": "./dist/announcements.js"
+    },
     "./agent-platform-types": {
       "types": "./dist/agent-platform-types.d.ts",
       "import": "./dist/agent-platform-types.js"

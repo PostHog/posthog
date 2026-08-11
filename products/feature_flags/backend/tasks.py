@@ -256,14 +256,14 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful, failed = refresh_expiring_flags_caches(
+    counts = refresh_expiring_flags_caches(
         ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
     # Record metrics
-    successful_gauge.set(successful)
-    failed_gauge.set(failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     # Note: Teams processed metrics are pushed to Pushgateway by
     # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -275,8 +275,8 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
 
     logger.info(
         "Completed flags cache refresh",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         total_cached=stats_after.get("total_cached", 0),
         total_teams=stats_after.get("total_teams", 0),
         cache_coverage=stats_after.get("cache_coverage", "unknown"),
@@ -472,20 +472,20 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful, failed = refresh_expiring_caches(
+    counts = refresh_expiring_caches(
         config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
         ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful_gauge.set(successful)
-    failed_gauge.set(failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     duration = time.time() - start_time
     logger.info(
         "Completed flag definitions cache refresh",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         duration_seconds=duration,
     )
 

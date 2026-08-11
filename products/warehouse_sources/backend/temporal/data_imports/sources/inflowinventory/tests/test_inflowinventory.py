@@ -11,7 +11,8 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory import inflowinventory
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
-    INFLOWINVENTORY_API_VERSION,
+    INFLOWINVENTORY_API_VERSION_2023_04_01,
+    INFLOWINVENTORY_API_VERSION_2026_07_10,
     PAGE_SIZE,
     InflowInventoryResumeConfig,
     check_access,
@@ -73,7 +74,7 @@ def _rows(source_response: Any) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(endpoint: str, manager: MagicMock) -> Any:
+def _source(endpoint: str, manager: MagicMock, api_version: str = INFLOWINVENTORY_API_VERSION_2026_07_10) -> Any:
     return inflowinventory_source(
         api_key="inflow-key",
         company_id="co-123",
@@ -81,6 +82,7 @@ def _source(endpoint: str, manager: MagicMock) -> Any:
         team_id=1,
         job_id="j",
         resumable_source_manager=manager,
+        api_version=api_version,
     )
 
 
@@ -182,13 +184,21 @@ class TestPagination:
         _rows(_source("sales_orders", _make_manager()))
         assert snapshots[0]["url"] == "https://cloudapi.inflowinventory.com/co-123/sales-orders"
 
+    @parameterized.expand(
+        [
+            ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_07_10),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_version_header_is_set_on_session(self, MockSession: MagicMock) -> None:
+    def test_resolved_version_reaches_session_header(
+        self, _name: str, api_version: str, MockSession: MagicMock
+    ) -> None:
         session = MockSession.return_value
         _wire(session, [_json_response([])])
 
-        _rows(_source("products", _make_manager()))
-        assert session.headers.get("Accept") == f"application/json;version={INFLOWINVENTORY_API_VERSION}"
+        _rows(_source("products", _make_manager(), api_version=api_version))
+        assert session.headers.get("Accept") == f"application/json;version={api_version}"
 
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch("time.sleep")
@@ -260,19 +270,41 @@ class TestCheckAccess:
         response.status_code = status
         response.ok = ok
         mock_make_session.return_value = self._build_session(response)
-        assert check_access("inflow-key", "co-123") == (expected_status, expected_message)
+        assert check_access("inflow-key", "co-123", INFLOWINVENTORY_API_VERSION_2026_07_10) == (
+            expected_status,
+            expected_message,
+        )
+
+    @parameterized.expand(
+        [
+            ("legacy", INFLOWINVENTORY_API_VERSION_2023_04_01),
+            ("current", INFLOWINVENTORY_API_VERSION_2026_07_10),
+        ]
+    )
+    @mock.patch.object(inflowinventory, "make_tracked_session")
+    def test_probe_session_carries_resolved_version(
+        self, _name: str, api_version: str, mock_make_session: MagicMock
+    ) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        mock_make_session.return_value = self._build_session(response)
+
+        check_access("inflow-key", "co-123", api_version)
+        headers = mock_make_session.call_args.kwargs["headers"]
+        assert headers["Accept"] == f"application/json;version={api_version}"
 
     def test_malformed_company_id_short_circuits(self, monkeypatch: Any) -> None:
         # A bad company ID never reaches the network — no session is created.
         session = self._patch_session(monkeypatch, MagicMock())
-        status, message = check_access("inflow-key", "bad id/../evil")
+        status, message = check_access("inflow-key", "bad id/../evil", INFLOWINVENTORY_API_VERSION_2026_07_10)
         assert status == 400
         assert message is not None
         session.get.assert_not_called()
 
     def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
         self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("inflow-key", "co-123")
+        status, message = check_access("inflow-key", "co-123", INFLOWINVENTORY_API_VERSION_2026_07_10)
         assert status == 0
         assert message is not None and "boom" in message
 
@@ -297,7 +329,10 @@ class TestCheckAccess:
         response.status_code = status
         response.ok = status < 400
         mock_make_session.return_value = self._build_session(response)
-        assert validate_credentials("inflow-key", "co-123") == (expected_valid, expected_message)
+        assert validate_credentials("inflow-key", "co-123", INFLOWINVENTORY_API_VERSION_2026_07_10) == (
+            expected_valid,
+            expected_message,
+        )
 
 
 class TestInflowInventorySourceResponse:

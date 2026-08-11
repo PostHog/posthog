@@ -445,6 +445,7 @@ class UpdateGroupTypeMappingRequest(_message.Message):
         "name_plural",
         "detail_dashboard_id",
         "default_columns",
+        "created_at",
     )
     PROJECT_ID_FIELD_NUMBER: _ClassVar[int]
     GROUP_TYPE_INDEX_FIELD_NUMBER: _ClassVar[int]
@@ -453,6 +454,7 @@ class UpdateGroupTypeMappingRequest(_message.Message):
     NAME_PLURAL_FIELD_NUMBER: _ClassVar[int]
     DETAIL_DASHBOARD_ID_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_COLUMNS_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
     project_id: int
     group_type_index: int
     update_mask: _containers.RepeatedScalarFieldContainer[str]
@@ -460,6 +462,7 @@ class UpdateGroupTypeMappingRequest(_message.Message):
     name_plural: str
     detail_dashboard_id: int
     default_columns: bytes
+    created_at: int
 
     def __init__(
         self,
@@ -470,6 +473,7 @@ class UpdateGroupTypeMappingRequest(_message.Message):
         name_plural: _Optional[str] = ...,
         detail_dashboard_id: _Optional[int] = ...,
         default_columns: _Optional[bytes] = ...,
+        created_at: _Optional[int] = ...,
     ) -> None: ...
 
 class UpdateGroupTypeMappingResponse(_message.Message):

@@ -87,6 +87,21 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.log = rootLogger.scope("mcp-apps-service");
   }
 
+  // Two servers can serve different content at the same ui:// URI, so every
+  // per-resource cache (resource, meta, pending fetch) keys on server + URI.
+  private resourceKey(serverName: string, resourceUri: string): string {
+    return `${serverName}\n${resourceUri}`;
+  }
+
+  private evictServerEntries<T>(map: Map<string, T>, serverName: string): void {
+    const keyPrefix = this.resourceKey(serverName, "");
+    for (const key of map.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        map.delete(key);
+      }
+    }
+  }
+
   /**
    * Store server configs for lazy connections later.
    * No connections are created at this point.
@@ -212,7 +227,10 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       for (const resource of resourcesList.resources) {
         const meta = resource as McpResourceUiMeta;
         if (meta._meta?.ui) {
-          this.resourceMetaCache.set(resource.uri, meta);
+          this.resourceMetaCache.set(
+            this.resourceKey(serverName, resource.uri),
+            meta,
+          );
         }
       }
     }
@@ -412,7 +430,8 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     serverName: string,
     resourceUri: string,
   ): Promise<McpUiResource | null> {
-    const cached = this.resourceCache.get(resourceUri);
+    const key = this.resourceKey(serverName, resourceUri);
+    const cached = this.resourceCache.get(key);
     if (cached) {
       this.log.debug("fetchUiResourceByUri: cache hit", {
         serverName,
@@ -421,7 +440,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       return cached;
     }
 
-    const pendingFetch = this.pendingFetches.get(resourceUri);
+    const pendingFetch = this.pendingFetches.get(key);
     if (pendingFetch) {
       this.log.debug("fetchUiResourceByUri: joining pending fetch", {
         serverName,
@@ -435,11 +454,11 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       resourceUri,
     });
     const fetchPromise = this.doFetchUiResource(serverName, resourceUri);
-    this.pendingFetches.set(resourceUri, fetchPromise);
+    this.pendingFetches.set(key, fetchPromise);
     try {
       return await fetchPromise;
     } finally {
-      this.pendingFetches.delete(resourceUri);
+      this.pendingFetches.delete(key);
     }
   }
 
@@ -501,23 +520,39 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       return null;
     }
 
-    const resourceMeta = this.resourceMetaCache.get(resourceUri);
+    const resourceMeta = this.resourceMetaCache.get(
+      this.resourceKey(serverName, resourceUri),
+    );
+    // Read-response ui.csp/ui.permissions win; the listing-derived cache is a
+    // fallback for servers that only advertise them at registration.
+    const readUi = (textContent as { _meta?: McpResourceUiMeta["_meta"] })._meta
+      ?.ui;
+    const listUi = resourceMeta?._meta?.ui;
+    const csp = readUi?.csp ?? listUi?.csp;
+    const permissions = readUi?.permissions ?? listUi?.permissions;
 
     const resource: McpUiResource = {
       uri: resourceUri,
       name: resourceMeta?.name,
       mimeType: UI_MIME_TYPE,
-      csp: resourceMeta?._meta?.ui?.csp,
-      permissions: resourceMeta?._meta?.ui?.permissions,
+      csp,
+      permissions,
       html: textContent.text,
       serverName,
     };
 
     // A failed warm-up with no known metadata may have produced a CSP-less
     // copy; leave it uncached so a later fetch can attach the real CSP.
-    const cacheable = warmed || resourceMeta !== undefined;
+    const cacheable =
+      warmed ||
+      resourceMeta !== undefined ||
+      csp !== undefined ||
+      permissions !== undefined;
     if (cacheable) {
-      this.resourceCache.set(resourceUri, resource);
+      this.resourceCache.set(
+        this.resourceKey(serverName, resourceUri),
+        resource,
+      );
     }
     this.log.info("Lazily fetched UI resource", {
       serverName,
@@ -680,24 +715,14 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     }
     this.connections.delete(serverName);
 
-    // Clean up associations and cached resources for this server
-    const urisToEvict = new Set<string>();
     for (const [key, assoc] of this.toolAssociations) {
       if (assoc.serverName === serverName) {
-        urisToEvict.add(assoc.resourceUri);
         this.toolAssociations.delete(key);
       }
     }
 
-    // Only evict cached resources not referenced by remaining associations
-    const stillReferenced = new Set(
-      [...this.toolAssociations.values()].map((a) => a.resourceUri),
-    );
-    for (const uri of urisToEvict) {
-      if (!stillReferenced.has(uri)) {
-        this.resourceCache.delete(uri);
-      }
-    }
+    this.evictServerEntries(this.resourceCache, serverName);
+    this.evictServerEntries(this.resourceMetaCache, serverName);
   }
 
   async cleanup(): Promise<void> {

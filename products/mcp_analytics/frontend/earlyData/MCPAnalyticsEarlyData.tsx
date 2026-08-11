@@ -18,25 +18,6 @@ import { METRICS_UNLOCK_LIFETIME_CALLS, mcpAnalyticsOnboardingLogic } from '../m
 import type { ChecklistItem, EarlyRecentCall } from './mcpEarlyDataLogic'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
-// Raw `$mcp_client_name` values don't match the backend-resolved harness labels the
-// logo registry is keyed by; this maps the common spellings so rows get a logo.
-// Unknown clients fall back to HarnessLogo's neutral dot.
-const CLIENT_LABEL_RULES: Array<[RegExp, string]> = [
-    [/claude[ ._-]?code/i, 'Claude Code'],
-    [/claude[ ._-]?desktop/i, 'Claude Desktop'],
-    [/claude[ ._-]?ai/i, 'Claude.ai'],
-    [/claude/i, 'Claude.ai'],
-    [/chatgpt/i, 'ChatGPT'],
-    [/codex/i, 'OpenAI Codex'],
-    [/openai/i, 'OpenAI'],
-    [/cursor/i, 'Cursor'],
-    [/windsurf/i, 'Windsurf'],
-]
-
-function guessHarnessLabel(clientName: string): string {
-    return CLIENT_LABEL_RULES.find(([pattern]) => pattern.test(clientName))?.[1] ?? clientName
-}
-
 /**
  * The Activity tab: answers "what are agents doing with my server?" — a
  * plain-language summary instead of KPI tiles, the live feed as the hero, an
@@ -183,10 +164,7 @@ function LiveActivityCard(): JSX.Element {
                             render: (_, row) =>
                                 row.clientName ? (
                                     <span className="flex items-center gap-1.5">
-                                        <HarnessLogo
-                                            category={guessHarnessLabel(row.clientName)}
-                                            className="h-3.5 w-3.5"
-                                        />
+                                        <HarnessLogo category={row.clientName} className="h-3.5 w-3.5" />
                                         <span className="truncate">{row.clientName}</span>
                                     </span>
                                 ) : (
@@ -318,7 +296,7 @@ function ClientsCard(): JSX.Element {
                         <div key={row.client}>
                             <div className="flex justify-between text-base">
                                 <span className="flex items-center gap-1.5">
-                                    <HarnessLogo category={guessHarnessLabel(row.client)} className="h-3.5 w-3.5" />
+                                    <HarnessLogo category={row.client} className="h-3.5 w-3.5" />
                                     {row.client}
                                 </span>
                                 <span className="text-muted">{formatNumber(row.calls)}</span>

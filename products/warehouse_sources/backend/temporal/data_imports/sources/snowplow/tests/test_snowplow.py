@@ -98,59 +98,59 @@ class TestWindows:
     @freeze_time("2026-07-15T12:00:00Z")
     def test_first_sync_starts_at_the_retention_floor(self) -> None:
         # Snowplow only keeps about a week of runs; asking for more gets the window rejected.
-        start, end = _jobs_window_bounds(
+        window = _jobs_window_bounds(
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
             resume_window_from=None,
             now=datetime.now(UTC),
         )
-        assert end == datetime(2026, 7, 15, 12, tzinfo=UTC)
-        assert start == end - snowplow.JOB_RUNS_RETENTION
+        assert window.end == datetime(2026, 7, 15, 12, tzinfo=UTC)
+        assert window.start == window.end - snowplow.JOB_RUNS_RETENTION
 
     @freeze_time("2026-07-15T12:00:00Z")
     def test_incremental_run_rewinds_watermark_by_lookback(self) -> None:
         # A run listed while RUNNING changes state after we fetch it; advancing straight from the
         # watermark would freeze it at RUNNING forever.
-        start, _ = _jobs_window_bounds(
+        window = _jobs_window_bounds(
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-07-15T00:00:00Z",
             resume_window_from=None,
             now=datetime.now(UTC),
         )
-        assert start == datetime(2026, 7, 14, tzinfo=UTC)
+        assert window.start == datetime(2026, 7, 14, tzinfo=UTC)
 
     @freeze_time("2026-07-15T12:00:00Z")
     def test_stale_watermark_is_clamped_to_the_retention_floor(self) -> None:
         # A watermark older than the retention window would produce a from the API rejects.
-        start, end = _jobs_window_bounds(
+        window = _jobs_window_bounds(
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-06-01T00:00:00Z",
             resume_window_from=None,
             now=datetime.now(UTC),
         )
-        assert start == end - snowplow.JOB_RUNS_RETENTION
+        assert window.start == window.end - snowplow.JOB_RUNS_RETENTION
 
     @freeze_time("2026-07-15T12:00:00Z")
     def test_future_watermark_is_clamped_to_now(self) -> None:
-        start, end = _jobs_window_bounds(
+        window = _jobs_window_bounds(
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-08-01T00:00:00Z",
             resume_window_from=None,
             now=datetime.now(UTC),
         )
-        assert start == end
+        assert window.start == window.end
 
     @freeze_time("2026-07-15T12:00:00Z")
     def test_resume_window_takes_precedence_over_the_watermark(self) -> None:
         # On resume the saved window marks what was already yielded; restarting from the watermark
         # would re-fetch (and re-merge) everything the crashed attempt already produced.
-        start, _ = _jobs_window_bounds(
+        window = _jobs_window_bounds(
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-07-10T00:00:00Z",
             resume_window_from="2026-07-14T12:00:00Z",
             now=datetime.now(UTC),
         )
-        assert start == datetime(2026, 7, 14, 12, tzinfo=UTC)
+        assert window.start == datetime(2026, 7, 14, 12, tzinfo=UTC)
 
 
 class TestJobRuns:

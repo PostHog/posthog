@@ -83,6 +83,7 @@ function StatusDot({ status }: { status?: DataModelingJobStatus }): JSX.Element 
                     status === 'Running' && 'bg-warning',
                     status === 'Failed' && 'bg-danger',
                     status === 'Cancelled' && 'bg-warning',
+                    status === 'Skipped' && 'bg-muted',
                     !status && 'bg-surface-primary'
                 )}
             />

@@ -718,7 +718,7 @@ const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string
         {
             key: ProductTab.LIVE,
             label: 'Live',
-            link: '/web/live',
+            link: urls.webAnalyticsLive(),
         },
     ]
 }

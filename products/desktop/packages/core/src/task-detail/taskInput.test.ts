@@ -44,6 +44,30 @@ describe("prepareTaskInput", () => {
     });
     expect(input.customInstructions).toBeUndefined();
   });
+
+  it("preserves task-specific cloud repositories", () => {
+    const input = prepareTaskInput("do the thing", [], {
+      workspaceMode: "cloud",
+      repositories: ["posthog/posthog", "posthog/posthog-js"],
+      githubIntegrationId: 42,
+    });
+
+    expect(input.repositories).toEqual([
+      "posthog/posthog",
+      "posthog/posthog-js",
+    ]);
+    expect(input.githubIntegrationId).toBe(42);
+  });
+
+  it("uses a selected folder for a repo-optional local task", () => {
+    const input = prepareTaskInput("do the thing", [], {
+      workspaceMode: "local",
+      selectedDirectory: "/code/posthog",
+      allowNoRepo: true,
+    });
+
+    expect(input.repoPath).toBe("/code/posthog");
+  });
 });
 
 describe("buildWorktreeAdoptionInput", () => {

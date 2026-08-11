@@ -63,7 +63,8 @@ describe('insightAlertsLogic', () => {
         insightVizDataLogic(insightLogicProps).mount()
     }
 
-    it('does not hydrate from empty insight.alerts or fetch on mount when deferInitialAlertsLoad is true', async () => {
+    it('hydrates inline insight.alerts on a deferred mount without alerts or destination-count requests', async () => {
+        const inlineAlerts = [{ id: 'alert-a', name: 'Inline' }] as AlertType[]
         const insightLogicProps: InsightLogicProps = {
             dashboardItemId: Insight42,
             dashboardId: 1,
@@ -71,7 +72,31 @@ describe('insightAlertsLogic', () => {
                 ...createEmptyInsight(Insight42),
                 id: 42,
                 query: API_QUERY,
-                alerts: [],
+                alerts: inlineAlerts,
+            },
+        }
+        mountInsightStack(insightLogicProps)
+
+        const alertsLogic = insightAlertsLogic({
+            insightId: 42,
+            insightLogicProps,
+            deferInitialAlertsLoad: true,
+        })
+        alertsLogic.mount()
+
+        await expectLogic(alertsLogic).toFinishAllListeners().toMatchValues({ alerts: inlineAlerts })
+        expect(listSpy).not.toHaveBeenCalled()
+        expect(hogFunctionsListSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not fetch on a deferred mount when the cached insight has no alerts field', async () => {
+        const insightLogicProps: InsightLogicProps = {
+            dashboardItemId: Insight42,
+            dashboardId: 1,
+            cachedInsight: {
+                ...createEmptyInsight(Insight42),
+                id: 42,
+                query: API_QUERY,
             },
         }
         mountInsightStack(insightLogicProps)

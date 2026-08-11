@@ -221,8 +221,13 @@ def push_subscriptions(request: Request):
     verification_mode = _strictest_verification_mode(integrations)
     if verification_mode in ("optional", "required"):
         identity_token = data.get("identity_token")
+        # Public keys can live on more than one matching integration; try them all (verify picks the
+        # one that validates, then falls back to the legacy shared secret).
+        public_keys = [
+            key for integration in integrations for key in (integration.config.get("push_identity_public_keys") or [])
+        ]
         verified = isinstance(identity_token, str) and verify_push_identity_token(
-            identity_token, team, distinct_id, app_id
+            identity_token, team, distinct_id, app_id, public_keys=public_keys
         )
         PUSH_IDENTITY_VERIFICATION_COUNTER.labels(
             mode=verification_mode,
@@ -234,8 +239,9 @@ def push_subscriptions(request: Request):
                 request,
                 generate_exception_response(
                     "push_subscriptions",
-                    "A valid identity token is required for this device. Your backend must mint one for "
-                    "the signed-in user with the project's secret API key.",
+                    "A valid identity token is required for this device. Your backend must sign a "
+                    "short-lived token for the signed-in user with the key configured for this "
+                    "channel's identity verification.",
                     type="authentication_error",
                     code="identity_verification_failed",
                     status_code=status.HTTP_401_UNAUTHORIZED,

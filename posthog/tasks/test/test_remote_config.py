@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
     refresh_expiring_remote_config_cache_entries,
@@ -110,7 +111,10 @@ class TestRemoteConfigCacheTasks(BaseTest):
     def test_refresh_runs_work_when_flags_redis_url_set(self) -> None:
         with (
             override_settings(FLAGS_REDIS_URL="redis://test:6379/0"),
-            patch("posthog.tasks.remote_config.refresh_expiring_caches", return_value=(0, 0)) as mock_refresh,
+            patch(
+                "posthog.tasks.remote_config.refresh_expiring_caches",
+                return_value=CacheRefreshCounts(successful=0, failed=0),
+            ) as mock_refresh,
             patch("posthog.tasks.remote_config.get_cache_stats", return_value={}),
         ):
             refresh_expiring_remote_config_cache_entries()

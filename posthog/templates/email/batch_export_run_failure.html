@@ -1,11 +1,11 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
-{% block preheader %}If failures keep occurring we will disable this batch export{% endblock %}
+{% block preheader %}Failing batch exports are automatically paused{% endblock %}
 {% block heading %}PostHog batch export {{ name }} has failed{% endblock %}
 {% block section %}
 <p>
-  There's been a fatal error with your batch export {{ name }} at {{ time }}. Due to the nature of the error, we could not automatically recover from the failure and it requires manual intervention.
+  Your batch export {{ name }} failed with a fatal error at {{ time }}. We really tried to handle this by ourselves but, due to the nature of the error, we could not automatically recover from it and it requires your manual intervention.
 
-  We recommend reviewing the batch export logs for error details:
+  Please review the batch export for error details:
 </p>
 
 <div class="mb mt text-center">
@@ -14,10 +14,15 @@
 </div>
 
 <p>
-  In the logs you may find configuration errors that can be addressed by yourself, like an incorrect credential, or an unreachable warehouse. If you’re feeling extra-adventurous, sometimes a manual retry can fix things!
+  In the logs you may find errors that need to be addressed by you, like invalid credentials, or an unreachable destination.
 
-  If you can't diagnose the issue, please contact us for help. Keep in mind that if the batch export continues to fail we will have to disable it.
+  If you can't diagnose the issue or if you think this issue could have been automatically resolved, please contact us.
 </p>
+
+<p class="mt">
+  Failing batch exports are <b>automatically paused</b> by PostHog
+</p>
+
 {% endblock %}
 
 {% block footer %}

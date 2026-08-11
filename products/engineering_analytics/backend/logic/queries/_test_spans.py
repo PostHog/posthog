@@ -29,6 +29,16 @@ from datetime import datetime
 
 from posthog.hogql import ast
 
+from products.engineering_analytics.backend.logic.merge_queue import source_pr_string_expr
+
+# On a merge-queue gate run the emitter stamps ``ci.pr_number`` from the webhook payload, which names
+# the throwaway PR the queue opened rather than the PR being landed. Every blast-radius read here
+# counts distinct PRs, so left alone one test failing across N merge attempts looks like N separate
+# PRs hitting it — the branch is what names the real one (see ``logic.merge_queue``).
+_SPAN_PR_NUMBER = source_pr_string_expr(
+    "resource_attributes['ci.branch']", queue_actor_column="resource_attributes['ci.actor']"
+)
+
 # Only test spans carry test.outcome (job-root and setup spans don't), and only these
 # outcomes are flaky signal. Plain 'skipped' spans never reach any aggregation; 'passed'
 # spans are read only from re-run attempts (the scan's recovery arm), where they are the
@@ -118,21 +128,32 @@ def run_evidence(*, bounded: bool) -> str:
 
     ``bounded`` adds the upper time bound; some callers scan to now.
     """
-    scan = _SCAN.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "")
-    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", scan)
+    return _RUN_EVIDENCE.replace("__SPAN_SCAN__", _scan(bounded=bounded))
+
+
+def _scan(*, bounded: bool) -> str:
+    """The span scan with every ``__``-token substituted — the only way to obtain this SQL.
+
+    An unsubstituted token is not a parse error you would notice, it is a silently wrong query, so
+    every render goes through here rather than each caller remembering the list. The ``{...}`` names
+    that remain are real HogQL placeholders, bound by ``scan_placeholders``.
+    """
+    return _SCAN_TEMPLATE.replace("__DATE_TO__", " AND timestamp <= {date_to}" if bounded else "").replace(
+        "__QUEUE_PR__", _SPAN_PR_NUMBER
+    )
 
 
 # Scans [scan_from, date_to?]; `is_current` splits rows at {date_from} so a caller scanning
 # an extra prior window (scan_from < date_from) gets the current/prior split for free. A
 # caller without a prior window passes scan_from = date_from and ignores the column.
-_SCAN = """
+_SCAN_TEMPLATE = """
     SELECT
         if(attributes['test.runner'] = 'jest' OR service_name = 'ci-frontend', 'jest', 'pytest') AS runner,
         name AS nodeid,
         attributes['test.selector'] AS selector,
         attributes['test.outcome'] AS outcome,
         coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
-        resource_attributes['ci.pr_number'] AS pr_number,
+        if(__QUEUE_PR__ != '', __QUEUE_PR__, resource_attributes['ci.pr_number']) AS pr_number,
         resource_attributes['ci.branch'] AS branch,
         -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an
         -- unstamped span from merging every execution of its test into one phantom run.

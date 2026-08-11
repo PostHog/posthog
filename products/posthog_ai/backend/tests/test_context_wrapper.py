@@ -15,6 +15,7 @@ from posthog.schema import (
 from products.posthog_ai.backend.context_wrapper import AttachedContext, ContextService
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.api.serializers import ConversationStateResult
 from ee.hogai.utils.types import AssistantState
 
 SERIALIZERS = "ee.hogai.api.serializers"
@@ -152,7 +153,7 @@ class TestResumedLegacyContext(APIBaseTest):
 
     def _build(self, state):
         async def _aget(conversation, team, user):
-            return state, False, {}
+            return ConversationStateResult(state=state, has_unsupported_content=False, interrupt_payloads={})
 
         with (
             patch(f"{SERIALIZERS}.aget_conversation_state", side_effect=_aget),

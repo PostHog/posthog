@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 
@@ -8,6 +8,9 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models.organization import ProductFeature
 from posthog.models.team.team import Team
+
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
 
 # Grandfather default: existing teams keep 7 years (84 months) until billing assigns a shorter window.
 DEFAULT_EVENT_RETENTION_MONTHS = 84
@@ -89,3 +92,21 @@ def parse_events_feature_to_months(retention_feature: ProductFeature | None) -> 
             # Events retention is a months/years concept; an unexpected unit (e.g. days) grandfathers rather than
             # introducing a lossy day→month conversion.
             return DEFAULT_EVENT_RETENTION_MONTHS
+
+
+def organization_events_retention_months(organization: "Organization") -> int:
+    return parse_events_feature_to_months(organization.get_available_feature(EVENTS_DATA_RETENTION_FEATURE))
+
+
+def reconcile_organization_events_retention(organization: "Organization") -> int:
+    """Align the org's teams with its entitlement-derived retention window; returns teams updated.
+
+    Re-reads the persisted entitlement so overlapping billing syncs can't apply a stale in-memory snapshot.
+    """
+    organization.refresh_from_db(fields=["available_product_features"])
+    target_months = organization_events_retention_months(organization)
+    return (
+        Team.objects.filter(organization=organization)
+        .exclude(event_retention_months=target_months)
+        .update(event_retention_months=target_months)
+    )

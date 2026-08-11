@@ -2,7 +2,7 @@ import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
-import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { RedisConnectionConfig, createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import {
     KafkaDownstreamProducerEnvConfig,
@@ -54,26 +54,38 @@ export type IngestionSessionReplayServerConfig = BaseServerConfig &
         'LOG_LEVEL' | 'PLUGIN_SERVER_MODE' | 'HEALTHCHECK_MAX_STALE_SECONDS' | 'KAFKA_HEALTHCHECK_SECONDS'
     >
 
-/** Builds the session-recording and restriction Redis pools a replay deployment needs. */
-export function buildSessionReplayRedisPools(config: IngestionSessionReplayServerConfig): {
+/**
+ * Builds the session-recording and restriction Redis pools a replay deployment needs.
+ *
+ * `sessionRecordingConnection` overrides where the session-recording pool points, for a lane that
+ * runs against its own instance. The override belongs here rather than at the call site because
+ * these pools connect eagerly (`autostart`), so a caller that built both and then discarded one
+ * would leave a connected pool that nothing owns and nothing drains on shutdown.
+ */
+export function buildSessionReplayRedisPools(
+    config: IngestionSessionReplayServerConfig,
+    sessionRecordingConnection?: RedisConnectionConfig | null
+): {
     redisPool: RedisPool
     restrictionRedisPool: RedisPool
 } {
     const redisPool = createRedisPoolFromConfig({
-        connection: config.POSTHOG_SESSION_RECORDING_REDIS_HOST
-            ? {
-                  url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                  options: {
-                      port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
-                      commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
-                  },
-                  name: 'session-recording-redis',
-              }
-            : {
-                  url: config.REDIS_URL,
-                  options: { commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS },
-                  name: 'session-recording-redis-fallback',
-              },
+        connection:
+            sessionRecordingConnection ??
+            (config.POSTHOG_SESSION_RECORDING_REDIS_HOST
+                ? {
+                      url: config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
+                      options: {
+                          port: config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                          commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
+                      },
+                      name: 'session-recording-redis',
+                  }
+                : {
+                      url: config.REDIS_URL,
+                      options: { commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS },
+                      name: 'session-recording-redis-fallback',
+                  }),
         poolMinSize: config.REDIS_POOL_MIN_SIZE,
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })

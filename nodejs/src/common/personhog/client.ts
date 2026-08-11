@@ -105,6 +105,11 @@ export function eventualReadOptions() {
     return create(ReadOptionsSchema, { consistency: ConsistencyLevel.EVENTUAL })
 }
 
+/** Routes through the partition's leader for read-your-writes consistency. */
+export function strongReadOptions() {
+    return create(ReadOptionsSchema, { consistency: ConsistencyLevel.STRONG })
+}
+
 export function resolveConsistencyHeader(message: unknown): 'strong' | 'eventual' {
     const msg = message as Record<string, unknown> | undefined
     const readOptions = msg?.readOptions as { consistency?: ConsistencyLevel } | undefined

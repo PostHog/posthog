@@ -250,6 +250,7 @@ def _build_authorize_url(metadata: dict, client_id: str) -> str | None:
     if not isinstance(authorization_endpoint, str) or not authorization_endpoint:
         return None
 
+    # The probe never exchanges the code, so the verifier is deliberately discarded.
     code_challenge = generate_pkce().code_challenge
     query_params = {
         "client_id": client_id,

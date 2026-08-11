@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from products.customer_analytics.backend.logic.person_property_runs import (
     MAX_CONSECUTIVE_SYNC_FAILURES,
     record_sync_run,
@@ -112,16 +114,50 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert run.id == placeholder.id
         assert run.status == "completed" and run.produced == 5
 
-    def test_scheduled_run_leaves_a_running_placeholder_untouched(self):
-        # A scheduled sync must not hijack a backfill's running placeholder; it always inserts its own.
+    @parameterized.expand([("running",), ("completed",)])
+    def test_scheduled_run_leaves_a_running_placeholder_untouched(self, status):
+        # A scheduled sync must not hijack a backfill's running placeholder — not when it opens its own
+        # run either; it always inserts its own row.
         placeholder = CustomPropertySyncRun.objects.create(
             team_id=self.team.id, source=self.source, schema_id=self.schema_id, trigger="backfill", status="running"
         )
-        record_sync_run(self._record(trigger="scheduled", status="completed"))
+        record_sync_run(self._record(trigger="scheduled", status=status))
 
         assert CustomPropertySyncRun.objects.unscoped().filter(source=self.source).count() == 2
         placeholder.refresh_from_db()
         assert placeholder.status == "running"
+
+    def test_running_record_opens_a_row_without_folding_onto_the_source(self):
+        # A sync that has only started says nothing about the source's health: stamping last_synced_at
+        # or clearing the error would show the UI a green "Synced" for a run still in flight.
+        self.source.consecutive_failures = 2
+        self.source.last_sync_error = "boom"
+        self.source.save()
+
+        record_sync_run(self._record(status="running", finished_at="", rows_read=0, changed=0, existing=0, produced=0))
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=self.source.id)
+        assert run.status == "running" and run.finished_at is None
+        self.source.refresh_from_db()
+        assert self.source.consecutive_failures == 2
+        assert self.source.last_sync_error == "boom"
+        assert self.source.last_synced_at is None
+
+    def test_scheduled_record_reconciles_a_sync_now_row_and_keeps_its_trigger(self):
+        # "Sync now" opens the row, then rides the ordinary import pipeline, which reports itself as
+        # 'scheduled'. The terminal record must land on that row rather than adding a second one, and
+        # must not relabel a run the user asked for as scheduled.
+        opened = CustomPropertySyncRun.objects.create(
+            team_id=self.team.id, source=self.source, schema_id=self.schema_id, trigger="sync", status="running"
+        )
+        record_sync_run(self._record(trigger="scheduled", status="completed", produced=3))
+
+        runs = CustomPropertySyncRun.objects.unscoped().filter(source=self.source)
+        assert runs.count() == 1
+        run = runs.get()
+        assert run.id == opened.id
+        assert run.status == "completed" and run.produced == 3
+        assert run.trigger == "sync"
 
     def test_scheduled_retry_dedups_on_job_id_and_counts_failure_once(self):
         # The scheduled sync activity retries up to 3 times, calling the recorder on each failed

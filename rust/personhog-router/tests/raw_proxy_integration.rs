@@ -258,6 +258,8 @@ async fn raw_proxy_update_person_properties_routes_to_leader() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             }),
             1,
             42,
@@ -294,6 +296,8 @@ async fn raw_proxy_write_then_strong_read_roundtrip() {
                 .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             }),
             1,
             42,
@@ -346,6 +350,8 @@ async fn raw_proxy_leader_requests_without_key_headers_rejected() {
             set_properties: vec![],
             set_once_properties: vec![],
             unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
         })
         .await;
     let status = update_result.expect_err("write without key headers must be rejected");
@@ -412,6 +418,8 @@ async fn raw_proxy_update_person_properties_no_leader_returns_unimplemented() {
             set_properties: vec![],
             set_once_properties: vec![],
             unset_properties: vec![],
+            is_identified: None,
+            last_seen_at: None,
         })
         .await;
 
@@ -449,6 +457,8 @@ async fn raw_proxy_compressed_leader_requests_transit_untouched() {
                     .unwrap(),
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             }),
             1,
             42,
@@ -527,6 +537,8 @@ async fn raw_proxy_rejects_oversized_leader_request() {
                 set_properties: oversized_props,
                 set_once_properties: vec![],
                 unset_properties: vec![],
+                is_identified: None,
+                last_seen_at: None,
             }),
             1,
             42,

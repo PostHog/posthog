@@ -14,27 +14,21 @@ from posthog.schema import BreakdownValue, DateRange, ErrorTrackingBreakdownsQue
 from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
     ErrorTrackingBreakdownsQueryRunner,
 )
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    sync_issues_to_clickhouse,
+)
 
 
 class TestErrorTrackingBreakdownsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
     fingerprint = "test_fingerprint"
 
-    @classmethod
-    def setUpClass(cls):
-        # Materialize $exception_issue_id so the rendered SQL deterministically uses the
-        # materialized column (as in production) regardless of test execution order, rather
-        # than depending on another test having materialized it first on the shared table.
-        from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
-
-        if ("$exception_issue_id", "properties") not in get_materialized_columns("events"):
-            materialize("events", "$exception_issue_id", is_nullable=True)
-        super().setUpClass()
-
     def create_issue(self, issue_id, fingerprint):
         issue = ErrorTrackingIssue.objects.create(id=issue_id, team=self.team)
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 
     def create_exception_event(self, distinct_id, properties):

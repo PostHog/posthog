@@ -1,0 +1,20 @@
+version: 2
+
+models:
+    - name: stg_funnel_events
+      description: Step events for the funnel, one row per person/step event.
+      columns:
+          - name: person_id
+            data_tests: [not_null]
+          - name: event_name
+            data_tests:
+                - accepted_values:
+                      values: ['signed_up', 'activated', 'purchased']
+
+    - name: fct_conversion
+      description: Funnel entry/step counts and overall conversion within the window.
+      columns:
+          - name: entered_step_1
+            data_tests: [not_null]
+          - name: overall_conversion
+            data_tests: [not_null]

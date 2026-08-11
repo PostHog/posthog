@@ -2,6 +2,7 @@ import type {
     CustomPropertyDisplayTypeEnumApi,
     CustomPropertyOptionApi,
     CustomPropertySourceApi,
+    CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
@@ -10,6 +11,7 @@ import {
     isNumericDisplayType,
     labelForDisplayType,
     optionLabelError,
+    runOutcomeNote,
     sourceSyncStatus,
 } from './customPropertyTypes'
 
@@ -106,5 +108,40 @@ describe('customPropertyTypes', () => {
         const status = sourceSyncStatus(buildSource({ is_enabled: false, last_sync_error: null }))
         expect(status.level).toBe('disabled')
         expect(status.tooltip).toBe('Syncing is turned off for this source.')
+    })
+
+    describe('runOutcomeNote', () => {
+        const buildRun = (overrides: Partial<CustomPropertySyncRunApi>): CustomPropertySyncRunApi =>
+            ({
+                status: 'completed',
+                rows_read: 0,
+                changed: 0,
+                existing: 0,
+                produced: 0,
+                skipped_missing_person: 0,
+                ...overrides,
+            }) as CustomPropertySyncRunApi
+
+        // An all-zero run is the normal quiet case, and the counts alone can't say which quiet case
+        // it was — the note is the only thing distinguishing "nothing imported" from "nothing changed".
+        it.each([
+            ['nothing staged by the sync', {}, 'no new rows'],
+            ['rows staged but all matching the last send', { rows_read: 12 }, 'no changes'],
+            [
+                'changed rows matching no person',
+                { rows_read: 12, changed: 3, skipped_missing_person: 3 },
+                'no matching people',
+            ],
+        ])('names the reason when %s', (_name, overrides, expected) => {
+            expect(runOutcomeNote(buildRun(overrides), 'people')?.label).toBe(expected)
+        })
+
+        it.each([
+            ['the run produced intents', { rows_read: 5, changed: 5, existing: 5, produced: 5 }],
+            ['the run is still going', { status: 'running' }],
+            ['the run failed', { status: 'failed' }],
+        ])('stays quiet when %s', (_name, overrides) => {
+            expect(runOutcomeNote(buildRun(overrides), 'people')).toBeNull()
+        })
     })
 })

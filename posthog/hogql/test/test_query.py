@@ -1732,6 +1732,61 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "Variable variable_two is missing from query. Did you mean: variable_one?",
         )
 
+    @parameterized.expand(
+        [
+            ("array_value", ["pageview", "signup"], False, ["pageview", "signup"]),
+            ("legacy_scalar_value", "pageview", False, ["pageview"]),
+            ("missing_value", None, False, []),
+            ("explicit_null", ["pageview"], True, []),
+        ]
+    )
+    def test_multiselect_list_variable_is_substituted_as_an_array(
+        self, _name: str, value: object | None, is_null: bool, expected: list[str]
+    ) -> None:
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Event names",
+            code_name="event_names",
+            type=InsightVariable.Type.LIST,
+            is_multi=True,
+        )
+        variables = {
+            "event_names": HogQLVariable(
+                code_name="event_names",
+                value=value,
+                isNull=is_null,
+                variableId=str(insight_variable.id),
+            )
+        }
+
+        response = execute_hogql_query("SELECT {variables.event_names}", team=self.team, variables=variables)
+
+        self.assertEqual(response.results, [(expected,)])
+
+    @freeze_time("2026-08-06 12:00:00")
+    def test_relative_date_variable_is_resolved_when_the_query_runs(self):
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Start date",
+            code_name="start_date",
+            type=InsightVariable.Type.DATE,
+            default_value="-7d",
+        )
+        variables = {
+            "start_date": HogQLVariable(
+                code_name="start_date",
+                variableId=str(insight_variable.id),
+            )
+        }
+
+        response = execute_hogql_query(
+            "SELECT toString({variables.start_date})",
+            team=self.team,
+            variables=variables,
+        )
+
+        self.assertEqual(response.results, [("2026-07-30 12:00:00.000000",)])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_query_filters(self):
         with freeze_time("2020-01-10"):

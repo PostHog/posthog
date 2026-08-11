@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -98,7 +96,6 @@ const meta: Meta<typeof ManageAlertsModal> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-07-16',
-        featureFlags: [FEATURE_FLAGS.ALERTS_REDESIGNED_EDIT_MODAL],
         testOptions: { viewport: { width: 1000, height: 700 } },
     },
     args: {

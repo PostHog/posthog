@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -1638,7 +1639,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to save repository selection')
             }
         },
-        updateCurrentTeamSuccess: () => {
+        updateCurrentTeamSuccess: ({ payload }) => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
@@ -1646,6 +1647,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setSlackTicketEmojiValue(null)
             actions.setSlackBotIconUrlValue(null)
             actions.setSlackBotDisplayNameValue(null)
+            if (payload?.conversations_enabled) {
+                const storedSource = sessionStorage.getItem('support_activation_source')
+                const source = storedSource ? JSON.parse(storedSource) : { source: 'support_settings' }
+                posthog.capture('support activation completed', source)
+                sessionStorage.removeItem('support_activation_source')
+            }
         },
     })),
     afterMount(({ values, actions }) => {

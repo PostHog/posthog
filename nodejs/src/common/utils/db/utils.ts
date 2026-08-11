@@ -95,7 +95,11 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
 
         // Use pre-computed initial key instead of string manipulation
         const initialKey = INITIAL_KEY_MAP.get(key)!
-        if (!(initialKey in $set_once!)) {
+        // Never write a null into $set_once: browser SDKs send every absent campaign param as an
+        // explicit null, and $set_once only applies while the person property is missing, so
+        // `$initial_gclid: null` would permanently block the real first-touch value. $set keeps
+        // its nulls because clearing the latest-touch value on a param-less visit is intentional.
+        if (value != null && !(initialKey in $set_once!)) {
             $set_once![initialKey] = value
         }
     }
@@ -115,7 +119,8 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
         if (!('$os' in $set)) {
             $set.$os = osName
         }
-        if (!('$initial_os' in $set_once!)) {
+        // Same null rule as above: a null $os_name must not claim $initial_os for good.
+        if (osName !== null && !('$initial_os' in $set_once!)) {
             $set_once!.$initial_os = osName
         }
         // $os_name is normalized to $os, so remove it from person properties
@@ -130,7 +135,20 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): PersonMessage {
+// Deletion call sites own the version they emit (the +100 fudge for hard deletes,
+// the exact stamped death version for tombstones), so a deletion must state it
+// explicitly — a stale person.version can never become a no-headroom death row.
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted?: false): PersonMessage
+export function generateKafkaPersonUpdateMessage(
+    person: InternalPerson,
+    isDeleted: true,
+    deletedVersion: number
+): PersonMessage
+export function generateKafkaPersonUpdateMessage(
+    person: InternalPerson,
+    isDeleted = false,
+    deletedVersion?: number
+): PersonMessage {
     return {
         output: PERSONS_OUTPUT,
         value: Buffer.from(
@@ -141,7 +159,7 @@ export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDelet
                 team_id: person.team_id,
                 is_identified: Number(person.is_identified),
                 is_deleted: Number(isDeleted),
-                version: person.version + (isDeleted ? 100 : 0), // keep in sync with delete_person in posthog/models/person/util.py
+                version: isDeleted ? deletedVersion : person.version,
                 last_seen_at: person.last_seen_at
                     ? castTimestampOrNow(person.last_seen_at, TimestampFormat.ClickHouseSecondPrecision)
                     : null,

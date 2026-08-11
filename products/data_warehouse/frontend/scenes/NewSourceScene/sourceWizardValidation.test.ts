@@ -19,7 +19,7 @@ describe('source wizard multi-value fields', () => {
         // with zero repositories selected.
         it.each([
             [[], 'Please enter at least one of your repositories'],
-            [undefined, 'Please enter a repositories'],
+            [undefined, 'Repositories is required'],
             [['posthog/posthog'], undefined],
         ])('required multi field with value %p yields error %p', (value, expectedError) => {
             const errors = getErrorsForFields([REPOSITORIES_FIELD], {

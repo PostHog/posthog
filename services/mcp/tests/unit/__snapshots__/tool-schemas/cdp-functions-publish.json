@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "confirm": {
+            "default": false,
+            "description": "False (default) previews the publish: returns which config fields would change without changing anything. True applies the staged draft to the live function.",
+            "type": "boolean"
+        },
+        "confirm_token": {
+            "description": "From the preview response, and required when confirm=true on an enabled function. Expires after 15 minutes, and any edit to the draft or the live config invalidates it (409), so you always publish the exact draft you previewed.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog function.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

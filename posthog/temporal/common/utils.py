@@ -16,6 +16,17 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
+def close_stale_db_connections() -> None:
+    """Close expired or errored Postgres connections accumulated by long-lived worker threads.
+
+    Unlike django.db.close_old_connections, skips connections inside an atomic block, so it is
+    safe to call from activities running under test transactions.
+    """
+    for conn in django.db.connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
+
+
 def make_sync_retryable_with_exponential_backoff(
     func: Callable[P, T],
     max_attempts: int = 5,
@@ -178,6 +189,10 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
     / deploy can leave a stale pooled connection that raises ``OperationalError`` /
     ``InterfaceError`` on first use. Evict the dead connection and retry once; a second
     failure propagates, left to the caller's retry posture.
+
+    The single retry leans on the activity's outer Temporal retry policy. Code without
+    one (e.g. a Celery task) needs multi-attempt backoff instead; see
+    ``posthog.storage.hypercache_verifier._fetch_team_batch``.
 
     Pass a zero-arg callable that *produces* the result, so the retry can issue a fresh
     query:

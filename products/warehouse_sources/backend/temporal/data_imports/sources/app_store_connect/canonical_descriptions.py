@@ -10,6 +10,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
+# Columns every analytics report stream shares: the sync's own key columns plus the
+# fields Apple includes in every report.
+_ANALYTICS_SHARED_COLUMNS: dict[str, str] = {
+    "app_id": "Identifier of the app the report belongs to.",
+    "processing_date": (
+        "Date Apple processed the report instance the row came from. Rows in an instance can carry earlier data dates."
+    ),
+    "_line": "Position of the row within the report instance's files, unique per app and processing date.",
+    "date": "Date the events in the row occurred. The first day of the period for weekly or monthly data.",
+    "app_name": "Name of the app as set up in App Store Connect.",
+    "app_apple_identifier": "Apple ID of the app.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "apps": {
         "description": "An app on the App Store, and the parent of the per-app version, review, purchase and subscription tables.",
@@ -96,6 +109,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "reviewerNickname": "Display name of the customer who left the review.",
             "createdDate": "When the review was submitted.",
             "territory": "App Store territory the review was written in.",
+        },
+    },
+    "review_responses": {
+        "description": "A developer response published to a customer review, one row per responded review.",
+        "docs_url": "https://developer.apple.com/documentation/appstoreconnectapi/customerreviewresponsev1",
+        "columns": {
+            "id": "Apple's opaque identifier for the response.",
+            "type": "JSON:API resource type, always `customerReviewResponses`.",
+            "app_id": "Identifier of the app the responded review was left on.",
+            "review_id": "Identifier of the review this response answers; joins to the customer_reviews table.",
+            "responseBody": "Body text of the developer's response.",
+            "lastModifiedDate": "When the response was created or last edited.",
+            "state": "Publication state of the response, PUBLISHED or PENDING_PUBLISH.",
         },
     },
     "in_app_purchases": {
@@ -221,6 +247,134 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "days_canceled": "Days the subscription had been cancelled before a reactivation.",
             "quantity": "Number of subscriptions the row counts.",
             "country": "App Store territory the events are counted in.",
+        },
+    },
+    "analytics_app_sessions": {
+        "description": (
+            "How often people open the app and for how long, from Apple's App Sessions analytics "
+            "report. One row per instance line; an instance's rows can restate earlier data dates."
+        ),
+        "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-sessions",
+        "columns": {
+            **_ANALYTICS_SHARED_COLUMNS,
+            "app_version": "Version of the app in the session.",
+            "device": "Device model the sessions occurred on.",
+            "platform_version": "OS version of the device.",
+            "source_type": "Where the user discovered the app.",
+            "page_type": "App Store page associated with the discovery.",
+            "app_download_date": "Date the app was downloaded onto the device.",
+            "territory": "App Store country or region of the sessions.",
+            "sessions": "Total number of sessions.",
+            "total_session_duration": "Total duration of the sessions, in seconds.",
+            "unique_devices": "Number of unique devices with sessions.",
+        },
+    },
+    "analytics_app_store_downloads": {
+        "description": (
+            "How many times people download the app on the App Store, including redownloads and "
+            "updates, from Apple's App Store Downloads analytics report."
+        ),
+        "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-download",
+        "columns": {
+            **_ANALYTICS_SHARED_COLUMNS,
+            "download_type": "Kind of download: first-time download, redownload, update, or restore.",
+            "app_version": "Version of the app downloaded.",
+            "device": "Device model the download occurred on.",
+            "platform_version": "OS version of the downloading device.",
+            "source_type": "Where the user discovered the app.",
+            "page_type": "App Store page the download came from.",
+            "pre_order": "Whether the download came from a pre-order.",
+            "territory": "App Store country or region of the download.",
+            "counts": "Total number of downloads.",
+        },
+    },
+    "analytics_installations_deletions": {
+        "description": (
+            "How many times users install and delete the app, from Apple's App Store Installations "
+            "and Deletions analytics report. Covers users who opted in to sharing data."
+        ),
+        "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-installs",
+        "columns": {
+            **_ANALYTICS_SHARED_COLUMNS,
+            "event": "Type of event, Install or Delete.",
+            "download_type": "How the install originally occurred.",
+            "app_version": "Version of the app installed or deleted.",
+            "device": "Device model the event occurred on.",
+            "platform_version": "OS version of the device.",
+            "source_type": "Where the user discovered the app.",
+            "page_type": "App Store page that led to the discovery.",
+            "app_download_date": "Date the app was downloaded onto the device.",
+            "territory": "App Store country or region of the event.",
+            "counts": "Total number of events.",
+            "unique_devices": "Number of unique devices generating events.",
+        },
+    },
+    "analytics_discovery_engagement": {
+        "description": (
+            "How users find and interact with the app on the App Store (impressions, page views, "
+            "taps), from Apple's App Store Discovery and Engagement analytics report."
+        ),
+        "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-store-discovery-and-engagement",
+        "columns": {
+            **_ANALYTICS_SHARED_COLUMNS,
+            "event": "Event type: impression, page view, or tap.",
+            "page_type": "App Store page associated with the event.",
+            "source_type": "Where the user discovered the app.",
+            "engagement_type": "Action the user took on the impression or page.",
+            "device": "Device model the event occurred on.",
+            "platform_version": "OS version of the device.",
+            "territory": "App Store country or region of the event.",
+            "counts": "Total number of events.",
+            "unique_counts": "Number of unique users performing the event.",
+        },
+    },
+    "analytics_app_crashes": {
+        "description": (
+            "Crash counts by app version and device, from Apple's App Crashes analytics report. "
+            "Covers users who opted in to sharing data, with low-volume rows suppressed."
+        ),
+        "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-crashes",
+        "columns": {
+            **_ANALYTICS_SHARED_COLUMNS,
+            "app_version": "Version of the app that crashed.",
+            "device": "Device model the crashes occurred on.",
+            "platform_version": "OS version of the device.",
+            "crashes": "Total number of crashes.",
+            "unique_devices": "Number of unique devices on which the app crashed.",
+        },
+    },
+    "analytics_app_store_preorders": {
+        "description": (
+            "Pre-orders placed and canceled for the app, from Apple's App Store Pre-orders analytics report."
+        ),
+        "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-store-pre-order",
+        "columns": {
+            **_ANALYTICS_SHARED_COLUMNS,
+            "device": "Device model the pre-order was placed on.",
+            "platform_version": "OS version of the device.",
+            "source_type": "Where the user discovered the app.",
+            "page_type": "App Store page the pre-order was placed from.",
+            "territory": "App Store country or region of the pre-order.",
+            "pre_order_start_date": "Date the app became available for pre-order.",
+            "pre_order_end_date": "Last date the app is available for pre-order.",
+            "pre_orders_placed": "Total pre-orders placed.",
+            "pre_orders_canceled": "Total pre-orders canceled.",
+        },
+    },
+    "analytics_app_clip_usage": {
+        "description": "How users engage with the app's App Clips, from Apple's App Clip Usage analytics report.",
+        "docs_url": "https://developer.apple.com/documentation/analytics-reports/app-clip-usage",
+        "columns": {
+            **_ANALYTICS_SHARED_COLUMNS,
+            "app_clip_event_type": "Type of App Clip event: views, installations, sessions, or crashes.",
+            "source_type": "Where the user discovered the App Clip.",
+            "app_version": "Version of the App Clip on the device.",
+            "device": "Device model the event occurred on.",
+            "platform_version": "OS version of the device.",
+            "territory": "App Store country or region of the event.",
+            "counts": "Total number of App Clip events.",
+            "total_session_duration": "Total duration of the reported sessions, in seconds.",
+            "unique_devices": "Number of unique devices with events.",
         },
     },
 }

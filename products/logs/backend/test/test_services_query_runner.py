@@ -208,6 +208,32 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(windowed["services"][0]["log_count"], 100)
 
     @freeze_time("2025-12-16T10:33:00Z")
+    def test_services_normalizes_flat_filter_group_from_mcp(self):
+        # MCP tools send `filterGroup` as a flat list of property filters (see
+        # `_normalize_filter_group`'s docstring), not the nested PropertyGroupFilter shape
+        # `_services` above sends. Passing that flat shape straight to `LogsQuery` used to
+        # raise an unhandled pydantic ValidationError (500) instead of running the query.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/services",
+            data={
+                "query": {
+                    "dateRange": {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-16T23:59:59Z"},
+                    "filterGroup": [
+                        {
+                            "key": "service.name",
+                            "type": "log_resource_attribute",
+                            "operator": "exact",
+                            "value": "cdp-legacy-events-consumer",
+                        }
+                    ],
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        services = response.json()["services"]
+        self.assertEqual({s["service_name"] for s in services}, {"cdp-legacy-events-consumer"})
+
+    @freeze_time("2025-12-16T10:33:00Z")
     def test_sparkline_covers_exactly_the_returned_services(self):
         # The sparkline must line up exactly with the aggregates result: never a
         # service the table won't render (extra), and never a displayed service

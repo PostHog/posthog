@@ -384,6 +384,7 @@ impl storage::GroupStorage for FailingStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Err(self.error.clone())
     }
@@ -781,6 +782,7 @@ impl storage::GroupStorage for SuccessStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Ok(None)
     }
@@ -1221,6 +1223,7 @@ impl storage::GroupStorage for PopulatedStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Ok(None)
     }
@@ -1653,6 +1656,7 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Ok(None)
     }

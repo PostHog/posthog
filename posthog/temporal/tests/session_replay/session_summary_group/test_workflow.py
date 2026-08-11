@@ -132,7 +132,7 @@ async def test_get_llm_single_session_summary_activity_standalone(
     compressed_llm_input_data = _compress_redis_data(json.dumps(dataclasses.asdict(llm_input)))
     input_data = mock_single_session_summary_inputs(mock_session_id, ateam.id, auser.id)
     # Generate Redis keys manually
-    _, redis_input_key, redis_output_key = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=input_data.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_DB_DATA,
         output_label=StateActivitiesEnum.SESSION_SUMMARY,
@@ -142,12 +142,12 @@ async def test_get_llm_single_session_summary_activity_standalone(
     spy_get = mocker.spy(redis_test_setup.redis_client, "get")
     spy_setex = mocker.spy(redis_test_setup.redis_client, "setex")
     # Store initial input data
-    assert redis_input_key
-    assert redis_output_key
+    assert redis_state.input_key
+    assert redis_state.output_key
     await redis_test_setup.setup_input_data(
         compressed_llm_input_data,
-        redis_input_key,
-        redis_output_key,
+        redis_state.input_key,
+        redis_state.output_key,
     )
     # Verify summary doesn't exist in DB before the activity
     summary_before = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
@@ -394,7 +394,7 @@ async def test_assign_events_to_patterns_activity_standalone(
 
 
 @pytest.mark.asyncio
-async def test_assign_events_to_patterns_threshold_check(
+async def test_assign_events_to_patterns_enrichment_outcomes(
     mock_session_id: str,
     mock_session_summary_serializer: SessionSummarySerializer,
     mock_single_session_summary_inputs: Callable,
@@ -403,7 +403,6 @@ async def test_assign_events_to_patterns_threshold_check(
     auser: User,
     ateam: Team,
 ):
-    """Test that assign_events_to_patterns_activity fails when too few patterns get events assigned"""
     # Prepare input data
     session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
     single_session_inputs = [
@@ -466,7 +465,7 @@ async def test_assign_events_to_patterns_threshold_check(
     )
     redis_test_setup.keys_to_cleanup.append(patterns_key)
 
-    # Test 1: Should fail when only 2 out of 4 patterns get events (50% < 75% threshold)
+    # Case 1: only 2 out of 4 patterns get events - the enriched subset is returned instead of failing
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
@@ -484,20 +483,21 @@ async def test_assign_events_to_patterns_threshold_check(
         mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
         mock_async_connect.return_value = mock_client
         # Mock LLM response that only assigns events to 2 patterns
-        patterns_assignment_fail = """patterns:
+        patterns_assignment_partial = """patterns:
   - pattern_id: 1
     event_ids: ["abcd1234"]
   - pattern_id: 2
     event_ids: ["ghij7890"]
 """
-        mock_llm_response = _build_openai_response(patterns_assignment_fail)
+        mock_llm_response = _build_openai_response(patterns_assignment_partial)
         mock_call_llm.return_value = mock_llm_response
 
-        # Should raise ApplicationError due to threshold failure
-        with pytest.raises(ApplicationError, match="Too many patterns failed to enrich with session meta"):
-            await assign_events_to_patterns_activity(activity_input)
+        summary_id = await assign_events_to_patterns_activity(activity_input)
+        session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+        result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
+        assert sorted(pattern.pattern_id for pattern in result.patterns) == [1, 2]
 
-    # Test 2: Should succeed when 3 out of 4 patterns get events (75% == 75% threshold)
+    # Case 2: no assigned event id resolves to a known event - nothing can be enriched, so the activity fails
     with (
         patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm,
         patch("temporalio.activity.info") as mock_activity_info,
@@ -514,26 +514,58 @@ async def test_assign_events_to_patterns_threshold_check(
         mock_client = MagicMock()
         mock_client.get_workflow_handle = MagicMock(return_value=mock_workflow_handle)
         mock_async_connect.return_value = mock_client
-        # Mock LLM response that assigns events to 3 patterns
-        patterns_assignment_success = """patterns:
+        # Mock LLM response that assigns only event ids that don't exist in any session summary
+        patterns_assignment_unmappable = """patterns:
   - pattern_id: 1
-    event_ids: ["abcd1234"]
+    event_ids: ["zzzz0001"]
   - pattern_id: 2
-    event_ids: ["ghij7890"]
-  - pattern_id: 3
-    event_ids: ["mnop3456"]
+    event_ids: ["zzzz0002"]
 """
-        mock_llm_response = _build_openai_response(patterns_assignment_success)
+        mock_llm_response = _build_openai_response(patterns_assignment_unmappable)
         mock_call_llm.return_value = mock_llm_response
 
-        # Should succeed - now returns just the summary id
+        with pytest.raises(ApplicationError, match="No patterns could be enriched with session meta"):
+            await assign_events_to_patterns_activity(activity_input)
+
+
+@pytest.mark.asyncio
+async def test_assign_events_to_patterns_stores_empty_summary_when_no_patterns_extracted(
+    mock_session_id: str,
+    mock_single_session_summary_inputs: Callable,
+    mock_session_group_summary_of_summaries_inputs: Callable,
+    redis_test_setup: AsyncRedisTestContext,
+    auser: User,
+    ateam: Team,
+):
+    session_ids = [f"{mock_session_id}-1", f"{mock_session_id}-2"]
+    single_session_inputs = [
+        mock_single_session_summary_inputs(session_id, ateam.id, auser.id) for session_id in session_ids
+    ]
+    activity_input = mock_session_group_summary_of_summaries_inputs(single_session_inputs, auser.id, ateam.id)
+    redis_client = get_async_client()
+
+    # Store an extraction result with no patterns, as the LLM found nothing in common between sessions
+    patterns_key = generate_state_key(
+        key_base=activity_input.redis_key_base,
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+        state_id=generate_state_id_from_session_ids(session_ids),
+    )
+    await store_data_in_redis(
+        redis_client=redis_client,
+        redis_key=patterns_key,
+        data=RawSessionGroupSummaryPatternsList(patterns=[]).model_dump_json(exclude_none=True),
+        label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
+    )
+    redis_test_setup.keys_to_cleanup.append(patterns_key)
+
+    with patch("ee.hogai.session_summaries.llm.consume.call_llm") as mock_call_llm:
         summary_id = await assign_events_to_patterns_activity(activity_input)
-        assert isinstance(summary_id, str)
-        # Fetch the result from DB
-        session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
-        result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
-        assert isinstance(result, EnrichedSessionGroupSummaryPatternsList)
-        assert len(result.patterns) == 3  # Should have 3 patterns with events
+
+    # An empty summary is stored without any LLM calls, instead of failing the activity
+    mock_call_llm.assert_not_called()
+    session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+    result = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
+    assert result.patterns == []
 
 
 @pytest.mark.asyncio
@@ -604,15 +636,15 @@ async def test_assign_events_to_patterns_filters_non_blocking_exceptions(
             },
         ]
     )
-    _, redis_input_key, _ = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=activity_input.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=generate_state_id_from_session_ids(session_ids),
     )
-    assert redis_input_key is not None
+    assert redis_state.input_key is not None
     await redis_test_setup.setup_input_data(
         _compress_redis_data(patterns_data.model_dump_json()),
-        redis_input_key,
+        redis_state.input_key,
     )
     # Create a mock LLM response for pattern assignment
     patterns_assignment_yaml = """patterns:
@@ -774,15 +806,15 @@ async def test_non_blocking_exceptions_dont_fail_enrichment_ratio(
             },
         ]
     )
-    _, redis_input_key, _ = get_redis_state_client(
+    redis_state = get_redis_state_client(
         key_base=activity_input.redis_key_base,
         input_label=StateActivitiesEnum.SESSION_GROUP_EXTRACTED_PATTERNS,
         state_id=generate_state_id_from_session_ids(session_ids),
     )
-    assert redis_input_key is not None
+    assert redis_state.input_key is not None
     await redis_test_setup.setup_input_data(
         _compress_redis_data(patterns_data.model_dump_json()),
-        redis_input_key,
+        redis_state.input_key,
     )
     # Mock LLM response that assigns events to patterns
     # Note: With deduplication logic, only ONE event per session per pattern is kept (first occurrence wins)

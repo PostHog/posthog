@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { Search } from '../Search/Search'
 import { SearchItem } from '../Search/searchLogic'
@@ -13,14 +14,18 @@ export function Command(): JSX.Element {
     const { closeCommand } = useActions(commandLogic)
 
     const handleItemSelect = useCallback(
-        (item: SearchItem) => {
+        (item: SearchItem, openInNewTab?: boolean) => {
             closeCommand()
             if (item.onSelect) {
                 item.onSelect()
                 return
             }
             if (item.href) {
-                router.actions.push(item.href)
+                if (openInNewTab) {
+                    newInternalTab(item.href)
+                } else {
+                    router.actions.push(item.href)
+                }
             }
         },
         [closeCommand]

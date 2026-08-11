@@ -15,15 +15,17 @@ The version in `apps/code/package.json` is set to `0.0.0-dev` - this is intentio
 
 PostHog uses [electron-updater](https://www.electron.build/auto-update) (the npm package, not the built-in Electron autoUpdater) with the generic provider. On startup the app checks for updates against the update feed at `https://desktop-releases.posthog.com/stable`, baked into `app-update.yml` inside the app bundle at package time.
 
-Release CI uploads the binaries and blockmaps to the feed from each platform job, then the finalize job uploads the channel files (`latest-mac.yml`, `latest.yml`) last. Updaters only see a release once the channel files change, so that upload is the publish step. The finalize job also injects the generated release notes into the channel files (the generic provider fetches nothing from GitHub, so `UpdateInfo.releaseNotes` comes from the manifest) and publishes `releases.json`, which powers the in-app release notes and What's New history.
+Release CI uploads the binaries and blockmaps to the feed from each platform job, then the finalize job uploads the channel files (`latest-mac.yml`, `latest.yml`) last. Updaters only see a release once the channel files change, so that upload is the publish step. The finalize job also injects the generated release notes into the channel files (the generic provider fetches nothing from GitHub, so `UpdateInfo.releaseNotes` comes from the manifest) and publishes `releases.json`, which powers the in-app release notes and What's New history. `releases.json` is built by prepending this release's generated notes to the previously published feed, so the S3 feed (not the GitHub releases API) is the source of truth for in-app notes.
 
-**Dual publish**: installs built before the feed moved to S3 poll GitHub Releases on PostHog/code, so CI keeps uploading the same artifacts and manifests there until that fleet drains. The GitHub release also remains the human-facing changelog and download page.
+GitHub Releases in `PostHog/posthog` remain the human-facing changelog and download page. Desktop releases use the existing `desktop-v*` tag namespace so they remain distinct from other monorepo products.
 
 **macOS**: DMG + zip artifacts are uploaded; the merged `latest-mac.yml` covers both arm64 and x64 so the correct build is selected per architecture.
 
 **Windows**: A single NSIS installer is shipped and updated through electron-updater via `latest.yml`. The legacy Squirrel.Windows installer is no longer built; anyone still on an old Squirrel install must reinstall once via the NSIS installer to keep receiving updates.
 
 **Linux**: No auto-update. AppImage, deb and rpm packages are manual downloads from the GitHub Release, also mirrored to the S3 feed.
+
+Remote announcements can drive this flow: a `required-update` announcement blocks apps below a version and reuses the updater; where the updater is unavailable it degrades to a manual download link. See [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md).
 
 ## How It Works
 

@@ -1,3 +1,5 @@
+import atexit
+import threading
 from collections.abc import Mapping
 from contextlib import contextmanager
 from numbers import Number
@@ -98,6 +100,9 @@ def ph_scoped_capture():
     client's background flush may never run before the worker exits, silently losing events.
     This creates a dedicated client and flushes on context-manager exit.
 
+    In a long-lived worker (e.g. Temporal activities), prefer `ph_background_capture` —
+    the client setup and synchronous flush here add seconds of blocking per call.
+
     Usage::
 
         with ph_scoped_capture() as capture:
@@ -111,6 +116,33 @@ def ph_scoped_capture():
         yield ScopedCapture(ph_client)
     finally:
         ph_client.shutdown()
+
+
+_background_client: Any = None
+_background_client_lock = threading.Lock()
+
+
+def ph_background_capture() -> ScopedCapture:
+    """Capture through a process-lifetime client whose batches the SDK's consumer
+    thread delivers in the background — no per-call client setup or blocking flush.
+
+    For long-lived processes (e.g. Temporal workers) where `ph_scoped_capture`'s
+    per-call dedicated client and synchronous flush would sit on the hot path.
+    Delivery is best-effort: a bounded flush runs at interpreter exit, so don't use
+    this where delivery must be confirmed before checkpointing durable state.
+    """
+    global _background_client
+    if _background_client is None:
+        with _background_client_lock:
+            if _background_client is None:
+                _background_client = get_client()
+                # The SDK's own atexit hook only joins the consumer mid-batch without
+                # draining the queue. atexit is LIFO, so this flush (registered after
+                # the client's hook) runs first and drains what a graceful shutdown
+                # enqueued last. Bounded (SDK default 10s) so a dead network can't
+                # stall process exit.
+                atexit.register(_background_client.flush)
+    return ScopedCapture(_background_client)
 
 
 def get_client(region: str = "US", **kwargs: Any):

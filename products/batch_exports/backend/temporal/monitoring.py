@@ -14,7 +14,7 @@ from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import afetch_batch_export_runs_in_range, aupdate_records_total_count
-from products.batch_exports.backend.temporal.sql import EVENT_COUNT_BY_INTERVAL
+from products.batch_exports.backend.temporal.sql.events import EVENT_COUNT_BY_INTERVAL
 
 LOGGER = get_logger(__name__)
 
@@ -374,7 +374,7 @@ class BatchExportMonitoringWorkflow(PostHogWorkflow):
 
         # time interval to check is not the previous hour but the hour before that
         # (just to ensure all recent batch exports have run successfully)
-        now = dt.datetime.now(tz=dt.UTC)
+        now = workflow.now()
         interval_end = now.replace(minute=0, second=0, microsecond=0) - dt.timedelta(hours=1)
         interval_start = interval_end - dt.timedelta(hours=1)
         interval_end_str = datetime_to_str(interval_end)

@@ -5,7 +5,7 @@ Measures how well the pipeline clusters incoming signals into reports, compared 
 
 ## What it tests
 
-The eval feeds 92 synthetic signals (from 42 ground-truth groups) through the **real** pipeline:
+The eval feeds 111 synthetic signals (from 48 ground-truth groups) through the **real** pipeline:
 LLM query generation, embedding search, LLM matching, specificity verification, summarization, safety judging, and actionability judging.
 Infrastructure is mocked — an in-memory embedding store (`mock.py`) replaces ClickHouse + Kafka, and a `ReportStore` replaces Postgres.
 
@@ -102,7 +102,7 @@ Five eval experiments, each with their own metrics:
 | `mock.py`                   | `EmbeddingStore` (in-memory vector store) and `ReportStore` (in-memory report DB) |
 | `capture.py`                | `capture_evaluation()` helper — formats and sends `$ai_evaluation` events         |
 | `data_spec.py`              | `EvalSignalSpec` / `EvalGroupSpec` — signal and group specifications              |
-| `fixtures/grouping_data.py` | Ground-truth dataset: 42 groups, 92 signals across Zendesk/GitHub/Linear          |
+| `fixtures/grouping_data.py` | Ground-truth: 48 groups, 111 signals across Zendesk/GitHub/Linear/error tracking  |
 | `cache/embeddings.json`     | Disk cache for OpenAI embeddings (auto-generated, avoids redundant API calls)     |
 
 ## Clearing eval data

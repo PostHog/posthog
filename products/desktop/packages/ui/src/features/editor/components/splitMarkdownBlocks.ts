@@ -109,3 +109,162 @@ export function parseOpenFence(
   const code = afterMarker === -1 ? "" : block.slice(afterMarker + 1);
   return { before, code };
 }
+
+function findClosingBacktickRun(src: string, start: number): number | null {
+  let runLength = 1;
+  while (src[start + runLength] === "`") runLength++;
+
+  let cursor = start + runLength;
+  while (cursor < src.length) {
+    const next = src.indexOf("`", cursor);
+    if (next === -1) return null;
+    let closingLength = 1;
+    while (src[next + closingLength] === "`") closingLength++;
+    if (closingLength === runLength) return next + closingLength;
+    cursor = next + closingLength;
+  }
+  return null;
+}
+
+function isEscaped(src: string, index: number): boolean {
+  let backslashes = 0;
+  while (
+    index - backslashes - 1 >= 0 &&
+    src[index - backslashes - 1] === "\\"
+  ) {
+    backslashes++;
+  }
+  return backslashes % 2 === 1;
+}
+
+function skipWhitespace(src: string, start: number): number {
+  let cursor = start;
+  while (/\s/.test(src[cursor] ?? "")) cursor++;
+  return cursor;
+}
+
+function findTitleEnd(src: string, start: number): number | null {
+  const closer = src[start] === "(" ? ")" : src[start];
+  let cursor = start + 1;
+  while (cursor < src.length) {
+    if (src[cursor] === "\\") {
+      cursor += 2;
+      continue;
+    }
+    if (src[cursor] === closer) return cursor + 1;
+    cursor++;
+  }
+  return null;
+}
+
+function findLinkDestinationEnd(src: string, start: number): number | null {
+  let cursor = skipWhitespace(src, start);
+
+  if (src[cursor] === ")") return cursor + 1;
+
+  if (src[cursor] === "<") {
+    cursor++;
+    while (cursor < src.length && src[cursor] !== ">") {
+      if (src[cursor] === "\\") cursor++;
+      cursor++;
+    }
+    if (src[cursor] !== ">") return null;
+    cursor++;
+  } else {
+    let nestedParentheses = 0;
+    while (cursor < src.length) {
+      if (src[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (src[cursor] === "(") nestedParentheses++;
+      if (src[cursor] === ")") {
+        if (nestedParentheses === 0) return cursor + 1;
+        nestedParentheses--;
+      }
+      if (/\s/.test(src[cursor]) && nestedParentheses === 0) break;
+      cursor++;
+    }
+  }
+
+  const suffixStart = cursor;
+  cursor = skipWhitespace(src, cursor);
+  if (src[cursor] === ")") return cursor + 1;
+  if (cursor === suffixStart || !['"', "'", "("].includes(src[cursor])) {
+    return null;
+  }
+
+  const titleEnd = findTitleEnd(src, cursor);
+  if (titleEnd === null) return null;
+  cursor = skipWhitespace(src, titleEnd);
+  return src[cursor] === ")" ? cursor + 1 : null;
+}
+
+function replaceOpenLinkDestination(
+  src: string,
+  replacement: (label: string) => string,
+): string {
+  let cursor = 0;
+
+  while (cursor < src.length) {
+    if (src[cursor] === "\\") {
+      cursor += 2;
+      continue;
+    }
+    if (src[cursor] === "`") {
+      cursor = findClosingBacktickRun(src, cursor) ?? cursor + 1;
+      continue;
+    }
+    if (src[cursor] !== "[") {
+      cursor++;
+      continue;
+    }
+
+    const linkStart =
+      cursor > 0 && src[cursor - 1] === "!" && !isEscaped(src, cursor - 1)
+        ? cursor - 1
+        : cursor;
+    const labelStart = cursor + 1;
+    let labelDepth = 1;
+    cursor++;
+
+    while (cursor < src.length && labelDepth > 0) {
+      if (src[cursor] === "\\") {
+        cursor += 2;
+        continue;
+      }
+      if (src[cursor] === "`") {
+        cursor = findClosingBacktickRun(src, cursor) ?? cursor + 1;
+        continue;
+      }
+      if (src[cursor] === "[") labelDepth++;
+      if (src[cursor] === "]") labelDepth--;
+      cursor++;
+    }
+
+    if (labelDepth > 0 || src[cursor] !== "(") continue;
+
+    const labelEnd = cursor - 1;
+    if (findLinkDestinationEnd(src, cursor + 1) === null) {
+      return (
+        src.slice(0, linkStart) + replacement(src.slice(labelStart, labelEnd))
+      );
+    }
+  }
+
+  return src;
+}
+
+export function maskOpenLinkDestination(src: string): string {
+  return replaceOpenLinkDestination(src, (label) => label);
+}
+
+export function markOpenLinkDestination(
+  src: string,
+  pendingDestination: string,
+): string {
+  return replaceOpenLinkDestination(
+    src,
+    (label) => `[${label}](${pendingDestination})`,
+  );
+}

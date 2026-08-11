@@ -3,6 +3,7 @@ import type { PiThinkingLevel } from "@posthog/agent/pi/types";
 export interface PiRunInput {
   taskId: string;
   cwd: string;
+  projectTrustPath?: string;
   prompt: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
@@ -11,6 +12,7 @@ export interface PiRunInput {
 export interface PiResumeInput {
   taskId: string;
   cwd: string;
+  projectTrustPath?: string;
 }
 
 export interface PiRunner {

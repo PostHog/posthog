@@ -30,13 +30,17 @@ export function idFrom(event: ErrorEventType): string {
 export interface ErrorDisplayProps {
     eventProperties: ErrorEventProperties
     eventId: ErrorEventId
+    eventTimestamp?: string
 }
 
-export function ErrorDisplay({ eventProperties, eventId }: ErrorDisplayProps): JSX.Element {
+export function ErrorDisplay({ eventProperties, eventId, eventTimestamp }: ErrorDisplayProps): JSX.Element {
     const enrichedEventProperties = useMemo(() => addExceptionStepsMalformedWarning(eventProperties), [eventProperties])
 
     return (
-        <BindLogic logic={errorPropertiesLogic} props={{ properties: enrichedEventProperties, id: eventId }}>
+        <BindLogic
+            logic={errorPropertiesLogic}
+            props={{ properties: enrichedEventProperties, id: eventId, timestamp: eventTimestamp }}
+        >
             <ErrorDisplayContent />
         </BindLogic>
     )

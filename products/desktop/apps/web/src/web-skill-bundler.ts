@@ -51,7 +51,11 @@ export async function bundleExportedSkill(
   // split), matching how desktop's installTeamSkill writes it to disk.
   files["SKILL.md"] = strToU8(
     serializeSkillMarkdown(
-      { name: exported.name, description: exported.description },
+      {
+        name: exported.name,
+        description: exported.description,
+        disableModelInvocation: exported.disableModelInvocation,
+      },
       exported.body,
     ),
   );

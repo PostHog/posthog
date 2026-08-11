@@ -15,8 +15,9 @@ _ORGANIZATION_GROUP_TYPES = [{"group_type": "organization", "group_type_index": 
 
 
 class TestEnrichmentBridge(BaseTest):
-    def _read(self, group, group_types=_ORGANIZATION_GROUP_TYPES):
+    def _read(self, group, group_types=_ORGANIZATION_GROUP_TYPES, region="US"):
         with (
+            patch("products.growth.backend.enrichment.bridge.get_instance_region", return_value=region),
             patch("products.growth.backend.enrichment.bridge.Team.objects.get", return_value=self.team),
             patch(
                 "products.growth.backend.enrichment.bridge.get_group_types_for_project",
@@ -25,6 +26,13 @@ class TestEnrichmentBridge(BaseTest):
             patch("products.growth.backend.enrichment.bridge.get_group_by_key", return_value=group) as get_group,
         ):
             return read_clay_bridge_inputs(organization_id="org-1"), get_group
+
+    @parameterized.expand([("eu", "EU"), ("self_hosted", None)])
+    def test_non_us_regions_skip_the_lookup_entirely(self, _name, region):
+        inputs, get_group = self._read(Group(group_properties={"icp_company_type": "private"}), region=region)
+
+        assert inputs == ClayBridgeInputs()
+        get_group.assert_not_called()
 
     def test_reads_clays_columns_off_the_organization_group(self):
         group = Group(

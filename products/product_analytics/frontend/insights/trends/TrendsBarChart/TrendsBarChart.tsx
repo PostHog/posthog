@@ -31,6 +31,7 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
@@ -129,13 +130,7 @@ export function TrendsBarChart({
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel, context?.groupTypeLabel)
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        (isAggregated
-            ? indexedResults.some(
-                  (r: IndexedTrendResult) => Number.isFinite(r.aggregated_value) && r.aggregated_value !== 0
-              )
-            : !!indexedResults[0].data && indexedResults.some((r: IndexedTrendResult) => r.count !== 0))
+    const hasData = hasTrendsChartData(indexedResults)
 
     const stackBreakdowns = !!querySource && !!getStackBreakdownValues(querySource)
 
@@ -179,9 +174,14 @@ export function TrendsBarChart({
             buildMeta: buildTrendsSeriesMeta,
             showMultipleYAxes: applyMultipleYAxes,
         })
+        // Bands are keyed by these strings, so they must be unique per point. Display labels
+        // are not (week and hour labels omit the year), which folds a multi-year range's bars
+        // onto each other. Use the ISO days; ticks and tooltips format from them. Stickiness
+        // x values are interval counts rather than dates, so it keeps its labels.
+        const days = currentPeriodResult?.days
         return {
             series: timeSeries,
-            labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+            labels: (!isStickiness && days?.length ? days : currentPeriodResult?.labels) ?? EMPTY_LABELS,
             displayLabels: undefined,
         }
     }, [
@@ -189,6 +189,8 @@ export function TrendsBarChart({
         indexedResults,
         getTrendsColor,
         getTrendsHidden,
+        isStickiness,
+        currentPeriodResult?.days,
         currentPeriodResult?.labels,
         stackBreakdowns,
         getAggregatedDisplayLabel,

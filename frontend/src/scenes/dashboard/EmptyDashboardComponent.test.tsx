@@ -89,6 +89,12 @@ describe('EmptyDashboardComponent', () => {
         await userEvent.click(document.querySelector('[data-attr="dashboard-add-dropdown"]')!)
     }
 
+    it('reserves space for dashboard controls while loading', () => {
+        render(<EmptyDashboardComponent loading canEdit />)
+
+        expect(document.querySelector('[data-attr="dashboard-loading-controls"]')).toBeInTheDocument()
+    })
+
     it('routes Add widget preview to feature previews when flag is disabled', async () => {
         const pushSpy = jest.spyOn(router.actions, 'push')
         const { logic } = renderEmptyState()

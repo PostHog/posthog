@@ -1,0 +1,22 @@
+version: 2
+
+# Dimensions must have a unique, non-null key — otherwise they fan out every fact they join.
+models:
+    - name: dim_date
+      description: Calendar dimension, one row per day.
+      columns:
+          - name: date
+            data_tests: [unique, not_null]
+    - name: dim_country
+      description: Country dimension with region/continent, one row per ISO-2 code.
+      columns:
+          - name: country_code
+            data_tests: [unique, not_null]
+          - name: region
+
+seeds:
+    - name: country_region
+      description: Static country_code -> region/continent lookup.
+      columns:
+          - name: country_code
+            data_tests: [unique, not_null]

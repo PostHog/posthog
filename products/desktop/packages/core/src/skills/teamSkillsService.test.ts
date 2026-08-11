@@ -147,10 +147,70 @@ describe("TeamSkillsService.publishSkill", () => {
       body: "# Body",
       description: "Shepherds PRs",
       files: exported.files,
+      metadata: {},
       base_version: 2,
     });
     expect(result).toEqual({ version: 3 });
   });
+
+  it("stores disable-model-invocation in metadata on first publish", async () => {
+    const createLlmSkill = vi.fn().mockResolvedValue(makeItem({ version: 1 }));
+    const client = {
+      listLlmSkills: vi.fn().mockResolvedValue([]),
+      createLlmSkill,
+    } as unknown as PostHogAPIClient;
+
+    await makeService().publishSkill(client, {
+      ...exported,
+      disableModelInvocation: true,
+    });
+
+    expect(createLlmSkill).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { "disable-model-invocation": true },
+      }),
+    );
+  });
+
+  it.each([
+    {
+      case: "sets the key and keeps other metadata",
+      disableModelInvocation: true as const,
+      existingMetadata: { author: "dev" },
+      expected: { author: "dev", "disable-model-invocation": true },
+    },
+    {
+      case: "clears the key when the flag is gone",
+      disableModelInvocation: undefined,
+      existingMetadata: { author: "dev", "disable-model-invocation": true },
+      expected: { author: "dev" },
+    },
+  ])(
+    "republish $case",
+    async ({ disableModelInvocation, existingMetadata, expected }) => {
+      const publishLlmSkillVersion = vi
+        .fn()
+        .mockResolvedValue(makeItem({ version: 3 }));
+      const client = {
+        listLlmSkills: vi
+          .fn()
+          .mockResolvedValue([
+            makeItem({ version: 2, metadata: existingMetadata }),
+          ]),
+        publishLlmSkillVersion,
+      } as unknown as PostHogAPIClient;
+
+      await makeService().publishSkill(client, {
+        ...exported,
+        disableModelInvocation,
+      });
+
+      expect(publishLlmSkillVersion).toHaveBeenCalledWith(
+        "pr-shepherd",
+        expect.objectContaining({ metadata: expected }),
+      );
+    },
+  );
 
   it("rejects publishing without a description", async () => {
     await expect(
@@ -206,6 +266,26 @@ describe("TeamSkillsService.fetchSkillForInstall", () => {
         { path: "scripts/run.sh", content: "content of scripts/run.sh" },
       ],
     });
+  });
+
+  it("maps disable-model-invocation metadata onto the exported skill", async () => {
+    const client = {
+      getLlmSkillByName: vi.fn().mockResolvedValue({
+        name: "pr-shepherd",
+        description: "Shepherds PRs",
+        body: "# Body",
+        metadata: { "disable-model-invocation": true },
+        files: [],
+      }),
+      getLlmSkillFile: vi.fn(),
+    } as unknown as PostHogAPIClient;
+
+    const skill = await makeService().fetchSkillForInstall(
+      client,
+      "pr-shepherd",
+    );
+
+    expect(skill.disableModelInvocation).toBe(true);
   });
 });
 

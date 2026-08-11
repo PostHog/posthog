@@ -162,3 +162,9 @@ target project still lands in the right place.
   makes the next step (fix, prioritize, or eval) obvious.
 - **Hand back linked examples, then let the user steer.** Don't stop at a categorical table. Give one or
   two resolvable trace links per mode unprompted, ask the user to eyeball a couple.
+
+## Related skills
+
+- **`creating-online-evaluations`** — turn a ranked failure mode into a continuously-running eval
+- **`exploring-llm-clusters`** — compare behavior across clusters instead of reading traces one by one
+- **`exploring-llm-traces`** — the trace-reading mechanics this skill leans on

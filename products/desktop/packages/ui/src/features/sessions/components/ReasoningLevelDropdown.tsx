@@ -377,9 +377,15 @@ export function ReasoningSliderFace({
   );
 }
 
-export function LevelItem({ option }: { option: ReasoningLevelOption }) {
+export function LevelItem({
+  option,
+  closeOnClick,
+}: {
+  option: ReasoningLevelOption;
+  closeOnClick?: boolean;
+}) {
   return (
-    <DropdownMenuRadioItem value={option.value}>
+    <DropdownMenuRadioItem value={option.value} closeOnClick={closeOnClick}>
       <span className="flex min-w-0 flex-col">
         <span className="whitespace-nowrap">{option.label}</span>
         {option.description && (

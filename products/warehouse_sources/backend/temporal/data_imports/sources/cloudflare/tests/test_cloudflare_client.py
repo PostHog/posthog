@@ -369,6 +369,29 @@ class TestAccountFanout:
 
         assert [(r["ts"], r["_account_id"]) for r in rows] == [(1, "a2")]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_audit_logs_stops_on_400_past_a_full_last_page(self, MockSession) -> None:
+        # audit_logs has no result_info.total_pages, so a "short page" is the only way the
+        # paginator learns it has reached the end. When an account's true count is an exact
+        # multiple of PAGE_SIZE, the page right past the end is requested anyway, and
+        # Cloudflare answers it with a 400 instead of an empty list. The rows already fetched
+        # must survive rather than the whole sync failing.
+        session = MockSession.return_value
+        full_page = [{"id": str(i)} for i in range(PAGE_SIZE)]
+        _wire(
+            session,
+            [
+                _response([{"id": "a1"}], total_pages=1),
+                _response(full_page),
+                _error_response(400),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "audit_logs", team_id=1, job_id="j"))
+
+        assert len(rows) == PAGE_SIZE
+        assert {r["_account_id"] for r in rows} == {"a1"}
+
 
 class TestSinglePageEndpoints:
     @pytest.mark.parametrize(

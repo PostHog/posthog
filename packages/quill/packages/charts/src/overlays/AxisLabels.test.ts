@@ -40,6 +40,17 @@ describe('computeVisibleXLabels', () => {
 
         expect(visible.map((v) => v.index)).toEqual([0])
     })
+
+    it('keeps more long labels when they are rotated', () => {
+        const labels = ['/api/projects/alpha', '/api/projects/beta', '/api/projects/gamma']
+        const scale = (label: string): number => labels.indexOf(label) * 30
+
+        const horizontal = computeVisibleXLabels(labels, scale)
+        const rotated = computeVisibleXLabels(labels, scale, undefined, 0, -45)
+
+        expect(horizontal.length).toBeLessThan(labels.length)
+        expect(rotated.map((label) => label.text)).toEqual(labels)
+    })
 })
 
 describe('computeVisibleValueTicks', () => {

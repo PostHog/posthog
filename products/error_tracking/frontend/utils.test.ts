@@ -2,7 +2,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { generateDateRangeLabel, mergeIssues, sourceDisplay } from './utils'
+import { generateDateRangeLabel, getIssueReplayDateRange, mergeIssues, sourceDisplay } from './utils'
 
 function wrapVolumeBuckets(
     initialDate: Dayjs,
@@ -173,6 +173,31 @@ describe('date range label generation', () => {
             date_from: 'mStart',
         })
         expect(rangeLabel).toEqual('Month')
+    })
+})
+
+describe('getIssueReplayDateRange', () => {
+    it('pads a single-occurrence issue so the window is not zero width', () => {
+        const seenAt = '2024-01-01T12:00:00.000Z'
+        const range = getIssueReplayDateRange(seenAt, dayjs(seenAt))
+        expect(range.date_from).toEqual('2024-01-01T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-01-01T13:00:00.000Z')
+    })
+
+    it('extends date_from before first_seen to catch sessions that started earlier', () => {
+        const firstSeen = '2024-01-01T12:00:00.000Z'
+        const lastSeen = dayjs('2024-01-02T12:00:00.000Z')
+        const range = getIssueReplayDateRange(firstSeen, lastSeen)
+        expect(range.date_from).toEqual('2024-01-01T11:00:00.000Z')
+        expect(range.date_to).toEqual('2024-01-02T13:00:00.000Z')
+    })
+
+    it('falls back to first_seen when last_seen is missing or predates it', () => {
+        const firstSeen = '2024-01-01T12:00:00.000Z'
+        expect(getIssueReplayDateRange(firstSeen, null).date_to).toEqual('2024-01-01T13:00:00.000Z')
+        expect(getIssueReplayDateRange(firstSeen, dayjs('2023-12-31T00:00:00.000Z')).date_to).toEqual(
+            '2024-01-01T13:00:00.000Z'
+        )
     })
 })
 

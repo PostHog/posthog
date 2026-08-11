@@ -192,6 +192,8 @@ export const llmSkillsNamePartialUpdateBodyFileEditsItemPathMax = 500
 
 export const llmSkillsNamePartialUpdateBodyOwnersMax = 25
 
+export const llmSkillsNamePartialUpdateBodyVersionDescriptionMax = 400
+
 export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     body: zod
         .string()
@@ -286,6 +288,11 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Latest version you are editing from. Used for optimistic concurrency checks. Required when publishing content changes; optional for an owner-only update (when omitted, owners are replaced without a concurrency check).'
         ),
+    version_description: zod
+        .string()
+        .max(llmSkillsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
 export const llmSkillsNameArchiveCreatePathSkillNameRegExp = new RegExp('^[^\/]+$')

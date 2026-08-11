@@ -907,6 +907,13 @@ export const ROWS: Record<BehavioralFilterType, Row> = {
     },
 }
 
+// Stored criteria can carry any string as their behavioral value, including keys inherited from
+// Object.prototype ('constructor', 'toString', ...) that a plain `ROWS[type]` lookup resolves to a
+// truthy non-row. Every read of ROWS by criteria value must go through here.
+export function getRowShape(type: BehavioralFilterType): Row | undefined {
+    return Object.hasOwn(ROWS, type) ? ROWS[type] : undefined
+}
+
 export const COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME = Object.entries(ROWS)
     .filter(([_, row]) => row.fields.some((field) => field.type === FilterType.RelativeAndExactTime))
     .map(([eventType, _]) => eventType)

@@ -8,15 +8,14 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
-import { validateMetricName } from '../common'
+import { validateMetricDescription, validateMetricName } from '../common'
 import { metricsLogic, NewMetricDefinitionType } from '../metricsLogic'
 
-// The Text (markdown) option is hidden until its editor UI is polished.
 const DEFINITION_TYPE_OPTIONS: { value: NewMetricDefinitionType; label: string }[] = [
     { value: 'sql', label: 'SQL' },
     { value: 'insight', label: 'Insight' },
+    { value: 'markdown', label: 'Markdown' },
 ]
 
 export function NewMetricModal(): JSX.Element {
@@ -26,16 +25,17 @@ export function NewMetricModal(): JSX.Element {
         useActions(metricsLogic)
 
     const nameError = validateMetricName(newMetricForm.name.trim())
+    const descriptionError = validateMetricDescription(newMetricForm.description)
     const submitDisabledReason = nameError
         ? nameError
         : !newMetricForm.description.trim()
           ? 'Add a description'
-          : newMetricForm.definitionType === 'sql'
-            ? 'Create SQL metrics from the SQL editor'
-            : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
-              ? 'Choose an insight'
-              : newMetricForm.definitionType === 'markdown' && !newMetricForm.markdown.trim()
-                ? 'Add the markdown definition'
+          : descriptionError
+            ? descriptionError
+            : newMetricForm.definitionType === 'sql'
+              ? 'Create SQL metrics from the SQL editor'
+              : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
+                ? 'Choose an insight'
                 : undefined
 
     return (
@@ -63,7 +63,11 @@ export function NewMetricModal(): JSX.Element {
                         />
                     </LemonField.Pure>
 
-                    <LemonField.Pure label="Description">
+                    <LemonField.Pure
+                        label="Description"
+                        error={descriptionError}
+                        info="1-3 sentences: what the metric means and what it serves."
+                    >
                         <LemonTextArea
                             value={newMetricForm.description}
                             onChange={(description) => setNewMetricForm({ description })}
@@ -89,13 +93,9 @@ export function NewMetricModal(): JSX.Element {
                     </LemonField.Pure>
 
                     {newMetricForm.definitionType === 'markdown' && (
-                        <LemonField.Pure label="Text">
-                            <LemonTextAreaMarkdown
-                                value={newMetricForm.markdown}
-                                onChange={(markdown) => setNewMetricForm({ markdown })}
-                                placeholder="Numbered steps describing how to calculate this metric"
-                            />
-                        </LemonField.Pure>
+                        <LemonBanner type="info">
+                            You'll write the definition on the metric page after creating it.
+                        </LemonBanner>
                     )}
 
                     {newMetricForm.definitionType === 'sql' && (

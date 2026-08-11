@@ -9,7 +9,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -30,8 +34,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.l
     validate_credentials as validate_langfuse_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.langfuse.settings import (
+    DEFAULT_VERSION,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    LANGFUSE_API_VERSION_V1,
+    SUPPORTED_VERSIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -40,6 +47,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://langfuse.com/docs/api-and-data-platform/features/public-api"
+
+    supported_versions = SUPPORTED_VERSIONS
+    default_version = DEFAULT_VERSION
+    # Langfuse is retiring its v1 public read endpoints at the (undated) v4 cutover. The source
+    # already reads Langfuse's current route for every resource that has one, so both labels share
+    # one wire and v1-pinned rows keep working — v1 is deprecated advisory-only (no vendor sunset
+    # date). `traces`/`sessions` have no lossless v2 replacement (v2 returns observation rows, not
+    # trace/session objects), so their cutover is a documented manual migration, not an auto repin.
+    deprecated_versions = (VersionDeprecation(version=LANGFUSE_API_VERSION_V1),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

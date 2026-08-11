@@ -17,6 +17,7 @@ from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportInput,
     FetchSignalsForReportOutput,
     WaitForClickHouseInput,
+    WaitForClickHouseMode,
     WaitForClickHouseSignal,
     fetch_signals_for_report_activity,
     wait_for_signal_in_clickhouse_activity,
@@ -94,10 +95,14 @@ class SignalReportDeletionWorkflow:
                     WaitForClickHouseSignal(
                         signal_id=s.signal_id,
                         timestamp=s.timestamp,
+                        inserted_at=s.inserted_at,
                     )
                     for s in fetch_result.signals
                 ],
                 max_wait_time_seconds=3600,
+                # The report is soft-deleted either way; briefly-stale signal rows in
+                # semantic search are acceptable, so don't burn ClickHouse queries here.
+                mode=WaitForClickHouseMode.OPTIMISTIC,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
             heartbeat_timeout=timedelta(minutes=2),

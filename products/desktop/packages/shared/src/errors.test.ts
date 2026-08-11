@@ -104,6 +104,11 @@ describe("classifyGatewayLimitError", () => {
       "model_gate",
     ],
     [
+      "Rate limit exceeded: Your team has reached its PostHog Desktop usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
+      "org_limit",
+    ],
+    [
+      // Pre-rename wording still sent by older gateway deployments.
       "Rate limit exceeded: Your team has reached its PostHog Code usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
       "org_limit",
     ],

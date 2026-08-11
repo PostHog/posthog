@@ -7,7 +7,7 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
-from posthog.email import EmailMessage
+from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.helpers.slack_subscription_explore import build_explore_hint
@@ -245,7 +245,9 @@ def send_email_ai_subscription_report(
         template_context={
             "title": title,
             "rendered_html": html,
-            "subscription_url": f"{subscription_url}?{utm_tags}",
+            # `delivery` lets the frontend capture `ai_report_clicked` on landing — the
+            # click-through signal for whether delivered reports actually get read.
+            "subscription_url": f"{subscription_url}?{utm_tags}&delivery={delivery_id}",
             "unsubscribe_url": unsubscribe_url,
             "feedback_positive_url": _build_feedback_url(subscription_url, delivery_id, "positive", "email"),
             "feedback_negative_url": _build_feedback_url(subscription_url, delivery_id, "negative", "email"),
@@ -253,6 +255,8 @@ def send_email_ai_subscription_report(
     )
     message.add_recipient(email=email)
     message.send(send_async=False)
+
+    raise_if_delivery_rejected(campaign_key, email)
 
 
 def send_email_ai_subscription_credit_limited(

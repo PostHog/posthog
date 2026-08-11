@@ -4,6 +4,7 @@ import { LemonBanner, LemonCollapse, LemonDivider, LemonLabel, LemonTab, LemonTa
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
+import { replayTriggersV2Logic } from 'lib/components/IngestionControls/triggers/triggerGroups/replayTriggersV2Logic'
 import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
@@ -506,7 +507,15 @@ function LegacyRecordingConditions(): JSX.Element {
 }
 
 function SdkCompatibilityBanner(): JSX.Element {
-    const { shouldMinimizeLegacyConditions, hasOutdatedWebSdk, outdatedWebTraffic } = useValues(replayTriggersLogic)
+    const {
+        shouldMinimizeLegacyConditions,
+        webTrafficIsRecent,
+        hasV2TriggerGroups,
+        hasOutdatedWebSdk,
+        outdatedWebTraffic,
+    } = useValues(replayTriggersLogic)
+    const { hasLegacyTriggers } = useValues(replayTriggersV2Logic)
+    const { showCreateFromLegacyModal, setIsAddingGroup } = useActions(replayTriggersV2Logic)
 
     if (shouldMinimizeLegacyConditions) {
         return (
@@ -514,6 +523,29 @@ function SdkCompatibilityBanner(): JSX.Element {
                 Your recent web SDK traffic is effectively all on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups
                 apply to essentially every session. The legacy recording conditions below are kept only as a fallback
                 for older SDKs.
+            </LemonBanner>
+        )
+    }
+
+    if (webTrafficIsRecent && !hasV2TriggerGroups) {
+        return (
+            <LemonBanner
+                type="info"
+                action={
+                    hasLegacyTriggers
+                        ? {
+                              children: 'Migrate legacy conditions',
+                              onClick: showCreateFromLegacyModal,
+                          }
+                        : {
+                              children: 'Add trigger group',
+                              onClick: () => setIsAddingGroup(true),
+                          }
+                }
+            >
+                Your recent web SDK traffic is on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, but you haven't set up trigger
+                groups yet. Recording still uses the legacy conditions below. Newer SDKs fall back to them when no
+                trigger groups exist, so nothing changes until you migrate.
             </LemonBanner>
         )
     }

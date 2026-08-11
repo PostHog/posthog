@@ -7,6 +7,8 @@ export const GENERATION_SENTIMENT_SELECT = "'' -- Sentiment"
 
 const SENTIMENT_LABELS = new Set(['positive', 'neutral', 'negative'])
 
+export function normalizeSentimentResult(value: Record<string, unknown>): GenerationSentiment
+export function normalizeSentimentResult(value: unknown): GenerationSentiment | null
 export function normalizeSentimentResult(value: unknown): GenerationSentiment | null {
     if (!value || typeof value !== 'object') {
         return null

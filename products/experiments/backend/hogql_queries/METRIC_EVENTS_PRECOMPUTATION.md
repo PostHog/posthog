@@ -200,7 +200,9 @@ The exposure precomputation does NOT need this extension — exposures only occu
 
 ## Scope
 
-Currently implemented for **ordered funnels only**. Unordered funnels, mean, ratio, and retention metrics are not yet precomputed.
+Implemented for **ordered funnels**, **count/sum mean metrics** (per-event value stored in `numeric_value`, deduplicated on read by event identity since replayed build rows would double sums), and **retention metrics**. Unordered funnels and ratio metrics are not yet precomputed; breakdowns, CUPED, and data warehouse sources always fall back to a direct scan.
+
+Retention stores one row per event matching the start or completion predicate, with two flags in `steps` (`steps[1]` = matched start_event, `steps[2]` = matched completion_event; one event can match both). The read path swaps the two raw-events CTE sources for flag-filtered reads of the precomputed table; start anchoring (FIRST_SEEN/LAST_SEEN), the per-user retention window, the maturity gate, and the same-event exclusion all stay read-time, so they behave identically on both paths. The scan extension past the experiment end is `conversion_window + retention_window_end` rather than the conversion window alone, and retention is gated behind the default-off `experiments-retention-metric-events-preaggregation` flag (fail-safe: absent or unevaluable means direct scan) so it can be disabled independently of funnel/mean.
 
 ## Key files
 

@@ -141,7 +141,7 @@ for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
 // to the shipped config so an edit that drops or mislabels one regresses
 // loudly here. Asserts containment rather than the exact list so the rule can
 // gain labels without breaking.
-for (const scope of ['desktop', 'tasks', 'agent-proxy']) {
+for (const scope of ['desktop', 'tasks', 'agent-proxy', 'canvas']) {
     test(`the shipped config maps the ${scope} scope to the desktop label`, () => {
         assert.ok(
             labelsForTitle(`feat(${scope}): x`, loadRules()).includes('feature/desktop'),

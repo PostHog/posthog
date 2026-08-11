@@ -30,7 +30,7 @@ import { runOAuthFlow } from "./auth-flow";
 import { McpAuthStorage } from "./auth-storage";
 import { CallbackServer } from "./callback-server";
 import type { ConfigLoader, McpConfig } from "./config";
-import { emptyConfig, loadConfig } from "./config";
+import { emptyConfig, loadConfig, mergeRuntimeServers } from "./config";
 import { describeError } from "./errors";
 import { createMcpProxyTool } from "./proxy-tool";
 import type { TransportFactory } from "./server-manager";
@@ -39,6 +39,7 @@ import { ToolBridge } from "./tool-bridge";
 import { McpToolCache } from "./tool-cache";
 
 export interface McpExtensionOptions {
+  runtimeServers?: McpConfig["mcpServers"];
   /** Override config loading (tests). Default: read mcp.json files. */
   configLoader?: ConfigLoader;
   /** Override transport creation (tests). Default: stdio/http/sse via SDK. */
@@ -228,9 +229,12 @@ export function createMcpExtension(
     pi.on("session_start", async (_event, ctx) => {
       let nextConfig: McpConfig;
       try {
-        nextConfig = await configLoader(ctx.cwd, {
-          includeProject: ctx.isProjectTrusted(),
-        });
+        nextConfig = mergeRuntimeServers(
+          await configLoader(ctx.cwd, {
+            includeProject: ctx.isProjectTrusted(),
+          }),
+          options.runtimeServers,
+        );
       } catch (err) {
         if (ctx.hasUI) {
           ctx.ui.notify(`mcp: config error — ${describeError(err)}`, "error");

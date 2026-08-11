@@ -49,7 +49,7 @@ impl DistinctIdLookup for PostgresStorage {
                     FROM (
                         SELECT distinct_id, version, id
                         FROM posthog_persondistinctid
-                        WHERE team_id = $1 AND person_id = $2
+                        WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
                         LIMIT 2500
                     ) capped
                     ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id
@@ -68,7 +68,7 @@ impl DistinctIdLookup for PostgresStorage {
                     r#"
                     SELECT distinct_id, version
                     FROM posthog_persondistinctid
-                    WHERE team_id = $1 AND person_id = $2
+                    WHERE team_id = $1 AND person_id = $2 AND is_deleted = false
                     "#,
                     team_id as i32,
                     person_id
@@ -151,7 +151,7 @@ impl DistinctIdLookup for PostgresStorage {
                                     FROM (
                                         SELECT person_id, distinct_id, version, id
                                         FROM posthog_persondistinctid
-                                        WHERE team_id = $1 AND person_id = pid.id
+                                        WHERE team_id = $1 AND person_id = pid.id AND is_deleted = false
                                         LIMIT 2500
                                     ) capped
                                     ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id
@@ -171,7 +171,7 @@ impl DistinctIdLookup for PostgresStorage {
                             r#"
                                 SELECT person_id, distinct_id, version
                                 FROM posthog_persondistinctid
-                                WHERE team_id = $1 AND person_id = ANY($2)
+                                WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
                                 "#,
                             team_id as i32,
                             &chunk

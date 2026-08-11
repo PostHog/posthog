@@ -24,6 +24,11 @@ class TestMentionSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.MENTION
 
+    def test_new_sources_default_to_latest_version(self) -> None:
+        # New sources are stamped with default_version; it must be the newest supported label.
+        assert self.source.supported_versions == ("1.19", "1.21")
+        assert self.source.default_version == "1.21"
+
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
         assert config.name.value == "Mention"
@@ -95,7 +100,7 @@ class TestMentionSource:
         mock_validate.return_value = (False, "Invalid Mention access token")
         result = self.source.validate_credentials(self.config, self.team_id)
         assert result == (False, "Invalid Mention access token")
-        mock_validate.assert_called_once_with("tok")
+        mock_validate.assert_called_once_with("tok", api_version="1.21")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
@@ -106,6 +111,7 @@ class TestMentionSource:
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "mentions"
+        inputs.api_version = "1.21"
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -115,6 +121,8 @@ class TestMentionSource:
         assert kwargs["access_token"] == "tok"
         assert kwargs["endpoint"] == "mentions"
         assert kwargs["resumable_source_manager"] is manager
+        # The resolved source pin is threaded to the request layer so it drives the Accept-Version header.
+        assert kwargs["api_version"] == "1.21"
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

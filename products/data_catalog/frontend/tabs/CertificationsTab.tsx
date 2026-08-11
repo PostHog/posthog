@@ -4,12 +4,21 @@ import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
-import { certificationsLogic } from '../certificationsLogic'
+import { CertificationStatusFilter, certificationsLogic } from '../certificationsLogic'
 import { NewCertificationModal } from '../components/NewCertificationModal'
 import type { DataCatalogCertificationApi } from '../generated/api.schemas'
+
+const STATUS_FILTER_OPTIONS: { value: CertificationStatusFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'proposed', label: 'Proposed' },
+    { value: 'certified', label: 'Certified' },
+    { value: 'deprecated', label: 'Deprecated' },
+]
 
 const STATUS_TAG: Record<string, { label: string; type: 'warning' | 'success' | 'muted' }> = {
     proposed: { label: 'Proposed', type: 'warning' },
@@ -18,8 +27,9 @@ const STATUS_TAG: Record<string, { label: string; type: 'warning' | 'success' | 
 }
 
 export function CertificationsTab(): JSX.Element {
-    const { certifications, certificationsLoading, actionsInFlight } = useValues(certificationsLogic)
+    const { filteredCertifications, certificationsLoading, filters, actionsInFlight } = useValues(certificationsLogic)
     const {
+        setFilters,
         loadCertifications,
         openNewCertificationModal,
         certifyCertification,
@@ -59,7 +69,10 @@ export function CertificationsTab(): JSX.Element {
             title: 'Status',
             key: 'status',
             render: (_, certification) => {
-                const tag = STATUS_TAG[certification.status] ?? { label: certification.status, type: 'muted' as const }
+                const tag =
+                    certification.status === 'proposed' && certification.proposed_status === 'deprecated'
+                        ? { label: 'Deprecation proposed', type: 'warning' as const }
+                        : (STATUS_TAG[certification.status] ?? { label: certification.status, type: 'muted' as const })
                 return <LemonTag type={tag.type}>{tag.label}</LemonTag>
             },
         },
@@ -92,7 +105,7 @@ export function CertificationsTab(): JSX.Element {
                                         Certify
                                     </LemonButton>
                                 )}
-                                {certification.status === 'certified' && (
+                                {certification.status !== 'deprecated' && (
                                     <LemonButton
                                         fullWidth
                                         loading={inFlight}
@@ -119,34 +132,48 @@ export function CertificationsTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex justify-end gap-2 flex-wrap items-center">
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    size="small"
-                    loading={certificationsLoading}
-                    onClick={() => loadCertifications()}
-                >
-                    Reload
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlusSmall />}
-                    size="small"
-                    onClick={openNewCertificationModal}
-                    data-attr="data-catalog-new-certification-button"
-                >
-                    Propose certification
-                </LemonButton>
+            <div className="flex justify-between gap-2 flex-wrap items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search certifications"
+                    value={filters.search}
+                    onChange={(search) => setFilters({ search })}
+                />
+                <div className="flex items-center gap-2 flex-wrap">
+                    <LemonSegmentedButton
+                        value={filters.status}
+                        onChange={(status) => setFilters({ status })}
+                        options={STATUS_FILTER_OPTIONS}
+                        size="small"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        size="small"
+                        loading={certificationsLoading}
+                        onClick={() => loadCertifications()}
+                    >
+                        Reload
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlusSmall />}
+                        size="small"
+                        onClick={openNewCertificationModal}
+                        data-attr="data-catalog-new-certification-button"
+                    >
+                        Propose certification
+                    </LemonButton>
+                </div>
             </div>
             <LemonTable
                 data-attr="data-catalog-certifications-table"
-                dataSource={certifications}
+                dataSource={filteredCertifications}
                 rowKey="id"
                 columns={columns}
                 loading={certificationsLoading}
                 pagination={{ pageSize: 20 }}
-                emptyState="No certifications yet."
+                emptyState="No certifications match your filters."
                 nouns={['certification', 'certifications']}
             />
             <NewCertificationModal />

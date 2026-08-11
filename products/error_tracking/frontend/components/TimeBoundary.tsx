@@ -2,10 +2,9 @@ import { useActions, useValues } from 'kea'
 import { MouseEvent, useCallback } from 'react'
 import { P, match } from 'ts-pattern'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
-
 import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs } from 'lib/dayjs'
+import { Skeleton } from 'lib/ui/quill'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
@@ -34,7 +33,11 @@ export function TimeBoundary({ time, loading, label, updateDateRange, suffix }: 
     return (
         <>
             {match([loading, time])
-                .with([true, P.any], () => <LemonSkeleton className="w-[50px] h-2" />)
+                .with([true, P.any], () => (
+                    <Skeleton className="h-2 w-[50px]">
+                        <span>Loading…</span>
+                    </Skeleton>
+                ))
                 .with([false, P.nullish], () => <span className="text-xs text-muted">-</span>)
                 .with([false, P.any], () => (
                     <span

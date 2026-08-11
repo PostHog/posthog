@@ -21,8 +21,9 @@ _RUN_ID = "0190a000-0000-7000-8000-000000000001"
 
 
 def _fake_team(team_id: int = _TEAM_ID, parent_team_id: int | None = None) -> Team:
-    # resolve_scout_model only reads id + parent_team_id, so a lightweight stand-in avoids the DB.
-    return cast(Team, SimpleNamespace(id=team_id, parent_team_id=parent_team_id))
+    # resolve_scout_model only reads id, parent_team_id, and uuid (the config-pin flag key), so a
+    # lightweight stand-in avoids the DB.
+    return cast(Team, SimpleNamespace(id=team_id, parent_team_id=parent_team_id, uuid=f"team-uuid-{team_id}"))
 
 
 def _resolve_full(
@@ -208,3 +209,39 @@ class TestResolveScoutModel:
         # A scout must never fail to run because the gate was unreachable — fall back to the default.
         with patch(_PAYLOAD_PATH, side_effect=RuntimeError("flag service down")):
             assert resolve_scout_model(_fake_team(), _SKILL, _RUN_ID) == ScoutModel(model=None, runtime_adapter=None)
+
+
+class TestConfigModelPin:
+    _FLAG_PATH = "products.signals.backend.scout_harness.model_selection.scout_model_config_enabled"
+    _FULL_WEIGHT_PAYLOAD = _scouts({_SKILL: {_GPT: 1}})
+
+    def _resolve_pinned(self, pin: str, *, flag_on: bool) -> ScoutModel:
+        with patch(self._FLAG_PATH, return_value=flag_on), patch(_PAYLOAD_PATH, return_value=self._FULL_WEIGHT_PAYLOAD):
+            return resolve_scout_model(_fake_team(), _SKILL, _RUN_ID, configured_model=pin)
+
+    @parameterized.expand(
+        [
+            ("claude_pin", "claude-opus-4-5", "claude"),
+            ("codex_pin", "gpt-5", "codex"),
+            # The Cloudflare-served GLM id runs on the `claude` runtime per the canonical Tasks
+            # catalog — name inference alone would misroute it to `codex`.
+            ("cloudflare_pin_follows_catalog", GLM_MODEL, "claude"),
+        ]
+    )
+    def test_pin_beats_payload_and_resolves_runtime(self, _name: str, pin: str, expected_adapter: str) -> None:
+        # The payload routes every run to another model; an explicit pin must win over the experiment.
+        assert self._resolve_pinned(pin, flag_on=True) == ScoutModel(model=pin, runtime_adapter=expected_adapter)
+
+    def test_pin_is_ignored_outside_the_flag(self) -> None:
+        # The dogfood gate: with the flag off a stored pin is inert and the payload layer applies.
+        assert self._resolve_pinned("claude-opus-4-5", flag_on=False).model == _GPT
+
+    def test_flag_read_failure_falls_through_to_payload(self) -> None:
+        # Same never-fail posture as the payload read: a flag outage demotes the pin, never the run.
+        flag_read = "products.signals.backend.scout_harness.model_selection.posthoganalytics.feature_enabled"
+        with (
+            patch(flag_read, side_effect=RuntimeError("flag service down")),
+            patch(_PAYLOAD_PATH, return_value=self._FULL_WEIGHT_PAYLOAD),
+        ):
+            resolved = resolve_scout_model(_fake_team(), _SKILL, _RUN_ID, configured_model="claude-opus-4-5")
+        assert resolved.model == _GPT

@@ -19,7 +19,6 @@ import {
 import { channelFeedQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { channelFeedMessagesQueryKey } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
-import { resolveBackendChannelId } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { usePreviewConfig } from "@posthog/ui/features/task-detail/hooks/usePreviewConfig";
@@ -28,7 +27,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
 interface GenerateContextInput {
-  /** The desktop folder/context id — also the /website route param. */
+  /** The backend channel UUID — also the /website route param. */
   channelId: string;
   channelName: string;
   /** What the user says this context is about; seeds the plan. */
@@ -96,13 +95,6 @@ export function useGenerateContext() {
             return null;
           }
         }
-        // Own the task on the backend channel so it lands in the context feed
-        // (not just Recents). Best-effort: fall back to no channel on failure.
-        const backendChannelId = await resolveBackendChannelId(
-          client,
-          channelName,
-        ).catch(() => undefined);
-
         const result = await taskService.createTask(
           {
             content: buildContextGenerationPrompt({
@@ -113,7 +105,9 @@ export function useGenerateContext() {
             taskDescription: contextMdTaskTitle(channelName),
             workspaceMode,
             adapter: adapter ?? "claude",
-            channelId: backendChannelId,
+            // Own the task on the channel so it lands in the context feed
+            // (not just Recents).
+            channelId,
             // Plan mode: the agent proposes the document and waits for approval
             // before publishing, so the user co-designs CONTEXT.md.
             executionMode: "plan",
@@ -134,32 +128,29 @@ export function useGenerateContext() {
         const task = result.data.task;
         // File into the context so its Recents/Artifacts tabs pick it up.
         // Best-effort — a failure here shouldn't undo a started task.
-        void fileTask(channelId, task.id, task.title).catch(() => {});
-        if (backendChannelId) {
-          // Announce the CONTEXT.md build in the channel feed (durable, team-
-          // visible), keyed on the backend channel — the same id the task cards
-          // use. Timestamped just before the task so it sorts above the card.
-          // Best-effort.
-          const buildingAt = new Date(
-            new Date(task.created_at).getTime() - 1,
-          ).toISOString();
-          void client
-            ?.postChannelFeedMessage(backendChannelId, {
-              event: "context_md_building",
-              payload: { context_name: channelName },
-              createdAt: buildingAt,
-            })
-            .then(() =>
-              queryClient.invalidateQueries({
-                queryKey: channelFeedMessagesQueryKey(backendChannelId),
-              }),
-            )
-            .catch(() => {});
-          // Show the new card in the context feed without waiting for the poll.
-          void queryClient.invalidateQueries({
-            queryKey: channelFeedQueryKey(backendChannelId),
-          });
-        }
+        void fileTask(channelId, task.id).catch(() => {});
+        // Announce the CONTEXT.md build in the channel feed (durable, team-
+        // visible). Timestamped just before the task so it sorts above the
+        // card. Best-effort.
+        const buildingAt = new Date(
+          new Date(task.created_at).getTime() - 1,
+        ).toISOString();
+        void client
+          ?.postChannelFeedMessage(channelId, {
+            event: "context_md_building",
+            payload: { context_name: channelName },
+            createdAt: buildingAt,
+          })
+          .then(() =>
+            queryClient.invalidateQueries({
+              queryKey: channelFeedMessagesQueryKey(channelId),
+            }),
+          )
+          .catch(() => {});
+        // Show the new card in the context feed without waiting for the poll.
+        void queryClient.invalidateQueries({
+          queryKey: channelFeedQueryKey(channelId),
+        });
         // Refresh the workspace cache so the new cloud workspace row appears and
         // the task view resolves the cloud run instead of the repo-picker prompt.
         void queryClient.invalidateQueries({

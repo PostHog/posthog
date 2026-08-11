@@ -10,6 +10,16 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
 
+# Trunk's merge-queue batch branches. Trunk-specific and hardcoded like KNOWN_BOT_HANDLES;
+# defined once here so every surface breaks queue spend out with the same key.
+MERGE_QUEUE_BRANCH_PREFIX = "trunk-merge/"
+
+
+def merge_queue_branch_predicate(branch_sql: str) -> str:
+    """True when the branch expression names a merge-queue batch branch."""
+    return f"startsWith({branch_sql}, '{MERGE_QUEUE_BRANCH_PREFIX}')"
+
+
 # The base duration-percentile population, for runs and jobs alike: successful instances
 # only. Cancelled/skipped (superseded) and failed instances end early, so including them
 # answers "how long until CI stopped", not "how long does CI take to pass". Jobs use this
@@ -110,5 +120,9 @@ def run_scope_filter_clause(
         # query_default_branch resolves per-repo, not reused here because it costs an extra query.
         # The cost queries pass the cost source's columns; there pr_number is 0→NULL normalized, so
         # "attributed" becomes ``c.pr_number IS NOT NULL`` rather than ``> 0``.
+        # Merge-queue gate runs stay in this scope on purpose: a gate run is CI the PR paid for on
+        # its way to landing, and the runs builder already credits it to that PR rather than to the
+        # throwaway PR the queue opened. ``is_merge_queue`` splits the two populations, on the cost
+        # view and the job-history view alike.
         return f"AND {branch_column} NOT IN ('master', 'main') AND {attributed_predicate}"
     return ""

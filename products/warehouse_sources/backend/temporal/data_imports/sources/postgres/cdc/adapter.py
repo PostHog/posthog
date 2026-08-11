@@ -81,6 +81,11 @@ class PostgresCDCAdapter:
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)
 
+    def position_to_seq(self, position_serialized: str) -> int:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
+
+        return PgLSN.deserialize(position_serialized).value
+
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader:
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
             PgCDCConnectionParams,

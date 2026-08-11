@@ -22,9 +22,11 @@ function isSameEntry(a: AssigneeFilterEntry, b: AssigneeFilterEntry): boolean {
 export function AssigneeMultiSelect({
     value,
     onChange,
+    emptyLabel = 'All assignees',
 }: {
     value: AssigneeFilterEntry[]
     onChange: (value: AssigneeFilterEntry[]) => void
+    emptyLabel?: string
 }): JSX.Element {
     const { search, filteredRoles, filteredMembers, currentUserMember, rolesLoading, membersLoading } =
         useValues(assigneeSelectLogic)
@@ -150,15 +152,15 @@ export function AssigneeMultiSelect({
                 active={showPopover}
                 {...clearFilterButtonProps(value.length > 0 ? () => onChange([]) : null, 'Clear assignee filter')}
             >
-                <TriggerLabel value={value} />
+                <TriggerLabel value={value} emptyLabel={emptyLabel} />
             </LemonButton>
         </LemonDropdown>
     )
 }
 
-function TriggerLabel({ value }: { value: AssigneeFilterEntry[] }): JSX.Element {
+function TriggerLabel({ value, emptyLabel }: { value: AssigneeFilterEntry[]; emptyLabel: string }): JSX.Element {
     if (value.length === 0) {
-        return <>All assignees</>
+        return <>{emptyLabel}</>
     }
     if (value.length > 1) {
         return <>{value.length} assignees</>

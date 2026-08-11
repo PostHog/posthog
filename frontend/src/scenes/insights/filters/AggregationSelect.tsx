@@ -12,11 +12,11 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, RetentionQuery } from '~/queries/schema/schema-general'
 import {
+    getAggregationGroupTypeIndex,
     isFunnelsQuery,
     isInsightQueryNode,
     isLifecycleQuery,
     isRetentionQuery,
-    isStickinessQuery,
 } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -78,7 +78,7 @@ export function AggregationSelect({
         (isRetentionQuery(querySource) && querySource.retentionFilter?.customAggregationTarget)
             ? CUSTOM_DATA_WAREHOUSE_ITEMS
             : getHogQLValue(
-                  isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
+                  getAggregationGroupTypeIndex(querySource),
                   isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelAggregateByHogQL : undefined
               )
 

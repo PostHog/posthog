@@ -15,12 +15,14 @@ import {
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import {
   type Adapter,
+  DEEPSEEK_MODEL_FLAG,
   FAST_MODE_FLAG,
   GLM_MODEL_FLAG,
   getCloudUrlFromRegion,
   KIMI_MODEL_FLAG,
 } from "@posthog/shared";
 import {
+  stripDeepseekModelOption,
   stripGlmModelOption,
   stripKimiModelOption,
 } from "@posthog/ui/features/sessions/modelOptionFilters";
@@ -61,6 +63,7 @@ function getOptionByCategory(
 export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
   const hostClient = useHostTRPCClient();
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
+  const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
@@ -116,7 +119,12 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
             const withoutGlm = glmEnabled
               ? option
               : stripGlmModelOption(option);
-            return kimiEnabled ? withoutGlm : stripKimiModelOption(withoutGlm);
+            const withoutDeepseek = deepseekEnabled
+              ? withoutGlm
+              : stripDeepseekModelOption(withoutGlm);
+            return kimiEnabled
+              ? withoutDeepseek
+              : stripKimiModelOption(withoutDeepseek);
           })
           .filter((option) => fastModeFlagEnabled || option.id !== "fast");
 
@@ -242,6 +250,7 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
     hostClient,
     hasHydrated,
     glmEnabled,
+    deepseekEnabled,
     kimiEnabled,
     fastModeFlagEnabled,
   ]);

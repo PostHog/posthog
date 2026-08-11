@@ -19,8 +19,11 @@ export class AuthProxyService {
   private server: http.Server | null = null;
   private port: number | null = null;
   private listenPromise: Promise<void> | null = null;
-  private readonly gatewayUrlByToken = new Map<string, string>();
-  private readonly tokenByGatewayUrl = new Map<string, string>();
+  private readonly targetByToken = new Map<
+    string,
+    { gatewayUrl: string; headers: Record<string, string> }
+  >();
+  private readonly tokenByTarget = new Map<string, string>();
   private readonly log: ScopedLogger;
 
   constructor(
@@ -32,12 +35,21 @@ export class AuthProxyService {
     this.log = rootLogger.scope("auth-proxy");
   }
 
-  async start(gatewayUrl: string): Promise<string> {
-    let token = this.tokenByGatewayUrl.get(gatewayUrl);
+  async start(
+    gatewayUrl: string,
+    headers: Record<string, string> = {},
+  ): Promise<string> {
+    const targetKey = JSON.stringify([
+      gatewayUrl,
+      Object.entries(headers).sort(([left], [right]) =>
+        left.localeCompare(right),
+      ),
+    ]);
+    let token = this.tokenByTarget.get(targetKey);
     if (!token) {
       token = randomBytes(32).toString("base64url");
-      this.tokenByGatewayUrl.set(gatewayUrl, token);
-      this.gatewayUrlByToken.set(token, gatewayUrl);
+      this.tokenByTarget.set(targetKey, token);
+      this.targetByToken.set(token, { gatewayUrl, headers: { ...headers } });
     }
 
     await this.ensureListening();
@@ -95,8 +107,8 @@ export class AuthProxyService {
         this.server = null;
         this.port = null;
         this.listenPromise = null;
-        this.gatewayUrlByToken.clear();
-        this.tokenByGatewayUrl.clear();
+        this.targetByToken.clear();
+        this.tokenByTarget.clear();
         resolve();
       });
     });
@@ -109,14 +121,16 @@ export class AuthProxyService {
     const incomingUrl = new URL(req.url ?? "/", "http://127.0.0.1");
     const match = incomingUrl.pathname.match(/^\/([^/]+)(\/.*)?$/);
     const token = match?.[1];
-    const gatewayUrl = token ? this.gatewayUrlByToken.get(token) : undefined;
-    if (!gatewayUrl) {
+    const target = token ? this.targetByToken.get(token) : undefined;
+    if (!target) {
       res.writeHead(401);
       res.end("Unauthorized");
       return;
     }
 
-    const base = gatewayUrl.endsWith("/") ? gatewayUrl : `${gatewayUrl}/`;
+    const base = target.gatewayUrl.endsWith("/")
+      ? target.gatewayUrl
+      : `${target.gatewayUrl}/`;
     const targetPath = `${match?.[2] ?? "/"}${incomingUrl.search}`;
     const targetUrl = new URL(targetPath.replace(/^\//, ""), base);
 
@@ -172,6 +186,14 @@ export class AuthProxyService {
         headers[key] = value;
       }
     }
+    const trustedHeaderNames = new Set(
+      Object.keys(target.headers).map((key) => key.toLowerCase()),
+    );
+    for (const key of Object.keys(headers)) {
+      if (trustedHeaderNames.has(key.toLowerCase())) {
+        delete headers[key];
+      }
+    }
     // The client connection governs the request lifetime. An explicit signal
     // also opts out of authenticatedFetch's default timeout, which would
     // abort streaming LLM responses that outlive it.
@@ -184,7 +206,7 @@ export class AuthProxyService {
 
     const fetchOptions: RequestInit = {
       method: req.method ?? "GET",
-      headers,
+      headers: { ...headers, ...target.headers },
       signal: abort.signal,
     };
 

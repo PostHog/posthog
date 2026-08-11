@@ -1,5 +1,24 @@
 # HogQL bytecode changelog
 
+## 2026-08-04 - 1.0.68
+
+Added SHA-1 primitives to the standard library. No bytecode operations changed.
+
+```bash
+sha1Hex(data)                  # SHA-1 of a string, hex encoded
+sha1(data, encoding)           # SHA-1 of a string, encoding defaults to 'hex'
+sha1HmacChainHex(data)         # HMAC-SHA1 chained over an array of strings, hex encoded
+sha1HmacChain(data, encoding)  # same, encoding defaults to 'hex'
+```
+
+`encoding` is one of `hex`, `base64`, `base64url`, or `binary`, matching `md5`, `sha256`, and
+`sha256HmacChain`. A two element chain is a plain HMAC-SHA1 of a key and a message, which is what
+webhook signature verification needs.
+
+SHA-1 is broken for collision resistance and must not be picked for new work. HMAC-SHA1 is still
+sound for message authentication, and it is here only because some vendors sign their webhooks
+with it.
+
 ## 2023-06-30 - 1.0.2
 
 Rolled back cohort matching instructions.

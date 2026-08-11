@@ -138,6 +138,11 @@ pub fn cast_to_schema(batch: &RecordBatch, target: &SchemaRef) -> Result<RecordB
         }
     }
 
+    // The batch must match the table's arrow schema exactly, including nullability: delta-rs's
+    // RecordBatchWriter rejects any deviation ("RecordBatch schema does not match"). A column that
+    // carries nulls but the table still marks non-nullable must therefore be relaxed to nullable in
+    // the table's metadata BEFORE the upsert (the pipeline's schema-evolution step does this), not
+    // here -- relaxing only the batch produces a schema mismatch the writer refuses.
     Ok(RecordBatch::try_new(target.clone(), cols)?)
 }
 

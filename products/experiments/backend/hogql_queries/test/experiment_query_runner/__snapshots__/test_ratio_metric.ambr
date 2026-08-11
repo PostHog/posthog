@@ -302,7 +302,7 @@
      FROM experiment_exposures_preaggregated AS t
      WHERE and(equals(t.team_id, 99999), in(t.job_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000000']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2020-01-15 00:00:00', 'UTC'))))
      GROUP BY entity_id
-     HAVING lessOrEquals(plus(min(toTimeZone(t.first_exposure_time, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC'))),
+     HAVING ifNull(lessOrEquals(plus(min(toTimeZone(t.first_exposure_time, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-15 12:00:00', 6, 'UTC')), 0)),
        numerator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,

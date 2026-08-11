@@ -59,6 +59,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { BreakdownKeyType, FunnelStep, IntervalType, LabelGroupType } from '../../types'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 import {
@@ -201,6 +202,7 @@ export interface funnelDataLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -320,6 +322,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -332,6 +335,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -354,6 +358,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -368,6 +373,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery

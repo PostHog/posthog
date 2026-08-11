@@ -17,7 +17,7 @@ use cohort_seeder::app::reconcile_dispatch::{
     RegisterBackfillConfirmation,
 };
 use cohort_seeder::domain::{
-    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms,
+    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms, ScopeKind,
 };
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome};
 use cohort_seeder::store::lease::LeaseFailure;
@@ -373,7 +373,8 @@ async fn reconcile_run_load_is_fail_closed_and_behavioral_hash_scoped() -> Resul
             .context("missing active cohort tile")?;
         ensure!(tile.team_id() == TeamId(20));
         ensure!(tile.cohort_id() == CohortId(201));
-        ensure!(tile.filters_hash().as_str() == "behavioral-shape");
+        ensure!(tile.scope().hash_str() == "behavioral-shape");
+        ensure!(tile.scope().kind() == ScopeKind::Behavioral);
         ensure!(tile.run_id() == run_id);
 
         sqlx::query("UPDATE cohort_backfill_runs SET status = 'reconciling' WHERE id = $1")
@@ -415,8 +416,8 @@ async fn reconcile_run_load_is_fail_closed_and_behavioral_hash_scoped() -> Resul
         .await?;
         ensure!(matches!(
             load_reconcile_run(&pool, run_id).await,
-            Err(ReconcileRunError::InvalidBehavioralShapeHash { cohort_id, .. })
-                if cohort_id == CohortId(201)
+            Err(ReconcileRunError::InvalidShapeHash { cohort_id, kind, .. })
+                if cohort_id == CohortId(201) && kind == ScopeKind::Behavioral
         ));
 
         sqlx::query(

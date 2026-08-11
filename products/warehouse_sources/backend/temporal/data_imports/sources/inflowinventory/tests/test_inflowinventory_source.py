@@ -144,17 +144,49 @@ class TestInflowinventorySource:
         assert is_valid is expected_valid
         assert returned == expected_message
 
+    @parameterized.expand(
+        [
+            ("pinned_legacy", "2023-04-01", "2023-04-01"),
+            ("unpinned_resolves_to_default", None, "2026-07-10"),
+        ]
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source.validate_credentials"
+    )
+    def test_validate_credentials_probes_under_resolved_version(
+        self, _name: str, pinned: str | None, expected_version: str, mock_validate: mock.MagicMock
+    ) -> None:
+        mock_validate.return_value = (True, None)
+        self.source.validate_credentials(self.config, self.team_id, api_version=pinned)
+        assert mock_validate.call_args.args == ("inflow-key", "co-123", expected_version)
+
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is InflowInventoryResumeConfig
 
+    def test_version_declaration(self) -> None:
+        # New sources default to the current stable version; the legacy pin stays supported so
+        # existing sources keep syncing under their own version.
+        assert self.source.default_version == "2026-07-10"
+        assert set(self.source.supported_versions) == {"2023-04-01", "2026-07-10"}
+
+    @parameterized.expand(
+        [
+            ("pinned_legacy", "2023-04-01", "2023-04-01"),
+            ("pinned_current", "2026-07-10", "2026-07-10"),
+            ("unpinned_resolves_to_default", None, "2026-07-10"),
+        ]
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.source.inflowinventory_source"
     )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_plumbs_arguments(
+        self, _name: str, pinned: str | None, expected_version: str, mock_source: mock.MagicMock
+    ) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "products"
+        inputs.api_version = pinned
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -165,6 +197,7 @@ class TestInflowinventorySource:
         assert kwargs["company_id"] == "co-123"
         assert kwargs["endpoint"] == "products"
         assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["api_version"] == expected_version
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

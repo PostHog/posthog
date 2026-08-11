@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
@@ -169,6 +170,36 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(["trace", "session"])
+    def test_create_evaluation_run_refuses_aggregate_targets(self, target: str):
+        """This endpoint runs one generation through the generation workflow. Accepting an aggregate
+        target ran it as a generation and emitted a verdict with $ai_target_type 'generation_uuid'
+        under that evaluation's name, which counted towards its pass rate while being invisible on
+        the trace or session it belonged to."""
+        aggregate_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name=f"{target} target",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            target=target,
+            enabled=False,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluation_runs/",
+            {
+                "evaluation_id": str(aggregate_evaluation.id),
+                "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
+                "event": "$ai_generation",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert target in response.json()["error"]
 
     def test_create_evaluation_run_missing_params(self):
         """Test creating evaluation run with missing parameters"""

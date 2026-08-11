@@ -36,6 +36,7 @@ from products.review_hog.backend.temporal.activities import (
     ReviewChunkInput,
     ReviewMeta,
     SelectPerspectivesInput,
+    TrackReviewFailedInput,
     ValidateChunkInput,
     ValidateChunkResult,
 )
@@ -234,6 +235,16 @@ async def _run_full_review_pr_workflow(
     async def fail_status(input) -> None:
         return None
 
+    # Records the failed-turn analytics event's run_index — the completion-rate denominator the
+    # model experiment relies on; the patched block is swallowed best-effort, so without this stub
+    # deleting it would leave every test green.
+    track_failed_calls: list[int] = []
+
+    @activity.defn(name="track_review_failed_activity")
+    async def track_failed(input: TrackReviewFailedInput) -> None:
+        track_failed_calls.append(input.run_index)
+        return None
+
     result: str | None = None
     failed = False
     task_queue = str(uuid.uuid4())
@@ -266,6 +277,7 @@ async def _run_full_review_pr_workflow(
                 post_status,
                 finalize_status,
                 fail_status,
+                track_failed,
             ],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
@@ -302,6 +314,7 @@ async def _run_full_review_pr_workflow(
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
+        "track_failed": track_failed_calls,
     }
 
 
@@ -460,6 +473,7 @@ async def test_review_pr_workflow_appends_published_receipt_with_review_url():
     )
     assert recorded["publish"] == [7]
     assert recorded["receipts"] == [("published", _REVIEW_URL)]
+    assert recorded["track_failed"] == []  # a completed turn must not also count as failed
 
 
 @pytest.mark.asyncio
@@ -476,6 +490,9 @@ async def test_review_pr_workflow_appends_failed_receipt_and_still_fails():
     )
     assert recorded["failed"] is True
     assert recorded["receipts"] == [("failed", None)]
+    # The failed-turn analytics event fires exactly once with the turn's run_index — the completion
+    # rate's denominator; it is best-effort-swallowed in the workflow, so only this assert guards it.
+    assert recorded["track_failed"] == [1]
 
 
 @pytest.mark.asyncio

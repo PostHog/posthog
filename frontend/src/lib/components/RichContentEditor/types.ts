@@ -35,7 +35,7 @@ export interface RichContentEditorType {
     getCurrentPosition: () => number
     getAdjacentNodes: (pos: number) => { previous: RichContentNode | null; next: RichContentNode | null }
     setEditable: (editable: boolean) => void
-    setContent: (content: JSONContent) => void
+    setContent: (content: JSONContent | string) => void
     setSelection: (position: number) => void
     setTextSelection: (position: number | EditorRange) => void
     focus: (position?: EditorFocusPosition) => void

@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use common_types::CapturedEvent;
+use limiters::redis::QuotaResource;
 use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
@@ -24,9 +25,22 @@ pub async fn check_quota(
     limiter: &CaptureQuotaLimiter,
     token: &str,
     span_events: &[SpanEvent],
+    gateway_verified: bool,
 ) -> Result<(), QuotaOutcome> {
+    let count = span_events.len();
+
+    if gateway_verified {
+        if limiter
+            .is_quota_limited_v1(token, &QuotaResource::Events)
+            .await
+        {
+            report_dropped_events("otel_quota_drop", count as u64);
+            return Err(QuotaOutcome::Dropped);
+        }
+        return Ok(());
+    }
+
     let refs: Vec<&SpanEvent> = span_events.iter().collect();
-    let count = refs.len();
 
     match limiter.check_and_filter(token, refs).await {
         Ok(filtered) if filtered.len() == count => Ok(()),

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
 
@@ -13,6 +14,12 @@ from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transf
 # V1 tables have been removed - always use v2 tables
 get_stats_table = lambda use_v2: "web_pre_aggregated_stats"
 get_bounces_table = lambda use_v2: "web_pre_aggregated_bounces"
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class PeriodFilters:
+    previous_period: ast.Expr
+    current_period: ast.Expr
 
 
 class WebAnalyticsPreAggregatedQueryBuilder:
@@ -145,7 +152,7 @@ class WebAnalyticsPreAggregatedQueryBuilder:
 
         return ast.And(exprs=filter_exprs)
 
-    def get_date_ranges(self, table_name: Optional[str] = None) -> tuple[ast.Expr, ast.Expr]:
+    def get_date_ranges(self, table_name: Optional[str] = None) -> PeriodFilters:
         current_date_from = self.runner.query_date_range.date_from()
         current_date_to = self.runner.query_date_range.date_to()
 
@@ -191,4 +198,4 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             ]
         )
 
-        return (previous_period_filter, current_period_filter)
+        return PeriodFilters(previous_period=previous_period_filter, current_period=current_period_filter)

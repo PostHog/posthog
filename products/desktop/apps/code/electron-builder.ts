@@ -133,9 +133,7 @@ const config: Configuration = {
   },
 
   // Installs built from this config poll the CloudFront-fronted update feed
-  // (the S3 bucket is private; reads go through the CDN). Installs built before
-  // the feed moved poll GitHub Releases on PostHog/code, so CI dual-publishes
-  // there until that fleet drains.
+  // (the S3 bucket is private; reads go through the CDN).
   publish: {
     provider: "generic",
     url: "https://desktop-releases.posthog.com/stable",

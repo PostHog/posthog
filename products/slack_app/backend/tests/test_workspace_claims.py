@@ -20,8 +20,8 @@ class TestSlackWorkspaceClaimsView(TestCase):
     """The receiver-side endpoint that the other region calls to ask "do you claim this workspace?".
 
     Authenticated with the same HMAC scheme Slack uses, against the Slack app signing secret that
-    both regions already share. The signed body covers `slack_team_id + kinds`, so a captured
-    signature cannot be replayed against a different workspace.
+    both regions already share. The signature covers every request filter, so a captured request
+    cannot be replayed against a different workspace or project.
     """
 
     def setUp(self):
@@ -57,6 +57,22 @@ class TestSlackWorkspaceClaimsView(TestCase):
         response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack"]})
         assert response.status_code == 200
         assert response.json() == {"claimed": True}
+
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_team_id_limits_claim_to_that_project(self, mock_config):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_PRESENT",
+            sensitive_config={"access_token": "xoxb"},
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+
+        response = self._post({"slack_team_id": "T_PRESENT", "kinds": ["slack"], "team_id": other_team.id})
+
+        assert response.status_code == 200
+        assert response.json() == {"claimed": False}
 
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_any_of_kinds_match_returns_claimed(self, mock_config):
@@ -274,6 +290,23 @@ class TestDoesOtherRegionClaimWorkspace(TestCase):
             mock_post.return_value = self._response(200, {"claimed": True})
             does_other_region_claim_workspace(slack_team_id="T_KIND", kinds=["slack"], incoming_host="eu.posthog.com")
             assert mock_post.call_count == 1
+
+    def test_cache_is_keyed_by_team_id(self):
+        from products.slack_app.backend.api import does_other_region_claim_workspace
+
+        with (
+            patch("products.slack_app.backend.api.SlackIntegration.slack_config") as mock_config,
+            patch("products.slack_app.backend.api.requests.post") as mock_post,
+        ):
+            mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+            mock_post.return_value = self._response(200, {"claimed": True})
+            does_other_region_claim_workspace(
+                slack_team_id="T_TEAM", kinds=["slack"], incoming_host="eu.posthog.com", team_id=1
+            )
+            does_other_region_claim_workspace(
+                slack_team_id="T_TEAM", kinds=["slack"], incoming_host="eu.posthog.com", team_id=2
+            )
+            assert mock_post.call_count == 2
 
     def test_signed_request_is_accepted_by_validator(self):
         # End-to-end roundtrip: the sent headers + body, fed into the receiver's verifier, must

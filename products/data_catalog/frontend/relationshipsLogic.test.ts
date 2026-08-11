@@ -14,6 +14,7 @@ import {
 } from './generated/api'
 import type { DataCatalogRelationshipProposalApi } from './generated/api.schemas'
 import { relationshipsLogic } from './relationshipsLogic'
+import type { RelationshipsFilters } from './relationshipsLogic'
 
 jest.mock('lib/api', () => {
     class ApiError extends Error {
@@ -136,6 +137,32 @@ describe('relationshipsLogic', () => {
         const pending = rows.find((row) => row.proposalId === 'pending')
         expect(pending?.rowStatus).toEqual('pending')
         expect(pending?.joinId).toBeNull()
+    })
+
+    it.each<[Partial<RelationshipsFilters>, string[]]>([
+        [{ status: 'pending' }, ['proposal-pending-1']],
+        [{ search: 'customers' }, ['proposal-rejected-1']],
+        [{ status: 'active', search: 'persons' }, []],
+    ])('narrows filteredRows with filters %o', async (filters, expectedKeys) => {
+        await mountWith(
+            [
+                buildProposal({ id: 'pending-1', status: 'proposed' }),
+                buildProposal({
+                    id: 'rejected-1',
+                    status: 'rejected',
+                    source_table_name: 'orders',
+                    source_table_key: 'customer_id',
+                    joining_table_name: 'customers',
+                    joining_table_key: 'id',
+                    field_name: 'customer',
+                }),
+            ],
+            [{ id: 'join-1', source_table_name: 'sessions' }]
+        )
+
+        logic.actions.setFilters(filters)
+
+        expect(logic.values.filteredRows.map((row) => row.key)).toEqual(expectedKeys)
     })
 
     it('reloads joins when the shared join modal saves', async () => {

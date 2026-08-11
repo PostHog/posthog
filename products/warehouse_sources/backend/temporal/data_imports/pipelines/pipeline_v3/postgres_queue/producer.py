@@ -16,7 +16,7 @@ import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     BatchQueue,
@@ -149,6 +149,10 @@ class PostgresProducer:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
 
+        # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
+        # this job go terminal so their batches can't double-load. Runs the loader is
+        # still draining are spared (see supersede_other_runs); a spared run that
+        # stalls later is recovered by the reconcile sweep's stranded-run pass.
         if batch_result.batch_index == 0 and not self._is_resume:
             superseded = BatchQueue.supersede_other_runs(
                 self._conn, job_id=self._job_id, current_run_uuid=self._run_uuid

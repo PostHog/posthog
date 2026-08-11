@@ -50,6 +50,11 @@
             "minItems": 1,
             "type": "array"
         },
+        "follow": {
+            "default": false,
+            "description": "Keep the next link valid after the last entry, so the same cursor can be re-polled as new entries arrive. Only applies with oldest-first ordering. When following, stop on an empty results list rather than on a null next link.",
+            "type": "boolean"
+        },
         "hogql_filter": {
             "description": "Reserved for future HogQL-based filtering.",
             "type": "string"
@@ -81,6 +86,12 @@
             },
             "type": "array"
         },
+        "ordering": {
+            "default": "-created_at",
+            "description": "Sort by when the entry was created. Defaults to newest first. Use created_at for oldest first when polling for new entries, so a saved cursor picks up where the last request stopped.\n\n* `-created_at` - -created_at\n* `created_at` - created_at",
+            "minLength": 1,
+            "type": "string"
+        },
         "page": {
             "description": "Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
             "minimum": 1,
@@ -88,7 +99,7 @@
         },
         "page_size": {
             "default": 10,
-            "description": "Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+            "description": "Number of results per page (default: 100, max: 1000).",
             "maximum": 1000,
             "minimum": 1,
             "type": "number"

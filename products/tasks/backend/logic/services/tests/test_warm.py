@@ -12,6 +12,13 @@ WARM = "products.tasks.backend.logic.services.warm"
 _CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
 
 
+def test_code_cloud_warm_pool_caps():
+    caps = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.USER_CREATED]
+
+    assert caps.per_user == 10
+    assert caps.per_org == 100
+
+
 class TestSandboxWarmerWarm(APIBaseTest):
     def _task(self, *, origin=Task.OriginProduct.POSTHOG_AI, created_by=None) -> Task:
         return Task.objects.create(

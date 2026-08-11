@@ -164,8 +164,11 @@ export const getMetricChanges = (
     if (metricBefore.conversion_window && !metricAfter.conversion_window) {
         changes.push('set the conversion window to the experiment duration')
     }
-    // check if conversion window was added (set to time window)
-    if (!metricBefore.conversion_window && metricAfter.conversion_window) {
+    if (
+        metricAfter.conversion_window &&
+        (metricBefore.conversion_window !== metricAfter.conversion_window ||
+            metricBefore.conversion_window_unit !== metricAfter.conversion_window_unit)
+    ) {
         changes.push(
             `set the conversion window to ${metricAfter.conversion_window} ${metricAfter.conversion_window_unit}`
         )
@@ -208,6 +211,14 @@ export const getMetricChanges = (
     const ratioChanges = getRatioChanges(metricBefore, metricAfter)
     if (ratioChanges) {
         changes.push(ratioChanges)
+    }
+
+    if (changes.length === 0) {
+        return (
+            <span>
+                changed the metric <LemonTag>{metricBefore.name || getDefaultMetricTitle(metricBefore)}</LemonTag>
+            </span>
+        )
     }
 
     /**

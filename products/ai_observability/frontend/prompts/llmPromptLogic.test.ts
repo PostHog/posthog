@@ -301,6 +301,49 @@ describe('llmPromptLogic', () => {
         logic.unmount()
     })
 
+    it('reloads the URL-selected version in place, keeping the loaded prompt visible', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        mockResolve.mockResolvedValue({
+            prompt: promptFields,
+            versions,
+            has_more,
+        } as unknown as LLMPromptResolveResponseApi)
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        router.actions.push('/prompt-management/prompts/my-test-prompt', { version: 1 })
+
+        // Old prompt data stays while the selected version loads: no skeleton flash
+        expect(logic.values.promptLoading).toBe(true)
+        expect(logic.values.prompt).not.toBeNull()
+
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+        expect(mockResolve).toHaveBeenLastCalledWith(expect.any(String), 'my-test-prompt', {
+            version: 1,
+            limit: 50,
+        })
+
+        logic.unmount()
+    })
+
+    it('drops prompt-scene params from the breadcrumb link back to the list', async () => {
+        router.actions.push('/prompt-management/prompts/existing-prompt', {
+            edit: true,
+            version: 2,
+            tab: 'code',
+            search: 'checkout',
+        })
+
+        const logic = llmPromptLogic({ promptName: 'existing-prompt' })
+        logic.mount()
+
+        expect(logic.values.breadcrumbs[0].path).toBe('/prompt-management/prompts?search=checkout')
+
+        logic.unmount()
+    })
+
     it('preserves form edits and advances the base version on a publish conflict', async () => {
         const { versions, has_more, ...promptFields } = mockPrompt
         const conflictingLatest = {

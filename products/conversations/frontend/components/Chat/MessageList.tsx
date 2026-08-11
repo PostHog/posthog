@@ -34,6 +34,11 @@ export interface MessageListProps {
     /** Non-message timeline entries, placed among the messages by their own timestamp. Opt-in, so a
      * customer-facing view never receives team-only content. */
     extras?: TimelineExtra[]
+    currentUserId?: number | null
+    /** False when the caller lacks ticket editor access (e.g. viewer-only). */
+    canEditTicket?: boolean
+    onEditMessage?: (message: ChatMessage) => void
+    onDeleteMessage?: (messageId: string) => void
 }
 
 /** A non-message entry in the thread, e.g. an agent's findings. `at` is what orders it among the
@@ -62,6 +67,10 @@ export function MessageList({
     aiReplyFeedbackDisabledReason,
     onSubmitAiReplyFeedback,
     extras = [],
+    currentUserId = null,
+    canEditTicket = false,
+    onEditMessage,
+    onDeleteMessage,
 }: MessageListProps): JSX.Element {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
@@ -195,12 +204,18 @@ export function MessageList({
     const timeline: JSX.Element[] = [
         ...messages.map((message) => {
             const isCustomer = message.authorType === 'customer'
+            const canModify =
+                canEditTicket &&
+                !!message.isPrivate &&
+                message.authorType === 'human' &&
+                !!currentUserId &&
+                message.createdBy?.id === currentUserId
             return {
                 at: message.createdAt,
                 rank: 0,
                 element: (
                     <Message
-                        key={message.id}
+                        key={`${message.id}-${message.version ?? 0}`}
                         message={message}
                         isCustomer={isCustomerView ? !isCustomer : isCustomer}
                         deliveryStatus={deliveryStatusMap.get(message.id)}
@@ -214,6 +229,8 @@ export function MessageList({
                                 ? (rating, feedbackText) => onSubmitAiReplyFeedback(message.id, rating, feedbackText)
                                 : undefined
                         }
+                        onEdit={canModify && onEditMessage ? () => onEditMessage(message) : undefined}
+                        onDelete={canModify && onDeleteMessage ? () => onDeleteMessage(message.id) : undefined}
                     />
                 ),
             }

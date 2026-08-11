@@ -32,7 +32,7 @@ describe("getHiddenSettingsCategories", () => {
         "workspaces",
         "worktrees",
         "terminal",
-        "claude-code",
+        "harness",
         "discord",
         "updates",
       ],

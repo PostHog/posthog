@@ -24,7 +24,7 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { logsAttributesRetrieve, logsFacetValuesCreate } from '../../../generated/api'
 import { _LogFacetValueApi, _LogPropertyFilterApi, _LogsFacetValuesBodyApi } from '../../../generated/api.schemas'
 import type { LogsViewerFilters } from '../config/types'
-import { FACETS, FacetConfig } from './facets'
+import { FACETS, FacetConfig, resolveFacets } from './facets'
 
 // Broad, filter-independent window for the "which resource attributes does this tenant emit" probe.
 // Cheap: keys-only group-by on the log_attributes aggregation table (no value scan).
@@ -257,7 +257,8 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
                     // typing in one facet's search must not cancel a still-debouncing full reload.
                     loadFacetValuesForKey: async (facetKey: string, breakpoint) => {
                         await breakpoint(300)
-                        const facet = FACETS.find((f) => f.key === facetKey)
+                        // Resolved, not raw: an aliased facet must search the key the tenant emits.
+                        const facet = values.visibleFacets.find((f) => f.key === facetKey)
                         if (!facet) {
                             return values.facetValues
                         }
@@ -286,11 +287,11 @@ export const facetCountsLogic = kea<facetCountsLogicType>([
     }),
 
     selectors({
-        // Column facets always render; resource-attribute facets only when the tenant emits the key.
+        // Column facets always render; resource-attribute facets only when the tenant emits the key (or one
+        // of its aliases, which resolution rewrites the facet onto).
         visibleFacets: [
             (s) => [s.presentResourceKeys],
-            (presentResourceKeys: string[]): FacetConfig[] =>
-                FACETS.filter((f) => f.source.type === 'column' || presentResourceKeys.includes(f.source.key)),
+            (presentResourceKeys: string[]): FacetConfig[] => resolveFacets(FACETS, presentResourceKeys),
         ],
         // Per-facet loading state. A filter-change reload and a per-facet search have independent
         // breakpoints and can overlap, so union both sources — otherwise whichever settles first would

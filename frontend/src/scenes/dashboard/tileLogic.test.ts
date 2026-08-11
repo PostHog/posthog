@@ -32,6 +32,17 @@ describe('tileLogic', () => {
         expect(logic.values.overrides).toEqual({ date_from: '-7d' })
     })
 
+    it('keeps an explicit false filterTestAccounts override, clearing only on null', () => {
+        logic.actions.setFilterTestAccounts(true)
+        expect(logic.values.overrides).toEqual({ date_from: '-7d', filterTestAccounts: true })
+
+        logic.actions.setFilterTestAccounts(false)
+        expect(logic.values.overrides).toEqual({ date_from: '-7d', filterTestAccounts: false })
+
+        logic.actions.setFilterTestAccounts(null)
+        expect(logic.values.overrides).toEqual({ date_from: '-7d' })
+    })
+
     it('resetOverrides wipes every override', () => {
         logic.actions.setInterval('day')
         logic.actions.setBreakdown({ breakdown: '$browser', breakdown_type: 'event' })

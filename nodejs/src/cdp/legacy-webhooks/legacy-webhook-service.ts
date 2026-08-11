@@ -12,7 +12,7 @@ import { Action, Hook, HookPayload, PostIngestionEvent, RawClickHouseEvent, RawK
 import { counterParseError } from '../consumers/metrics'
 import { ActionManager } from '../legacy-webhooks/action-manager'
 import { ActionMatcher } from '../legacy-webhooks/action-matcher'
-import { cdpTrackedFetch } from '../services/hog-executor.service'
+import { cdpTrackedFetch } from '../utils/cdp-fetch'
 
 export class LegacyWebhookService {
     protected actionManager: ActionManager

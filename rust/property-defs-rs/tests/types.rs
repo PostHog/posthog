@@ -1,25 +1,176 @@
 use chrono::Utc;
 use property_defs_rs::types::{
-    detect_property_type, get_floored_last_seen, Event, PropertyValueType, Update,
+    detect_property_type, floor_last_seen, last_seen_jitter_seed, Event, PropertyValueType, Update,
+    DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
 };
 use rstest::rstest;
 use serde_json::{json, Map, Number, Value};
 
+// The floored value is a dedup key, so what matters is which window it identifies, not that it
+// lands on a round clock boundary (per-identity jitter means it usually won't). It must stay in
+// (now - period, now]: a future value would defeat the write path's
+// `last_seen_at < EXCLUDED.last_seen_at` guard, and one a full period old would re-issue the
+// definition's write early.
+#[rstest]
+#[case(3600)]
+#[case(86400)]
+fn test_floor_last_seen_lands_in_the_current_window(#[case] period_secs: i64) {
+    let now = Utc::now();
+
+    for seed in [0, 1, 12345, u64::MAX] {
+        let floored = floor_last_seen(now, period_secs, seed);
+        assert!(floored <= now, "seed {seed} produced a future timestamp");
+        assert!(
+            now - floored < chrono::Duration::seconds(period_secs),
+            "seed {seed} produced a timestamp a full period old"
+        );
+        assert_eq!(floored.timestamp_subsec_nanos(), 0);
+    }
+}
+
+// The whole point of the period is that it reaches the dedup key: EventDefinition's Hash and Eq
+// both cover last_seen_at. Asserting hourly != daily keys here would be wrong, because the daily
+// window start is always also an hourly window start (3600 divides 86400 and both offsets are the
+// seed mod 3600), so the two keys legitimately coincide for one hour of every day. Instead,
+// compute the expected window independently and bracket Utc::now(): this can never false-fail,
+// and if the period stops reaching floor_last_seen it fails whenever the default and requested
+// windows differ, which is 23 of every 24 hours.
 #[test]
-fn test_date_flooring() {
-    use chrono::Timelike;
+fn test_flooring_period_reaches_the_event_definition_dedup_key() {
+    const DAILY: i64 = 86400;
+
+    let event = || Event {
+        team_id: 111,
+        project_id: 111,
+        event: "$pageview".to_string(),
+        properties: None,
+    };
+
+    let def_of = |updates: Vec<Update>| match updates.into_iter().next().unwrap() {
+        Update::Event(ed) => ed,
+        other => panic!("expected an event definition first, got {other:?}"),
+    };
+
+    let before = Utc::now();
+    let daily = def_of(event().into_updates_with(10_000, DAILY));
+    let defaulted = def_of(event().into_updates(10_000));
+    let after = Utc::now();
+
+    let seed = last_seen_jitter_seed(111, "$pageview");
+    assert!(
+        daily.last_seen_at == floor_last_seen(before, DAILY, seed)
+            || daily.last_seen_at == floor_last_seen(after, DAILY, seed),
+        "the explicit period must reach floor_last_seen, got {}",
+        daily.last_seen_at
+    );
+    assert!(
+        defaulted.last_seen_at
+            == floor_last_seen(before, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, seed)
+            || defaulted.last_seen_at
+                == floor_last_seen(after, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, seed),
+        "into_updates must floor at the documented default period, got {}",
+        defaulted.last_seen_at
+    );
+}
+
+// Jitter has to be a pure function of the identity: every pod computes it independently, and if
+// they disagree the same definition gets written once per pod per period instead of once.
+#[test]
+fn test_jitter_seed_is_stable_and_identity_scoped() {
+    assert_eq!(
+        last_seen_jitter_seed(111, "$pageview"),
+        last_seen_jitter_seed(111, "$pageview")
+    );
+    assert_ne!(
+        last_seen_jitter_seed(111, "$pageview"),
+        last_seen_jitter_seed(112, "$pageview")
+    );
+    assert_ne!(
+        last_seen_jitter_seed(111, "$pageview"),
+        last_seen_jitter_seed(111, "$identify")
+    );
+}
+
+// This is the test that guards the reason jitter exists. Un-jittered, every key in the fleet rolls
+// over at the same instant, so a coarse period dumps a period's worth of definition writes into
+// the moments after the boundary. Spreading window starts across the period turns that burst into
+// a steady trickle.
+#[test]
+fn test_jitter_spreads_window_starts_across_the_period() {
+    const PERIOD: i64 = 86400;
+    const BUCKETS: i64 = 24;
 
     let now = Utc::now();
-    let rounded = get_floored_last_seen();
+    let mut occupied = std::collections::HashSet::new();
+    for team_id in 0..2000 {
+        let seed = last_seen_jitter_seed(team_id, "$pageview");
+        let age = now.timestamp() - floor_last_seen(now, PERIOD, seed).timestamp();
+        occupied.insert(age / (PERIOD / BUCKETS));
+    }
 
-    // Time should be rounded to the nearest hour
-    assert_eq!(rounded.minute(), 0);
-    assert_eq!(rounded.second(), 0);
-    assert_eq!(rounded.nanosecond(), 0);
-    assert!(rounded <= now);
+    assert_eq!(
+        occupied.len() as i64,
+        BUCKETS,
+        "expected window starts in all {BUCKETS} sub-ranges of the period, got {occupied:?}"
+    );
+}
 
-    // The difference between now and rounded should be less than 1 hour
-    assert!(now - rounded < chrono::Duration::hours(1));
+// Advancing by exactly one period must advance the window by exactly one period, for every
+// identity. An off-by-one here re-issues writes twice per period, or skips one entirely.
+#[test]
+fn test_window_advances_by_exactly_one_period() {
+    const PERIOD: i64 = 86400;
+    let now = Utc::now();
+
+    for team_id in 0..50 {
+        let seed = last_seen_jitter_seed(team_id, "$pageview");
+        let first = floor_last_seen(now, PERIOD, seed);
+        let next = floor_last_seen(now + chrono::Duration::seconds(PERIOD), PERIOD, seed);
+        assert_eq!(
+            (next - first).num_seconds(),
+            PERIOD,
+            "team {team_id} did not advance by exactly one period"
+        );
+    }
+}
+
+// "No flooring" must not be expressible: an unfloored last_seen_at makes every event a unique
+// dedup key, so the cache filters nothing and the full event stream reaches
+// posthog_eventdefinition as row updates. Startup validation rejects a non-positive config
+// value loudly; this pins the function-level backstop that clamps to the default instead of
+// dividing by zero or passing the value through.
+#[rstest]
+#[case(0)]
+#[case(-1)]
+fn test_non_positive_period_floors_at_the_default(#[case] period_secs: i64) {
+    let now = Utc::now();
+    assert_eq!(
+        floor_last_seen(now, period_secs, 12345),
+        floor_last_seen(now, DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS, 12345)
+    );
+}
+
+// The same hazard from the other end. An uncapped period lets the jitter offset push bucket_start
+// outside chrono's representable range, and the resulting fallback hands back an unfloored `now` —
+// a unique dedup key per event, which is exactly the write amplification flooring exists to stop.
+#[rstest]
+#[case(MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS + 1)]
+#[case(i64::MAX)]
+fn test_oversized_period_floors_at_the_maximum(#[case] period_secs: i64) {
+    let now = Utc::now();
+
+    for seed in [0, 12345, u64::MAX] {
+        let floored = floor_last_seen(now, period_secs, seed);
+        assert_eq!(
+            floored,
+            floor_last_seen(now, MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS, seed),
+            "seed {seed} did not clamp to the maximum period"
+        );
+        assert!(
+            floored <= now && (now - floored).num_seconds() < MAX_EVENTDEF_LAST_SEEN_FLOOR_SECS,
+            "seed {seed} floored outside the current window"
+        );
+    }
 }
 
 #[test]
@@ -425,6 +576,77 @@ fn test_bare_utm_properties_still_string() {
             "expected String for key={key}, value={value}"
         );
     }
+}
+
+// Case normalization is what makes each special-case branch in detect_property_type match. Only
+// the DATETIME-keyword branch had mixed-case coverage before (the "TIMESTAMP" assertion in
+// test_property_timestamp_detection); the utm, feature-flag and survey cases are all spelled
+// lowercase everywhere else. Each case here pairs a mixed-case key with a lowercase twin and a
+// value that would classify differently if the key were left as-is, so dropping the conversion
+// fails this instead of silently mistyping properties. The last case is non-ASCII, covering the
+// owning fallback rather than the borrow.
+#[rstest]
+#[case(
+    "UTM_Source",
+    "utm_source",
+    Value::Number(Number::from(12345)),
+    PropertyValueType::String
+)]
+#[case(
+    "$Initial_UTM_Campaign",
+    "$initial_utm_campaign",
+    Value::from("2023-12-13"),
+    PropertyValueType::String
+)]
+#[case(
+    "$FEATURE/My-Flag",
+    "$feature/my-flag",
+    Value::Bool(true),
+    PropertyValueType::String
+)]
+#[case(
+    "$Feature_Flag_Response",
+    "$feature_flag_response",
+    Value::Bool(true),
+    PropertyValueType::String
+)]
+#[case(
+    "$Survey_Response_2",
+    "$survey_response_2",
+    Value::Number(Number::from(7)),
+    PropertyValueType::String
+)]
+// A numeric value only reads as a timestamp when the key carries a DATETIME keyword, so this is
+// the case where normalizing "_At" to "_at" is the whole decision. The epoch is computed rather
+// than fixed because the value-side check only accepts the last six months.
+#[case(
+    "Created_At",
+    "created_at",
+    Value::Number(Number::from(Utc::now().timestamp())),
+    PropertyValueType::DateTime
+)]
+#[case(
+    "UTM_Sourceǅ",
+    "utm_sourceǅ",
+    Value::Number(Number::from(12345)),
+    PropertyValueType::String
+)]
+fn test_property_type_detection_normalizes_key_case(
+    #[case] mixed_case: &str,
+    #[case] lower_case: &str,
+    #[case] value: Value,
+    #[case] expected: PropertyValueType,
+) {
+    assert_eq!(
+        detect_property_type(mixed_case, &value),
+        Some(expected.clone()),
+        "expected {expected:?} for mixed-case key={mixed_case}, value={value}"
+    );
+    assert_eq!(
+        detect_property_type(lower_case, &value),
+        Some(expected.clone()),
+        "expected {expected:?} for lowercase key={lower_case}, value={value}"
+    );
 }
 
 #[test]

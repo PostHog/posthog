@@ -38,6 +38,26 @@ def _funding_date(value: Any) -> Optional[str]:
     return None
 
 
+# Harmonic's catch-all when it has no real funding-stage signal, distinct from a company it has
+# genuinely confirmed raised nothing. ~83% of fetched stages are this shell with no round data
+# behind it (prod-checked Aug 2026), so passing it through as funding_stage reads as a real signal
+# to downstream consumers when it is actually an absence of one.
+_FUNDING_STAGE_UNKNOWN_PLACEHOLDER = "VENTURE_UNKNOWN"
+
+
+def _has_substantiating_round_data(funding: dict[str, Any]) -> bool:
+    total = funding.get("fundingTotal")
+    rounds = funding.get("numFundingRounds")
+    return (isinstance(total, (int, float)) and total > 0) or (isinstance(rounds, (int, float)) and rounds > 0)
+
+
+def _funding_stage(funding: dict[str, Any]) -> Optional[str]:
+    stage = funding.get("fundingStage")
+    if stage == _FUNDING_STAGE_UNKNOWN_PLACEHOLDER and not _has_substantiating_round_data(funding):
+        return None
+    return stage
+
+
 # Bound the passthrough so the group property can't grow unboundedly for a heavily-funded company.
 MAX_INVESTORS = 25
 
@@ -87,21 +107,30 @@ def transform_harmonic_company(company: Optional[dict[str, Any]]) -> Optional[En
     if headcount is None and isinstance(company.get("headcount"), (int, float)):
         headcount = int(company["headcount"])
 
+    tags = _safe_list(company.get("tags"))
     tags_v2 = _safe_list(company.get("tagsV2"))
 
     return EnrichmentFields(
         company_type=company.get("companyType"),
         headcount=headcount,
         headcount_engineering=_latest_metric(traction, "headcountEngineering"),
-        industry=_extract_primary_tag(_safe_list(company.get("tags")), tags_v2),
+        web_traffic=_latest_metric(traction, "webTraffic"),
+        industry=_extract_primary_tag(tags, tags_v2),
         # ISO alpha-2 to match the format the icp_country group property already holds.
         country=country_name_to_iso_code(location.get("country")),
         founded_year=_founded_year(founding),
-        funding_stage=funding.get("fundingStage"),
+        funding_stage=_funding_stage(funding),
         total_raised=_funding_amount(funding.get("fundingTotal")),
         last_round_size=_funding_amount(funding.get("lastFundingTotal")),
         last_round_date=_funding_date(funding.get("lastFundingAt")),
         investors=_investor_names(funding.get("investors")),
         is_yc_company=_is_yc_funded(funding.get("investors")),
         is_ai_native=_is_ai_native(tags_v2),
+        ownership_status=company.get("ownershipStatus"),
+        customer_type=company.get("customerType"),
+        # Harmonic's own known-none-vs-unknown vocabulary for the funding data itself, passed
+        # through verbatim rather than re-derived, since fundingAttributeNullStatus already
+        # distinguishes what funding_stage's VENTURE_UNKNOWN placeholder conflates. Lives at the
+        # top level of Company in the GraphQL schema, not inside funding (API-verified).
+        funding_status=company.get("fundingAttributeNullStatus"),
     )

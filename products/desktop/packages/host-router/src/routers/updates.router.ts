@@ -54,6 +54,14 @@ export const updatesRouter = router({
         .setAutoDownloadEnabled(input.enabled);
     }),
 
+  setStagedUpdates: publicProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(({ ctx, input }) => {
+      ctx.container
+        .get<UpdatesService>(UPDATES_SERVICE)
+        .setStagedUpdatesEnabled(input.enabled);
+    }),
+
   onReady: subscribe(UpdatesEvent.Ready),
   onStatus: subscribe(UpdatesEvent.Status),
   onCheckFromMenu: subscribe(UpdatesEvent.CheckFromMenu),

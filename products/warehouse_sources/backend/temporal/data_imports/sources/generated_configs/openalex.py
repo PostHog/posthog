@@ -6,4 +6,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class OpenalexSourceConfig(config.Config):
-    pass
+    api_key: str
+    works_filter: str | None = None
+    authors_filter: str | None = None
+    awards_filter: str | None = None

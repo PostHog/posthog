@@ -246,6 +246,7 @@ import { ElectronDialog } from "../platform-adapters/electron-dialog";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
+import { MissionControlService } from "../platform-adapters/electron-mission-control";
 import { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
 import { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
@@ -307,6 +308,7 @@ import {
   LLM_GATEWAY_SERVICE as MAIN_LLM_GATEWAY_SERVICE,
   LOOP_LINK_SERVICE as MAIN_LOOP_LINK_SERVICE,
   MCP_APPS_SERVICE as MAIN_MCP_APPS_SERVICE,
+  MISSION_CONTROL_SERVICE as MAIN_MISSION_CONTROL_SERVICE,
   NEW_TASK_LINK_SERVICE as MAIN_NEW_TASK_LINK_SERVICE,
   OPEN_TARGET_LINK_SERVICE as MAIN_OPEN_TARGET_LINK_SERVICE,
   POSTHOG_PLUGIN_SERVICE as MAIN_POSTHOG_PLUGIN_SERVICE,
@@ -808,6 +810,7 @@ container.bind(LOGS_SERVICE).toDynamicValue((ctx) => {
 });
 container.bind(MAIN_ENCRYPTION_SERVICE).to(EncryptionService);
 container.bind(MAIN_DISCORD_PRESENCE_SERVICE).to(DiscordPresenceService);
+container.bind(MAIN_MISSION_CONTROL_SERVICE).to(MissionControlService);
 
 // Canvas / dashboards (project-bluebird). The host-agnostic dashboard services
 // live in @posthog/core (bound via canvasCoreModule) and resolve through

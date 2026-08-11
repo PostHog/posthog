@@ -184,6 +184,22 @@ describe('ApiClient', () => {
         vi.unstubAllGlobals()
     })
 
+    it('forwards the current task id to the PostHog API', async () => {
+        const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
+        vi.stubGlobal('fetch', mockFetch)
+        const client = new ApiClient({
+            apiToken: 'test-token-123',
+            baseUrl: 'https://example.com',
+            taskId: '019fcdb5-2e5b-7ab1-bdab-b77fafd3c96f',
+        })
+
+        await client.request({ method: 'GET', path: '/api/projects/1/tasks/task-1/comments/' })
+
+        const [, options] = mockFetch.mock.calls[0]!
+        expect(options.headers['X-PostHog-Task-Id']).toBe('019fcdb5-2e5b-7ab1-bdab-b77fafd3c96f')
+        vi.unstubAllGlobals()
+    })
+
     it.each([
         [
             'both ids set',

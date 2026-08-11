@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use axum::{extract::DefaultBodyLimit, http::Method, routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
+use capture_logs::authorizer::Authorizer;
 use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
@@ -117,20 +118,15 @@ async fn main() {
         .expect("could not bind management port");
 
     let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
-    let token_dropper_arc = Arc::new(token_dropper);
-    let logs_service = match Service::new(
-        kafka_sink,
-        token_dropper_arc,
-        config.max_request_body_size_bytes,
-    )
-    .await
-    {
-        Ok(service) => service,
-        Err(e) => {
-            error!("Failed to initialize log service: {}", e);
-            panic!("Could not start log capture service: {e}");
-        }
-    };
+    let authorizer = Authorizer::new(Arc::new(token_dropper));
+    let logs_service =
+        match Service::new(kafka_sink, authorizer, config.max_request_body_size_bytes).await {
+            Ok(service) => service,
+            Err(e) => {
+                error!("Failed to initialize log service: {}", e);
+                panic!("Could not start log capture service: {e}");
+            }
+        };
     let http_bind = format!("{}:{}", config.host, config.port);
     info!("Listening on {}", http_bind);
     let http_listener = tokio::net::TcpListener::bind(http_bind)

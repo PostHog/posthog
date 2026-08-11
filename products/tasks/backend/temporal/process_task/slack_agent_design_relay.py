@@ -52,6 +52,9 @@ class PendingStep:
 @dataclass
 class SlackAgentDesignRelayInput:
     slack_thread_context: dict[str, Any]
+    # Trailing and defaulted so a relay already in flight decodes it as absent and
+    # simply closes without a footer, rather than failing replay.
+    run_id: Optional[str] = None
 
 
 @workflow.defn(name="slack-agent-design-relay")
@@ -288,6 +291,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                         complete_task_title=self._current_task_title,
                         complete_task_details=self._current_task_details,
                         final_markdown=final_for_stop,
+                        run_id=input.run_id,
                     ),
                     start_to_close_timeout=timedelta(seconds=10),
                     retry_policy=RetryPolicy(maximum_attempts=3),

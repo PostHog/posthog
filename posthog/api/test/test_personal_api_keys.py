@@ -4,6 +4,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.conf import settings
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -13,11 +15,12 @@ from posthog.schema import EventsQuery
 
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.constants import AvailableFeature
+from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
+from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value, mask_key_value
 
 from products.product_analytics.backend.models.insight import Insight
 
@@ -57,6 +60,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_teams": [],
             "value": data["value"],
             "mask_value": data["mask_value"],
+            "local_dev_value": None,
         }
         assert data["value"].startswith("phx_")  # Personal API key prefix
 
@@ -239,6 +243,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "scoped_teams": None,
             "value": None,
             "mask_value": my_key.mask_value,
+            "local_dev_value": None,
         }
 
     def test_get_own_personal_api_key(self):
@@ -1169,3 +1174,82 @@ class TestPersonalAPIKeyLLMGatewayFeatureFlag(APIBaseTest):
         assert response.status_code == 201
         assert response.json()["scopes"] == ["insight:read"]
         mock_feature_enabled.assert_not_called()
+
+
+DEV_KEY_UNDER_TEST = "phx_dev_local_key_for_reveal_tests_1234"
+REVEAL_GATES_OPEN = {
+    "DEBUG": True,
+    "ALLOW_DEV_API_KEY_REVEAL": True,
+    "CLOUD_DEPLOYMENT": None,
+    "DEV_API_KEY": DEV_KEY_UNDER_TEST,
+}
+
+
+class TestLocalDevAPIKeyReveal(APIBaseTest):
+    def _dev_key(self) -> PersonalAPIKey:
+        # Unsaved instance: the reveal check only reads secure_value, so no DB round trip is needed.
+        return PersonalAPIKey(secure_value=hash_key_value(DEV_KEY_UNDER_TEST))
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_reveals_the_seeded_dev_key(self):
+        assert get_local_dev_api_key_value(self._dev_key()) == DEV_KEY_UNDER_TEST
+
+    @parameterized.expand(
+        [
+            ("flag_off", {"ALLOW_DEV_API_KEY_REVEAL": False}),
+            ("not_debug", {"DEBUG": False}),
+            ("cloud_deployment", {"CLOUD_DEPLOYMENT": "E2E"}),
+        ]
+    )
+    def test_does_not_reveal_when_a_gate_is_closed(self, _, closed_gate):
+        with override_settings(**{**REVEAL_GATES_OPEN, **closed_gate}):
+            assert get_local_dev_api_key_value(self._dev_key()) is None
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_does_not_reveal_a_key_other_than_the_dev_key(self):
+        other_key = PersonalAPIKey(secure_value=hash_key_value(generate_random_token_personal()))
+        assert get_local_dev_api_key_value(other_key) is None
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_tolerates_dev_api_key_being_undefined(self):
+        # DEV_API_KEY ships with the EE settings, so it is absent entirely in OSS builds.
+        del settings.DEV_API_KEY
+        assert get_local_dev_api_key_value(self._dev_key()) is None
+
+    def test_resolves_the_dev_key_per_call_rather_than_once_at_import(self):
+        rotated_key = "phx_dev_local_rotated_key_for_reveal_5678"
+        with override_settings(**REVEAL_GATES_OPEN):
+            assert get_local_dev_api_key_value(self._dev_key()) == DEV_KEY_UNDER_TEST
+        with override_settings(**{**REVEAL_GATES_OPEN, "DEV_API_KEY": rotated_key}):
+            assert get_local_dev_api_key_value(self._dev_key()) is None
+            rotated = PersonalAPIKey(secure_value=hash_key_value(rotated_key))
+            assert get_local_dev_api_key_value(rotated) == rotated_key
+
+    @override_settings(**REVEAL_GATES_OPEN)
+    def test_api_returns_the_revealed_value_while_leaving_value_unset(self):
+        key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Local Development Key",
+            secure_value=hash_key_value(DEV_KEY_UNDER_TEST),
+            mask_value=mask_key_value(DEV_KEY_UNDER_TEST),
+            scopes=["*"],
+        )
+
+        other_key = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Some other key",
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
+        )
+
+        response = self.client.get("/api/personal_api_keys")
+
+        assert response.status_code == 200
+        by_id = {k["id"]: k for k in response.json()}
+        assert by_id[key.id]["local_dev_value"] == DEV_KEY_UNDER_TEST
+        # Resolving the value once per serializer rather than per instance would hand the dev
+        # plaintext to every key in the list.
+        assert by_id[other_key.id]["local_dev_value"] is None
+        # `value` stays the create/roll-only channel that pops the one-time dialog in the UI.
+        assert by_id[key.id]["value"] is None
+        assert by_id[key.id]["mask_value"] == mask_key_value(DEV_KEY_UNDER_TEST)

@@ -31,13 +31,11 @@ from products.web_analytics.backend.hogql_queries.test.first_pageview_attributio
 class TestFirstPageviewAttributionTrends(FirstPageviewAttributionTestMixin, ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2024-07-30"
 
-    def _paid_search_visitors(self, flag_on, tagged):
+    def _paid_search_visitors(self, flag_on, tagged, value="Paid Search"):
         query = TrendsQuery(
             dateRange=DateRange(date_from="2024-06-01", date_to="2024-06-30"),
             series=[EventsNode(event="$pageview", math=BaseMathType.DAU)],
-            properties=[
-                SessionPropertyFilter(key="$channel_type", value="Paid Search", operator=PropertyOperator.EXACT)
-            ],
+            properties=[SessionPropertyFilter(key="$channel_type", value=value, operator=PropertyOperator.EXACT)],
             tags=QueryLogTags(productKey="web_analytics") if tagged else None,
             modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2),
         )
@@ -50,15 +48,16 @@ class TestFirstPageviewAttributionTrends(FirstPageviewAttributionTestMixin, Clic
             ("web_analytics_flag_on", True, True, 1),
             ("web_analytics_flag_off", False, True, 0),
             ("other_product_flag_on", True, False, 0),
+            ("web_analytics_flag_on_list_value", True, True, 1, ["Paid Search", "Email"]),
         ]
     )
-    def test_trends_session_filter_rewrite(self, _name, flag_on, tagged, expected):
+    def test_trends_session_filter_rewrite(self, _name, flag_on, tagged, expected, value="Paid Search"):
         # A query from any other product must keep entry attribution: `tags` are
         # stripped from the cache key, so a leak here would also let the two
         # share a cache entry.
         self._seed_ssr_poisoned_session()
 
-        assert self._paid_search_visitors(flag_on=flag_on, tagged=tagged) == expected
+        assert self._paid_search_visitors(flag_on=flag_on, tagged=tagged, value=value) == expected
 
     @parameterized.expand(
         [

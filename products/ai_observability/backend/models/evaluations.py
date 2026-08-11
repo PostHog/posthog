@@ -50,6 +50,7 @@ class EvaluationQuerySet(models.QuerySet):
 class EvaluationTarget(models.TextChoices):
     GENERATION = "generation", "Generation"
     TRACE = "trace", "Trace"
+    SESSION = "session", "Session"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
@@ -60,6 +61,10 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             models.Index(fields=["team", "-created_at", "id"]),
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["model_configuration"], name="llm_analyti_model_c_idx"),
+            models.Index(
+                fields=["team", "directory", "-created_at", "id"],
+                name="llma_eval_team_dir_created_idx",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
@@ -75,6 +80,15 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
+    directory = models.ForeignKey(
+        "ai_observability.EvaluationDirectory",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="evaluations",
+        db_index=False,
+        db_constraint=False,
+    )
 
     # Lifecycle state. `status` is authoritative; `enabled` is a boolean projection kept in sync by save() for
     # backwards compatibility with existing API / DB callers. When status is ERROR, status_reason must be set.

@@ -59,10 +59,6 @@ impl Cache {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.eventdefs.len() + self.eventprops.len() + self.propdefs.len()
-    }
-
     pub fn eventdefs_len(&self) -> usize {
         self.eventdefs.len()
     }
@@ -73,10 +69,6 @@ impl Cache {
 
     pub fn propdefs_len(&self) -> usize {
         self.propdefs.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.propdefs.is_empty() && self.eventdefs.is_empty() && self.eventprops.is_empty()
     }
 
     pub fn contains_key(&self, key: &Update) -> bool {

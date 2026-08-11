@@ -1607,7 +1607,15 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.sync_type_config.get("primary_key_columns") == ["_id", "source_id"]
         assert schema.primary_key_columns == ["_id", "source_id"]
 
-    def test_update_schema_rejects_primary_key_change_with_existing_data(self):
+    @parameterized.expand(
+        [
+            ("swapping_an_established_key_is_rejected", ["id"], 400, ["id"]),
+            ("setting_the_first_key_is_allowed", None, 200, ["_id"]),
+        ]
+    )
+    def test_update_schema_primary_key_change_with_existing_data(
+        self, _name: str, stored_pk: list[str] | None, expected_status: int, expected_pk: list[str]
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
@@ -1622,7 +1630,8 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type_config={
                 "incremental_field": "created",
                 "incremental_field_type": "integer",
-                "primary_key_columns": ["id"],
+                "incremental_field_last_value": 1,
+                **({"primary_key_columns": stored_pk} if stored_pk else {}),
             },
             table=table,
         )
@@ -1637,7 +1646,10 @@ class TestExternalDataSchema(APIBaseTest):
             },
         )
 
-        assert response.status_code == 400
+        assert response.status_code == expected_status
+
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == expected_pk
 
     def test_update_schema_primary_key_columns_not_reset_on_full_refresh(self):
         source = ExternalDataSource.objects.create(

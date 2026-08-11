@@ -34,14 +34,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
         groupTypeIndex,
         tabId,
     })
-    const {
-        groupData,
-        groupDataLoading,
-        groupTypeName,
-        groupRevenueAnalyticsDataLoading,
-        effectiveMRR,
-        effectiveLifetimeValue,
-    } = useValues(mountedGroupLogic)
+    const { groupData, groupDataLoading, groupRevenueAnalyticsDataLoading, effectiveMRR, effectiveLifetimeValue } =
+        useValues(mountedGroupLogic)
     const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
     const { notebookLogic } = useValues(notebookNodeLogic)
     useAttachedLogic(mountedGroupLogic, notebookLogic)
@@ -50,7 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
     const inGroupFeed = title === 'Info'
 
     useEffect(() => {
-        const title = groupData ? `${groupTypeName}: ${groupDisplay}` : 'Group'
+        const title = groupData ? groupDisplay : 'Group'
         setTitlePlaceholder(title)
         setActions([
             {
@@ -279,6 +273,7 @@ type NotebookNodeGroupAttributes = {
 export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttributes>({
     nodeType: NotebookNodeType.Group,
     titlePlaceholder: 'Group',
+    editableTitle: false,
     Component,
     heightEstimate: 300,
     minHeight: 100,

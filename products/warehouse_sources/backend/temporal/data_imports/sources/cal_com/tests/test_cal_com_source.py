@@ -3,7 +3,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import CalComResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import ENDPOINTS
@@ -17,7 +17,7 @@ class TestCalComSource:
     def setup_method(self) -> None:
         self.source = CalComSource()
         self.team_id = 123
-        self.config = CalComSourceConfig(api_key="cal_live_key")
+        self.config = CalComSourceConfig(api_key="cal_live_key", region="us")
 
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.CALCOM
@@ -32,6 +32,14 @@ class TestCalComSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key"]
 
+    def test_region_field_defaults_to_us(self) -> None:
+        # Every connection made before this field existed talks to the US host, so the default must
+        # stay "us" or those syncs start pointing at the EU host.
+        config = self.source.get_source_config
+        field = next(f for f in config.fields if isinstance(f, SourceFieldSelectConfig) and f.name == "region")
+        assert field.defaultValue == "us"
+        assert {option.value for option in field.options} == {"us", "eu"}
+
     def test_api_key_field_is_secret_password(self) -> None:
         config = self.source.get_source_config
         field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
@@ -40,8 +48,8 @@ class TestCalComSource:
         assert field.required is True
 
     def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API key; the base URL is hardcoded, so there is no non-secret
-        # field an editor could retarget to reuse a preserved key against another host.
+        # `region` only picks between two fixed Cal.com hosts, so it can't be used to retarget a
+        # preserved key at a server the editor controls.
         assert self.source.connection_host_fields == []
 
     def test_lists_tables_without_credentials(self) -> None:
@@ -77,6 +85,8 @@ class TestCalComSource:
         [
             ("401 Client Error: Unauthorized for url: https://api.cal.com/v2/bookings?limit=250",),
             ("403 Client Error: Forbidden for url: https://api.cal.com/v2/me",),
+            ("401 Client Error: Unauthorized for url: https://api.cal.eu/v2/bookings?limit=250",),
+            ("403 Client Error: Forbidden for url: https://api.cal.eu/v2/me",),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
@@ -98,7 +108,7 @@ class TestCalComSource:
         mock_validate.return_value = (False, "Invalid Cal.com API key")
         result = self.source.validate_credentials(self.config, self.team_id)
         assert result == (False, "Invalid Cal.com API key")
-        mock_validate.assert_called_once_with("cal_live_key")
+        mock_validate.assert_called_once_with("cal_live_key", "us")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
@@ -121,6 +131,7 @@ class TestCalComSource:
         assert kwargs["api_key"] == "cal_live_key"
         assert kwargs["endpoint"] == "bookings"
         assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["region"] == "us"
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
         assert kwargs["incremental_field"] == "updatedAt"

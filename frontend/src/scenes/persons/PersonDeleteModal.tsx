@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 import { PersonType } from '~/types'
@@ -68,7 +69,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                         autoFocus
                     />
                 </div>
-                {deleteConfirmationText == DELETE_CONFIRMATION_TEXT && (
+                {matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT) && (
                     <LemonBanner type="warning">
                         Do NOT delete this person if you want to re-use the distinct IDs. Instead use split ID. Re-using
                         the distinct ID of a deleted person is not supported and will result in a bad application state.
@@ -83,7 +84,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                     type="primary"
                     status="danger"
                     disabledReason={
-                        deleteConfirmationText !== DELETE_CONFIRMATION_TEXT
+                        !matchesConfirmationText(deleteConfirmationText, DELETE_CONFIRMATION_TEXT)
                             ? 'Please type the correct confirmation text'
                             : undefined
                     }

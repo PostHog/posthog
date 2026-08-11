@@ -524,7 +524,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
-            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
         ):
             resp = self.client.post(self._url(suggestion.id))
 
@@ -549,7 +549,7 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         connect_patch, client = self._mock_temporal()
         with (
             connect_patch,
-            patch("products.replay_vision.backend.api.prompt_suggestions.compute_quota_snapshot", return_value=quota),
+            patch("products.replay_vision.backend.api.prompt_suggestions.quota_state", return_value=quota),
         ):
             # The default limit plans 3 re-runs but only 2 observations remain this month.
             resp = self.client.post(self._url(suggestion.id))

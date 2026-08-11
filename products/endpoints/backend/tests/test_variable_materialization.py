@@ -209,6 +209,26 @@ class TestVariableAnalysis(APIBaseTest):
         assert can_materialize is True
         assert len(var_infos) == 1, f"Expected 1 variable, got {len(var_infos)} (duplicates not deduplicated)"
 
+    def test_variable_compared_against_expression_holding_another_variable(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT count() FROM events "
+                "WHERE toDate(toTimeZone(timestamp, {variables.timezone})) >= toDate({variables.date_from})"
+            ),
+            "variables": {
+                "var-1": {"code_name": "timezone", "value": "America/New_York"},
+                "var-2": {"code_name": "date_from", "value": "2026-01-01"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert reason == (
+            "Variable compared against an expression containing another variable is not supported for materialization"
+        )
+
     def test_multiple_variables_rejects_unsupported_operator(self):
         query = {
             "kind": "HogQLQuery",

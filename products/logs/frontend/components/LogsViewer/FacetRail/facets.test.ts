@@ -2,11 +2,13 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalF
 
 import { FacetOption } from './Facet'
 import {
+    FACETS as CONFIGURED_FACETS,
     FacetConfig,
     cycleResourceAttributeFilter,
     filterFacetsByName,
     logFilterExclusions,
     mergeSelectedIntoOptions,
+    resolveFacets,
     resourceAttributeSelection,
     setLogFilterExclusions,
 } from './facets'
@@ -237,6 +239,33 @@ describe('facets', () => {
                     logFilter(PropertyOperator.IsNot, ['info']),
                 ])
             })
+        })
+    })
+
+    describe('resolveFacets', () => {
+        const environmentKey = (presentResourceKeys: string[]): string | undefined => {
+            const facet = resolveFacets(CONFIGURED_FACETS, presentResourceKeys).find((f) => f.key === 'environment')
+            return facet?.source.type === 'resourceAttribute' ? facet.source.key : undefined
+        }
+
+        // The rail queries and filters on whichever key resolution picks, so picking the wrong one (or
+        // none) silently hides a facet the tenant's data can populate.
+        it.each<[string, string[], string | undefined]>([
+            ['the current key is used as-is', ['deployment.environment.name'], 'deployment.environment.name'],
+            ['the superseded key still resolves', ['deployment.environment'], 'deployment.environment'],
+            ['a datadog env tag still resolves', ['env'], 'env'],
+            [
+                'the current key wins over its aliases',
+                ['env', 'deployment.environment', 'deployment.environment.name'],
+                'deployment.environment.name',
+            ],
+            ['no spelling emitted drops the facet', ['k8s.pod.name'], undefined],
+        ])('%s', (_, presentResourceKeys, expected) => {
+            expect(environmentKey(presentResourceKeys)).toEqual(expected)
+        })
+
+        it('keeps column facets whatever the tenant emits', () => {
+            expect(resolveFacets(CONFIGURED_FACETS, []).map((f) => f.key)).toEqual(['level', 'service'])
         })
     })
 })

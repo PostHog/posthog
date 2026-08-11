@@ -62,6 +62,35 @@ export function getLeafPanel(
   return panel?.type === "leaf" ? panel : null;
 }
 
+/**
+ * The artifact the user is looking at, if any: the focused panel's active tab
+ * when that is an artifact, else any other panel's. Lets a pane elsewhere (the
+ * task's comment list) narrow itself to whatever is on screen.
+ */
+export function activeArtifactId(layout: TaskLayout): string | null {
+  const activeArtifact = (node: PanelNode): string | null => {
+    if (node.type !== "leaf") {
+      for (const child of node.children) {
+        const found = activeArtifact(child);
+        if (found) return found;
+      }
+      return null;
+    }
+    const active = node.content.tabs.find(
+      (tab) => tab.id === node.content.activeTabId,
+    );
+    return active?.data.type === "artifact" ? active.data.artifactId : null;
+  };
+
+  const focused = layout.focusedPanelId
+    ? getLeafPanel(layout.panelTree, layout.focusedPanelId)
+    : null;
+  return (
+    (focused ? activeArtifact(focused) : null) ??
+    activeArtifact(layout.panelTree)
+  );
+}
+
 export function getGroupPanel(
   tree: PanelNode,
   panelId: string,

@@ -95,8 +95,12 @@ class MessageSuppressionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
 
     scope_object = "hog_flow"
-    # Custom actions must declare their write status so TeamAndOrgViewSetMixin's AccessControlPermission
-    # checks hog_flow:write on the mutating endpoints; the default 'suppressions' list stays a read.
+    # Every custom @action must be listed here or in scope_object_read_actions — APIScopePermission
+    # maps the action name to a required scope, and an unlisted action resolves to no scope at all,
+    # which rejects every personal API key and OAuth token with "does not support personal API key
+    # access". Declaring either attribute replaces the permission class default rather than
+    # extending it, so 'list'/'retrieve' are repeated below.
+    scope_object_read_actions = ["list", "retrieve", "suppressions"]
     scope_object_write_actions = ["add_suppression", "remove_suppression"]
     serializer_class = _FallbackSerializer
 

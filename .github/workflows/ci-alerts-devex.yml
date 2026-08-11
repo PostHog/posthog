@@ -36,7 +36,8 @@ env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
     WORKFLOW_FAILURE_STREAK_THRESHOLD: '5'
     # Wall-clock arm: a workflow red at least this long blocks even before a full failure
-    # streak. ci-backend runs ~28m, so 60m ≈ one red result that stayed red — not a transient flake.
+    # streak. Sized past a full run of the slowest workflow (ci-backend), so it means a
+    # result that stayed red rather than a transient flake.
     WORKFLOW_FAILURE_MINUTES_THRESHOLD: '60'
     # The wall-clock arm only opens an incident if master saw a push within this window, so a
     # quiet weekend doesn't page. Keep it well above the typical gap between master pushes.
@@ -65,7 +66,7 @@ jobs:
                       .github/scripts/ci-alerts-devex.js
                   sparse-checkout-cone-mode: false
 
-            # Ticks list runs for every gating workflow (a dozen calls, ~166 worst case)
+            # Ticks list runs for every gating workflow (dozens of calls at worst)
             # exactly when master push volume peaks, so read through the posthog-tests App
             # bucket (it has actions:read; ci-backend-update-test-timing lists runs with
             # it) instead of the shared per-repo GITHUB_TOKEN. A failed mint falls back

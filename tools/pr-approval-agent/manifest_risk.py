@@ -21,6 +21,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import NamedTuple
 
+import yaml
+
 # Any change at all to these is execution-bearing — setup.py and Gemfile are
 # code, and setup.cfg's declarative surface (entry_points, cmdclass) doesn't
 # justify a parser for how rarely it changes.
@@ -46,6 +48,16 @@ def _json_object(text: str, label: str) -> dict[str, object]:
 def _package_json_risky_subtree(text: str) -> object:
     data = _json_object(text, "package.json")
     return {key: data.get(key) for key in ("scripts", "husky", "pnpm")}
+
+
+_PNPM_WORKSPACE_INERT_KEYS = frozenset({"packages", "catalog", "catalogs"})
+
+
+def _pnpm_workspace_risky_subtree(text: str) -> object:
+    data = yaml.safe_load(text) if text.strip() else {}
+    if not isinstance(data, dict):
+        raise ValueError("pnpm-workspace.yaml root is not a mapping")
+    return {key: value for key, value in data.items() if key not in _PNPM_WORKSPACE_INERT_KEYS}
 
 
 def _composer_json_risky_subtree(text: str) -> object:
@@ -102,6 +114,7 @@ class StructuralCheck(NamedTuple):
 
 _STRUCTURAL_RISK_CHECKS: dict[str, StructuralCheck] = {
     "package.json": StructuralCheck(_package_json_risky_subtree, (ValueError,)),
+    "pnpm-workspace.yaml": StructuralCheck(_pnpm_workspace_risky_subtree, (yaml.YAMLError, ValueError)),
     "pyproject.toml": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
     "pipfile": StructuralCheck(_toml_risky_subtree, (tomllib.TOMLDecodeError, ValueError)),
     "cargo.toml": StructuralCheck(_cargo_risky_subtree, (tomllib.TOMLDecodeError,)),

@@ -1,0 +1,21 @@
+version: 2
+
+# Raw Stripe tables as they land in YOUR warehouse (e.g. via Fivetran, Airbyte, or a custom sync).
+# Adjust database/schema to match. If you use custom revenue events instead of Stripe, declare the
+# PostHog events export here instead and stage the revenue property out of it.
+sources:
+    - name: stripe
+      database: analytics
+      schema: stripe_raw
+      tables:
+          - name: invoice_line_items
+            description: Line items — the grain for revenue recognition.
+          - name: invoices
+          - name: subscriptions
+          - name: customers
+
+seeds:
+    # Static currency rate table for dbt (PostHog's convertCurrency has no dbt equivalent).
+    # Provide seeds/currency_rates.csv with columns: currency, rate_date, rate_to_base.
+    - name: currency_rates
+      description: Daily FX rates to the reporting base currency.

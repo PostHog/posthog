@@ -110,7 +110,7 @@ export function Billing(): JSX.Element {
                         'There was an issue retrieving your current billing information. If this message persists, please '
                     }
                     {preflight?.cloud ? (
-                        <Link onClick={() => openSupportForm({ kind: 'bug', target_area: 'billing' })}>
+                        <Link onClick={() => openSupportForm({ kind: 'bug', billing_issue: true })}>
                             submit a bug report
                         </Link>
                     ) : (
@@ -273,7 +273,7 @@ export function Billing(): JSX.Element {
                                 <LemonButton
                                     icon={<IconDocument />}
                                     size="small"
-                                    to="https://posthog.com/docs/posthog-code"
+                                    to="https://posthog.com/docs/posthog-desktop"
                                     tooltip="Read the docs"
                                 />
                             </div>

@@ -21,6 +21,7 @@ import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/type
 
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'
 import { SdkVersionWarnings } from '../components/SdkVersionWarnings'
+import { SurveyPublicContentNotice } from '../components/SurveyPublicContentNotice'
 import { NewSurvey } from '../constants'
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { getEventPropertyFilterCount } from '../SurveyEventTrigger'
@@ -386,6 +387,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
                     />
                 </div>
             </div>
+            <SurveyPublicContentNotice />
             <div className="flex justify-center">
                 <WizardStepper currentStep={currentStep} onStepClick={setStep} stepErrors={stepValidationErrors} />
             </div>

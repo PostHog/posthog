@@ -2,7 +2,7 @@
 
 When the ``data-warehouse-deltalite-write`` flag matches a schema, deltalite performs the incremental
 merge (``DeltaLiteTable.upsert``) instead of the delta-rs ``MERGE`` — see
-``DeltaTableHelper._write_via_deltalite``. A deltalite failure falls back to the MERGE, so the flag
+``DeltaWriter._write_via_deltalite``. A deltalite failure falls back to the MERGE, so the flag
 only ever changes *which engine* writes, never whether the sync succeeds.
 """
 

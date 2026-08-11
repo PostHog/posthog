@@ -168,6 +168,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 {isAuthenticatedTeam(currentTeam) && (
                                     <Menu.SubmenuRoot>
                                         <Menu.SubmenuTrigger
+                                            openOnHover={false}
                                             render={
                                                 <ButtonPrimitive
                                                     menuItem
@@ -266,6 +267,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 <DropdownMenuSeparator />
                                 <Menu.SubmenuRoot>
                                     <Menu.SubmenuTrigger
+                                        openOnHover={false}
                                         render={
                                             <ButtonPrimitive
                                                 menuItem

@@ -8,6 +8,7 @@ import {
   useArchiveTask,
 } from "@posthog/ui/features/archive/useArchiveTask";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
+import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
@@ -23,10 +24,7 @@ import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { DotsCircleSpinner } from "@posthog/ui/primitives/DotsCircleSpinner";
 import { toast } from "@posthog/ui/primitives/toast";
-import {
-  navigateToCommandCenter,
-  navigateToTaskDetail,
-} from "@posthog/ui/router/navigationBridge";
+import { navigateToTaskDetail } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { logger } from "@posthog/ui/shell/logger";
@@ -80,7 +78,6 @@ function SidebarMenuComponent() {
   );
 
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
-  const assignTaskToCommandCenter = useCommandCenterStore((s) => s.assignTask);
 
   const previousTaskIdRef = useRef<string | null>(null);
 
@@ -308,9 +305,6 @@ function SidebarMenuComponent() {
       const isInCommandCenter = commandCenterCells.some(
         (id) => id === taskId && taskMap.has(id),
       );
-      const hasEmptyCommandCenterCell = commandCenterCells.some(
-        (id) => id == null || !taskMap.has(id),
-      );
 
       showContextMenu(task, e, {
         worktreePath: workspace?.worktreePath ?? undefined,
@@ -322,7 +316,7 @@ function SidebarMenuComponent() {
           isTaskActivelyRunning(taskData),
         runId,
         isInCommandCenter,
-        hasEmptyCommandCenterCell,
+        hasEmptyCommandCenterCell: true,
         onTogglePin: () => handleTaskTogglePin(taskId),
         onStop: (stopTaskId, taskTitle, stopRunId) =>
           setStopConfirm({
@@ -333,14 +327,7 @@ function SidebarMenuComponent() {
         onArchive: handleTaskArchive,
         onArchivePrior: handleArchivePrior,
         onAddToCommandCenter: () => {
-          const cells = useCommandCenterStore.getState().cells;
-          const idx = cells.findIndex((id) => id == null || !taskMap.has(id));
-          if (idx !== -1) {
-            assignTaskToCommandCenter(idx, taskId);
-            navigateToCommandCenter();
-          } else {
-            toast.info("Command center is full");
-          }
+          placeTaskInCommandCenter(taskId, task.title);
         },
       });
     }

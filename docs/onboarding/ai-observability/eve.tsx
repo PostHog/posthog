@@ -3,7 +3,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { Blockquote, CalloutBox, CodeBlock, Markdown, dedent, snippets } = ctx
+    const { Blockquote, CodeBlock, Markdown, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
@@ -103,29 +103,11 @@ export const getEveSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         `}
                     />
 
-                    <CalloutBox type="fyi" icon="IconInfo" title="How this works">
-                        <Markdown>
-                            Eve emits Vercel AI SDK OpenTelemetry spans. `PostHogTraceExporter` sends the AI spans to
-                            PostHog's OTLP ingestion endpoint. `SimpleSpanProcessor` starts exporting each span when it
-                            ends instead of waiting for a background batch, so export does not depend on a background
-                            timer in Vercel Workflow. PostHog keeps the trace hierarchy, identifies the framework as
-                            Eve, and groups turns using `eve.session.id`.
-                        </Markdown>
-                    </CalloutBox>
-
                     <Blockquote>
                         <Markdown>
                             **Note:** To capture LLM events anonymously, omit the `events` handler. See our docs on
                             [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
-                        </Markdown>
-                    </Blockquote>
-
-                    <Blockquote>
-                        <Markdown>
-                            **Data capture:** Eve records full message history and model outputs by default. Set
-                            `recordInputs: false` or `recordOutputs: false` in `defineInstrumentation` if you do not
-                            want that data included in exported spans.
                         </Markdown>
                     </Blockquote>
 

@@ -5,6 +5,7 @@ import uuid
 import asyncio
 import logging
 from collections.abc import Sequence
+from dataclasses import replace
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -366,6 +367,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 # guard rejects sync ORM calls from async contexts, so run it
                 # in a worker thread.
                 sandbox_context = await asyncio.to_thread(self._demo_data.make_context, eval_case.name)
+                if original_case is not None and original_case.interaction_origin:
+                    sandbox_context = replace(sandbox_context, interaction_origin=original_case.interaction_origin)
                 if original_case is not None and original_case.setup is not None:
                     try:
                         seed_result = await asyncio.to_thread(original_case.setup, sandbox_context)

@@ -28,11 +28,12 @@ import type {
 import type { McpAuthStorage, StoredClientInfo } from "./auth-storage";
 import type { McpAuthConfig } from "./config";
 
-// Not "PostHog Code": PostHog's own OAuth server rejects dynamic client
-// registrations whose name starts with "posthog" (anti-impersonation), and
+// Not "PostHog Desktop": PostHog's own OAuth server rejects dynamic client
+// registrations whose name starts with "posthog" (anti-impersonation; see
+// BLOCKED_CLIENT_NAME_PREFIXES in posthog/api/oauth/client_name.py), and
 // other servers may have similar rules. Overridable per server via
 // `auth.clientName`.
-const DEFAULT_CLIENT_NAME = "Code by PostHog";
+const DEFAULT_CLIENT_NAME = "Desktop by PostHog";
 const DEFAULT_CLIENT_URI = "https://posthog.com";
 
 /**

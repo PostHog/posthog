@@ -35,6 +35,8 @@ export function useTaskPrStatus(task: {
     ),
   );
 
-  if (!data || (!data.prState && !data.hasDiff)) return EMPTY;
+  // A disabled query can retain placeholder data from the previously selected
+  // task. Ignore it so a cloud task without a PR never shows stale PR status.
+  if (skipQuery || !data || (!data.prState && !data.hasDiff)) return EMPTY;
   return data;
 }

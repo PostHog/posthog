@@ -44,12 +44,20 @@ def validate_sources_map(sources_map: dict) -> None:
                 )
 
 
+# Bounds on how far back attribution may look. Named so query runners taking a per-request window
+# override can enforce the same ceiling as this setting instead of restating the numbers.
+MIN_ATTRIBUTION_WINDOW_DAYS = 1
+MAX_ATTRIBUTION_WINDOW_DAYS = 90
+
+
 def validate_attribution_window_days(days: int) -> None:
     """Validate attribution window days is between 1 and 90."""
     if not isinstance(days, int):
         raise ValidationError("attribution_window_days must be an integer")
-    if days < 1 or days > 90:
-        raise ValidationError("attribution_window_days must be between 1 and 90")
+    if days < MIN_ATTRIBUTION_WINDOW_DAYS or days > MAX_ATTRIBUTION_WINDOW_DAYS:
+        raise ValidationError(
+            f"attribution_window_days must be between {MIN_ATTRIBUTION_WINDOW_DAYS} and {MAX_ATTRIBUTION_WINDOW_DAYS}"
+        )
 
 
 def validate_attribution_mode(mode: str) -> None:

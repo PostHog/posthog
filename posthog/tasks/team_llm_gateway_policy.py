@@ -61,14 +61,14 @@ def refresh_expiring_llm_gateway_policy_cache_entries() -> None:
 
     start_time = time.time()
     try:
-        successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
+        counts = refresh_expiring_caches(ttl_threshold_hours=24)
         # get_cache_stats also pushes coverage/TTL gauges to Prometheus, matching
         # the team_metadata refresh task so the policy cache is observable too.
         stats_after = get_cache_stats()
         logger.info(
             "Completed llm-gateway policy cache refresh",
-            successful_refreshes=successful,
-            failed_refreshes=failed,
+            successful_refreshes=counts.successful,
+            failed_refreshes=counts.failed,
             total_cached=stats_after.get("total_cached", 0),
             cache_coverage=stats_after.get("cache_coverage", "unknown"),
             ttl_distribution=stats_after.get("ttl_distribution", {}),

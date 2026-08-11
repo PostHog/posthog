@@ -12,7 +12,6 @@ import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils/numbers'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
 import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
-import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LegendOptionsFilter } from 'scenes/insights/EditorFilters/LegendOptionsFilter'
 import { LifecyclePercentagesFilter } from 'scenes/insights/EditorFilters/LifecyclePercentagesFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
@@ -32,6 +31,7 @@ import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
+import { SliceNamesFilter } from 'scenes/insights/EditorFilters/SliceNamesFilter'
 import { StackBreakdownFilter } from 'scenes/insights/EditorFilters/StackBreakdownFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
 import { RetentionCohortLabelStartIndexPicker } from 'scenes/insights/filters/RetentionCohortLabelStartIndexPicker'
@@ -114,24 +114,6 @@ function ExcludeOutliers(): JSX.Element {
                     updateQuerySource(newQuery)
                 }
             }}
-        />
-    )
-}
-
-function PercentStack(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { display } = useValues(insightVizDataLogic(insightProps))
-    const { showValuesOnSeries } = useValues(trendsDataLogic(insightProps))
-
-    return (
-        <PercentStackViewFilter
-            // On a pie chart the percentage is rendered through the series value labels, so it has no
-            // effect while those labels are hidden.
-            disabledReason={
-                display === ChartDisplayType.ActionsPie && showValuesOnSeries === false
-                    ? "Enable 'Show values on series' to use this option"
-                    : undefined
-            }
         />
     )
 }
@@ -264,15 +246,15 @@ export const DisplayOptions = {
     LifecycleStacking: { label: () => <LifecycleStackingFilter /> },
     LifecyclePercentages: { label: () => <LifecyclePercentagesFilter /> },
     ValueLabels: { label: () => <ValueOnSeriesFilter /> },
-    PercentStack: { label: () => <PercentStack /> },
+    PercentStack: { label: () => <PercentStackViewFilter /> },
     StackBreakdown: { label: () => <StackBreakdownFilter /> },
+    SliceNames: { label: () => <SliceNamesFilter /> },
     PieTotal: { label: () => <ShowPieTotalFilter /> },
     AlertThresholdLines: { label: () => <ShowAlertThresholdLinesFilter /> },
     AlertAnomalyPoints: { label: () => <ShowAlertAnomalyPointsFilter /> },
     MultipleYAxes: { label: () => <ShowMultipleYAxesFilter /> },
     TrendLines: { label: () => <ShowTrendLinesFilter /> },
     HideIncompleteFunnelPeriods: { label: () => <HideIncompleteConversionWindowPeriodsFilter /> },
-    HideWeekends: { label: () => <HideWeekendsFilter /> },
     Annotations: { label: () => <ShowAnnotationsFilter /> },
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
     Unit: { label: () => <UnitPicker /> },

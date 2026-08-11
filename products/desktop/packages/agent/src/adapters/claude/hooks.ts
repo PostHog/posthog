@@ -268,7 +268,11 @@ export const SUBAGENT_REWRITES: Record<string, string> = {
 };
 
 export const createSubagentRewriteHook =
-  (logger: Logger, registeredAgents: ReadonlySet<string>): HookCallback =>
+  (
+    logger: Logger,
+    registeredAgents: ReadonlySet<string>,
+    getCurrentModelId?: () => string | undefined,
+  ): HookCallback =>
   async (input: HookInput, _toolUseID: string | undefined) => {
     if (input.hook_event_name !== "PreToolUse") {
       return { continue: true };
@@ -279,30 +283,50 @@ export const createSubagentRewriteHook =
     }
 
     const toolInput = input.tool_input as Record<string, unknown> | undefined;
-    const subagentType = toolInput?.subagent_type;
-    if (typeof subagentType !== "string" || !SUBAGENT_REWRITES[subagentType]) {
+    if (!toolInput) {
       return { continue: true };
     }
 
-    const target = SUBAGENT_REWRITES[subagentType];
-    if (!registeredAgents.has(target)) {
-      logger.warn(
-        `[SubagentRewriteHook] Skipping rewrite ${subagentType} → ${target}: target agent not registered for this session. Falling back to built-in ${subagentType}.`,
+    const updatedInput = { ...toolInput };
+    let changed = false;
+    const subagentType = toolInput.subagent_type;
+    if (typeof subagentType === "string" && SUBAGENT_REWRITES[subagentType]) {
+      const target = SUBAGENT_REWRITES[subagentType];
+      if (registeredAgents.has(target)) {
+        logger.info(
+          `[SubagentRewriteHook] Rewriting subagent_type: ${subagentType} → ${target}`,
+        );
+        updatedInput.subagent_type = target;
+        changed = true;
+      } else {
+        logger.warn(
+          `[SubagentRewriteHook] Skipping rewrite ${subagentType} → ${target}: target agent not registered for this session. Falling back to built-in ${subagentType}.`,
+        );
+      }
+    }
+
+    // The SDK's Agent tool exposes family aliases rather than canonical model
+    // IDs. Its `opus` alias can lag behind the parent session's selected Opus
+    // generation, while `inherit` preserves that exact selection.
+    if (
+      toolInput.model === "opus" &&
+      getCurrentModelId?.() === "claude-opus-5"
+    ) {
+      logger.info(
+        "[SubagentRewriteHook] Rewriting model: opus → inherit for Claude Opus 5 parent",
       );
-      return { continue: true };
+      updatedInput.model = "inherit";
+      changed = true;
     }
 
-    logger.info(
-      `[SubagentRewriteHook] Rewriting subagent_type: ${subagentType} → ${target}`,
-    );
+    if (!changed) return { continue: true };
 
     return {
       continue: true,
       hookSpecificOutput: {
         hookEventName: "PreToolUse" as const,
         updatedInput: {
-          ...toolInput,
-          subagent_type: target,
+          ...updatedInput,
         },
       },
     };

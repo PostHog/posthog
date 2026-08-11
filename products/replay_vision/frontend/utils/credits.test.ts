@@ -1,4 +1,4 @@
-import { creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange } from './credits'
+import { billableCredits, creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange } from './credits'
 
 describe('credits formatting', () => {
     it.each([
@@ -34,5 +34,14 @@ describe('credits formatting', () => {
         [1, 1, '1 of 1 credit'],
     ])('formatCreditsRange(%p, %p) -> %p', (used, total, expected) => {
         expect(formatCreditsRange(used, total)).toBe(expected)
+    })
+
+    it.each([
+        ['nothing bills below the free allocation', 800, 2500, 0],
+        ['nothing bills exactly at it', 2500, 2500, 0],
+        ['only the overage bills', 3100, 2500, 600],
+        ['a free allocation larger than spend bills nothing', 2800, 3000, 0],
+    ])('billableCredits: %s', (_name, credits, freeCredits, expected) => {
+        expect(billableCredits(credits, freeCredits)).toBe(expected)
     })
 })

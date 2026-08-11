@@ -45,7 +45,7 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
     const { setCurrentSessionTab } = useActions(exceptionCardLogic)
 
     return (
-        <TabsPrimitiveContent {...props} className={cn('flex flex-col', className)}>
+        <TabsPrimitiveContent {...props} className={cn('flex min-w-0 flex-col overflow-hidden', className)}>
             {match([loading, sessionId])
                 .with([true, P.any], () => (
                     <div className="flex justify-center items-center h-[300px]">
@@ -58,7 +58,7 @@ export function SessionTab({ timestamp, className, ...props }: SessionTabProps):
                         <TabsPrimitive
                             value={currentSessionTab}
                             onValueChange={setCurrentSessionTab}
-                            className="flex flex-col flex-1 min-h-0"
+                            className="flex min-h-0 min-w-0 flex-1 flex-col"
                         >
                             <SubHeader className="p-0 shrink-0">
                                 <TabsPrimitiveList className="flex justify-start gap-2 w-full h-full items-center">
@@ -118,7 +118,7 @@ export function SessionTimelineTab(): JSX.Element {
     }, [properties, sessionId, timestamp, uuid])
 
     return (
-        <TabsPrimitiveContent value="timeline" className="flex-1 min-h-0 overflow-y-auto">
+        <TabsPrimitiveContent value="timeline" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
             {collector && (
                 <SessionTimeline
                     ref={sessionTimelineRef}

@@ -92,6 +92,21 @@ function stringList(value: unknown): string[] {
     return []
 }
 
+function describePayloadConditions(value: unknown): string {
+    if (!Array.isArray(value)) {
+        return ''
+    }
+    return value
+        .map((entry) => {
+            const condition = (entry ?? {}) as Record<string, unknown>
+            const path = typeof condition.path === 'string' ? condition.path : ''
+            const expected = stringList(condition.equals)
+            return path && expected.length > 0 ? `${path} is ${expected.join(' or ')}` : ''
+        })
+        .filter(Boolean)
+        .join(' and ')
+}
+
 function describeGithubTrigger(config: Record<string, unknown>): string {
     const repository = typeof config.repository === 'string' ? config.repository : 'a repo'
     const filters = (config.filters ?? {}) as Record<string, unknown>
@@ -123,6 +138,10 @@ function describeGithubTrigger(config: Record<string, unknown>): string {
     const labels = [...stringList(filters.labels), ...stringList(filters.label)]
     if (labels.length > 0) {
         summary += ` labeled ${labels.join(', ')}`
+    }
+    const conditions = describePayloadConditions(filters.payload)
+    if (conditions) {
+        summary += ` where ${conditions}`
     }
     return `GitHub (${repository}: ${summary})`
 }

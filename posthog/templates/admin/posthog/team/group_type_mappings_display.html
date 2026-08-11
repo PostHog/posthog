@@ -8,6 +8,7 @@
             <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Name (singular)</th>
             <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Name (plural)</th>
             <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Detail dashboard</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Created at (UTC)</th>
             <th style="border: 1px solid #ddd; padding: 8px; text-align: left; background: #f5f5f5;">Actions</th>
         </tr>
     </thead>
@@ -29,6 +30,7 @@
                     -
                 {% endif %}
             </td>
+            <td style="border: 1px solid #ddd; padding: 8px;"><code>{{ m.created_at_display|default:"-" }}</code></td>
             <td style="border: 1px solid #ddd; padding: 8px;">
                 <a class="button" href="{{ m.edit_url }}" style="padding: 4px 12px; font-size: 12px;">Edit</a>
             </td>

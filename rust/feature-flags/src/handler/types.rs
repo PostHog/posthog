@@ -13,7 +13,10 @@ use uuid::Uuid;
 
 use crate::{
     api::types::FlagsQueryParams,
-    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
+    cohorts::{
+        cohort_cache_manager::CohortCacheManager, cohort_models::MembershipStampPolicy,
+        membership::CohortMembershipProvider,
+    },
     flags::{flag_group_type_mapping::GroupTypeCacheManager, flag_models::FeatureFlagList},
     rayon_dispatcher::RayonDispatcher,
     router,
@@ -94,6 +97,7 @@ pub struct FeatureFlagEvaluationContext {
     pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     /// Whether to enable realtime cohort evaluation.
     pub enable_realtime_cohort_evaluation: bool,
+    pub membership_stamp_policy: MembershipStampPolicy,
     /// Whether to include detailed condition analysis in flag evaluation results.
     pub detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.

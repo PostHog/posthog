@@ -9,17 +9,20 @@ import { isRestrictedModel } from "@posthog/ui/features/billing/modelGate";
  */
 export function ModelRadioItem({
   model,
+  closeOnClick,
 }: {
   model: {
     value: string;
     name: string;
     _meta?: Record<string, unknown> | null;
   };
+  closeOnClick?: boolean;
 }) {
   const restricted = isRestrictedModel(model);
   return (
     <DropdownMenuRadioItem
       value={model.value}
+      closeOnClick={closeOnClick}
       className={restricted ? "opacity-60" : undefined}
     >
       <span className="whitespace-nowrap">{model.name}</span>

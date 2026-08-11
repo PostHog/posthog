@@ -4,6 +4,7 @@ import { hasScope, hasScopes } from '@/lib/api'
 import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { isStaffOnlyTool } from '@/lib/staff-only-tools'
+import { formatNotebookWidgetCatalogForAgents } from '@/tools/notebooks/widgetCatalog'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
 import toolDefinitionsJson from '../../schema/tool-definitions.json'
@@ -68,6 +69,25 @@ let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
 
+const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
+
+function addNotebookWidgetCatalog(definitions: ToolDefinitions): ToolDefinitions {
+    const widgetCatalog = formatNotebookWidgetCatalogForAgents()
+    const enrichedDefinitions = { ...definitions }
+
+    for (const toolName of NOTEBOOK_BUILDER_TOOL_NAMES) {
+        const definition = enrichedDefinitions[toolName]
+        if (definition) {
+            enrichedDefinitions[toolName] = {
+                ...definition,
+                description: `${definition.description}\n\n${widgetCatalog}`,
+            }
+        }
+    }
+
+    return enrichedDefinitions
+}
+
 function getGeneratedToolDefinitions(): ToolDefinitions {
     if (!_generatedToolDefinitions) {
         _generatedToolDefinitions = toolDefinitionsSchema.parse(generatedToolDefinitionsJson)
@@ -83,7 +103,7 @@ export function getToolDefinitions(): ToolDefinitions {
         if (!_toolDefinitions) {
             _toolDefinitions = toolDefinitionsSchema.parse(toolDefinitionsJson)
         }
-        _mergedToolDefinitions = { ..._toolDefinitions, ...getGeneratedToolDefinitions() }
+        _mergedToolDefinitions = addNotebookWidgetCatalog({ ..._toolDefinitions, ...getGeneratedToolDefinitions() })
     }
     return _mergedToolDefinitions
 }

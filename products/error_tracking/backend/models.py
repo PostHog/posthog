@@ -56,9 +56,16 @@ class ErrorTrackingIssue(UUIDTModel):
         PENDING_RELEASE = "pending_release", "Pending release"
         SUPPRESSED = "suppressed", "Suppressed"
 
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     status = models.TextField(choices=Status, default=Status.ACTIVE, null=False)
+    severity = models.TextField(choices=Severity, null=True, default=None)
     name = models.TextField(null=True, blank=True)
     description = models.TextField(null=True, blank=True)
 
@@ -368,8 +375,9 @@ class ErrorTrackingSymbolSet(UUIDTModel):
             delete_symbol_set_contents(storage_ptr)
 
     class Meta:
+        # No (team_id, ref) index here on purpose: `unique_ref_per_team` below already
+        # provides one on the same columns, so a second is pure write and storage cost.
         indexes = [
-            models.Index(fields=["team_id", "ref"]),
             # Composite covers the cleanup filter's two OR branches: `last_used < cutoff`
             # (leading column) and `last_used IS NULL AND created_at < cutoff` (NULL group
             # then created_at range), so batch cleanup avoids a full PK-ordered scan.

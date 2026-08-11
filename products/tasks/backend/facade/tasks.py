@@ -52,12 +52,12 @@ def bake_dev_stack_image_task() -> None:
     )
 
     try:
-        execute_bake_dev_stack_image_workflow()
+        execute_bake_dev_stack_image_workflow(trigger="nightly")
     except Exception:
         # Without these, a Temporal-unreachable night is indistinguishable from the flag
         # being off in the bake metric. Re-raise so Celery still records the task failure.
         logger.exception("dev_stack_image_bake_dispatch_failed")
-        observe_dev_stack_image_bake("dispatch_failed")
+        observe_dev_stack_image_bake("dispatch_failed", trigger="nightly")
         raise
 
 

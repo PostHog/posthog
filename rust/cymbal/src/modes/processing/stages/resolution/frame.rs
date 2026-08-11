@@ -4,46 +4,20 @@ use crate::{
     error::UnhandledError,
     frames::{Frame, RawFrame},
     langs::native::DebugImage,
-    metric_consts::{FRAME_RESOLVER_OPERATOR, NATIVE_INLINE_GROUPS},
-    stages::{pipeline::HandledError, resolution::ResolutionStage},
-    types::{
-        batch::Batch,
-        exception_event::{ExceptionEvent, Parsed},
-        operator::{OperatorResult, ValueOperator},
-        Exception, ExceptionList, Stacktrace,
-    },
+    metric_consts::NATIVE_INLINE_GROUPS,
+    stages::resolution::LocalResolutionContext,
+    types::{batch::Batch, Exception, Stacktrace},
 };
 
 #[derive(Clone, Default)]
 pub struct FrameResolver;
 
 impl FrameResolver {
-    pub async fn resolve_exception_list_frames(
-        team_id: i32,
-        list: ExceptionList,
-        debug_images: Arc<Vec<DebugImage>>,
-        ctx: ResolutionStage,
-    ) -> Result<ExceptionList, UnhandledError> {
-        let res = Batch::from(list.0)
-            .apply_func(
-                move |exc, ctx| {
-                    let debug_images = debug_images.clone();
-                    async move {
-                        FrameResolver::resolve_exception_frames(team_id, exc, debug_images, ctx)
-                            .await
-                    }
-                },
-                ctx,
-            )
-            .await?;
-        Ok(Vec::from(res).into())
-    }
-
     pub async fn resolve_exception_frames(
         team_id: i32,
         mut exc: Exception,
         debug_images: Arc<Vec<DebugImage>>,
-        ctx: ResolutionStage,
+        ctx: LocalResolutionContext,
     ) -> Result<Exception, UnhandledError> {
         exc.stack = match exc.stack {
             Some(Stacktrace::Raw { frames }) => {
@@ -94,7 +68,7 @@ impl FrameResolver {
         team_id: i32,
         unit: &[RawFrame],
         debug_images: &[DebugImage],
-        ctx: ResolutionStage,
+        ctx: LocalResolutionContext,
     ) -> Result<Vec<Frame>, UnhandledError> {
         let (lead, members) = unit.split_first().expect("partition units are non-empty");
 
@@ -140,7 +114,7 @@ impl FrameResolver {
         team_id: i32,
         frame: &RawFrame,
         debug_images: &[DebugImage],
-        ctx: ResolutionStage,
+        ctx: LocalResolutionContext,
     ) -> Result<Vec<Frame>, UnhandledError> {
         let _permit = ctx.acquire_symbol_resolution_permit().await?;
 
@@ -191,36 +165,6 @@ fn partition_into_units(frames: Vec<RawFrame>) -> Vec<Vec<RawFrame>> {
     }
 
     units
-}
-
-impl ValueOperator for FrameResolver {
-    type Context = ResolutionStage;
-    type Item = ExceptionEvent<Parsed>;
-    type HandledError = HandledError;
-    type UnhandledError = UnhandledError;
-
-    fn name(&self) -> &'static str {
-        FRAME_RESOLVER_OPERATOR
-    }
-
-    async fn execute_value(
-        &self,
-        mut evt: ExceptionEvent<Parsed>,
-        ctx: ResolutionStage,
-    ) -> OperatorResult<Self> {
-        // Clone rather than take: `$debug_images` is serialized back onto the
-        // event after resolution (rules eval and the /process response), so the
-        // field must survive this stage.
-        let debug_images = Arc::new(evt.debug_images.clone());
-        evt.exception_list = FrameResolver::resolve_exception_list_frames(
-            evt.team_id,
-            evt.exception_list,
-            debug_images,
-            ctx,
-        )
-        .await?;
-        Ok(Ok(evt))
-    }
 }
 
 #[cfg(test)]
@@ -338,17 +282,16 @@ mod test {
     // inlined_leaf as inlined (via inner_function) into outer_function.
     const INLINE_ADDR: u64 = SLIDE_BASE + 0x1475;
 
-    fn resolution_stage(db: &sqlx::PgPool, catalog: Catalog) -> ResolutionStage {
+    fn resolution_stage(db: &sqlx::PgPool, catalog: Catalog) -> LocalResolutionContext {
         let mut config = ProcessingConfig::init_with_defaults().unwrap();
         config.resolver.object_storage_bucket = "test-bucket".to_string();
-        ResolutionStage {
+        LocalResolutionContext {
             symbol_resolver: Arc::new(LocalSymbolResolver::new(
                 &config.resolver,
                 Arc::new(catalog),
                 db.clone(),
             )),
             symbol_resolution_limiter: Arc::new(Semaphore::new(4)),
-            remote: None,
         }
     }
 

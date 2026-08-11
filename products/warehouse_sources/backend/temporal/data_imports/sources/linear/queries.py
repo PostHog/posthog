@@ -167,6 +167,162 @@ query PaginatedAttachments($pageSize: Int!, $cursor: String, $filter: Attachment
     }
 }"""
 
+WORKFLOW_STATES_QUERY = """
+query PaginatedWorkflowStates($pageSize: Int!, $cursor: String, $filter: WorkflowStateFilter) {
+    workflowStates(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+        nodes {
+            id
+            name
+            type
+            color
+            description
+            position
+            createdAt
+            updatedAt
+            archivedAt
+            team { id name key }
+            inheritedFrom { id name }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
+PROJECT_MILESTONES_QUERY = """
+query PaginatedProjectMilestones($pageSize: Int!, $cursor: String, $filter: ProjectMilestoneFilter) {
+    projectMilestones(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+        nodes {
+            id
+            name
+            description
+            status
+            progress
+            sortOrder
+            targetDate
+            createdAt
+            updatedAt
+            archivedAt
+            project { id name }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
+INITIATIVES_QUERY = """
+query PaginatedInitiatives($pageSize: Int!, $cursor: String, $filter: InitiativeFilter) {
+    initiatives(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+        nodes {
+            id
+            name
+            description
+            content
+            slugId
+            status
+            health
+            priority
+            sortOrder
+            icon
+            color
+            url
+            targetDate
+            targetDateResolution
+            startedAt
+            completedAt
+            healthUpdatedAt
+            trashed
+            createdAt
+            updatedAt
+            archivedAt
+            creator { id name email }
+            owner { id name email }
+            parentInitiative { id name }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
+TEAM_MEMBERSHIPS_QUERY = """
+query PaginatedTeamMemberships($pageSize: Int!, $cursor: String) {
+    teamMemberships(first: $pageSize, after: $cursor) {
+        nodes {
+            id
+            owner
+            sortOrder
+            createdAt
+            updatedAt
+            archivedAt
+            team { id name key }
+            user { id name email }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
+ISSUE_RELATIONS_QUERY = """
+query PaginatedIssueRelations($pageSize: Int!, $cursor: String) {
+    issueRelations(first: $pageSize, after: $cursor) {
+        nodes {
+            id
+            type
+            createdAt
+            updatedAt
+            archivedAt
+            issue { id identifier }
+            relatedIssue { id identifier }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
+PROJECT_UPDATES_QUERY = """
+query PaginatedProjectUpdates($pageSize: Int!, $cursor: String, $filter: ProjectUpdateFilter) {
+    projectUpdates(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+        nodes {
+            id
+            body
+            health
+            url
+            slugId
+            commentCount
+            isStale
+            isDiffHidden
+            diffMarkdown
+            editedAt
+            createdAt
+            updatedAt
+            archivedAt
+            project { id name }
+            user { id name email }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
+DOCUMENTS_QUERY = """
+query PaginatedDocuments($pageSize: Int!, $cursor: String, $filter: DocumentFilter) {
+    documents(first: $pageSize, after: $cursor, orderBy: updatedAt, filter: $filter) {
+        nodes {
+            id
+            title
+            content
+            icon
+            color
+            slugId
+            url
+            trashed
+            hiddenAt
+            createdAt
+            updatedAt
+            archivedAt
+            creator { id name email }
+            updatedBy { id name email }
+            project { id name }
+            initiative { id name }
+            issue { id identifier }
+        }
+        pageInfo { hasNextPage endCursor }
+    }
+}"""
+
 VIEWER_QUERY = "{ viewer { id } }"
 
 QUERIES: dict[str, str] = {
@@ -178,4 +334,11 @@ QUERIES: dict[str, str] = {
     "labels": LABELS_QUERY,
     "cycles": CYCLES_QUERY,
     "resources": RESOURCES_QUERY,
+    "workflow_states": WORKFLOW_STATES_QUERY,
+    "project_milestones": PROJECT_MILESTONES_QUERY,
+    "initiatives": INITIATIVES_QUERY,
+    "team_memberships": TEAM_MEMBERSHIPS_QUERY,
+    "issue_relations": ISSUE_RELATIONS_QUERY,
+    "project_updates": PROJECT_UPDATES_QUERY,
+    "documents": DOCUMENTS_QUERY,
 }

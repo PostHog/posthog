@@ -27,7 +27,7 @@ ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
     ),
-    "issue_id": StringDatabaseField(
+    "issue_id": UUIDDatabaseField(
         name="issue_id",
         nullable=True,
         description="Identifier of the error tracking issue this fingerprint belongs to.",

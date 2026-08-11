@@ -13,7 +13,6 @@ pub type Partition = u8;
 /// Identity of one handoff attempt — production `HandoffState.handoff_id`.
 /// Acks echo it and quorum checks only count matching acks.
 pub type HandoffId = u8;
-pub type WriteId = u8;
 
 /// The production phase enum, used directly: a new phase added to the
 /// protocol breaks the model's exhaustive matches at compile time.
@@ -49,17 +48,32 @@ pub struct WarmState {
     /// whose cache may predate writes accepted since, and is released
     /// and rebuilt.
     pub for_handoff: Option<HandoffId>,
-    /// The Kafka transactional-producer epoch held (production:
-    /// `init_transactions` under the `EpochFenced` variant; the broker
-    /// rejects produces bearing a stale epoch).
-    pub epoch: u8,
-    /// The changelog HWM captured at warm time — everything below it is
-    /// visible to this pod's cache.
+    /// How much of the changelog this pod's cache reflects: the HWM
+    /// captured at warm time, plus every write it has accepted since. A
+    /// strong read served while `changelog.len` exceeds this returns state
+    /// missing at least one acked write.
+    ///
+    /// The two halves are deliberately one number. Nothing reads them
+    /// apart — the cutoff is never consulted on its own, and the accept
+    /// count only ever advances the same total — so keeping them separate
+    /// would only split behaviorally identical states (warmed at 1 and
+    /// accepted nothing, versus warmed at 0 and accepted one).
+    pub visible: u8,
+}
+
+/// A warm caught between its two steps, under the rejected read-first
+/// ordering: the changelog read is taken while the fence — and with it
+/// the rejection of a stale owner's write — does not exist yet, so a
+/// write can be acked into the gap and sit above the cutoff forever.
+///
+/// Fence-first needs no such state. Its epoch bump precedes the read and
+/// an append requires an installed warm carrying the current epoch, so
+/// nothing can append between the two steps and the model installs the
+/// warm atomically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PendingWarm {
+    /// The changelog length captured before the fence existed.
     pub cutoff: u8,
-    /// Writes this pod itself accepted since warming. `cutoff + accepted`
-    /// is the pod's visible prefix of the changelog; a strong read served
-    /// while `changelog.len` exceeds it returns stale data.
-    pub accepted: u8,
 }
 
 /// One leader pod. `registered` is the etcd lease-bound registration key;
@@ -73,6 +87,10 @@ pub struct Pod {
     /// Partitions warmed by this process incarnation (production:
     /// `warmed_partitions` on the pod handle).
     pub warmed: BTreeMap<Partition, WarmState>,
+    /// Warms mid-flight under `EpochFenced` — one step of
+    /// `warm_partition` done, the other not (empty under `Current`,
+    /// whose warm has no broker step to separate from the read).
+    pub pending_warm: BTreeMap<Partition, PendingWarm>,
     /// Write-fenced partitions (production: `InflightTracker` fences +
     /// the pod handle's `fenced_partitions`).
     pub fenced: BTreeSet<Partition>,
@@ -80,6 +98,15 @@ pub struct Pod {
     /// its keepalive notices and the process self-fences (production: the
     /// bounded zombie window; fix 1 bounds it to ~one heartbeat tick).
     pub zombie_writes_left: u8,
+    /// Whether this pod still claims the right to serve (production: the
+    /// `AuthorityClock` the keepalive stamps and the data plane reads).
+    ///
+    /// Deliberately not the same fact as `registered`. A lease can be
+    /// revoked out from under a pod, leaving it claiming a partition it
+    /// no longer holds until something tells it otherwise — which is the
+    /// window the read gate is trying to close, and cannot be expressed
+    /// if the two are one flag.
+    pub claims_authority: bool,
 }
 
 /// One router. A clean router restart is indistinguishable from a
@@ -108,23 +135,38 @@ pub struct Router {
 }
 
 /// One parked leader-path request.
+///
+/// Deliberately identity-free. A parked write is only ever drained or
+/// dropped, never matched against a particular client, so carrying a write
+/// id would add a dimension to the state space that nothing reads — two
+/// otherwise-identical states would differ only in how many writes had ever
+/// been parked. Order and count still matter, and the per-partition `Vec`
+/// keeps both.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum StashedRequest {
-    Write(WriteId),
+    Write,
     StrongRead,
 }
 
 /// The Kafka changelog for one partition, reduced to what the safety
-/// invariants need: an append counter (the HWM) and the producer epoch
-/// the broker currently accepts.
+/// invariants need: an append counter (the HWM) and who currently holds
+/// the broker's producer fence.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Changelog {
     /// Number of records appended (the HWM).
     pub len: u8,
-    /// Broker-side producer epoch. Bumped by each warm under the
-    /// `EpochFenced` variant (production: `init_transactions` fencing);
-    /// ignored by `Current`.
-    pub epoch: u8,
+    /// The pod whose transactional producer the broker currently accepts,
+    /// under `Variant::EpochFenced` (production: the latest
+    /// `init_transactions` wins and every earlier producer is fenced out).
+    /// Always `None` under `Current`, which has no broker-side fence.
+    ///
+    /// This is an owner rather than an epoch number because nothing
+    /// compares epochs for order — the single consumer asks whether *this*
+    /// pod's producer is the live one. A counter would have split states
+    /// that differ only in how many fences had been acquired along the way,
+    /// and, being a `u8`, would eventually have wrapped a stale epoch onto
+    /// a live one and admitted a write it should reject.
+    pub epoch_holder: Option<PodId>,
 }
 
 /// The entire distributed system. One value = one node in the explored
@@ -164,10 +206,11 @@ pub struct SystemState {
     pub router_joins_left: u8,
     /// Deadline cancellations the checker may still inject.
     pub cancels_left: u8,
-    pub next_write_id: WriteId,
-    /// Count of strong reads actually served (reachability evidence for
-    /// the read properties).
-    pub reads_served: u8,
+    /// Whether any strong read was actually served (reachability evidence
+    /// for the read properties). A flag rather than a count: nothing reads
+    /// how many, and a count would split otherwise-identical states by
+    /// their read history.
+    pub read_served: bool,
 
     // ── violation flags (history-free invariant encoding) ──────
     /// Set when a write is acked by a pod while a *different* pod that
@@ -180,9 +223,9 @@ pub struct SystemState {
     /// in-flight handoff, clobbering it — the overlap
     /// `plan_partial_rebalance`'s pinning must make unreachable.
     pub double_planned_handoff: bool,
-    /// Set when a strong read is served by a pod whose visible prefix
-    /// (`cutoff + accepted`) is behind the changelog — the read returned
-    /// state missing at least one acked write.
+    /// Set when a strong read is served by a pod whose `WarmState::visible`
+    /// prefix is behind the changelog — the read returned state missing at
+    /// least one acked write.
     pub stale_strong_read: bool,
 
     // ── reachability flags (probe evidence, history encoding) ──
@@ -266,6 +309,20 @@ pub enum Action {
     /// The zombie's keepalive notices the dead lease and the process
     /// exits (production fix 1).
     SelfFence(PodId),
+    /// A pod notices its lease is gone and stops claiming the partitions
+    /// it holds (production: the keepalive's next round, or the
+    /// registration watch firing). Only reachable under delayed
+    /// detection; prompt detection drops the claim with the lease.
+    NoticeLeaseLoss(PodId),
+    /// A pod's published claim ages past the renewal margin while its
+    /// registration still stands (production: the keepalive stops
+    /// confirming, but etcd holds the lease until the full TTL). The pod
+    /// refuses to serve and the coordinator, seeing a live registration,
+    /// reassigns nothing.
+    AuthorityLapse(PodId),
+    /// A renewal lands and the claim comes back, without the session ever
+    /// having ended.
+    AuthorityRenew(PodId),
     /// A previously-dead pod rejoins under its old name: fresh
     /// registration, fresh lease, empty memory (production: normal pod
     /// startup; its partitions come back via Warming handoffs from the

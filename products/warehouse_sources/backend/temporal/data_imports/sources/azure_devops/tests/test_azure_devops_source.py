@@ -103,22 +103,24 @@ class TestAzureDevOpsSource:
         assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "probe_result",
         [
-            (True, True, None),
-            (False, False, "Invalid Azure DevOps credentials"),
+            (True, None),
+            (
+                False,
+                "Azure DevOps denied access. Please check that your personal access token has read scopes for this data.",
+            ),
         ],
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.source.validate_azure_devops_credentials"
     )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
+    def test_validate_credentials_passes_probe_result_through(self, mock_validate, probe_result):
+        mock_validate.return_value = probe_result
 
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is expected_valid
-        assert error_message == expected_message
+        # The specific failure reason from the probe must reach the caller unchanged, not be
+        # collapsed into a single generic message.
+        assert self.source.validate_credentials(self.config, self.team_id) == probe_result
         # No pin at creation time resolves to default_version.
         mock_validate.assert_called_once_with("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
 

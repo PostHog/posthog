@@ -22,7 +22,7 @@ import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { notebookPanelLogic } from './notebookPanelLogic'
 
 export function NotebookPanel(): JSX.Element | null {
-    const { selectedNotebook, droppedResource, dropProperties } = useValues(notebookPanelLogic)
+    const { selectedNotebook, droppedResource } = useValues(notebookPanelLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
     const editable = !notebook?.is_template
@@ -34,7 +34,7 @@ export function NotebookPanel(): JSX.Element | null {
     const contentWidthHasEffect = size === 'medium'
 
     return (
-        <div ref={ref} className={cn('NotebookPanel', 'bg-transparent')} {...dropProperties}>
+        <div ref={ref} className={cn('NotebookPanel', 'bg-transparent')}>
             {!droppedResource ? (
                 <>
                     <SidePanelContentContainer>

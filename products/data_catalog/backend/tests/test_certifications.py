@@ -88,9 +88,25 @@ class TestCertificationLogic(BaseTest):
         certification = propose_certification(team=self.team, user=self.user, **selector_kwargs)
 
         assert certification.status == CertificationStatus.PROPOSED
+        assert certification.proposed_status == CertificationStatus.CERTIFIED
         assert certification.created_by_id == self.user.id
         assert certification.table_id == (target.id if target_type == "table" else None)
         assert certification.saved_query_id == (target.id if target_type == "view" else None)
+
+    def test_propose_deprecation_records_intent_and_settles(self) -> None:
+        table = _table(self.team)
+        cert = propose_certification(
+            team=self.team, user=self.user, table_id=str(table.id), proposed_status=CertificationStatus.DEPRECATED
+        )
+        assert cert.status == CertificationStatus.PROPOSED
+        assert cert.proposed_status == CertificationStatus.DEPRECATED
+
+        assert deprecate(cert, self.user).status == CertificationStatus.DEPRECATED
+
+    def test_propose_rejects_invalid_proposed_status(self) -> None:
+        table = _table(self.team)
+        with self.assertRaisesMessage(ValidationError, "certified"):
+            propose_certification(team=self.team, user=self.user, table_id=str(table.id), proposed_status="proposed")
 
     def test_ambiguous_table_name_returns_candidates(self) -> None:
         _table(self.team, name="dupe")
@@ -247,6 +263,25 @@ class TestCertificationAPI(APIBaseTest):
         certified = self.client.post(f"{self.url}{cert_id}/certify/")
         assert certified.status_code == status.HTTP_200_OK
         assert certified.json()["status"] == CertificationStatus.CERTIFIED
+
+    def test_propose_deprecation_and_settle(self) -> None:
+        table = _table(self.team)
+        created = self.client.post(
+            self.url, {"table_id": str(table.id), "proposed_status": "deprecated"}, format="json"
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        body = created.json()
+        assert body["status"] == CertificationStatus.PROPOSED
+        assert body["proposed_status"] == CertificationStatus.DEPRECATED
+
+        deprecated = self.client.post(f"{self.url}{body['id']}/deprecate/")
+        assert deprecated.status_code == status.HTTP_200_OK
+        assert deprecated.json()["status"] == CertificationStatus.DEPRECATED
+
+    def test_create_rejects_invalid_proposed_status(self) -> None:
+        table = _table(self.team)
+        response = self.client.post(self.url, {"table_id": str(table.id), "proposed_status": "proposed"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_ambiguous_table_name_returns_409_with_candidates(self) -> None:
         # The conflict must render through the HTTP exception handler — a shape it can't

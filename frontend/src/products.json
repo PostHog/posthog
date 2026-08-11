@@ -313,6 +313,13 @@
         },
         { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
         {
+            "path": "Warehouse properties",
+            "category": "Schema",
+            "iconType": "data_warehouse",
+            "type": null,
+            "intents": []
+        },
+        {
             "path": "Sources",
             "category": "Pipeline",
             "iconType": "data_pipeline_metadata",

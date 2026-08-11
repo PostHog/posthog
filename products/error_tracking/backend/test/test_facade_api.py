@@ -79,6 +79,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 issue_id=issue.id,
                 integration_id=integration.id,
                 config={"team_id": "other-team-id", "title": "Checkout TypeError", "description": ""},
+                distinct_id=self.user.id,
             )
 
         assert str(context.exception) == (
@@ -108,6 +109,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             issue_id=issue.id,
             integration_id=integration.id,
             config={"team_id": "linear-team-id", "title": "Checkout TypeError", "description": ""},
+            distinct_id=self.user.id,
         )
 
         attachment_url = mock_create_issue.call_args.args[0]
@@ -134,6 +136,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             issue_id=issue.id,
             integration_id=integration.id,
             config={"team_id": "linear-team-id", "title": "No fingerprints yet", "description": ""},
+            distinct_id=self.user.id,
         )
 
         attachment_url = mock_create_issue.call_args.args[0]

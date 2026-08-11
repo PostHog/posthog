@@ -85,7 +85,7 @@ async def identity_role(session: aioboto3.Session) -> str:
 
 
 # Named distinctly from the test module's function-scoped `bucket_name` fixture (used by
-# the MinIO tests) so this module-scoped fixture is not shadowed, which would cause a
+# the local object storage tests) so this module-scoped fixture is not shadowed, which would cause a
 # ScopeMismatch when the module-scoped `aws_bucket` requests it.
 @pytest.fixture(scope="module")
 def aws_bucket_name() -> str:

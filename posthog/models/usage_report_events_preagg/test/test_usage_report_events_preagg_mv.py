@@ -52,12 +52,18 @@ def _make_event_payload(distinct_id: str, event: str, lib: str) -> dict:
 
 
 def _wait_for_team_row(
-    team_id: int, expected_unique: int, expected_total: int, timeout_seconds: int = 15
+    team_id: int, expected_unique: int, expected_total: int, timeout_seconds: int = 90
 ) -> tuple[int, int]:
     """Poll usage_report_events_preagg until BOTH uniqExactMerge >= expected_unique AND
     sumMerge >= expected_total. Both conditions are required because in a replay scenario
     `unique_count` saturates at 1 after the first message lands while `total_count` is
     still climbing — returning early on `unique_count` alone races the second message.
+
+    The timeout has to outlast a consumer group rebalance. setUp and tearDown recreate the
+    Kafka table for every test, and ClickHouse leaves the previous test's consumer registered
+    with the broker until its session.timeout.ms elapses, so every test after the first reads
+    nothing until the broker evicts that stale member. Polling stops as soon as both counts
+    are satisfied, so a healthy run does not pay for this headroom.
 
     Returns (unique_count, total_count) once both observed, or raises AssertionError on timeout.
     """

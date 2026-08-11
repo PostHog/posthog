@@ -1,230 +1,121 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LineChart,
+    type LineChartConfig,
+    TimeSeriesLineChart,
+    type TimeSeriesLineChartConfig,
+} from '@posthog/quill-charts'
 
-import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
-import { dayjs } from 'lib/dayjs'
-import { useChart } from 'lib/hooks/useChart'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 
-import {
-    ExperimentExposureCriteria,
-    ExperimentExposureQueryResponse,
-    ExperimentExposureTimeSeries,
-} from '~/queries/schema/schema-general'
+import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
-import { useChartColors } from '../MetricsView/shared/colors'
+import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
+import { buildExposureSeries } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
 
+// Below this, a load looks like any other; above it, the user has no way to tell a slow query
+// from a stuck one, so we start showing elapsed time and a way to retry.
+const SLOW_LOAD_THRESHOLD_SECONDS = 20
+
+/** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
+function useElapsedSeconds(active: boolean): number {
+    const [elapsed, setElapsed] = useState(0)
+    const startRef = useRef<number | null>(null)
+
+    useEffect(() => {
+        if (!active) {
+            startRef.current = null
+            setElapsed(0)
+            return
+        }
+        startRef.current = performance.now()
+        setElapsed(0)
+        const intervalId = setInterval(() => {
+            setElapsed(Math.floor((performance.now() - (startRef.current as number)) / 1000))
+        }, 1000)
+        return () => clearInterval(intervalId)
+    }, [active])
+
+    return elapsed
+}
+
 interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
 }
 
-interface ExposureSeries {
-    variant: string
-    data: number[]
-}
-
-// Single-day timeseries get a synthetic prior day with 0 exposures so the chart
-// can draw a line instead of a single point.
-function buildExposureDatasets(timeseries: ExperimentExposureTimeSeries[]): {
-    labels: string[]
-    datasets: ExposureSeries[]
-} {
-    let labels = timeseries[0].days.map((day: string) => dayjs(day).format('MM/DD'))
-    let datasets: ExposureSeries[] = timeseries.map((series: ExperimentExposureTimeSeries) => ({
-        variant: series.variant,
-        data: series.exposure_counts,
-    }))
-
-    if (timeseries[0].days.length === 1) {
-        const previousDay = dayjs(timeseries[0].days[0]).subtract(1, 'day').format('MM/DD')
-        labels = [previousDay, ...labels]
-        datasets = datasets.map((dataset) => ({
-            ...dataset,
-            data: [0, ...dataset.data],
-        }))
-    }
-
-    return { labels, datasets }
+const CHART_CONFIG: LineChartConfig = {
+    hideXAxis: true,
+    hideYAxis: true,
+    showGrid: false,
+    showCrosshair: false,
+    curve: 'monotone',
+    margins: { top: 1, right: 0, bottom: 1, left: 0 },
+    tooltip: { enabled: false },
 }
 
 export function MicroChart({ exposures }: MicroChartProps): JSX.Element | null {
-    const { canvasRef } = useChart({
-        getConfig: () => {
-            if (!exposures?.timeseries?.length) {
-                return null
-            }
+    const theme = useChartTheme()
+    const timeseries = exposures?.timeseries
+    const { labels, series } = useMemo(() => buildExposureSeries(timeseries ?? []), [timeseries])
 
-            const { datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
-            const datasets = rawDatasets.map((series, index) => ({
-                data: series.data,
-                borderColor: getSeriesColor(index),
-                fill: false,
-                tension: 0.3,
-                borderWidth: 1.5,
-                pointRadius: 0,
-            }))
-
-            return {
-                type: 'line' as const,
-                data: {
-                    labels: datasets[0].data.map((_, i) => i),
-                    datasets,
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: false,
-                    scales: {
-                        x: {
-                            display: false,
-                            grid: {
-                                display: false,
-                            },
-                        },
-                        y: {
-                            display: false,
-                            beginAtZero: true,
-                            grid: {
-                                display: false,
-                            },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            display: false,
-                        },
-                        tooltip: {
-                            enabled: false,
-                        },
-                    },
-                    elements: {
-                        line: {
-                            borderJoinStyle: 'round',
-                        },
-                    },
-                },
-            }
-        },
-        deps: [exposures],
-    })
-
-    if (!exposures?.timeseries?.length) {
+    if (!timeseries?.length) {
         return null
     }
 
     return (
-        <div
-            className="inline-block"
-            style={{
-                width: '60px',
-                height: '20px',
-                pointerEvents: 'none',
-                borderBottom: '1px solid var(--color-border-primary)',
-                borderRight: '1px solid var(--color-border-primary)',
-            }}
-        >
-            <canvas ref={canvasRef} />
+        <div className="inline-flex flex-col w-[60px] h-[20px] pointer-events-none border-b border-r border-primary">
+            <LineChart series={series} labels={labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
 }
 
 interface ExposuresChartProps {
     exposures: ExperimentExposureQueryResponse
-    axisLineColor: string
 }
 
-function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.Element {
-    const { canvasRef } = useChart({
-        getConfig: () => {
-            if (!exposures?.timeseries?.length) {
-                return null
-            }
-
-            const { labels, datasets: rawDatasets } = buildExposureDatasets(exposures.timeseries)
-            const datasets = rawDatasets.map((series, index) => ({
-                label: series.variant,
-                data: series.data,
-                borderColor: getSeriesColor(index),
-                backgroundColor: getSeriesBackgroundColor(index),
-                fill: false,
-                tension: 0,
-                borderWidth: 2,
-                pointRadius: 0,
-            }))
-
-            return {
-                type: 'line' as const,
-                data: { labels, datasets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        intersect: false,
-                        mode: 'nearest',
-                        axis: 'x',
-                    },
-                    scales: {
-                        x: {
-                            ticks: {
-                                maxTicksLimit: 8,
-                                autoSkip: true,
-                                maxRotation: 0,
-                                minRotation: 0,
-                            },
-                            grid: {
-                                display: true,
-                                color: axisLineColor,
-                            },
-                        },
-                        y: {
-                            beginAtZero: true,
-                            grid: {
-                                display: true,
-                                color: axisLineColor,
-                            },
-                        },
-                    },
-                    plugins: {
-                        legend: {
-                            display: false,
-                            labels: {
-                                boxWidth: 4,
-                                boxPadding: 20,
-                                pointStyle: 'dash',
-                            },
-                        },
-                        crosshair: false,
-                    },
-                },
-            }
-        },
-        deps: [exposures, axisLineColor],
-    })
+function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
+    const { timezone } = useValues(teamLogic)
+    const theme = useChartTheme()
+    const { labels, series } = useMemo(() => buildExposureSeries(exposures.timeseries), [exposures.timeseries])
+    const config = useChartConfig<TimeSeriesLineChartConfig>(
+        () => ({ xAxis: { interval: 'day', timezone }, tooltip: { placement: 'cursor' } }),
+        [timezone]
+    )
 
     return (
-        <div className="relative h-[200px]">
-            <canvas ref={canvasRef} />
+        <div className="relative h-[200px] flex flex-col">
+            <TimeSeriesLineChart series={series} labels={labels} theme={theme} config={config} />
         </div>
     )
 }
 
-function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
+function getExposureCriteriaLabel(
+    exposureCriteria: ExperimentExposureCriteria | undefined,
+    defaultEvent: string
+): string {
+    const activationConfig = getActivationConfig(exposureCriteria)
+    if (activationConfig) {
+        return `Default (${defaultEvent}) + activation (${getExposureConfigDisplayName(activationConfig)})`
+    }
+
     const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig) {
-        return `Default (${EXPOSURE_DEFAULT_EVENT})`
+    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
+        return `Default (${defaultEvent})`
     }
 
     const displayName = getExposureConfigDisplayName(exposureConfig)
@@ -232,12 +123,21 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 }
 
 export function Exposures(): JSX.Element {
-    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, experiment, excludedVariants } =
-        useValues(experimentLogic)
+    const {
+        exposures,
+        exposuresLoading,
+        exposureCriteria,
+        isExperimentDraft,
+        experiment,
+        excludedVariants,
+        resolvedExposureEvent,
+    } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
-    const colors = useChartColors()
+    const { refreshExperimentResults } = useActions(experimentLogic)
 
     const [isCollapsed, setIsCollapsed] = useState(true)
+    const exposuresElapsedSeconds = useElapsedSeconds(exposuresLoading)
+    const exposuresLoadingSlowly = exposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
 
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
@@ -286,17 +186,25 @@ export function Exposures(): JSX.Element {
                 </span>
 
                 {!isExperimentDraft && (
+                    // Transitioning visibility delays the hidden flip until the fade-out finishes.
+                    // The fade-out is shorter so it ends before the 200ms panel slide does; at equal
+                    // durations the exit reads as sluggish.
                     <div
-                        className={`flex items-center gap-3 transition-opacity duration-300 ease-in-out ${
-                            isCollapsed ? 'opacity-100' : 'opacity-0'
+                        className={`flex items-center gap-3 transition-[opacity,visibility] ease-in-out ${
+                            isCollapsed
+                                ? 'visible opacity-100 pointer-events-auto duration-300'
+                                : 'invisible opacity-0 pointer-events-none duration-150'
                         }`}
-                        style={{
-                            visibility: isCollapsed ? 'visible' : 'hidden',
-                            pointerEvents: isCollapsed ? 'auto' : 'none',
-                        }}
                     >
                         {exposuresLoading ? (
-                            <Spinner className="text-lg" />
+                            <div className="flex items-center gap-2">
+                                <Spinner className="text-lg" />
+                                {exposuresLoadingSlowly && (
+                                    <span className="text-secondary text-xs">
+                                        Still loading ({exposuresElapsedSeconds}s)
+                                    </span>
+                                )}
+                            </div>
                         ) : (
                             <>
                                 <span>
@@ -361,8 +269,22 @@ export function Exposures(): JSX.Element {
                         <div className="space-y-4 bg-bg-light -m-4 p-4">
                             {/* Chart Section */}
                             {exposuresLoading ? (
-                                <div className="relative border rounded h-[200px] flex justify-center items-center">
+                                <div className="relative border rounded h-[200px] flex flex-col gap-3 justify-center items-center">
                                     <Spinner className="text-5xl" />
+                                    {exposuresLoadingSlowly && (
+                                        <div className="flex flex-col items-center gap-2">
+                                            <span className="text-secondary text-sm">
+                                                Still loading exposures after {exposuresElapsedSeconds}s
+                                            </span>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => refreshExperimentResults(true, 'manual')}
+                                            >
+                                                Retry
+                                            </LemonButton>
+                                        </div>
+                                    )}
                                 </div>
                             ) : !exposures?.timeseries?.length ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">
@@ -386,7 +308,7 @@ export function Exposures(): JSX.Element {
                                     </div>
                                 </div>
                             ) : (
-                                <ExposuresChart exposures={exposures} axisLineColor={colors.EXPOSURES_AXIS_LINES} />
+                                <ExposuresChart exposures={exposures} />
                             )}
 
                             {/* Exposure Criteria Section */}
@@ -394,7 +316,7 @@ export function Exposures(): JSX.Element {
                                 <h3 className="card-secondary">Exposure criteria</h3>
                                 <div className="flex items-center gap-2">
                                     <div className="text-sm font-semibold">
-                                        {getExposureCriteriaLabel(exposureCriteria)}
+                                        {getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}
                                     </div>
                                     <LemonButton
                                         icon={<IconPencil fontSize="12" />}

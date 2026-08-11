@@ -1,4 +1,12 @@
-import { ArrowLeftIcon, LinkIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  CheckCircleIcon,
+  LinkIcon,
+  PauseIcon,
+  PencilSimpleIcon,
+  PlayIcon,
+  TrashIcon,
+} from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -12,8 +20,6 @@ import {
   AlertDialogTitle,
   Badge,
   Button,
-  Switch,
-  Textarea,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
@@ -30,15 +36,16 @@ import { toast } from "@posthog/ui/primitives/toast";
 import {
   canGoBackInHistory,
   goBackInHistory,
-  navigateToEditLoop,
   navigateToLoops,
 } from "@posthog/ui/router/navigationBridge";
+import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Flex, Text } from "@radix-ui/themes";
+import type { ParsedHistoryState } from "@tanstack/history";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLoop } from "../hooks/useLoop";
 import {
   useDeleteLoop,
@@ -64,11 +71,25 @@ import { formatLoopModel } from "../loopModels";
 import { loopSkillBundles, primaryLoopSkillBundle } from "../loopSkill";
 import { copyLoopLink } from "../utils/copyLoopLink";
 import { LoopLoadError } from "./LoopFallbacks";
+import { LoopForm } from "./LoopForm";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
 import { LoopRunRow } from "./LoopRunRow";
 import { LoopSpaceBreadcrumb } from "./LoopSpaceBreadcrumb";
 
-export function LoopDetailView({ loopId }: { loopId: string }) {
+type PendingNavigation = {
+  action: "PUSH" | "REPLACE" | "BACK" | "FORWARD" | "GO";
+  delta: number | null;
+  href: string;
+  state: ParsedHistoryState;
+};
+
+export function LoopDetailView({
+  loopId,
+  startEditing = false,
+}: {
+  loopId: string;
+  startEditing?: boolean;
+}) {
   const hasLoopListOrigin = useLocation({
     select: (location) => location.state.loopListOrigin === true,
   });
@@ -77,7 +98,14 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
   const deleteLoop = useDeleteLoop();
   const runLoop = useRunLoop(loopId);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState<
+    "back" | "summary" | "navigation" | null
+  >(null);
+  const pendingNavigationRef = useRef<PendingNavigation | null>(null);
   const [runNowPending, setRunNowPending] = useState(false);
+  const [isEditing, setIsEditing] = useState(startEditing);
+  const [editDirty, setEditDirty] = useState(false);
 
   const runsQuery = useLoopRuns(loopId);
   const runs = runsQuery.data ?? [];
@@ -204,6 +232,122 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
     });
   };
 
+  useEffect(() => {
+    if (startEditing) setIsEditing(true);
+  }, [startEditing]);
+
+  const leavePage = useCallback(() => {
+    if (hasLoopListOrigin && canGoBackInHistory()) {
+      goBackInHistory();
+      return;
+    }
+    navigateToLoops();
+  }, [hasLoopListOrigin]);
+
+  const requestLeaveEdit = (action: "back" | "summary") => {
+    if (isEditing && editDirty) {
+      setPendingLeaveAction(action);
+      setDiscardOpen(true);
+      return;
+    }
+    if (action === "back") {
+      leavePage();
+    } else {
+      setIsEditing(false);
+      setEditDirty(false);
+    }
+  };
+
+  const continueBlockedNavigation = () => {
+    const pendingNavigation = pendingNavigationRef.current;
+    pendingNavigationRef.current = null;
+    if (!pendingNavigation) return;
+
+    const router = getRouterOrNull();
+    if (!router) return;
+
+    if (
+      pendingNavigation.action === "BACK" ||
+      pendingNavigation.action === "FORWARD" ||
+      pendingNavigation.action === "GO"
+    ) {
+      if (pendingNavigation.delta !== null && pendingNavigation.delta !== 0) {
+        router.history.go(pendingNavigation.delta, { ignoreBlocker: true });
+      } else {
+        router.history.push(pendingNavigation.href, pendingNavigation.state, {
+          ignoreBlocker: true,
+        });
+      }
+      return;
+    }
+
+    if (pendingNavigation.action === "REPLACE") {
+      router.history.replace(pendingNavigation.href, pendingNavigation.state, {
+        ignoreBlocker: true,
+      });
+      return;
+    }
+
+    router.history.push(pendingNavigation.href, pendingNavigation.state, {
+      ignoreBlocker: true,
+    });
+  };
+
+  const discardChanges = () => {
+    const action = pendingLeaveAction;
+    setDiscardOpen(false);
+    setPendingLeaveAction(null);
+    setEditDirty(false);
+    setIsEditing(false);
+    if (action === "back") {
+      if (hasLoopListOrigin && canGoBackInHistory()) {
+        getRouterOrNull()?.history.back({ ignoreBlocker: true });
+        return;
+      }
+      navigateToLoops({ ignoreBlocker: true });
+    } else if (action === "navigation") {
+      continueBlockedNavigation();
+    }
+  };
+
+  useEffect(() => {
+    if (!isEditing || !editDirty) return;
+    const router = getRouterOrNull();
+    if (!router) return;
+
+    return router.history.block({
+      enableBeforeUnload: true,
+      blockerFn: ({ currentLocation, nextLocation, action }) => {
+        if (nextLocation.href === currentLocation.href) return false;
+
+        const delta =
+          typeof nextLocation.state.__TSR_index === "number" &&
+          typeof currentLocation.state.__TSR_index === "number"
+            ? nextLocation.state.__TSR_index - currentLocation.state.__TSR_index
+            : null;
+        pendingNavigationRef.current = {
+          action,
+          delta,
+          href: nextLocation.href,
+          state: nextLocation.state,
+        };
+        setPendingLeaveAction("navigation");
+        setDiscardOpen(true);
+        return true;
+      },
+    });
+  }, [isEditing, editDirty]);
+
+  useEffect(() => {
+    if (!isEditing || !editDirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isEditing, editDirty]);
+
   if (isLoading) {
     return (
       <div className="mx-auto w-full max-w-5xl px-8 py-8">
@@ -227,13 +371,7 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
           <Button
             variant="link-muted"
             size="sm"
-            onClick={() => {
-              if (hasLoopListOrigin && canGoBackInHistory()) {
-                goBackInHistory();
-                return;
-              }
-              navigateToLoops();
-            }}
+            onClick={() => requestLeaveEdit("back")}
             className="w-fit px-0"
           >
             <ArrowLeftIcon size={15} />
@@ -241,22 +379,33 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
           </Button>
 
           <Flex align="center" justify="between" gap="3" wrap="wrap">
-            <Flex align="center" gap="2" wrap="wrap">
-              <Text className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
+            <Flex align="center" gap="2" wrap="wrap" className="min-w-0">
+              <Text
+                className="truncate font-bold text-[22px] text-gray-12 leading-tight tracking-tight"
+                title={loop.name}
+              >
                 {loop.name}
               </Text>
               <Badge variant={loopStatusBadgeVariant(loop)}>
                 {loopStatusLabel(loop)}
               </Badge>
-              <Badge>{loop.visibility}</Badge>
+              <Badge>{formatVisibility(loop.visibility)}</Badge>
             </Flex>
             <Flex align="center" gap="2">
-              <Switch
-                checked={loop.enabled}
+              <Button
+                variant="outline"
+                size="sm"
+                loading={updateLoop.isPending}
                 disabled={updateLoop.isPending}
-                aria-label={loop.enabled ? "Pause loop" : "Enable loop"}
-                onCheckedChange={handleToggleEnabled}
-              />
+                onClick={() => handleToggleEnabled(!loop.enabled)}
+              >
+                {loop.enabled ? (
+                  <PauseIcon size={14} />
+                ) : (
+                  <PlayIcon size={14} />
+                )}
+                {loop.enabled ? "Pause" : "Resume"}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -272,37 +421,72 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
                 disabled={runNowPending}
                 onClick={() => void handleRunNow()}
               >
+                <PlayIcon size={14} />
                 Run now
               </Button>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigateToEditLoop(loop.id)}
+                className={
+                  isEditing
+                    ? "border-(--accent-7) bg-(--accent-3) text-(--accent-11)"
+                    : undefined
+                }
+                onClick={() => {
+                  if (isEditing) {
+                    requestLeaveEdit("summary");
+                    return;
+                  }
+                  setIsEditing(true);
+                }}
               >
-                Edit
+                {isEditing ? (
+                  <CheckCircleIcon size={14} weight="fill" />
+                ) : (
+                  <PencilSimpleIcon size={14} />
+                )}
+                {isEditing ? "Editing" : "Edit"}
               </Button>
               <Button
                 variant="destructive"
                 size="sm"
                 onClick={() => setDeleteOpen(true)}
               >
+                <TrashIcon size={14} />
                 Delete
               </Button>
             </Flex>
           </Flex>
 
-          {loop.description.trim() ? (
-            <Text className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
-              {loop.description}
-            </Text>
-          ) : null}
+          <Text
+            className={`max-w-3xl text-[12.5px] leading-snug ${
+              loop.description.trim() ? "text-gray-11" : "text-gray-10"
+            }`}
+          >
+            {loop.description.trim() || "No description"}
+          </Text>
 
           <PausedNotice loop={loop} />
         </Flex>
 
-        <ConfigSummarySection loop={loop} />
-
-        <InstructionsSection loop={loop} />
+        {isEditing ? (
+          <LoopForm
+            loop={loop}
+            variant="embedded"
+            onDirtyChange={setEditDirty}
+            onCancel={() => requestLeaveEdit("summary")}
+            onSaved={() => {
+              setIsEditing(false);
+              setEditDirty(false);
+              toast.success("Loop updated");
+            }}
+          />
+        ) : (
+          <>
+            <ConfigSummarySection loop={loop} />
+            <InstructionsSection loop={loop} />
+          </>
+        )}
 
         <Flex direction="column" gap="2">
           <Flex align="center" gap="2">
@@ -377,6 +561,32 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={discardOpen} onOpenChange={setDiscardOpen}>
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <Text color="gray" className="text-[13px]">
+                This loop has edits that haven't been saved. Leaving edit mode
+                will discard them.
+              </Text>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogClose
+              render={
+                <Button variant="outline" size="sm">
+                  Keep editing
+                </Button>
+              }
+            />
+            <Button variant="destructive" size="sm" onClick={discardChanges}>
+              Discard changes
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -388,6 +598,10 @@ function loopStatusBadgeVariant(
   if (color === "green") return "success";
   if (color === "red") return "destructive";
   return "default";
+}
+
+function formatVisibility(visibility: LoopSchemas.LoopVisibilityEnum): string {
+  return visibility.charAt(0).toUpperCase() + visibility.slice(1);
 }
 
 function PausedNotice({ loop }: { loop: LoopSchemas.Loop }) {
@@ -595,74 +809,18 @@ function LoopSkillSummary({ loop }: { loop: LoopSchemas.Loop }) {
 }
 
 function InstructionsSection({ loop }: { loop: LoopSchemas.Loop }) {
-  const updateLoop = useUpdateLoop(loop.id);
   const primarySkill = primaryLoopSkillBundle(loop);
-  const [draft, setDraft] = useState<string | null>(null);
-  // Escape reverts and blurs; skip the resulting onBlur save.
-  const skipCommit = useRef(false);
-
-  const commit = (value: string) => {
-    if (skipCommit.current) {
-      skipCommit.current = false;
-      return;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      setDraft(null);
-      return;
-    }
-    if (updateLoop.isPending) return;
-    if (trimmed === loop.instructions.trim()) {
-      setDraft(null);
-      return;
-    }
-    updateLoop.mutate(
-      { instructions: trimmed },
-      {
-        onSuccess: () => {
-          setDraft(null);
-          toast.success("Instructions updated");
-        },
-        onError: (error) => {
-          setDraft(null);
-          toast.error("Failed to update instructions", {
-            description: error.message,
-          });
-        },
-      },
-    );
-  };
 
   return (
     <Flex direction="column" gap="3">
-      <Flex align="center" gap="2">
-        <Text className="font-medium text-[13px] text-gray-12">
-          Instructions
-        </Text>
-        {updateLoop.isPending ? (
-          <Text className="text-[11px] text-gray-10">Saving…</Text>
-        ) : null}
-      </Flex>
-      <Textarea
-        value={draft ?? loop.instructions}
-        disabled={updateLoop.isPending}
-        aria-label="Loop instructions"
-        className="max-h-[400px] min-h-[200px] bg-(--color-panel-solid) text-[12.5px] leading-relaxed"
-        onChange={(e) => setDraft(e.currentTarget.value)}
-        onBlur={(e) => commit(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            skipCommit.current = true;
-            setDraft(null);
-            e.currentTarget.blur();
-          }
-        }}
-      />
+      <Text className="font-medium text-[13px] text-gray-12">Instructions</Text>
+      <pre className="max-h-[400px] min-h-[160px] overflow-auto whitespace-pre-wrap rounded-(--radius-2) border border-border bg-(--color-panel-solid) p-3 font-sans text-[12.5px] text-gray-12 leading-relaxed">
+        {loop.instructions}
+      </pre>
       {primarySkill ? (
         <Text className="text-[11px] text-gray-10 leading-snug">
           This loop runs the {primarySkill.skill_name} skill: the leading /
-          {primarySkill.skill_name} line invokes its attached snapshot. Editing
-          here changes only the text; use Edit to change or detach the skill.
+          {primarySkill.skill_name} line invokes its attached snapshot.
         </Text>
       ) : null}
     </Flex>

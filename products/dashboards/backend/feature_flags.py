@@ -13,9 +13,9 @@ if TYPE_CHECKING:
 DASHBOARD_WIDGETS_FLAG = "dashboard-widgets"
 
 
-def dashboard_widgets_enabled(*, team: Team, user: User | None = None) -> bool:
+def widget_flag_enabled(flag: str, *, team: Team, user: User | None = None) -> bool:
     """Match in-app flag evaluation: user distinct_id plus project/org groups."""
-    if DASHBOARD_WIDGETS_FLAG in _FORCE_ENABLED_FLAGS:
+    if flag in _FORCE_ENABLED_FLAGS:
         return True
 
     distinct_id = (user.distinct_id or str(user.uuid)) if user is not None else str(team.uuid)
@@ -24,7 +24,7 @@ def dashboard_widgets_enabled(*, team: Team, user: User | None = None) -> bool:
 
     return bool(
         posthoganalytics.feature_enabled(
-            DASHBOARD_WIDGETS_FLAG,
+            flag,
             distinct_id,
             groups={"organization": organization_id, "project": project_id},
             group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
@@ -32,3 +32,7 @@ def dashboard_widgets_enabled(*, team: Team, user: User | None = None) -> bool:
             send_feature_flag_events=False,
         )
     )
+
+
+def dashboard_widgets_enabled(*, team: Team, user: User | None = None) -> bool:
+    return widget_flag_enabled(DASHBOARD_WIDGETS_FLAG, team=team, user=user)

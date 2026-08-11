@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { EXEC_BUILT_PAYLOAD, markExecPayload, buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
+import {
+    EXEC_BUILT_PAYLOAD,
+    STRUCTURED_CONTENT_ONLY_TEXT,
+    estimateResponseTokens,
+    markExecPayload,
+    buildToolResultPayload,
+    isToolCallPayload,
+} from '@/lib/build-tool-result'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -215,6 +223,80 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
         expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
         // The UI resource URI is still exposed for single-exec clients.
         expect(payload._meta?.ui).toEqual({ resourceUri: 'ui://posthog/query-results.html' })
+    })
+
+    // Regression guard for the relapse report: after the payload moved back into
+    // `structuredContent`, the text channel still carried a full TOON copy of it, so an
+    // inline-exec UI host handed the agent the same rows twice. List and detail shapes
+    // are the two the report flagged (`experiment-list`, `experiment-get`).
+    it.each([
+        [
+            'list',
+            {
+                count: 2,
+                next: null,
+                results: [
+                    { id: 387170, name: 'Onboarding copy', feature_flag_key: 'onboarding-copy' },
+                    { id: 387171, name: 'Pricing page', feature_flag_key: 'pricing-page' },
+                ],
+            },
+        ],
+        [
+            'detail',
+            {
+                id: 387170,
+                name: 'Onboarding copy',
+                feature_flag: { key: 'onboarding-copy', filters: { groups: [{ rollout_percentage: 100 }] } },
+                metrics: [{ kind: 'ExperimentMetric', name: 'Signups' }],
+            },
+        ],
+    ])('serializes a %s payload exactly once when there is no formatted table', (_shape, handlerResult) => {
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolMeta: { ui: { resourceUri: 'ui://posthog/experiment-list.html' } },
+            toolName: 'experiment-list',
+            params: {},
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        expect(payload.structuredContent).toMatchObject(handlerResult)
+        // The text channel points at structuredContent instead of repeating it.
+        expect(payload.content).toEqual([{ type: 'text', text: STRUCTURED_CONTENT_ONLY_TEXT }])
+        expect(payload.content[0]!.text).not.toContain('Onboarding copy')
+        expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
+    })
+
+    it('counts the structured payload for token estimation when the text is only a pointer', () => {
+        // The estimate feeds `$mcp_tool_call.output_tokens`; without this the whole
+        // response would be billed as the one-line pointer.
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        expect(estimateResponseTokens(payload)).toBeGreaterThan(estimateTokens(STRUCTURED_CONTENT_ONLY_TEXT))
+    })
+
+    it('keeps the mirrored text when the caller asked for JSON output', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: { output_format: 'json' },
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        expect(JSON.parse(payload.content[0]!.text)).toMatchObject({ results: expect.any(Array) })
+        expect(payload.structuredContent).toMatchObject({ results: expect.any(Array) })
     })
 })
 

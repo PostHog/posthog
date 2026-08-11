@@ -54,6 +54,7 @@ import {
     openMoveLabelDialog,
     openRemoveLabelDialog,
     requestPromptDuplicate,
+    stripPromptSceneSearchParams,
     validatePromptName,
 } from './utils'
 
@@ -70,7 +71,6 @@ export enum PromptAnalyticsScope {
 export interface PromptLogicProps {
     promptName: string | 'new'
     mode?: PromptMode
-    selectedVersion?: number | null
 }
 
 export interface PromptFormValues {
@@ -505,7 +505,9 @@ export type llmPromptLogicType = MakeLogicType<
 export const llmPromptLogic = kea<llmPromptLogicType>([
     path(['scenes', 'ai-observability', 'llmPromptLogic']),
     props({ promptName: 'new' } as PromptLogicProps),
-    key(({ promptName, selectedVersion }) => `prompt-${promptName}:${selectedVersion ?? 'latest'}`),
+    // Keyed by name only: switching versions loads into the same logic instance, so the
+    // scene chrome (header, tabs, sidebar) survives and only prompt-derived UI updates.
+    key(({ promptName }) => `prompt-${promptName}`),
     connect(() => ({
         actions: [teamLogic, ['addProductIntent']],
     })),
@@ -660,9 +662,11 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     loaders(({ props }) => ({
         prompt: {
             __default: null as ResolvedLLMPrompt | PromptFormValues | null,
+            // Version comes from the router, not props: scene props only update after
+            // React re-renders, so they are stale inside urlToAction-triggered loads.
             loadPrompt: async () =>
                 fetchResolvedPrompt(props.promptName, {
-                    version: props.selectedVersion ?? undefined,
+                    version: getSelectedVersionFromUrl(),
                 }),
         },
         comparePrompt: {
@@ -872,7 +876,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (prompt: LLMPrompt | PromptFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Prompts',
-                    path: combineUrl(urls.aiObservabilityPrompts(), searchParams).url,
+                    path: combineUrl(urls.aiObservabilityPrompts(), stripPromptSceneSearchParams(searchParams)).url,
                     key: 'AIObservabilityPrompts',
                     iconType: 'llm_prompts',
                 },
@@ -1298,8 +1302,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         cancelEditing: () => {
             const exitEditMode = (): void => {
                 if (values.isNewPrompt) {
-                    const { edit: _edit, ...searchParams } = router.values.searchParams
-                    router.actions.push(combineUrl(urls.aiObservabilityPrompts(), searchParams).url)
+                    router.actions.push(
+                        combineUrl(
+                            urls.aiObservabilityPrompts(),
+                            stripPromptSceneSearchParams(router.values.searchParams)
+                        ).url
+                    )
                     return
                 }
                 if (isPrompt(values.prompt)) {
@@ -1326,7 +1334,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been archived.`)
                     llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                     router.actions.replace(urls.aiObservabilityPrompts(), {
-                        ...router.values.searchParams,
+                        ...stripPromptSceneSearchParams(router.values.searchParams),
                         [LLM_PROMPTS_FORCE_RELOAD_PARAM]: String(Date.now()),
                     })
                 } catch (error) {
@@ -1481,12 +1489,19 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 return
             }
 
-            if (method === 'PUSH' && !values.isNewPrompt) {
+            // POP included: back/forward between versions lands on the same logic
+            // instance, so the selected version must be re-resolved from the URL.
+            if ((method === 'PUSH' || method === 'POP') && !values.isNewPrompt) {
                 actions.loadPrompt()
             }
         },
     })),
 ])
+
+function getSelectedVersionFromUrl(): number | undefined {
+    const raw = router.values.searchParams?.version
+    return raw ? Number(raw) || undefined : undefined
+}
 
 function getPromptFormDefaults(prompt: LLMPrompt): PromptFormValues {
     return {

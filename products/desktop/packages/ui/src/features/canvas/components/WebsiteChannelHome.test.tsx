@@ -28,6 +28,10 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
   PERSONAL_CHANNEL_NAME: "me",
+  useTaskChannels: () => ({
+    channels: [{ id: "chan-1", name: "eng" }],
+    isLoading: false,
+  }),
   useBackendChannel: () => ({
     channel: { id: "backend-1", name: "eng" },
     isLoading: false,

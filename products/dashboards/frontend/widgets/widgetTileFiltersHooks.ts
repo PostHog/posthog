@@ -95,6 +95,8 @@ export function useWidgetTileConfigPersist(
                 lemonToast.error(
                     validationMessage ?? 'Could not update widget filters. Check the values and try again.'
                 )
+            } else {
+                lemonToast.error('Could not update widget filters. Check your connection and try again.')
             }
         } finally {
             pendingPersistCountRef.current -= 1

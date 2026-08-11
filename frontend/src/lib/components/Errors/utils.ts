@@ -76,7 +76,7 @@ export function getExceptionAttributes(properties: Record<string, any>): Excepti
         $os: os,
         $os_version: osVersion,
         $sentry_url: sentryUrl,
-        $level: level,
+        $exception_level: level,
         $cymbal_errors: ingestionErrors,
     } = properties
 

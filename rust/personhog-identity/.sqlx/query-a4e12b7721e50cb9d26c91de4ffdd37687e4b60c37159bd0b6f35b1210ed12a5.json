@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE lifecycle_op\n            SET lease_expires_at = now() + make_interval(secs => $2)\n            WHERE op_id = $1 AND completed_at IS NULL AND attempt = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Float8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4e12b7721e50cb9d26c91de4ffdd37687e4b60c37159bd0b6f35b1210ed12a5"
+}

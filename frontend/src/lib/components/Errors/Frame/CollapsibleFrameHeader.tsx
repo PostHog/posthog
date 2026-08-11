@@ -57,7 +57,7 @@ export function CollapsibleFrameHeader({
     }, [functionRef, sourceContent])
 
     return (
-        <div className={cn('flex w-full h-7')}>
+        <div className={cn('flex h-7 w-full bg-[var(--card)]')}>
             <Collapsible.Trigger
                 className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)]', {
                     'cursor-progress': recordLoading,
@@ -116,7 +116,7 @@ function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.
 function SpinnerIcon(): JSX.Element {
     return (
         <Tooltip title="Loading source code...">
-            <IconSpinner className="text-secondary animate-spin" fontSize={15} />
+            <IconSpinner className="animate-spin text-muted-foreground" fontSize={15} />
         </Tooltip>
     )
 }
@@ -124,7 +124,7 @@ function SpinnerIcon(): JSX.Element {
 function VendorIcon(): JSX.Element {
     return (
         <Tooltip title="Vendor frame">
-            <IconBox className="text-secondary" fontSize={15} />
+            <IconBox className="text-muted-foreground" fontSize={15} />
         </Tooltip>
     )
 }
@@ -139,12 +139,12 @@ function UnresolvedIcon({ resolve_failure }: { resolve_failure: string | null })
                         Upload your symbol sets to improve issue grouping, see unminified source code and get release
                         information.
                     </p>
-                    <p className="text-xs text-secondary">{resolve_failure}</p>
+                    <p className="text-xs text-muted-foreground">{resolve_failure}</p>
                 </>
             }
             docLink="https://posthog.com/docs/error-tracking/upload-source-maps"
         >
-            <IconWarning className="text-secondary" fontSize={15} />
+            <IconWarning className="text-muted-foreground" fontSize={15} />
         </Tooltip>
     )
 }

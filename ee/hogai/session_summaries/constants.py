@@ -38,7 +38,6 @@ PATTERNS_ASSIGNMENT_CHUNK_SIZE = 10  # How many single-session-summaries to feed
 # Maximum tokens allowed for pattern extraction (below o3 model limit and within expected quality range)
 PATTERNS_EXTRACTION_MAX_TOKENS = 150000
 SINGLE_ENTITY_MAX_TOKENS = 200000  # General limit to avoid hitting the o3 model limit, used in case of exceptions
-FAILED_PATTERNS_ENRICHMENT_MIN_RATIO = 0.75  # If less than 75% of patterns were enriched with the meta
 
 # Logging
 MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH = 150  # Maximum string of combined session ids to log in a readable format

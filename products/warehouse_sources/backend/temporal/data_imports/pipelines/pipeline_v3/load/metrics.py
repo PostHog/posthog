@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 DELTA_WRITE_DURATION_SECONDS = Histogram(
     "warehouse_load_delta_write_duration_seconds",
@@ -59,4 +59,31 @@ DELTALITE_WRITE_TOTAL = Counter(
 DELTALITE_WRITE_DURATION_SECONDS = Histogram(
     "warehouse_load_deltalite_write_duration_seconds",
     "Wall-clock time of a deltalite real write (DeltaLiteTable.upsert)",
+)
+
+# deltalite memory governor (capacity planning). Sizes each upsert's knobs to a fixed per-upsert
+# slice of pod memory ((limit * safety - reserve) / max_concurrent), so all concurrent upserts fit
+# and deltalite never falls back to the MERGE for capacity. deltalite always writes.
+#   mode    - off | advisory | enforce
+#   outcome - admitted | capacity_exceeded (source too big for its slice; ran at mpp=1)
+DELTALITE_GOVERNOR_DECISION_TOTAL = Counter(
+    "warehouse_load_deltalite_governor_decision_total",
+    "deltalite governor sizing decisions, by mode and outcome",
+    labelnames=["mode", "outcome"],
+)
+
+DELTALITE_GOVERNOR_PREDICTED_PEAK_MB = Histogram(
+    "warehouse_load_deltalite_governor_predicted_peak_mb",
+    "Predicted marginal peak RSS (MB) the governor sized an upsert against",
+    buckets=(128, 256, 512, 1024, 2048, 4096, 8192, 16384),
+)
+
+DELTALITE_GOVERNOR_INFLIGHT = Gauge(
+    "warehouse_load_deltalite_governor_inflight",
+    "deltalite upserts currently admitted and in flight on this process",
+)
+
+DELTALITE_GOVERNOR_RESERVED_MB = Gauge(
+    "warehouse_load_deltalite_governor_reserved_mb",
+    "Total memory (MB) currently reserved by in-flight deltalite upserts on this process",
 )

@@ -32,13 +32,10 @@ from products.error_tracking.backend.models import (
     ErrorTrackingSymbolSet,
 )
 
-SERVER_ONLY_PROPERTIES = frozenset({"$exception_sources", "$exception_functions"})
+CLIENT_EVALUABLE_PROPERTIES = frozenset({"$exception_types", "$exception_values"})
 
-# Operators posthog-js implements in propertyComparisons. Anything outside this set is undefined when
-# the SDK looks it up and throws on call, which drops the exception rather than skipping the rule.
-CLIENT_EVALUABLE_OPERATORS = frozenset(
-    {"exact", "is_not", "regex", "not_regex", "icontains", "not_icontains", "gt", "lt"}
-)
+# Regex and numeric coercion differ between posthog-js and the server evaluator, so those rules stay server-side.
+CLIENT_EVALUABLE_OPERATORS = frozenset({"exact", "is_not", "icontains", "not_icontains"})
 
 
 class ErrorTrackingReleaseHashInUseError(Exception):
@@ -818,20 +815,31 @@ def reorder_bypass_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingBypassRule, team_id, orders)
 
 
-def get_client_safe_filters(filters: dict) -> dict | None:
-    """Return the filters if every leaf is client-safe, otherwise None.
+def get_client_safe_filters(filters: object) -> dict | None:
+    """Return filters that match the posthog-js suppression-rule contract, otherwise None.
 
-    A filter that references a server-only property, or an operator the SDK does not implement,
-    cannot be evaluated client-side, so the whole rule is excluded and left to server-side
-    evaluation during ingestion.
+    Rules outside this flat shape are excluded and left to server-side evaluation during ingestion.
     """
-    for value in filters.get("values", []):
-        if "values" in value:
-            if get_client_safe_filters(value) is None:
-                return None
-        elif value.get("key") in SERVER_ONLY_PROPERTIES:
+    if not isinstance(filters, dict) or filters.get("type") not in {"AND", "OR"}:
+        return None
+
+    values = filters.get("values")
+    if not isinstance(values, list) or not values:
+        return None
+
+    for value in values:
+        if not isinstance(value, dict) or "values" in value:
             return None
-        elif value.get("operator") not in CLIENT_EVALUABLE_OPERATORS:
+        if not isinstance(value.get("type"), str):
+            return None
+        if value.get("key") not in CLIENT_EVALUABLE_PROPERTIES:
+            return None
+        if value.get("operator") not in CLIENT_EVALUABLE_OPERATORS:
+            return None
+        target = value.get("value")
+        if not isinstance(target, str) and not (
+            isinstance(target, list) and all(isinstance(item, str) for item in target)
+        ):
             return None
     return filters
 
@@ -840,10 +848,9 @@ def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
     rules = ErrorTrackingSuppressionRule.objects.filter(team_id=team_id).values_list("filters", "sampling_rate")
     result = []
     for filters, sampling_rate in rules:
+        if sampling_rate != 1.0:
+            continue
         safe = get_client_safe_filters(filters)
         if safe is not None:
-            rule_data = {**safe}
-            if sampling_rate < 1.0:
-                rule_data["samplingRate"] = sampling_rate
-            result.append(rule_data)
+            result.append(safe)
     return result

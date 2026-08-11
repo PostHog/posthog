@@ -358,7 +358,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
+                                    tag_names?: string[] | undefined
                                 }
                                 type: 'batch'
                             }
@@ -470,7 +474,11 @@ export interface hogFlowEditorTestLogicMeta {
                             }
                           | {
                                 filters: {
+                                    all_roles_unassigned?: boolean | undefined
+                                    assigned_to_user_ids?: number[] | undefined
+                                    audience_type?: 'accounts' | 'persons' | undefined
                                     properties: any[]
+                                    tag_names?: string[] | undefined
                                 }
                                 type: 'batch'
                             }

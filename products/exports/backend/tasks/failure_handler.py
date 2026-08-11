@@ -32,6 +32,7 @@ from posthog.errors import (
     CHQueryErrorUnsupportedMethod,
 )
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQuerySizeExceeded, ClickHouseQueryTimeOut
+from posthog.storage.object_storage import ObjectStorageError
 
 # =============================================================================
 # Export Failure Classification
@@ -80,6 +81,10 @@ class InvalidExportContext(Exception):
     pass
 
 
+class RetryableExportError(Exception):
+    pass
+
+
 EXCEPTIONS_TO_RETRY = (
     *CH_TRANSIENT_ERRORS,
     OperationalError,
@@ -90,6 +95,8 @@ EXCEPTIONS_TO_RETRY = (
     SocketTimeoutError,
     SSLError,
     BrowserlessUnavailable,
+    ObjectStorageError,
+    RetryableExportError,
 )
 
 USER_QUERY_ERRORS = (

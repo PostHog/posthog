@@ -70,7 +70,7 @@ WITH exposures AS (
     argMin(properties.$feature_flag_response, timestamp) AS variant,
     min(timestamp) AS first_exposure
   FROM events
-  WHERE event = '$feature_flag_called'  -- or exposure_criteria.exposure_event when set
+  WHERE event = '<exposure-event>'  -- resolved_exposure_event from experiment-get; exposure_criteria.exposure_config.event when set
     AND properties.$feature_flag = '<flag-key>'
     AND properties.$feature_flag_response != '$multiple'  -- source 2 (drop if multiple_variant_handling='first_seen')
     AND timestamp >= '<start_date>'                       -- source 4
@@ -170,7 +170,7 @@ shows as "none" rather than an error. This is silent and confusing.
 **Verify:** check that the breakdown property is actually being captured on the relevant event.
 
 **Recommend:** if it's the exposure event missing the property, see D3 — set the property earlier in
-the journey, or capture it on `$feature_flag_called` directly.
+the journey, or capture it on the exposure event directly.
 
 ## D6 — Recordings panel ≠ statistical calculation [MEDIUM]
 

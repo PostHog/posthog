@@ -1,6 +1,6 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
-import { hogApiErrorMessageFn } from './api-error'
+import { hogApiErrorMessageFn } from '../../hog-helpers'
 
 export const template: HogFunctionTemplate = {
     free: true,

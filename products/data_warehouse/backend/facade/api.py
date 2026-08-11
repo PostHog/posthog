@@ -96,6 +96,7 @@ _LAZY = {
     "ensure_bucket_exists": "s3",
     "get_s3_client": "s3",
     "get_size_of_folder": "s3",
+    "delta_proxy_storage_options": "s3_proxy",
 }
 
 __all__ = sorted(_LAZY)

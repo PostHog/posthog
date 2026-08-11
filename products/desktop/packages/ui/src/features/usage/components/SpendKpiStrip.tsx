@@ -1,28 +1,23 @@
 import {
   formatUsd,
   formatWindow,
-  type SpendAnalysisFilledDay,
   windowDays,
 } from "@posthog/core/billing/spendAnalysisFormat";
-import type { SpendAnalysisResponse } from "@posthog/core/billing/spendAnalysisTypes";
+import type {
+  SpendAnalysisFilledDay,
+  SpendAnalysisResponse,
+} from "@posthog/core/billing/spendAnalysisTypes";
 import { MetricCard, useChartTheme } from "@posthog/quill-charts";
-import { Flex } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 import { spendDayLabel } from "./spendDayLabel";
 
 const tileTitle = (label: string): ReactNode => (
-  <span className="text-[11px] text-gray-10 uppercase tracking-wide">
-    {label}
-  </span>
+  <span className="text-[12px] text-gray-11">{label}</span>
 );
 
-function KpiCell({ children, last }: { children: ReactNode; last?: boolean }) {
+function KpiCell({ children }: { children: ReactNode }) {
   return (
-    <div
-      className={`min-w-0 flex-1 px-4 py-3 ${last ? "" : "border-(--gray-5) border-r"}`}
-    >
-      {children}
-    </div>
+    <div className="min-w-0 bg-(--color-panel-solid) px-4 py-3">{children}</div>
   );
 }
 
@@ -40,8 +35,10 @@ export function SpendKpiStrip({ data, filledDays }: SpendKpiStripProps) {
   const latestDay = filledDays?.at(-1);
   const windowLabel = formatWindow(summary.date_from, summary.date_to);
 
+  // gap-px over the panel background draws the cell separators, so the tiles
+  // stay separated when the grid wraps to two columns in the settings pane.
   return (
-    <Flex className="overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--color-panel-solid)">
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-(--radius-3) border border-(--gray-5) bg-(--gray-5) md:grid-cols-4">
       <KpiCell>
         <MetricCard
           title={tileTitle("Total spend")}
@@ -78,7 +75,7 @@ export function SpendKpiStrip({ data, filledDays }: SpendKpiStripProps) {
           sparklineHeight={28}
         />
       </KpiCell>
-      <KpiCell last>
+      <KpiCell>
         {latestDay ? (
           <MetricCard
             title={tileTitle("Latest day")}
@@ -98,6 +95,6 @@ export function SpendKpiStrip({ data, filledDays }: SpendKpiStripProps) {
           />
         )}
       </KpiCell>
-    </Flex>
+    </div>
   );
 }

@@ -79,6 +79,12 @@ class GithubEndpointConfig:
     # checkpoints the watermark assuming ascending order. workflow_runs and deployments are the
     # original cases and are matched by name via _ALWAYS_NEWEST_FIRST_ENDPOINTS in github.py.
     always_desc: bool = False
+    # A 404 on this endpoint means the resource does not exist for this repository rather than that
+    # the repository or token is wrong, so the sync writes zero rows instead of failing. Issue types
+    # and repository teams only exist under an organization owner, so a user-owned repo 404s on both
+    # even with a perfectly good token. (The org-scoped endpoints predate this flag and are matched
+    # by name via ORG_SCOPED_ENDPOINTS in github.py.)
+    tolerate_not_found: bool = False
 
 
 def _datetime_field(field: str) -> IncrementalField:
@@ -424,6 +430,38 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         primary_key="repository",
         param_style="plain",
     ),
+    "repository_activity": GithubEndpointConfig(
+        name="repository_activity",
+        # Pushes, force pushes, merges, and branch creations and deletions, repo-wide. This is the
+        # only place force pushes and branch deletions are visible at all: they rewrite or remove
+        # history, so nothing in commits or pull_requests records that they happened.
+        # The endpoint takes no `since` filter but answers newest-first, so incremental syncs
+        # paginate down and stop at the watermark, the same way issue_events does.
+        path="/repos/{repository}/activity",
+        partition_key="timestamp",  # When the activity happened; immutable.
+        incremental_fields=[_datetime_field("timestamp")],
+        default_incremental_field="timestamp",
+        param_style="plain",
+        # desc is already the endpoint's default, but the descending walk is what makes the
+        # watermark stop correct, so send it rather than depend on the default staying put.
+        extra_params={"direction": "desc"},
+        sort_mode="desc",
+        always_desc=True,
+    ),
+    "repository_teams": GithubEndpointConfig(
+        name="repository_teams",
+        # The teams granted access to this repository, with the permission level each holds. Unlike
+        # the org-wide teams table this is repo-scoped, so it answers "who owns this repo" without
+        # the org membership grant.
+        path="/repos/{repository}/teams",
+        incremental_fields=[],
+        param_style="plain",
+        # GitHub answers 404 rather than 403 when the caller cannot see a repository's teams, and a
+        # user-owned repo has no teams at all, so a default connection could enable a table that
+        # only ever stays empty. Leave it deselected and let org-owned repos opt in.
+        should_sync_default=False,
+        tolerate_not_found=True,
+    ),
     # --- Issue and review discussion ------------------------------------------------------
     "issue_comments": GithubEndpointConfig(
         name="issue_comments",
@@ -444,6 +482,28 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         default_incremental_field="updated_at",
         param_style="sorted",
         supports_since_param=True,
+    ),
+    "commit_comments": GithubEndpointConfig(
+        name="commit_comments",
+        # The third comment surface, alongside issue_comments and pull_request_comments: comments
+        # left on a commit directly rather than through an issue or a pull request review.
+        path="/repos/{repository}/comments",
+        partition_key="created_at",
+        # Rows come back ordered by ascending id and the endpoint takes no `since` filter or sort,
+        # so an incremental sync would still walk every page. Full refresh only.
+        incremental_fields=[],
+        param_style="plain",
+    ),
+    "issue_types": GithubEndpointConfig(
+        name="issue_types",
+        # Lookup table for the issue type an issue carries (Bug, Feature, Task, plus whatever the
+        # organization defines). issues stores it as a nested object per row, so without this there
+        # is nothing to group by when a type is renamed or retired.
+        path="/repos/{repository}/issue-types",
+        incremental_fields=[],
+        param_style="plain",
+        # Issue types are inherited from the organization owner, so a user-owned repository 404s.
+        tolerate_not_found=True,
     ),
     "issue_events": GithubEndpointConfig(
         name="issue_events",
@@ -758,10 +818,86 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         primary_key="week",
         param_style="plain",
     ),
+    "punch_card_stats": GithubEndpointConfig(
+        name="punch_card_stats",
+        # Returns positional arrays ([day, hour, commits]); the body transform names them. One row
+        # per weekday/hour bucket, so the whole table is at most 168 rows.
+        path="/repos/{repository}/stats/punch_card",
+        incremental_fields=[],
+        primary_key=["day", "hour"],
+        param_style="plain",
+    ),
 }
 
 ENDPOINTS = tuple(GITHUB_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in GITHUB_ENDPOINTS.items()
+}
+
+# The grant a connection needs before GitHub will answer this endpoint, keyed the way GitHub names
+# it in an installation's permission set, so the picker can compare it against the permissions the
+# installation actually holds. Endpoints not listed here need no grant beyond the metadata/contents
+# read that every connection is validated for at connect time, so a denial on those is not a
+# per-table gap.
+ENDPOINT_REQUIRED_PERMISSION: dict[str, str] = {
+    "issues": "issues",
+    "issue_comments": "issues",
+    "issue_events": "issues",
+    "issue_types": "issues",
+    "labels": "issues",
+    "milestones": "issues",
+    "pull_requests": "pull_requests",
+    "pull_request_comments": "pull_requests",
+    "reviews": "pull_requests",
+    "workflow_runs": "actions",
+    "workflow_jobs": "actions",
+    "workflows": "actions",
+    "artifacts": "actions",
+    "actions_caches": "actions",
+    "check_runs": "checks",
+    "commit_statuses": "statuses",
+    "environments": "environments",
+    "deployments": "deployments",
+    "deployment_statuses": "deployments",
+    "code_scanning_alerts": "security_events",
+    "secret_scanning_alerts": "secret_scanning_alerts",
+    "dependabot_alerts": "vulnerability_alerts",
+    "security_advisories": "repository_advisories",
+    "runners": "administration",
+    "traffic_views": "administration",
+    "traffic_clones": "administration",
+    "traffic_referrers": "administration",
+    "traffic_paths": "administration",
+    "hooks": "repository_hooks",
+    "teams": "members",
+    "team_members": "members",
+}
+
+# Prefix of every per-endpoint grant-denial message _fetch_page raises. GithubSource's
+# get_non_retryable_errors keys its catch-all on this exact string: GitHub phrases denials per
+# endpoint ("Must have push access to view repository collaborators"), so without the shared prefix
+# those wordings would match no key and the job would retry a denial forever instead of disabling
+# the schema.
+GRANT_DENIAL_PREFIX = "GitHub can't read this table"
+
+# What to ask for, as (name on a fine-grained token or app installation, scope on a classic token).
+# The three name the same grant differently, so the message carries both rather than making the
+# reader translate. _grant_hint in github.py builds the sentence, which keeps the wording in one
+# place and out of the user-facing string, where markdown does not render.
+GRANT_NAMES: dict[str, tuple[str, str]] = {
+    "issues": ("Issues: read", "repo"),
+    "pull_requests": ("Pull requests: read", "repo"),
+    "actions": ("Actions: read", "repo"),
+    "checks": ("Checks: read", "repo"),
+    "statuses": ("Commit statuses: read", "repo:status"),
+    "environments": ("Environments: read", "repo"),
+    "deployments": ("Deployments: read", "repo_deployment"),
+    "security_events": ("Code scanning alerts: read", "security_events"),
+    "secret_scanning_alerts": ("Secret scanning alerts: read", "repo"),
+    "vulnerability_alerts": ("Dependabot alerts: read", "security_events"),
+    "repository_advisories": ("Repository security advisories: read", "repo"),
+    "administration": ("Administration: read", "repo"),
+    "repository_hooks": ("Webhooks: read", "admin:repo_hook"),
+    "members": ("Members: read on the organization", "read:org"),
 }

@@ -1789,6 +1789,8 @@ class TestExportFanOut:
 
         export_call = next(call for call in client.execute.call_args_list if "INSERT INTO FUNCTION" in call.args[0])
         assert export_call.kwargs["settings"]["output_format_parquet_row_group_size_bytes"] == 128 * 1024 * 1024
+        assert export_call.kwargs["settings"]["join_algorithm"] == "grace_hash"
+        assert export_call.kwargs["settings"]["max_bytes_in_join"] == 10 * 1024 * 1024 * 1024
 
     def test_persons_full_export_sizes_fanout_and_returns_glob(self, target):
         # 25M rows at the 5M-row default target → 5 files.
@@ -1801,6 +1803,28 @@ class TestExportFanOut:
 
         export_call = next(call for call in client.execute.call_args_list if "INSERT INTO FUNCTION" in call.args[0])
         assert export_call.kwargs["settings"]["output_format_parquet_row_group_size_bytes"] == 128 * 1024 * 1024
+        assert export_call.kwargs["settings"]["join_algorithm"] == "grace_hash"
+        assert export_call.kwargs["settings"]["max_bytes_in_join"] == 10 * 1024 * 1024 * 1024
+
+    @parameterized.expand(
+        [
+            ("daily", export_persons_to_duckling_s3, {"team_id": 2, "date": datetime(2026, 6, 17)}),
+            ("full", export_persons_full_to_duckling_s3, {"team_id": 2}),
+        ]
+    )
+    def test_persons_export_preserves_explicit_join_settings(self, _label, export_fn, kwargs):
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        _insert_sql, _count_sql, _glob, client = self._run_export(
+            export_fn,
+            target,
+            row_count=1,
+            settings={"join_algorithm": "parallel_hash", "max_bytes_in_join": 123},
+            **kwargs,
+        )
+
+        export_call = next(call for call in client.execute.call_args_list if "INSERT INTO FUNCTION" in call.args[0])
+        assert export_call.kwargs["settings"]["join_algorithm"] == "parallel_hash"
+        assert export_call.kwargs["settings"]["max_bytes_in_join"] == 123
 
     @parameterized.expand(
         [

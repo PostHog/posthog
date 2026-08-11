@@ -1,46 +1,65 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from '~/lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { ApiError } from 'lib/api-error'
+
 import { initKeaTests } from '~/test/init'
-import { DatasetItem } from '~/types'
 
+import { CodeEnumApi } from '../generated/api.schemas'
+import type { DatasetItemReadApi as DatasetItem } from '../generated/api.schemas'
 import { datasetItemModalLogic } from './datasetItemModalLogic'
-import { EMPTY_JSON } from './utils'
+import { datasetsApi } from './datasetsApi'
+import { EMPTY_JSON, isStringJsonValue } from './utils'
 
-jest.mock('~/lib/api')
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: {
+        error: jest.fn(),
+        success: jest.fn(),
+    },
+}))
+jest.mock('./datasetsApi', () => ({
+    datasetsApi: {
+        createItem: jest.fn(),
+        updateItem: jest.fn(),
+    },
+}))
 
 describe('datasetItemModalLogic', () => {
     const mockDatasetItem: DatasetItem = {
         id: 'test-item-1',
         dataset: 'test-dataset-1',
-        team: 997,
+        client_item_id: null,
+        version: 2,
+        version_id: 'test-item-version-2',
+        dataset_revision: 2,
+        dataset_revision_id: 'test-dataset-revision-2',
+        archived: false,
         input: { message: 'Hello' },
-        output: { response: 'Hi there' },
+        expected_output: { response: 'Hi there' },
+        source_output: { response: 'Original response' },
         metadata: { source: 'test' },
-        ref_trace_id: null,
-        ref_timestamp: null,
-        ref_source_id: null,
+        source_trace_id: null,
+        source_timestamp: null,
+        source_event_id: null,
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
-        created_by: {
-            id: 1,
-            uuid: 'test-uuid-1',
-            distinct_id: 'test-distinct-id-1',
-            first_name: 'Test',
-            email: 'test1@example.com',
-        },
-        deleted: false,
+        created_by: null,
+        version_created_at: '2024-01-02T00:00:00Z',
+        version_created_by: null,
+        team_id: 997,
     }
 
-    const mockApi = api as jest.Mocked<typeof api>
+    const mockDatasetsApi = jest.mocked(datasetsApi)
     const mockCloseModal = jest.fn()
 
     beforeEach(() => {
         initKeaTests()
         jest.resetAllMocks()
 
-        jest.spyOn(mockApi.datasetItems, 'create').mockResolvedValue(mockDatasetItem)
-        jest.spyOn(mockApi.datasetItems, 'update').mockResolvedValue(mockDatasetItem)
+        mockDatasetsApi.createItem.mockResolvedValue(mockDatasetItem)
+        mockDatasetsApi.updateItem.mockResolvedValue(mockDatasetItem)
     })
 
     it('save resets shouldCloseModal to true after creating item', async () => {
@@ -115,13 +134,55 @@ describe('datasetItemModalLogic', () => {
         logic.mount()
 
         // Mock successful update
-        const updatedItem = { ...mockDatasetItem, output: { response: 'Updated response' } }
-        ;(mockApi.datasetItems.update as jest.Mock).mockResolvedValue(updatedItem)
+        const updatedItem = { ...mockDatasetItem, expected_output: { response: 'Updated response' } }
+        mockDatasetsApi.updateItem.mockResolvedValue(updatedItem)
 
         // Submit form
         await expectLogic(logic, () => {
             logic.actions.submitDatasetItemForm()
         }).toFinishAllListeners()
+
+        expect(mockDatasetsApi.updateItem).toHaveBeenCalledWith(mockDatasetItem.id, {
+            base_version: mockDatasetItem.version,
+            input: mockDatasetItem.input,
+            expected_output: mockDatasetItem.expected_output,
+            metadata: mockDatasetItem.metadata,
+        })
+        expect(mockCloseModal).toHaveBeenCalledWith(true)
+    })
+
+    it('offers to reload items when editing an outdated version', async () => {
+        const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
+        mockDatasetsApi.updateItem.mockRejectedValue(
+            new ApiError(errorDetail, 409, undefined, {
+                code: CodeEnumApi.StaleVersion,
+                detail: errorDetail,
+                current_version: 2,
+            })
+        )
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.submitDatasetItemForm()
+        }).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith(errorDetail, {
+            button: {
+                label: 'Reload items',
+                action: expect.any(Function),
+            },
+        })
+
+        const toastOptions = (lemonToast.error as jest.Mock).mock.calls.at(-1)?.[1] as {
+            button: { action: () => void }
+        }
+        toastOptions.button.action()
 
         expect(mockCloseModal).toHaveBeenCalledWith(true)
     })
@@ -137,7 +198,7 @@ describe('datasetItemModalLogic', () => {
 
         expect(logic.values.datasetItemForm).toEqual({
             input: EMPTY_JSON,
-            output: EMPTY_JSON,
+            expectedOutput: '',
             metadata: EMPTY_JSON,
         })
     })
@@ -153,7 +214,7 @@ describe('datasetItemModalLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.datasetItemForm.input).toContain('"message": "Hello"')
-        expect(logic.values.datasetItemForm.output).toContain('"response": "Hi there"')
+        expect(logic.values.datasetItemForm.expectedOutput).toContain('"response": "Hi there"')
         expect(logic.values.datasetItemForm.metadata).toContain('"source": "test"')
     })
 
@@ -172,14 +233,14 @@ describe('datasetItemModalLogic', () => {
         // Set some custom form values
         logic.actions.setDatasetItemFormValues({
             input: '{"custom": "input"}',
-            output: '{"custom": "output"}',
+            expectedOutput: '{"custom": "output"}',
             metadata: '{"custom": "metadata"}',
         })
 
         // Verify form has custom values
         expect(logic.values.datasetItemForm).toEqual({
             input: '{"custom": "input"}',
-            output: '{"custom": "output"}',
+            expectedOutput: '{"custom": "output"}',
             metadata: '{"custom": "metadata"}',
         })
 
@@ -190,8 +251,125 @@ describe('datasetItemModalLogic', () => {
 
         expect(logic.values.datasetItemForm).toEqual({
             input: EMPTY_JSON,
-            output: EMPTY_JSON,
+            expectedOutput: '',
             metadata: EMPTY_JSON,
         })
+    })
+
+    it('preserves arbitrary JSON input and expected output values', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: null,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        })
+        logic.mount()
+        logic.actions.setDatasetItemFormValues({
+            input: 'false',
+            expectedOutput: '["first", 2]',
+            metadata: '{}',
+        })
+
+        await expectLogic(logic, () => logic.actions.submitDatasetItemForm()).toFinishAllListeners()
+
+        expect(mockDatasetsApi.createItem).toHaveBeenCalledWith({
+            dataset: 'test-dataset-1',
+            client_item_id: undefined,
+            input: false,
+            expected_output: ['first', 2],
+            source_output: undefined,
+            metadata: {},
+            source_trace_id: undefined,
+            source_event_id: undefined,
+            source_timestamp: undefined,
+        })
+    })
+
+    it('does not submit mutations from a read-only item modal', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+            readOnly: true,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.submitDatasetItemForm()).toFinishAllListeners()
+
+        expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
+    })
+
+    it('preserves unsaved changes and prevents restoring a version', async () => {
+        const logicProps = {
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        }
+        const logic = datasetItemModalLogic(logicProps)
+        logic.mount()
+
+        logic.actions.setDatasetItemFormValue('input', '{"message": "Changed"}')
+
+        await expectLogic(logic, () => {
+            datasetItemModalLogic({ ...logicProps, restoringVersion: 1 })
+        })
+
+        expect(logic.values.datasetItemFormChanged).toBe(true)
+        expect(logic.values.datasetItemForm.input).toBe('{"message": "Changed"}')
+        expect(logic.values.datasetItemVersionRestoreDisabledReason).toBe(
+            'Save or discard your changes before restoring a version'
+        )
+    })
+
+    it('prevents editing and saving while a version is being restored', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+            restoringVersion: 1,
+        })
+        logic.mount()
+
+        expect(logic.values.isDatasetItemFormReadOnly).toBe(true)
+        expect(logic.values.datasetItemFormSubmitDisabledReason).toBe('Wait for the version to finish restoring')
+
+        await expectLogic(logic, () => logic.actions.submitDatasetItemForm()).toFinishAllListeners()
+
+        expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
+    })
+
+    it('updates read-only state when restoring props change', async () => {
+        const logicProps = {
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+        }
+        const logic = datasetItemModalLogic(logicProps)
+        logic.mount()
+
+        expect(logic.values.isDatasetItemFormReadOnly).toBe(false)
+        expect(logic.values.datasetItemFormSubmitDisabledReason).toBeUndefined()
+
+        datasetItemModalLogic({ ...logicProps, restoringVersion: 1 })
+
+        await expectLogic(logic).toMatchValues({
+            isDatasetItemFormReadOnly: true,
+            datasetItemFormSubmitDisabledReason: 'Wait for the version to finish restoring',
+        })
+
+        datasetItemModalLogic({ ...logicProps, restoringVersion: null })
+
+        await expectLogic(logic).toMatchValues({
+            isDatasetItemFormReadOnly: false,
+            datasetItemFormSubmitDisabledReason: undefined,
+        })
+    })
+
+    it('rejects invalid expected output JSON', () => {
+        expect(isStringJsonValue('{invalid')).toBe(false)
     })
 })

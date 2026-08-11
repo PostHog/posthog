@@ -263,6 +263,97 @@ class TestHandleGithubEventForLoops(TestCase):
 
     @parameterized.expand(
         [
+            (
+                "requested_team_matches",
+                [{"path": "requested_team.slug", "equals": ["team-security"]}],
+                {"requested_team": {"slug": "team-security"}},
+                True,
+            ),
+            (
+                "another_team_was_asked",
+                [{"path": "requested_team.slug", "equals": ["team-security"]}],
+                {"requested_team": {"slug": "team-platform"}},
+                False,
+            ),
+            # Review requested from a person carries requested_reviewer, not requested_team.
+            (
+                "reviewer_is_a_person_not_a_team",
+                [{"path": "requested_team.slug", "equals": ["team-security"]}],
+                {"requested_reviewer": {"login": "alice"}},
+                False,
+            ),
+            (
+                "scalar_where_the_path_expects_an_object",
+                [{"path": "requested_team.slug", "equals": ["team-security"]}],
+                {"requested_team": "team-security"},
+                False,
+            ),
+            # Paths address object keys only, so a list hop resolves to nothing; `labels` is the
+            # filter for that.
+            (
+                "path_through_an_array",
+                [{"path": "pull_request.labels.0.name", "equals": ["security"]}],
+                {},
+                False,
+            ),
+            (
+                "one_matching_condition_cannot_carry_a_failing_one",
+                [
+                    {"path": "requested_team.slug", "equals": ["team-security"]},
+                    {"path": "pull_request.draft", "equals": ["true"]},
+                ],
+                {"requested_team": {"slug": "team-security"}},
+                False,
+            ),
+            # Authors write strings; a numeric or boolean leaf is compared by its string form.
+            (
+                "non_string_leaf_compares_by_string_form",
+                [{"path": "pull_request.number", "equals": ["7"]}],
+                {},
+                True,
+            ),
+        ]
+    )
+    @patch(FIRE_LOOP_PATCH_TARGET, autospec=True)
+    def test_pull_request_payload_conditions(self, _name, conditions, payload_extra, expect_fired, mock_fire_loop):
+        loop = self._create_loop(self.team)
+        self._create_github_trigger(
+            self.team,
+            loop,
+            github_integration_id=self.integration.id,
+            repository="acme/repo",
+            events=["pull_request"],
+            filters={"actions": ["review_requested"], "payload": conditions},
+        )
+        payload = {
+            "installation": {"id": 998877},
+            "repository": {"full_name": "acme/repo"},
+            "action": "review_requested",
+            "pull_request": {
+                "author_association": "MEMBER",
+                "number": 7,
+                "draft": False,
+                "labels": [{"name": "security"}],
+            },
+            **payload_extra,
+        }
+
+        handle_github_event_for_loops("pull_request", payload, delivery_id="del-payload-filter")
+
+        self.assertEqual(mock_fire_loop.called, expect_fired)
+
+    def test_review_request_target_reaches_the_event_summary(self):
+        # A loop that fires on "a team was asked to review" needs to know which team, and the
+        # summary is the only thing that reaches the run's prompt.
+        summary = _build_event_summary(
+            "pull_request",
+            {"action": "review_requested", "requested_team": {"slug": "team-security", "name": "Security"}},
+        )
+
+        self.assertEqual(summary["requested_team"], {"slug": "team-security", "name": "Security"})
+
+    @parameterized.expand(
+        [
             ("owner", "OWNER", True),
             ("member", "MEMBER", True),
             ("collaborator", "COLLABORATOR", True),

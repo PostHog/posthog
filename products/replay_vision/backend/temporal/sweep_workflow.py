@@ -2,6 +2,7 @@
 
 import asyncio
 import datetime as dt
+from uuid import UUID
 
 import temporalio.workflow as wf
 from temporalio import common
@@ -123,25 +124,43 @@ class SweepScannerWorkflow(PostHogWorkflow):
             )
             return
 
+        # Retries target fast ClickHouse admission rejections (code 202); schedule_to_close deliberately
+        # cuts slow timeout-bound attempts off after two rounds so the tick fails with ~10 minutes of the
+        # 15-minute workflow budget left, instead of burning it on a query that keeps timing out.
         find_result = await wf.execute_activity(
             find_scanner_candidates_activity,
             FindScannerCandidatesInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id, candidate_limit=headroom),
             start_to_close_timeout=dt.timedelta(seconds=200),
-            retry_policy=common.RetryPolicy(maximum_attempts=1),
+            schedule_to_close_timeout=dt.timedelta(seconds=450),
+            retry_policy=common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=5),
+                backoff_coefficient=2.0,
+                maximum_interval=dt.timedelta(seconds=30),
+                maximum_attempts=4,
+            ),
         )
         if not find_result.candidates:
+            # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
+            # instead of freezing on low-yield scanners; skipped when swept_through is None.
+            if find_result.swept_through is not None:
+                await self._advance_watermark(inputs.scanner_id, find_result.swept_through)
             return
 
         # First failure aborts the gather and skips the advance; UNIQUE(scanner_id, session_id) dedups retries.
         await asyncio.gather(*(self._start_child(inputs, c) for c in find_result.candidates))
 
         last = find_result.candidates[-1]
+        await self._advance_watermark(
+            inputs.scanner_id, last.session_end, last.session_id if find_result.saturated else ""
+        )
+
+    async def _advance_watermark(self, scanner_id: UUID, swept_at: dt.datetime, last_seen_session_id: str = "") -> None:
         await wf.execute_activity(
             advance_scanner_watermark_activity,
             AdvanceScannerWatermarkInputs(
-                scanner_id=inputs.scanner_id,
-                new_last_swept_at=last.session_end,
-                new_last_seen_session_id=last.session_id if find_result.saturated else "",
+                scanner_id=scanner_id,
+                new_last_swept_at=swept_at,
+                new_last_seen_session_id=last_seen_session_id,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=common.RetryPolicy(maximum_attempts=3),

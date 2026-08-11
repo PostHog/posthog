@@ -50,6 +50,8 @@ User-facing features with their own backend (Django app) and frontend (React). E
 
 See [products/README.md](/products/README.md) for how to create products. For new isolated products, see [products/architecture.md](/products/architecture.md) for design principles (DTOs, facades, isolation rules).
 
+One exception to the Django-plus-React shape: `products/desktop/` is the PostHog desktop app (Electron, plus mobile and web hosts), imported from the PostHog/code repo. It is a nested standalone pnpm workspace with its own lockfile, Node version and Biome toolchain, deliberately excluded from the root pnpm workspace, with its own `desktop-*` CI. Its `AGENTS.md` covers the architecture and its `MIGRATION.md` covers the resync contract with PostHog/code. Day to day, drive it through `hogli desktop:*` commands, or `cd products/desktop` and use pnpm directly.
+
 #### What a product can own
 
 Most products are a Django app plus React scenes — and most already carry more: an `mcp/` directory of MCP tool definitions, often a `skills/` directory of agent skills. A product can own anything attributable to it, runtime and tooling alike. Nest it under the product instead of scattering it across top-level dirs:

@@ -15,6 +15,8 @@ function context(primary: ProductKey): OnboardingFlowContext {
         isCloudOrDev: true,
         subscribedDuringOnboarding: false,
         canInviteTeammates: true,
+        featureFlags: {},
+        showAIReportsStep: false,
     }
 }
 

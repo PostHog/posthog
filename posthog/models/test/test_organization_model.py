@@ -10,7 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationInvite
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import BillingPeriod, OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
 
@@ -201,11 +201,10 @@ class TestOrganization(BaseTest):
         if should_return_period:
             self.assertIsNotNone(result)
             assert result is not None  # Type narrowing for mypy
-            self.assertIsInstance(result, tuple)
-            self.assertEqual(len(result), 2)
-            self.assertIsInstance(result[0], datetime)
-            self.assertIsInstance(result[1], datetime)
-            self.assertLess(result[0], result[1])
+            self.assertIsInstance(result, BillingPeriod)
+            self.assertIsInstance(result.start, datetime)
+            self.assertIsInstance(result.end, datetime)
+            self.assertLess(result.start, result.end)
         else:
             self.assertIsNone(result)
 

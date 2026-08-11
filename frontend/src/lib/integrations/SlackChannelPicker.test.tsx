@@ -1,8 +1,13 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -159,6 +164,30 @@ describe('SlackChannelPicker', () => {
         expect(channelIdLookups).not.toContain('COFFPAGE9XX|#off-page-channel')
     })
 
+    it('resolves a saved channel name when the picker is disabled without displaying its ID', async () => {
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    value={OFF_PAGE_CHANNEL.id}
+                    onChange={jest.fn()}
+                    disabled
+                />
+            </Provider>
+        )
+
+        expect(container).not.toHaveTextContent(OFF_PAGE_CHANNEL.id)
+
+        await waitFor(
+            () => {
+                expect(channelIdLookups).toContain(OFF_PAGE_CHANNEL.id)
+                expect(container).toHaveTextContent(`#${OFF_PAGE_CHANNEL.name}`)
+                expect(container).not.toHaveTextContent(OFF_PAGE_CHANNEL.id)
+            },
+            { timeout: 2000 }
+        )
+    })
+
     it('does not fire a direct lookup when there is no saved value', async () => {
         render(
             <Provider>
@@ -264,5 +293,49 @@ describe('SlackChannelPicker', () => {
             },
             { timeout: 5000 }
         )
+    })
+})
+
+describe('SlackChannelPicker — inactive integration banner', () => {
+    // Reconnecting is an overwrite, which the API reserves for project admins. Offering the OAuth
+    // link to a member sends them through the whole flow only to be rejected on the final write.
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'slack_integration_inactive',
+                        detail: 'Your Slack connection is no longer active.',
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        teamLogic.mount()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it.each([
+        [OrganizationMembershipLevel.Admin, true],
+        [OrganizationMembershipLevel.Member, false],
+    ])('membership level %s renders the reconnect link: %s', async (level, expectsLink) => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, effective_membership_level: level })
+
+        render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.getByText(/Slack connection is no longer active/)).toBeInTheDocument()
+        })
+        expect(screen.queryByText('Reconnect Slack')).toEqual(expectsLink ? expect.anything() : null)
+        expect(screen.queryByText(/Ask a project admin/)).toEqual(expectsLink ? null : expect.anything())
     })
 })

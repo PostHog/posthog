@@ -18,7 +18,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 
-from .utils import clear_node_suspension, update_node_system_properties
+from .utils import bind_data_modeling_log_context, clear_node_suspension, update_node_system_properties
 
 LOGGER = get_logger(__name__)
 
@@ -153,6 +153,8 @@ async def succeed_materialization_activity(inputs: SucceedMaterializationInputs)
 
     outcome = await _succeed_node_and_data_modeling_job(inputs)
 
+    if outcome.job.saved_query_id is not None:
+        bind_data_modeling_log_context(inputs.team_id, outcome.job.saved_query_id)
     await logger.ainfo(
         f"Succeeded materialization job: node={inputs.node_id} dag={inputs.dag_id} job={outcome.job.id} "
         f"workflow={outcome.job.workflow_id} workflow_run={outcome.job.workflow_run_id}"

@@ -46,7 +46,7 @@ export function scopeRunsToTarget(runs: EvaluationRun[], generationEventId?: str
         : runs.filter((run) => !run.generation_id)
 }
 
-function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
+export function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
     return (
         <div className="max-w-80 space-y-1">
             <div className="font-semibold">{latestRun.evaluation_name}</div>

@@ -7,7 +7,7 @@ import type { PiControllerSessionState } from "@posthog/core/pi-runtime/piSessio
 import { Skeleton } from "@posthog/quill";
 import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { useCallback } from "react";
-import { PiModelSelector, PiThinkingLevelSelector } from "./PiSessionControls";
+import { PiModelSelector } from "./PiSessionControls";
 import {
   getPiPendingConfig,
   usePiPendingConfigStore,
@@ -39,15 +39,16 @@ export function PiSessionModelControls({
   );
   const setPendingConfig = usePiPendingConfigStore((state) => state.setConfig);
   const { data: catalog = [], isPending: catalogLoading } =
-    usePiModelCatalog(isCloudSession);
+    usePiModelCatalog(true);
   const controlsDisabled =
     session.status?.isStreaming ||
     session.status?.isCompacting ||
     session.isBashRunning ||
     session.connectionState !== "connected";
   const currentModel = pendingConfig?.model ?? session.status?.model;
-  const models = isCloudSession ? catalog : session.models;
-  const modelsLoaded = isCloudSession ? !catalogLoading : session.modelsLoaded;
+  const hasCatalog = catalog.length > 0;
+  const models = hasCatalog ? catalog : session.models;
+  const modelsLoaded = !catalogLoading && (hasCatalog || session.modelsLoaded);
   const catalogModel = catalog.find(
     (model) =>
       model.provider === currentModel?.provider && model.id === currentModel.id,
@@ -128,21 +129,18 @@ export function PiSessionModelControls({
 
   const supportsThinking = thinkingLevels.some((level) => level !== "off");
   return (
-    <span className="flex gap-1">
-      <PiModelSelector
-        models={models}
-        currentModel={currentModel}
-        disabled={disabled}
-        onChange={setModel}
-      />
-      {currentThinkingLevel && thinkingLevelsLoaded && supportsThinking && (
-        <PiThinkingLevelSelector
-          level={currentThinkingLevel}
-          levels={thinkingLevels}
-          disabled={disabled}
-          onChange={setThinkingLevel}
-        />
-      )}
-    </span>
+    <PiModelSelector
+      models={models}
+      currentModel={currentModel}
+      thinkingLevel={
+        thinkingLevelsLoaded && supportsThinking
+          ? currentThinkingLevel
+          : undefined
+      }
+      thinkingLevels={thinkingLevels}
+      disabled={disabled}
+      onChange={setModel}
+      onThinkingLevelChange={setThinkingLevel}
+    />
   );
 }

@@ -209,6 +209,18 @@ describe('notebookNodeSQLV2Logic', () => {
         expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null, runStatus: null })
     })
 
+    it('dispatches a run against the cell’s connection', async () => {
+        // Without this the run reaches the backend with no connection and executes on ClickHouse,
+        // which is what made warehouse queries fail with "Unknown table".
+        mount()
+        logic.actions.runQuery('select 1', {}, { connectionId: 'conn-1', sendRawQuery: true })
+        await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling'])
+        expect(runSpy).toHaveBeenCalledWith(
+            'nb1',
+            expect.objectContaining({ connection_id: 'conn-1', send_raw_query: true })
+        )
+    })
+
     it('dispatches a python run with its node type and output name', async () => {
         mount()
         logic.actions.runQuery(

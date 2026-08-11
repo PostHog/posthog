@@ -4,6 +4,9 @@ import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cycl
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { registerAsyncFunction } from '../async-function-registry'
+import { getTeamWithSecretToken } from './secret-api-token'
+
+const TICKET_ACTIONS = 'ticket workflow actions'
 
 registerAsyncFunction('postHogGetTicket', {
     execute: async (args, context, result) => {
@@ -14,13 +17,7 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
         }
 
-        const team = await context.teamManager.getTeam(context.invocation.teamId)
-        if (!team) {
-            throw new Error(`Team ${context.invocation.teamId} not found`)
-        }
-        if (!team.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
-        }
+        const team = await getTeamWithSecretToken(context, 'postHogGetTicket', TICKET_ACTIONS)
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
@@ -84,13 +81,7 @@ registerAsyncFunction('postHogUpdateTicket', {
             throw new Error("[HogFunction] - postHogUpdateTicket call missing 'ticket_id' property")
         }
 
-        const updateTeam = await context.teamManager.getTeam(context.invocation.teamId)
-        if (!updateTeam) {
-            throw new Error(`Team ${context.invocation.teamId} not found`)
-        }
-        if (!updateTeam.secret_api_token) {
-            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
-        }
+        const updateTeam = await getTeamWithSecretToken(context, 'postHogUpdateTicket', TICKET_ACTIONS)
 
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',

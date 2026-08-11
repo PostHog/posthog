@@ -27,10 +27,6 @@ pub struct RemoteResolutionConfig {
     pub overload_ejection_max: Duration,
     /// Quiet window after which endpoint ejection backs off to the initial duration.
     pub overload_ejection_decay: Duration,
-    /// Event-level deterministic sample rate for sending eligible events to
-    /// cymbal-resolution. Defaults to 0.0 in [`Config`] so enabling remote mode
-    /// alone does not start sending traffic until rollout is ramped explicitly.
-    pub sample_rate: f64,
     /// Rank-distribution factor for selecting among rendezvous-ranked candidates.
     /// `0.0` is fully sticky to rank 0; `1.0` is uniform across candidates.
     pub routing_jitter: f64,
@@ -54,12 +50,12 @@ impl RemoteResolutionConfig {
     pub fn from_config(config: &ProcessingConfig) -> Result<Self, UnhandledError> {
         if config.remote_resolution_host.trim().is_empty() {
             return Err(UnhandledError::Other(
-                "remote resolution enabled but CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
+                "CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
             ));
         }
         if config.resolver.internal_api_secret.trim().is_empty() {
             return Err(UnhandledError::Other(
-                "remote resolution enabled but INTERNAL_API_SECRET is empty".to_string(),
+                "INTERNAL_API_SECRET is empty".to_string(),
             ));
         }
         Ok(Self {
@@ -89,7 +85,6 @@ impl RemoteResolutionConfig {
             overload_ejection_decay: Duration::from_millis(
                 config.remote_resolution_overload_ejection_decay_ms,
             ),
-            sample_rate: normalized_probability(config.remote_resolution_sample_rate),
             routing_jitter: normalized_probability(config.remote_resolution_routing_jitter),
             routing_acceptance_concurrency: config
                 .remote_resolution_routing_acceptance_concurrency

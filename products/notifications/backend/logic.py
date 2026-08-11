@@ -202,25 +202,36 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         )
         return None
 
-    event = NotificationEvent.objects.create(
-        organization=organization,
-        team=team,
-        notification_type=data.notification_type,
-        priority=data.priority,
-        title=data.title,
-        body=data.body,
-        resource_type=data.resource_type.value
+    event_data = {
+        "organization": organization,
+        "team": team,
+        "notification_type": data.notification_type,
+        "priority": data.priority,
+        "title": data.title,
+        "body": data.body,
+        "resource_type": data.resource_type.value
         if isinstance(data.resource_type, NotificationOnlyResourceType)
         else data.resource_type,
-        resource_id=data.resource_id,
-        source_url=data.source_url,
-        source_type=data.source_type,
-        source_id=data.source_id,
-        target_type=data.target_type,
-        target_id=data.target_id,
-        resolved_user_ids=resolved_user_ids,
-        metadata=data.metadata,
-    )
+        "resource_id": data.resource_id,
+        "source_url": data.source_url,
+        "source_type": data.source_type,
+        "source_id": data.source_id,
+        "target_type": data.target_type,
+        "target_id": data.target_id,
+        "resolved_user_ids": resolved_user_ids,
+        "metadata": data.metadata,
+    }
+    if data.idempotency_key:
+        event, created = NotificationEvent.objects.get_or_create(
+            organization_id=organization.id,
+            team_id=data.team_id,
+            idempotency_key=data.idempotency_key,
+            defaults=event_data,
+        )
+        if not created:
+            return event
+    else:
+        event = NotificationEvent.objects.create(**event_data)
 
     def _on_commit() -> None:
         _publish_to_kafka(event)

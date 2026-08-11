@@ -98,14 +98,33 @@
      * while hovered/highlighted — those states own the hover fill.
      */
     :is(
+        [data-slot='dropdown-menu-checkbox-item'],
+        [data-slot='dropdown-menu-radio-item'],
+        [data-slot='context-menu-checkbox-item'],
+        [data-slot='context-menu-radio-item'],
+        [data-slot='menubar-checkbox-item'],
+        [data-slot='menubar-radio-item']
+    ):is([aria-checked='true'], [data-checked]):not(:hover, [data-highlighted]) {
+        background-color: var(--fill-selected);
+    }
+
+    /*
+     * An unchecked indicator outlines itself with `--border`, which in dark
+     * mode sits almost exactly at the lightness the hover fill lifts the row
+     * to — the box vanishes under the cursor. Mixing with `--foreground`
+     * instead keeps the outline readable against the hovered row in both
+     * themes. Checked indicators are filled, so they're left alone.
+     */
+    :is(
             [data-slot='dropdown-menu-checkbox-item'],
             [data-slot='dropdown-menu-radio-item'],
             [data-slot='context-menu-checkbox-item'],
             [data-slot='context-menu-radio-item'],
             [data-slot='menubar-checkbox-item'],
             [data-slot='menubar-radio-item']
-        ):is([aria-checked='true'], [data-checked]):not(:hover, [data-highlighted]) {
-        background-color: var(--fill-selected);
+        ):is(:hover, [data-highlighted])
+        :is(.quill-checkbox:not([data-checked]), .quill-radio-indicator:not(.quill-radio-indicator--checked)) {
+        border-color: color-mix(in oklab, var(--foreground) 40%, transparent);
     }
 
     /*
@@ -114,11 +133,11 @@
      * effect reads even when Base UI wraps items in a group/list container.
      */
     :is(
-            [data-slot='dropdown-menu-checkbox-item'],
-            [data-slot='dropdown-menu-radio-item'],
-            [data-slot='context-menu-checkbox-item'],
-            [data-slot='context-menu-radio-item']
-        ):is([aria-checked='true'], [data-checked]):has(+ :is([aria-checked='true'], [data-checked])) {
+        [data-slot='dropdown-menu-checkbox-item'],
+        [data-slot='dropdown-menu-radio-item'],
+        [data-slot='context-menu-checkbox-item'],
+        [data-slot='context-menu-radio-item']
+    ):is([aria-checked='true'], [data-checked]):has(+ :is([aria-checked='true'], [data-checked])) {
         border-bottom-right-radius: 0;
         border-bottom-left-radius: 0;
     }
@@ -138,12 +157,14 @@
      * Menu items show no focus ring — the `[data-highlighted]` background fill
      * is the sole active-item indicator for both mouse and keyboard. Suppress
      * both the `data-highlighted` ring and the `:focus-visible` ring Button
-     * carries. (Hover never paints a ring, so `:not(:hover)` only serves to
-     * outrank Button's `[data-highlighted]:not(:hover)` rule regardless of
-     * stylesheet order.)
+     * carries. The redundant `.quill-button` only raises specificity, so this
+     * outranks Button's own ring rules regardless of stylesheet order.
      */
     :is(.quill-menu__content, .quill-menu__sub-content)
-        .quill-button--variant-default:is([data-highlighted], :focus-visible):not(:hover) {
+        .quill-button:is(.quill-button--variant-default, .quill-button--variant-destructive):is(
+            [data-highlighted],
+            :focus-visible
+        ) {
         border-color: transparent;
         box-shadow: none;
     }

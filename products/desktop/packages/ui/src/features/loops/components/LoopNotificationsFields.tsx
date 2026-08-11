@@ -46,20 +46,16 @@ export function LoopNotificationsFields({
 
   return (
     <Flex direction="column" gap="3">
-      <Text className="text-[12.5px] text-gray-10 leading-snug">
-        Each run and its full output live on this loop's page. Notifications
-        only send a short summary with a link when something happens.
-      </Text>
       <NotificationChannelRow
         title="Push"
-        description="Sends a push notification to the loop owner's devices with PostHog installed."
+        description="Owner devices"
         channel={notifications.push}
         disabled={disabled}
         onChange={(patch) => updateChannel("push", patch)}
       />
       <NotificationChannelRow
         title="Email"
-        description="Emails a run summary to the loop owner's account email."
+        description="Owner account"
         channel={notifications.email}
         disabled={disabled}
         onChange={(patch) => updateChannel("email", patch)}
@@ -91,13 +87,15 @@ function NotificationChannelRow({
   return (
     <Flex
       direction="column"
-      gap="2"
-      className="rounded-(--radius-2) border border-border bg-(--gray-1) p-3"
+      gap={channel.enabled ? "2" : "0"}
+      className="rounded-(--radius-2) border border-border bg-(--gray-1) px-3 py-2.5"
     >
       <Flex align="center" justify="between" gap="2">
-        <Flex direction="column" gap="0">
+        <Flex align="baseline" gap="2" className="min-w-0">
           <Text className="font-medium text-[13px] text-gray-12">{title}</Text>
-          <Text className="text-[12px] text-gray-10">{description}</Text>
+          <Text className="truncate text-[12px] text-gray-10">
+            {description}
+          </Text>
         </Flex>
         <Switch
           checked={channel.enabled}
@@ -116,7 +114,7 @@ function NotificationChannelRow({
       </Flex>
 
       {channel.enabled ? (
-        <Flex direction="column" gap="2">
+        <Flex direction="column" gap="2" className="pt-2">
           <EventFilterCheckboxes
             events={channel.events}
             disabled={disabled}
@@ -201,7 +199,7 @@ function SlackNotificationRow({
   return (
     <NotificationChannelRow
       title="Slack"
-      description="Posts a run summary to the channel you pick, through this project's Slack connection."
+      description="Channel summary"
       channel={channel}
       disabled={disabled}
       onChange={onChange}

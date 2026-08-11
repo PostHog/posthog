@@ -5,7 +5,6 @@ import pytest
 from fastapi import HTTPException
 
 from llm_gateway.baseten import (
-    BASETEN_METRIC_MODEL,
     _inject_baseten_params,
     ensure_baseten_configured,
     make_baseten_responses_call,
@@ -16,27 +15,43 @@ from llm_gateway.rate_limiting.model_cost_overrides import MODEL_COST_OVERRIDES
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
 BASETEN_MODEL = "openai/zai-org/GLM-5.2"
+DEEPSEEK_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
+BASETEN_DEEPSEEK_LITELLM_MODEL = "openai/deepseek-ai/DeepSeek-V4-Flash-0731"
 
 
-def test_inject_baseten_params_maps_model_and_pins_api_key() -> None:
+@pytest.mark.parametrize(
+    ("public_model", "litellm_model", "metric_model", "input_cost", "output_cost", "cache_read_cost"),
+    [
+        (GLM_MODEL, BASETEN_MODEL, "baseten/zai-org/glm-5.2", 1.4e-06, 4.4e-06, 1.4e-07),
+        (DEEPSEEK_MODEL, BASETEN_DEEPSEEK_LITELLM_MODEL, f"baseten/{DEEPSEEK_MODEL}", 1.3e-07, 2.6e-07, 2.8e-08),
+    ],
+)
+def test_inject_baseten_params_maps_model_and_pins_api_key(
+    public_model: str,
+    litellm_model: str,
+    metric_model: str,
+    input_cost: float,
+    output_cost: float,
+    cache_read_cost: float,
+) -> None:
     kwargs: dict[str, Any] = {
-        "model": GLM_MODEL,
+        "model": public_model,
         "headers": {"Host": "attacker.example"},
         "extra_headers": {"Authorization": "Bearer attacker", "X-Other": "no"},
     }
 
     _inject_baseten_params(kwargs, "https://inference.baseten.co/v1", "test-key")
 
-    assert kwargs["model"] == BASETEN_MODEL
+    assert kwargs["model"] == litellm_model
     assert kwargs["api_base"] == "https://inference.baseten.co/v1"
     assert "headers" not in kwargs
-    assert kwargs["extra_headers"] == {"Authorization": "Api-Key test-key"}
+    assert kwargs["extra_headers"] == {"Authorization": "Bearer test-key"}
     assert kwargs["drop_params"] is True
-    assert COST_ALIASES[BASETEN_MODEL] == (BASETEN_METRIC_MODEL, "openai")
-    assert MODEL_COST_OVERRIDES[BASETEN_METRIC_MODEL]["input_cost_per_token"] == 1.4e-06
-    assert MODEL_COST_OVERRIDES[BASETEN_METRIC_MODEL]["cache_read_input_token_cost"] == 1.4e-07
-    assert MODEL_COST_OVERRIDES[BASETEN_METRIC_MODEL]["output_cost_per_token"] == 4.4e-06
-    assert normalize_metric_labels(BASETEN_MODEL, "openai") == ("baseten", "baseten/zai-org/glm-5.2")
+    assert COST_ALIASES[litellm_model] == (metric_model, "openai")
+    assert MODEL_COST_OVERRIDES[metric_model]["input_cost_per_token"] == input_cost
+    assert MODEL_COST_OVERRIDES[metric_model]["cache_read_input_token_cost"] == cache_read_cost
+    assert MODEL_COST_OVERRIDES[metric_model]["output_cost_per_token"] == output_cost
+    assert normalize_metric_labels(litellm_model, "openai") == ("baseten", metric_model)
 
 
 def test_inject_baseten_params_forces_streaming_usage() -> None:

@@ -11,6 +11,7 @@ import {
   SESSION_SERVICE,
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
+import { sessionStoreSetters } from "@posthog/core/sessions/sessionStore";
 import { resolveService } from "@posthog/di/container";
 import {
   HOST_TRPC_CLIENT,
@@ -143,6 +144,23 @@ function makeOrchestrationDeps(
         taskId,
         runId,
       ),
+    cancelPendingPermissions: async (taskId) => {
+      const sessionService = resolveService<SessionService>(SESSION_SERVICE);
+      const session = sessionStoreSetters.getSessionByTaskId(taskId);
+      if (!session) return;
+      // Snapshot the ids first: cancelling resolves them out of the map the
+      // loop would otherwise be walking.
+      for (const toolCallId of [...session.pendingPermissions.keys()]) {
+        try {
+          await sessionService.cancelPermission(taskId, toolCallId);
+        } catch (error) {
+          // An unanswerable prompt is better than a failed archive: the task is
+          // going away either way, so this is worth a line in the log and
+          // nothing more.
+          log.error("Failed to cancel a prompt while archiving", error);
+        }
+      }
+    },
     disconnectFromTask: (taskId) =>
       resolveService<SessionService>(SESSION_SERVICE).disconnectFromTask(
         taskId,

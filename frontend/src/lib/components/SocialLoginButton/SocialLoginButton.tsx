@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
@@ -13,6 +13,7 @@ import { LoginMethod, SSOProvider } from '~/types'
 
 import passkeyLogo from './passkey.svg'
 import { SocialLoginIcon } from './SocialLoginIcon'
+import { getSocialLoginUrl } from './socialLoginUrl'
 
 interface SocialLoginLinkProps {
     provider: SSOProvider
@@ -23,15 +24,7 @@ interface SocialLoginLinkProps {
 function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLinkProps): JSX.Element {
     const { searchParams } = useValues(router)
 
-    const loginParams: Record<string, string> = { ...extraQueryParams }
-    if (searchParams.next) {
-        loginParams.next = searchParams.next
-    }
-    if (provider === 'saml') {
-        // SAML-based login requires an extra param as technically we can support multiple SAML backends
-        loginParams.idp = 'posthog_custom'
-    }
-    const loginUrl = combineUrl(`/login/${provider}/`, loginParams).url
+    const loginUrl = getSocialLoginUrl(provider, extraQueryParams, searchParams)
     const iframed = window !== window.parent
 
     return (
@@ -128,6 +121,15 @@ interface SocialLoginButtonsProps {
     extraQueryParams?: Record<string, string>
     lastUsedProvider?: LoginMethod
     showPasskey?: boolean
+    /**
+     * Limit the rendered providers to this allowlist. Used when we know which providers a specific
+     * account can actually use, so we don't offer a button that would fail. `null`/omitted means
+     * "no restriction" — render everything the instance has configured.
+     *
+     * Note `'saml'` is never rendered here (it isn't in `available_social_auth_providers`); it goes
+     * through `SSOEnforcedLoginButton` instead.
+     */
+    restrictToProviders?: SSOProvider[] | null
 }
 
 export function SocialLoginButtons({
@@ -139,6 +141,7 @@ export function SocialLoginButtons({
     bottomDivider,
     lastUsedProvider,
     showPasskey = false,
+    restrictToProviders,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
@@ -149,8 +152,14 @@ export function SocialLoginButtons({
 
     const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
     const socialProviders = socialAuthAvailable
-        ? Object.keys(preflight.available_social_auth_providers).sort((a, b) => order.indexOf(a) - order.indexOf(b))
+        ? Object.keys(preflight.available_social_auth_providers)
+              .filter((provider) => !restrictToProviders || restrictToProviders.includes(provider as SSOProvider))
+              .sort((a, b) => order.indexOf(a) - order.indexOf(b))
         : []
+
+    if (!socialProviders.length && !showPasskey) {
+        return null
+    }
 
     return (
         <>

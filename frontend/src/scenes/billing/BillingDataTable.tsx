@@ -5,7 +5,11 @@ import { LemonCheckbox, LemonTable, LemonTableColumn, LemonTableColumns } from '
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 
-import { BillingSeriesType, SeriesColorDot } from './BillingLineGraph'
+import { BillingSeriesType } from './BillingLineGraph'
+
+export function SeriesColorDot({ colorIndex }: { colorIndex: number }): JSX.Element {
+    return <div className={`series-color-dot series-color-dot-${colorIndex % 15}`} />
+}
 
 export interface BillingDataTableProps {
     series: BillingSeriesType[]

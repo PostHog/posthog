@@ -8,6 +8,7 @@ import { workflowLogic } from './workflowLogic'
 
 const WORKFLOW_ID = 'wf-email-validation-1'
 const EMAIL_NODE_ID = 'email_node'
+const ADDED_EMAIL_NODE_ID = 'email_node_2'
 
 const makeEmailAction = (fromValue: any): Extract<HogFlowAction, { type: 'function_email' }> => ({
     id: EMAIL_NODE_ID,
@@ -98,6 +99,8 @@ const loadedTemplatesResponse = {
     count: 1,
 }
 
+const SENDER_ERROR = 'Choose an email sender, or connect a new one'
+
 describe('workflowLogic email step "from" validation', () => {
     let logic: ReturnType<typeof workflowLogic.build>
 
@@ -108,7 +111,7 @@ describe('workflowLogic email step "from" validation', () => {
     it.each([
         ['"from" has no integrationId (no sender picked)', {}],
         ['"from" is completely missing', undefined],
-    ])('flags the step as invalid when %s', async (_name, fromValue) => {
+    ])('marks the step invalid but stays quiet before any save attempt when %s', async (_name, fromValue) => {
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
@@ -121,8 +124,84 @@ describe('workflowLogic email step "from" validation', () => {
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        // A freshly opened template step always lacks a sender; it must read as clean (no message)
+        // while still being invalid so the node badge and enable-gate keep working.
         expect(result?.valid).toBe(false)
-        expect(result?.errors.email).toBe('Choose who to send this email from')
+        expect(result?.emailErrors).toBeUndefined()
+        expect(result?.errors.email).toBeUndefined()
+    })
+
+    it('reveals the field messages when enabling an invalid draft, while blocking the save itself', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        // The Enable button stays clickable on an invalid draft: the dispatch is what records the
+        // attempt and reveals the messages, while the listener guard aborts the actual enable.
+        await expectLogic(logic, () => {
+            logic.actions.saveWorkflowPartial({ status: 'active' })
+        }).toNotHaveDispatchedActions(['saveWorkflow'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.emailErrors?.from).toBe(SENDER_ERROR)
+    })
+
+    it('keeps an email step added after a save attempt quiet until the next attempt', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        logic.actions.saveWorkflowPartial({ status: 'active' })
+        expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.emailErrors?.from).toBe(SENDER_ERROR)
+
+        const addedAction = { ...makeEmailAction({}), id: ADDED_EMAIL_NODE_ID, name: 'Send another email' }
+        logic.actions.setWorkflowValues({ actions: [...logic.values.workflow.actions, addedAction] })
+
+        // The new step is invalid from the start but must not yell until the user attempts a
+        // save/enable with it in place.
+        expect(logic.values.actionValidationErrorsById[ADDED_EMAIL_NODE_ID]?.valid).toBe(false)
+        expect(logic.values.actionValidationErrorsById[ADDED_EMAIL_NODE_ID]?.emailErrors).toBeUndefined()
+        expect(logic.values.actionValidationErrorsById[EMAIL_NODE_ID]?.emailErrors?.from).toBe(SENDER_ERROR)
+
+        logic.actions.saveWorkflowPartial({ status: 'active' })
+        expect(logic.values.actionValidationErrorsById[ADDED_EMAIL_NODE_ID]?.emailErrors?.from).toBe(SENDER_ERROR)
+    })
+
+    it('surfaces the softened sender message on its field once a save is attempted', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+            patch: { '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}) },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        logic.actions.submitWorkflow()
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.valid).toBe(false)
+        expect(result?.emailErrors?.from).toBe(SENDER_ERROR)
+        // Still per-field, never joined into a single blob under the whole input.
+        expect(result?.errors.email).toBeUndefined()
     })
 
     it('does not flag a "from" error when an integration sender has been picked', async () => {
@@ -138,11 +217,11 @@ describe('workflowLogic email step "from" validation', () => {
         await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
-        expect(result?.errors.email).toBeUndefined()
+        expect(result?.emailErrors).toBeUndefined()
         expect(result?.valid).toBe(true)
     })
 
-    it('keeps the email-block error after templates load (function-action branch must not clobber it)', async () => {
+    it('keeps the step invalid after templates load (generic validator must not resurface a blob)', async () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),
@@ -156,10 +235,12 @@ describe('workflowLogic email step "from" validation', () => {
 
         const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
         expect(result?.valid).toBe(false)
-        expect(result?.errors.email).toBe('Choose who to send this email from')
+        // The generic input validator also joins the sub-fields into `errors.email`; it must be
+        // stripped so nothing renders under the whole input.
+        expect(result?.errors.email).toBeUndefined()
     })
 
-    it('propagates the step error into workflowHasActionErrors', async () => {
+    it('propagates the step error into workflowHasActionErrors regardless of save attempts', async () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({}),

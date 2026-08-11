@@ -26,7 +26,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 from .client import API_VERSION, LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
-from .schemas import FLOAT_FIELDS, INT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
+from .schemas import (
+    EPOCH_MS_VIRTUAL_COLUMNS,
+    FLOAT_FIELDS,
+    INT_FIELDS,
+    RESOURCE_SCHEMAS,
+    URN_COLUMNS,
+    VIRTUAL_COLUMN_URN_MAPPING,
+)
 
 module_logger = structlog.get_logger(__name__)
 
@@ -67,6 +74,9 @@ class LinkedinAdsSchema:
     is_stats: bool
     partition_size: int
     filter_field_names: list[tuple[str, IncrementalFieldType]] | None = None
+    pivot_value_column: str | None = None
+    initial_lookback_days: int | None = None
+    should_sync_default: bool = True
 
 
 def get_incremental_fields() -> dict[str, list[tuple[str, IncrementalFieldType]]]:
@@ -114,6 +124,9 @@ def get_schemas() -> dict[str, LinkedinAdsSchema]:
             is_stats=is_stats,
             filter_field_names=filter_field_names,
             partition_size=partition_size,
+            pivot_value_column=resource_contents.get("pivot_value_column", None),
+            initial_lookback_days=resource_contents.get("initial_lookback_days", None),
+            should_sync_default=resource_contents.get("should_sync_default", True),
         )
 
         schemas[resource_name] = schema
@@ -211,7 +224,8 @@ def linkedin_ads_source(
         now = dt.datetime.now()
         date_start = None
         date_end = now.strftime("%Y-%m-%d")
-        default_start = (now - dt.timedelta(days=INITIAL_ANALYTICS_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+        lookback_days = schema.initial_lookback_days or INITIAL_ANALYTICS_LOOKBACK_DAYS
+        default_start = (now - dt.timedelta(days=lookback_days)).strftime("%Y-%m-%d")
 
         if should_use_incremental_field and schema.filter_field_names:
             if incremental_field is None or incremental_field_type is None:
@@ -384,13 +398,24 @@ def _flatten_linkedin_record(
             flattened["created_time"] = created_time
             flattened["last_modified_time"] = last_modified_time
 
-        elif field_name in ("createdAt", "lastModifiedAt"):
+        elif field_name in EPOCH_MS_VIRTUAL_COLUMNS:
             timestamp_ms = record.get(field_name)
-            virtual_name = "created_time" if field_name == "createdAt" else "last_modified_time"
+            virtual_name = EPOCH_MS_VIRTUAL_COLUMNS[field_name]
             if isinstance(timestamp_ms, int):
                 flattened[virtual_name] = dt.datetime.fromtimestamp(timestamp_ms / 1000, tz=dt.UTC).date()
             else:
                 flattened[virtual_name] = None
+
+        elif field_name == "value":
+            # Conversion value arrives as {"amount": "10", "currencyCode": "USD"}; split it so the
+            # amount is queryable without unpacking a struct.
+            conversion_value = record.get("value")
+            if isinstance(conversion_value, dict):
+                flattened["value_amount"] = conversion_value.get("amount")
+                flattened["value_currency_code"] = conversion_value.get("currencyCode")
+            else:
+                flattened["value_amount"] = None
+                flattened["value_currency_code"] = None
 
         elif field_name in URN_COLUMNS:
             urn_value = record.get(field_name)
@@ -408,6 +433,15 @@ def _flatten_linkedin_record(
 
         # Handle virtual columns that derive from pivot values
         if field_name == "pivotValues":
+            if schema.pivot_value_column:
+                # Professional demographic pivots return URNs we have no local table to join
+                # against (`urn:li:industry:96`), and MEMBER_COMPANY_SIZE returns a named bucket
+                # rather than a numeric id, so keep the value verbatim.
+                flattened[schema.pivot_value_column] = next(
+                    (value for value in record.get("pivotValues", []) if isinstance(value, str) and value),
+                    None,
+                )
+
             for pivot_value in record.get("pivotValues", []):
                 if isinstance(pivot_value, str):
                     pivot_result = _extract_type_and_id_from_urn(pivot_value)
@@ -447,6 +481,12 @@ def _flatten_linkedin_record(
     # rather than let it destabilize the column type.
     if schema.is_stats and "dateRange" in schema.field_names and flattened.get("date_start") is None:
         module_logger.warning("linkedin_ads.missing_stats_date_range", resource=schema.name)
+        return None
+
+    # Same exposure for the demographic pivot column: it's the third primary key component, and a
+    # row without it can't identify which demographic value the metrics belong to.
+    if schema.pivot_value_column and flattened.get(schema.pivot_value_column) is None:
+        module_logger.warning("linkedin_ads.missing_pivot_value", resource=schema.name)
         return None
 
     return flattened

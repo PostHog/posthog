@@ -1,4 +1,5 @@
 import { Archive, GitPullRequest, PushPin } from "@phosphor-icons/react";
+import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
 import { parseGithubUrl } from "@posthog/git/utils";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
@@ -45,6 +46,7 @@ interface TaskItemProps {
   isSuspended?: boolean;
   needsPermission?: boolean;
   taskRunStatus?: TaskRunStatus;
+  runMode?: RunMode;
   originProduct?: string;
   slackThreadUrl?: string;
   prState?: SidebarPrState;
@@ -117,6 +119,7 @@ export function TaskItem({
   isPinned = false,
   needsPermission = false,
   taskRunStatus,
+  runMode,
   originProduct,
   slackThreadUrl,
   prState,
@@ -143,6 +146,7 @@ export function TaskItem({
       isSuspended={isSuspended}
       needsPermission={needsPermission}
       taskRunStatus={taskRunStatus}
+      runMode={runMode}
       originProduct={originProduct}
       slackThreadUrl={slackThreadUrl}
       prState={prState}
@@ -240,11 +244,30 @@ export function InlineEditInput({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const input = inputRef.current;
-    if (input) {
-      input.focus();
-      input.select();
+    let focusFrame: number | undefined;
+
+    const focusInput = () => {
+      focusFrame = window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+    };
+
+    // Electron's native context menu can resolve its action just before the
+    // renderer regains focus. Focusing synchronously in that gap immediately
+    // blurs the input and cancels rename, so wait for the window when needed.
+    if (document.hasFocus()) {
+      focusInput();
+    } else {
+      window.addEventListener("focus", focusInput, { once: true });
     }
+
+    return () => {
+      window.removeEventListener("focus", focusInput);
+      if (focusFrame !== undefined) {
+        window.cancelAnimationFrame(focusFrame);
+      }
+    };
   }, []);
 
   const handleSubmit = () => {

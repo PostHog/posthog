@@ -1,13 +1,17 @@
+import json
+from typing import Any
+
 from posthog.test.base import BaseTest
 
 from django.http import QueryDict
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from .filters import AdvancedActivityLogFilterManager
+from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .viewset import AdvancedActivityLogFiltersSerializer
 
 
@@ -205,29 +209,46 @@ class TestAdvancedActivityLogFilterManager(BaseTest):
         expected_ids = {log1.id, log2.id}
         self.assertEqual(result_ids, expected_ids)
 
-    def test_rejects_dunder_field_paths(self):
-        log = self._create_activity_log({"name": "test"})
-        queryset = ActivityLog.objects.filter(id=log.id)
 
-        filtered = self.filter_manager._apply_detail_filters(
-            queryset, {"user__email": {"operation": "exact", "value": "admin@example.com"}}
-        )
-        self.assertEqual(filtered.count(), 1)
+class TestDetailFilterValidation(SimpleTestCase):
+    # Unsafe filters are rejected before any query is built, so no DB is needed here.
+    @parameterized.expand(
+        [
+            ("relationship_traversal", "user__email", {"operation": "exact", "value": "admin@example.com"}),
+            ("unsupported_operation", "name", {"operation": "regex", "value": ".*"}),
+            ("lookup_suffixed_path", "name.regex", {"operation": "exact", "value": "^(a+)+$"}),
+            ("lookup_named_path", "regex", {"operation": "exact", "value": "^(a+)+$"}),
+            # Underscores at a segment boundary shift where the `__` separator falls once the
+            # segments are joined, so a lookup can reach Django without ever being a segment.
+            ("lookup_across_segment_boundary", "a_._regex", {"operation": "exact", "value": "^(a+)+$"}),
+            ("lookup_across_boundary_iregex", "name_._iregex", {"operation": "exact", "value": "^(a+)+$"}),
+            ("lookup_leading_segment", "regex_.a", {"operation": "exact", "value": "^(a+)+$"}),
+            ("array_nesting_fan_out", "a[].b[].c[].d[].e", {"operation": "exact", "value": "x"}),
+            ("non_object_filter_config", "name", "test"),
+        ]
+    )
+    def test_rejects_unsafe_detail_filters(self, _name: str, field_path: str, filter_config: Any) -> None:
+        filter_manager = AdvancedActivityLogFilterManager()
 
-        filtered = self.filter_manager._apply_detail_filters(
-            queryset, {"user__password": {"operation": "contains", "value": "pbkdf2"}}
-        )
-        self.assertEqual(filtered.count(), 1)
+        with self.assertRaises(serializers.ValidationError):
+            filter_manager._apply_detail_filters(ActivityLog.objects.all(), {field_path: filter_config})
 
-    def test_rejects_invalid_operations(self):
-        log = self._create_activity_log({"name": "test"})
-        queryset = ActivityLog.objects.filter(id=log.id)
+    # Only the lookups registered on JSONField and KeyTransform shadow a JSON key. Names that are
+    # transforms on some *other* field type -- `date` and `day` come from DateField -- reach Postgres
+    # as `detail -> 'date'`, so widening the reserved set past those two registries would start
+    # rejecting ordinary detail keys.
+    @parameterized.expand(
+        [
+            ("date_transform_name", "date"),
+            ("day_transform_name", "day"),
+            ("nested_array_path", "changes[].after.date"),
+            ("single_underscore_segment", "context.trigger_name"),
+        ]
+    )
+    def test_accepts_detail_filter_paths_that_are_not_json_lookups(self, _name: str, field_path: str) -> None:
+        detail_filters = {field_path: {"operation": "exact", "value": "x"}}
 
-        filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "regex", "value": ".*"}})
-        self.assertEqual(filtered.count(), 1)
-
-        filtered = self.filter_manager._apply_detail_filters(queryset, {"name": {"operation": "gt", "value": "a"}})
-        self.assertEqual(filtered.count(), 1)
+        self.assertEqual(validate_detail_filters(detail_filters), detail_filters)
 
 
 class TestIpAddressFilter(BaseTest):
@@ -312,6 +333,14 @@ class TestAdvancedActivityLogFiltersSerializerValidation(SimpleTestCase):
         query.appendlist("ip_addresses", value)
         serializer = AdvancedActivityLogFiltersSerializer(data=query)
         self.assertEqual(serializer.is_valid(), expected, serializer.errors)
+
+    def test_serializer_rejects_unsafe_detail_filter_paths(self) -> None:
+        query = QueryDict(mutable=True)
+        query["detail_filters"] = json.dumps({"name.regex": {"operation": "exact", "value": "^(a+)+$"}})
+        serializer = AdvancedActivityLogFiltersSerializer(data=query)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("detail_filters", serializer.errors)
 
 
 class TestTypeConversionIntegration(BaseTest):

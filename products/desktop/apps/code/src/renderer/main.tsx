@@ -21,6 +21,7 @@ import { preloadHighlighter } from "@pierre/diffs";
 import { boot } from "@posthog/di/contribution";
 import { assertHostCapabilities } from "@posthog/di/hostCapabilities";
 import { ServiceProvider } from "@posthog/di/react";
+import { MissionControlOverlay } from "@posthog/ui/features/mission-control/MissionControlOverlay";
 import App from "@posthog/ui/shell/App";
 import { logger } from "@posthog/ui/shell/logger";
 import { initializePostHog } from "@posthog/ui/shell/posthogAnalyticsImpl";
@@ -113,6 +114,9 @@ try {
         <ServiceProvider container={container}>
           <Providers>
             <App devToolbar={<DevToolbarHost />} />
+            {/* Beside the app, not in a route: the overlay must outlive every
+                gate and shell the router renders. */}
+            <MissionControlOverlay />
           </Providers>
         </ServiceProvider>
       </BootErrorBoundary>

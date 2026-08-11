@@ -15,6 +15,7 @@ import type {
   SignalProcessingStateResponse,
   SignalReport,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportsQueryParams,
   SignalReportsResponse,
@@ -300,6 +301,23 @@ export function useDismissReport(reportId: string) {
         dismissal_reason: input.reason,
         ...(input.note?.trim() ? { dismissal_note: input.note.trim() } : {}),
       }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: inboxKeys.detail(reportId) });
+      queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+    },
+  });
+}
+
+export function useRefundReport(reportId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    SignalReport,
+    Error,
+    { reason: SignalReportRefundReason; note?: string }
+  >({
+    mutationFn: (input) =>
+      getPostHogApiClient().refundSignalReport(reportId, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: inboxKeys.detail(reportId) });
       queryClient.invalidateQueries({ queryKey: inboxKeys.all });

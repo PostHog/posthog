@@ -151,6 +151,27 @@ describe('LoopReviewView', () => {
                 },
                 'GitHub (posthog/code: issues labeled bug) · skips overlapping runs',
             ],
+            [
+                'github trigger with payload conditions',
+                {
+                    triggers: [
+                        {
+                            type: 'github',
+                            config: {
+                                repository: 'posthog/posthog',
+                                events: ['pull_request.review_requested'],
+                                filters: {
+                                    payload: [
+                                        { path: 'requested_team.slug', equals: ['team-security', 'team-infra'] },
+                                        { path: 'pull_request.draft', equals: 'false' },
+                                    ],
+                                },
+                            },
+                        },
+                    ],
+                },
+                'GitHub (posthog/posthog: pull_request review_requested where requested_team.slug is team-security or team-infra and pull_request.draft is false) · skips overlapping runs',
+            ],
             ['paused loop', { enabled: false }, 'Manual only · paused · skips overlapping runs'],
             ['allow policy', { overlap_policy: 'allow' }, 'Manual only · allows overlapping runs'],
             ['cancel_previous policy', { overlap_policy: 'cancel_previous' }, 'Manual only · cancels the previous run'],

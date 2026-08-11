@@ -17,6 +17,10 @@ export interface ExtractionResult {
     blobs: DetectedBlob[]
     /** Serialized chars removed by pointer rewrites, summed per occurrence (dedup'd blobs still count each site). */
     savedChars: number
+    /** Qualifying payloads counted per occurrence, so a blob repeated across turns counts each time. */
+    occurrences: number
+    /** Decoded bytes summed per occurrence, matching `occurrences`. */
+    occurrenceBytes: number
     belowFloorCount: number
     belowFloorBytes: number
 }
@@ -31,6 +35,8 @@ const RAW_BASE64_MIME = 'application/octet-stream'
 interface Extraction {
     blobsByHash: Map<string, DetectedBlob>
     savedChars: number
+    occurrences: number
+    occurrenceBytes: number
     belowFloorCount: number
     belowFloorBytes: number
     minBase64Length: number
@@ -61,6 +67,8 @@ function pointerFor(
     if (!state.blobsByHash.has(hash)) {
         state.blobsByHash.set(hash, { bytes, mime, hash, detector })
     }
+    state.occurrences += 1
+    state.occurrenceBytes += bytes.length
     return encodeBlobPointer({ algo: 'sha256', hash, mime, size: bytes.length })
 }
 
@@ -179,6 +187,8 @@ export function extractBlobs(value: unknown, opts: { minBase64Length: number }):
     const state: Extraction = {
         blobsByHash: new Map(),
         savedChars: 0,
+        occurrences: 0,
+        occurrenceBytes: 0,
         belowFloorCount: 0,
         belowFloorBytes: 0,
         minBase64Length: opts.minBase64Length,
@@ -188,6 +198,8 @@ export function extractBlobs(value: unknown, opts: { minBase64Length: number }):
         value: rewritten,
         blobs: [...state.blobsByHash.values()],
         savedChars: state.savedChars,
+        occurrences: state.occurrences,
+        occurrenceBytes: state.occurrenceBytes,
         belowFloorCount: state.belowFloorCount,
         belowFloorBytes: state.belowFloorBytes,
     }

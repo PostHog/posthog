@@ -168,6 +168,7 @@ function SuggestedReviewersBody({
     <RightColumnSection
       Icon={User}
       title="Reviewers"
+      collapsible
       rightSlot={
         <Flex align="center" gap="2">
           {isPending && <Spinner size="1" />}

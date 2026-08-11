@@ -89,6 +89,10 @@ export interface SeriesData {
     breakdown_value?: string | number
     compare?: boolean
     compare_label?: string
+    /** Index of the query series this row belongs to — stamped by the mock resolver. */
+    seriesIndex?: number
+    /** Event name of the query series this row belongs to — stamped by the mock resolver. */
+    eventName?: string
 }
 
 type CannedSeries = SeriesData & { labels: string[]; days: string[] }
@@ -113,6 +117,10 @@ export const trendsSeries = {
         { label: 'Conker', data: [0, 0, 0, 0, 0], days, labels, breakdown_value: 'Conker' },
         { label: 'Prickles', data: [0, 0, 1, 1, 0], days, labels, breakdown_value: 'Prickles' },
     ] satisfies CannedSeries[],
+    pageviewsByHedgehog: [
+        { label: 'Spike', data: [30, 50, 90, 140, 60], days, labels, breakdown_value: 'Spike' },
+        { label: 'Bramble', data: [15, 32, 44, 70, 35], days, labels, breakdown_value: 'Bramble' },
+    ] satisfies CannedSeries[],
     withZeroCounts: [
         { label: 'EmptySeries', data: [0, 0, 0, 0, 0], days, labels },
         { label: 'ActiveSeries', data: [1, 2, 3, 2, 2], days, labels },
@@ -122,6 +130,14 @@ export const trendsSeries = {
         data: [1, 1, 1, 1, 1],
         days,
         labels,
+    } satisfies CannedSeries,
+    // Week display labels omit the year, so a multi-year weekly range returns the same label
+    // string for buckets in different years — the shape that folds a chart keyed by labels.
+    weeklyAcrossYears: {
+        label: 'WeeklyAcrossYears',
+        data: [10, 20, 30, 40, 50, 60],
+        days: ['2020-06-01', '2020-06-08', '2020-06-15', '2026-06-01', '2026-06-08', '2026-06-15'],
+        labels: ['1–7 Jun', '8–14 Jun', '15–21 Jun', '1–7 Jun', '8–14 Jun', '15–21 Jun'],
     } satisfies CannedSeries,
     noActivity: {
         label: 'NoActivity',
@@ -153,7 +169,12 @@ interface EventSeriesConfig {
 }
 
 const seriesByEvent: Record<string, EventSeriesConfig> = {
-    $pageview: { default: trendsSeries.pageviews },
+    $pageview: {
+        default: trendsSeries.pageviews,
+        breakdowns: {
+            hedgehog: trendsSeries.pageviewsByHedgehog,
+        },
+    },
     Napped: {
         default: trendsSeries.napped,
         breakdowns: {
@@ -163,6 +184,7 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
     ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
     Minimal: { default: trendsSeries.minimal },
     NoActivity: { default: trendsSeries.noActivity },
+    WeeklyAcrossYears: { default: trendsSeries.weeklyAcrossYears },
 }
 
 /** Resolver for compare queries — returns current + previous period series. */

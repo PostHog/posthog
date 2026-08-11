@@ -98,9 +98,10 @@ class BrokenTestRowSerializer(DataclassSerializer):
             "repo": {"help_text": "'owner/name' repository the failure belongs to."},
             "state": {
                 "help_text": "The classifier's verdict on how this failure is behaving right now: "
-                "'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a "
-                "day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but "
-                "trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
+                "'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped "
+                "a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new "
+                "within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk "
+                "but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' "
                 "(confined to one branch — one PR's own problem).",
             },
             "first_seen": {"help_text": "Earliest failure line for this fingerprint in the analysis window."},

@@ -1,7 +1,7 @@
 # SQLV2 frame materialization via object storage
 
 Design notes for moving python-node frame materialization off the Redis JSON transport and onto an object-storage handoff.
-Status: **phase 1 shipped** (env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`, default off) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. Phases 2+ not started.
+Status: **phase 1 shipped**, gated per user by the `notebooks-frame-store` feature flag (off by default) — object delivery at a 500k row tier-1 ceiling (`MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT`); the inline path remains as the degraded fallback, still clamped at 50k. Phases 2+ not started.
 
 ## Problem
 
@@ -168,7 +168,7 @@ query-log exports make its CH footprint analyzable, so the knobs can be tightene
 Fine for the current flag-gated audience and frames up to low hundreds of thousands of rows.
 Since phase 1 this path survives only as the degraded fallback (frame store disabled or unconfigured).
 
-**Phase 1 — swap the payload path, minimal moving parts. (Shipped, env-gated by `NOTEBOOKS_FRAME_STORE_ENABLED`.)**
+**Phase 1 — swap the payload path, minimal moving parts. (Shipped, gated by the `notebooks-frame-store` flag.)**
 The kernel opts in per request with `delivery: "object"` (pages and envelope fetches stay `"inline"`).
 The data plane registers a `notebook-frame:{team}:{query_hash}` dedup mapping and dispatches a Temporal
 materialize workflow (`temporal/frame_materialize.py`, general-purpose queue, Redis-Lua concurrency slots
@@ -196,9 +196,25 @@ ClickHouse error from `system.query_log` — a confirmed query-side exception is
 re-scans), an unconfirmed failure stays retryable.
 The Redis path stays as fallback when the frame store is disabled or unconfigured (dev parity, degraded mode).
 
+_Gating (`sql_v2_data_plane.py`):_ the `notebooks-frame-store` feature flag carries the rollout by itself.
+There is deliberately no environment switch beside it — one gate means one place to look, and a flag
+retargets instantly where an env var needs a deploy. The only other condition is `OBJECT_STORAGE_ENABLED`,
+which is a configuration guard rather than a rollout control: without it the storage client is a silent
+no-op, so a materialization would "succeed", fail its post-write HEAD, and burn the activity's retry budget
+re-running the query. Failing either condition degrades that request to the inline transport and its 50k
+clamp. The flag is checked in the web process at delivery-decision time, which is the only place a
+materialization is ever enqueued — nothing downstream re-checks it. `DEBUG` stands in for the flag, so local
+dev takes the object path with no flag to evaluate. The `reason` label on
+`posthog_notebooks_frame_store_fallback_inline` separates the two: `not_in_rollout` is the expected state
+during a ramp, `not_configured` means the deployment has no object storage and should never appear in cloud.
+
+Consequence worth knowing: a self-hosted instance evaluates this flag against PostHog's own cloud project
+(`posthog/apps.py`), so it stays on the inline transport unless that flag targets it. That matches how
+`revamped-py-notebooks` already gates the whole revamped-notebooks surface.
+
 _Rollout prerequisites (per environment, before flipping the flag on):_
 
-- Enable `NOTEBOOKS_FRAME_STORE_ENABLED` only **after** both the web and general-purpose Temporal worker
+- Target the `notebooks-frame-store` flag only **after** both the web and general-purpose Temporal worker
   fleets are on the new image. Temporal accepts a `start_workflow` for a workflow type no worker has
   registered yet — so flipping the flag early produces a bounded window of hung polls that the enqueue
   rollback (which only catches a dispatch _exception_) cannot recover.

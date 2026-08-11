@@ -381,6 +381,12 @@ export async function getInsightWithRetry(
                 throw e // Re-throw cancellation errors
             }
 
+            // A 4xx response (e.g. a query validation error) is deterministic, so retrying
+            // would only replay the same failure — 429 excepted, which means "retry later"
+            if (e instanceof ApiError && e.status && e.status >= 400 && e.status < 500 && e.status !== 429) {
+                throw e
+            }
+
             attempt++
             if (attempt >= maxAttempts) {
                 throw e // Re-throw the error after max attempts

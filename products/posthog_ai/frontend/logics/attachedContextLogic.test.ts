@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
+import type { AttachedContextItem } from '../types/contextTypes'
 import { attachedContextLogic } from './attachedContextLogic'
 
 describe('attachedContextLogic', () => {
@@ -84,5 +85,29 @@ describe('attachedContextLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.undismissContext('insight:x')
         }).toMatchValues({ contextItems: [item] })
+    })
+
+    // A chip's dismissal must extend to the hidden payload items registered alongside it, and must
+    // survive re-registrations whose value (and therefore dedupe key) changed, as live editor state
+    // does on every edit; key-based dismissal alone lets the payload resurrect on the next edit.
+    it('dismissing with a dismissGroup hides the whole group, including re-registrations with new values', async () => {
+        const groupItems = (stateValue: string): AttachedContextItem[] => [
+            { type: 'hog_flow', key: '1', label: 'Flow', dismissGroup: 'g' },
+            { type: 'hog_flow_editor_state', value: stateValue, hidden: true, dismissGroup: 'g' },
+            { type: 'insight', key: 'other' },
+        ]
+
+        await expectLogic(logic, () => {
+            logic.actions.registerContext('scene', groupItems('v1'))
+            logic.actions.dismissContext('hog_flow:1', 'g')
+        }).toMatchValues({ contextItems: [{ type: 'insight', key: 'other' }] })
+
+        await expectLogic(logic, () => {
+            logic.actions.registerContext('scene', groupItems('v2'))
+        }).toMatchValues({ contextItems: [{ type: 'insight', key: 'other' }] })
+
+        await expectLogic(logic, () => {
+            logic.actions.undismissContext('hog_flow:1', 'g')
+        }).toMatchValues({ contextItems: groupItems('v2') })
     })
 })

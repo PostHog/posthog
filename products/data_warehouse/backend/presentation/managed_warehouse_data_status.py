@@ -8,6 +8,8 @@ READINESS_STATE_CHOICES = [
     "needs_attention",
     "sync_paused",
 ]
+WORKFLOW_TYPE_CHOICES = ["copy", "register"]
+WORKFLOW_STATUS_CHOICES = ["running", "completed", "failed", "skipped", "stale"]
 
 
 class ManagedWarehouseDatasetStatusSerializer(serializers.Serializer):
@@ -42,17 +44,26 @@ class ManagedWarehouseSourceTableStatusSerializer(serializers.Serializer):
         choices=READINESS_STATE_CHOICES, help_text="User-facing warehouse readiness state for this table."
     )
     detail = serializers.CharField(help_text="Human-readable explanation of the table's readiness state.")
-    backfilled = serializers.BooleanField(
-        help_text="Whether the one-time historical copy into the warehouse has completed for this table."
+    workflow_type = serializers.ChoiceField(
+        choices=WORKFLOW_TYPE_CHOICES,
+        allow_null=True,
+        help_text="Workflow applying the latest source import, or null if no workflow has run.",
     )
-    completed_chunks = serializers.IntegerField(help_text="Backfill chunks already copied into the warehouse.")
-    total_chunks = serializers.IntegerField(
-        allow_null=True, help_text="Total backfill chunks, or null before the copy plan is ready."
+    workflow_status = serializers.ChoiceField(
+        choices=WORKFLOW_STATUS_CHOICES,
+        allow_null=True,
+        help_text="State of the latest copy or register workflow, or null if no workflow has run.",
+    )
+    workflow_started_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the latest copy or register workflow started, or null if no workflow has run.",
+    )
+    applied = serializers.BooleanField(
+        help_text="Whether a copy or register workflow has applied this table to the warehouse."
     )
     last_applied_at = serializers.DateTimeField(
         allow_null=True,
-        help_text="When an imported batch was most recently applied to the warehouse, or null if no apply "
-        "has been recorded for this table.",
+        help_text="When a copy or register workflow most recently applied this table, or null if no workflow completed.",
     )
     last_synced_at = serializers.DateTimeField(
         allow_null=True, help_text="When PostHog most recently completed the upstream source import."
@@ -68,13 +79,12 @@ class ManagedWarehouseSourceSummarySerializer(serializers.Serializer):
     )
     detail = serializers.CharField(help_text="Human-readable explanation of this source's readiness state.")
     total_schemas = serializers.IntegerField(help_text="Number of this source's schemas visible to the warehouse.")
-    backfilled_schemas = serializers.IntegerField(
-        help_text="Number of schemas whose one-time historical copy into the warehouse has completed."
+    applied_schemas = serializers.IntegerField(
+        help_text="Number of schemas applied by a completed copy or register workflow."
     )
     last_applied_at = serializers.DateTimeField(
         allow_null=True,
-        help_text="Most recent time an imported batch was applied to the warehouse across this source's "
-        "schemas, or null if no apply has been recorded.",
+        help_text="Most recent completed copy or register workflow across this source's schemas, or null if none completed.",
     )
     last_synced_at = serializers.DateTimeField(
         allow_null=True, help_text="Most recent upstream source import completion across this source's schemas."
@@ -88,8 +98,7 @@ class ManagedWarehouseSourcesStatusSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Human-readable explanation of imported source readiness.")
     sources = ManagedWarehouseSourceSummarySerializer(
         many=True,
-        help_text="Per-source rollup of schema backfill and live import application statuses. Reflects only "
-        "warehouse source imports with sync enabled — manage sources at /data-management/sources.",
+        help_text="Per-source rollup of copy and register workflow statuses for configured warehouse source imports.",
     )
 
 
@@ -99,7 +108,7 @@ class ManagedWarehouseSourceSchemasQuerySerializer(serializers.Serializer):
 
 class ManagedWarehouseSourceSchemasResponseSerializer(serializers.Serializer):
     schemas = ManagedWarehouseSourceTableStatusSerializer(
-        many=True, help_text="Per-schema backfill and live import application status for the requested source."
+        many=True, help_text="Per-schema copy or register workflow status for the requested source."
     )
 
 

@@ -31,7 +31,7 @@ def _note_body(report_url: str) -> str:
     ticket for anyone allowed to see them.
     """
     return (
-        f"**Self-driving investigated this ticket.** Internal note, not sent to the customer.\n\nFindings: {report_url}"
+        f"**Self-driving investigated this ticket.** Internal note, not sent to the customer.\n\nReport: {report_url}"
     )
 
 

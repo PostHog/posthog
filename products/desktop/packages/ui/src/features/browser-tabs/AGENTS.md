@@ -24,6 +24,15 @@ within it — because the identity differs only by `channelSection`.
 Dedup/identity keys on all four fields, so two channels' inboxes (or one
 channel's inbox vs artifacts) are distinct tabs.
 
+## Components & styling
+
+Components come from `@posthog/quill`; layout is `div`s with Tailwind. **Radix is
+banned** — do not add `@radix-ui/themes` or `@radix-ui/react-*` to any file here. See
+[UI Components](../../../../../AGENTS.md#ui-components) in the root `AGENTS.md` for the
+mapping. The tab strip's remaining `Flex`/`Box`/`Text` imports are legacy; when your
+change lands in one of those files, convert what you touch (`<Flex align="center"
+gap="2">` → `<div className="flex items-center gap-2">`, `Text` → quill `Text`).
+
 ## Where the logic lives
 
 The feature is deliberately split so the rules are portable and testable:

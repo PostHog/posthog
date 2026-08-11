@@ -96,5 +96,16 @@ class TeamExperimentsConfig(models.Model):
         ),
     )
 
+    flag_cleanup_repository = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text=(
+            "Default GitHub repository (organization/repository) for experiment flag-cleanup PRs in "
+            "this environment. Used when an experiment has no repository of its own. It must belong "
+            "to the team's GitHub installation at cleanup time or it is ignored."
+        ),
+    )
+
 
 register_team_extension_signal(TeamExperimentsConfig, logger=logger)

@@ -32,6 +32,9 @@ concurrency:
 
 jobs:
     assign-labels:
+        # Labels derived from the queue's own PR title are discarded with the
+        # branch; the PR being queued was already labeled from its real title.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 5
 

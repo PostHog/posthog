@@ -332,7 +332,12 @@ async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promis
     return text
 }
 
-export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {
+export async function _fetch(
+    url: string,
+    options: FetchOptions = {},
+    dispatcher: Dispatcher,
+    defaultTimeoutMs: number = requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+): Promise<FetchResponse> {
     let parsed: URL
     try {
         parsed = new URL(url)
@@ -344,7 +349,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         throw new Error('URL must have HTTP or HTTPS protocol and a valid hostname')
     }
 
-    options.timeoutMs = options.timeoutMs ?? requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    options.timeoutMs = options.timeoutMs ?? defaultTimeoutMs
 
     const result = await request(parsed.toString(), {
         method: options.method ?? 'GET',
@@ -399,13 +404,19 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
     return await _fetch(url, options, sharedInsecureAgent)
 }
 
+/**
+ * Requests to a host we don't run, meaning CDP destinations and anything else pointed at a
+ * customer-supplied URL. These take the third-party response budget, which is tunable separately
+ * from the internal-service one that `internalFetch` keeps; see
+ * DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS.
+ */
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)
     validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
     inflightExternalRequests.inc()
     try {
         const dispatcher = options.allowH2 ? sharedSecureH2Agent : sharedSecureAgent
-        return await _fetch(url, options, dispatcher)
+        return await _fetch(url, options, dispatcher, requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
     } finally {
         inflightExternalRequests.dec()
     }
@@ -428,7 +439,7 @@ export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<
 
     const requestOptions = options ?? {}
     requestOptions.dispatcher = sharedSecureAgent
-    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_TIMEOUT_MS)
+    requestOptions.signal = AbortSignal.timeout(requestConfig.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS)
 
     return undiciFetch(parsed.toString(), requestOptions)
 }

@@ -47,8 +47,6 @@ DataWarehouseSavedQuery
 DataWarehouseSavedQueryDraft
 DataWarehouseSavedQueryFolder
 DataWarehouseTable
-Dataset
-DatasetItem
 EarlyAccessFeature
 Edge
 EmailChannel

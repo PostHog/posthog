@@ -91,6 +91,7 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
   const {
     repositories: visibleRepositories,
     isPending: visibleRepositoriesLoading,
+    isFetchingMore: visibleRepositoriesFetchingMore,
     hasMore: visibleRepositoriesHasMore,
     loadMore: loadMoreVisibleRepositories,
   } = useGithubRepositories(repoPickerSearchQuery, isRepoPickerOpen);
@@ -234,6 +235,7 @@ function GitHubSetup({ onComplete, onCancel }: SetupFormProps) {
           isLoading={
             isLoadingRepos || (isRepoPickerOpen && visibleRepositoriesLoading)
           }
+          isLoadingMore={visibleRepositoriesFetchingMore}
           isRefreshing={isRefreshingRepos}
           onRefresh={handleRefreshRepositories}
           open={isRepoPickerOpen}

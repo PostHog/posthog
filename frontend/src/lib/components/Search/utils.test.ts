@@ -1,4 +1,4 @@
-import { filterSearchItems } from './utils'
+import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems } from './utils'
 
 interface TestItem {
     name: string
@@ -102,5 +102,29 @@ describe('filterSearchItems', () => {
             const results = filterSearchItems(items, 'xyzzyplugh')
             expect(results).toEqual([])
         })
+    })
+})
+
+// Cmd/Ctrl+Enter routes through this, so a false positive on an action item runs that action
+// instead of opening a background tab, which in the case of "Log out" ends the session.
+describe('canOpenInNewTab', () => {
+    const cases: [label: string, item: { id: string; href?: string; onSelect?: () => void }, expected: boolean][] = [
+        ['allows a plain navigable result', { id: 'insight-1', href: '/insights/1' }, true],
+        ['blocks an action-only result such as "Log out"', { id: 'misc-logout', onSelect: jest.fn() }, false],
+        [
+            'blocks an action that also carries an href',
+            { id: 'new-sql-query-tab', href: '/sql', onSelect: jest.fn() },
+            false,
+        ],
+        [
+            'blocks the theme row, which navigates but toggles instead',
+            { id: SETTINGS_THEME_ITEM_ID, href: '/settings/theme' },
+            false,
+        ],
+        ['blocks a result with nothing to open', { id: 'no-href' }, false],
+    ]
+
+    it.each(cases)('%s', (_label, item, expected) => {
+        expect(canOpenInNewTab(item)).toBe(expected)
     })
 })

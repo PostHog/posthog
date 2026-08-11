@@ -5,7 +5,7 @@ Both providers keep the eval database, Django server, LLM gateway, MCP server, T
 The provider changes only where the coding-agent sandbox runs.
 Prefer remote Modal for multi-case sandboxed evals when its prerequisites are available.
 Remote sandboxes run in parallel without consuming local Docker memory, which usually shortens the run substantially.
-Use local Docker for a single-case smoke test, offline work, or when Modal and ngrok credentials are unavailable.
+Use local Docker for a single-case smoke test, offline work, or when Modal credentials or a Funnel-capable tailnet are unavailable.
 
 ## Shared setup
 
@@ -87,7 +87,7 @@ Use `--rebuild-sandbox-image` only when a forced image rebuild is part of the di
 ## Remote setup with Modal (preferred)
 
 Remote sandboxed evals use the dedicated `posthog-sandbox-evals` Modal app.
-Install the `modal` and `ngrok` CLIs and make sure both are on `PATH` inside the flox environment.
+Install the `modal` and `tailscale` CLIs and make sure both are on `PATH` inside the flox environment.
 
 Authenticate Modal once:
 
@@ -98,21 +98,20 @@ modal token new
 This normally writes `~/.modal.toml`.
 For non-interactive environments, set both `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET` instead.
 
-Authenticate ngrok once:
+Connect this machine to your tailnet once:
 
 ```bash
-ngrok config add-authtoken '<token>'
+tailscale up
 ```
 
-Setting `NGROK_AUTHTOKEN` is the non-interactive alternative.
-The harness generates a temporary ngrok configuration and starts HTTPS tunnels for the local Django API, LLM gateway, and MCP server.
+Funnel additionally needs the `funnel` node attribute granted to the tailnet and this node in the [admin console](https://login.tailscale.com/admin/acls), and HTTPS certificates enabled for the tailnet.
+The harness then exposes the local Django API, LLM gateway, and MCP server over Tailscale Funnel for the duration of the run, one service per Funnel public port (`443`, `8443`, `10000`).
 Do not manually set `SANDBOX_API_URL`, `SANDBOX_LLM_GATEWAY_URL`, or `SANDBOX_MCP_URL` for an eval run.
 
-The automated Modal provider currently requires three simultaneous ngrok tunnels.
-That needs an authenticated paid ngrok plan.
-Cloudflare Tunnel can expose the same services in other development workflows, but it is not wired into `hogli evals --provider modal` and does not satisfy the provider's current ngrok preflight.
+Funnel serves only those three public ports, so the harness refuses to start when your tailnet node already serves one of them rather than clobbering it.
+Free the port first — `tailscale funnel --https=443 off`, and likewise for `8443` and `10000`.
 
-Start with one remote sandbox to verify credentials, tunnels, and the remote image build:
+Start with one remote sandbox to verify credentials, Funnel, and the remote image build:
 
 ```bash
 hogli evals '<suite-selector>' \
@@ -131,9 +130,10 @@ Modal concurrency is unbounded by default, so always choose an intentional `--ma
 hogli evals '<product-or-domain>' --provider modal --max-sandboxes 4
 ```
 
-The harness stops its temporary tunnels during teardown.
+The harness turns its Funnel mappings off during teardown.
 It also terminates each case's task-tagged sandbox and sweeps leftovers belonging to the current run.
-The generated tunnel URLs are publicly reachable while the run is active, so do not share them or leave a run unattended after an interruption.
+Funnel config lives in `tailscaled` and outlives the harness process, so a run killed with `SIGKILL` can leave the three ports public — check with `tailscale serve status` and turn them off by hand.
+The Funnel URLs are reachable by anyone on the internet who learns them while the run is active, so do not share them or leave a run unattended after an interruption.
 
 ## Diagnosing setup failures
 
@@ -143,7 +143,8 @@ Frequent causes are:
 - Running outside flox, which makes the personhog Rust build fail on its toolchain or OpenSSL dependencies.
 - A stopped Docker daemon in local mode.
 - Missing `~/.modal.toml` or incomplete `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` credentials in remote mode.
-- An ngrok free plan or missing authtoken, which prevents all three remote tunnels from starting.
+- A stopped `tailscaled`, a node that is not logged in, or a tailnet without the `funnel` node attribute or HTTPS certificates, which stops Funnel from serving the three remote-reachable services.
+- A Funnel public port (`443`, `8443`, `10000`) already serving something else, which the harness refuses to overwrite.
 - Passing provider flags to a one-shot-only selection.
 - Omitting `LLM_GATEWAY_OPENAI_API_KEY` when selecting `--agent-runtime codex`.
 

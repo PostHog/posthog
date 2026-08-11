@@ -55,7 +55,7 @@ function EditExperimentResultsWidgetModalStory({
 
 // Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof EditExperimentResultsWidgetModalStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Experiments/Experiment results/Widget settings',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Experiments/Experiment results/Widget settings',
     component: EditExperimentResultsWidgetModalStory,
     parameters: {
         layout: 'fullscreen',

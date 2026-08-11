@@ -259,7 +259,11 @@ export interface journeyBuilderLogicActions {
     collapsePath: () => {
         value: true
     } // funnelPathsExpansionLogic
-    setInsightQuery: (query: Node<Record<string, any>> | null) => {
+    setInsightQuery: (
+        query: Node<Record<string, any>> | null,
+        fromUrl?: boolean | undefined
+    ) => {
+        fromUrl: boolean
         query: Node<Record<string, any>> | null
     } // insightDataLogic
     addStep: (insertAtIndex: number) => {

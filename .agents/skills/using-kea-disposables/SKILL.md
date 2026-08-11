@@ -197,4 +197,4 @@ afterMount(({ actions, cache }) => {
 Other open conversion targets:
 
 - `frontend/src/scenes/welcome/welcomeDialogLogic.ts:325-345` — bare `window.addEventListener('storage', ...)` with `cache.storageHandler` stashed manually
-- `frontend/src/scenes/inbox/inboxSceneLogic.ts:260-267` — bare `setInterval` cleared by hand on every state change
+- `products/signals/frontend/inbox/inboxSceneLogic.ts:260-267` — bare `setInterval` cleared by hand on every state change

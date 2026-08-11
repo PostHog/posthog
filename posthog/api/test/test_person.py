@@ -1741,8 +1741,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         returned_ids = []
         # The property-access-control feature check reuses the request's already-loaded team,
-        # so listing persons no longer pays a per-request Team lookup (was 16).
-        with self.assertNumQueries(15):
+        # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
+        # saved-expressions fetch in the HogQL database build.
+        with self.assertNumQueries(16):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -1753,8 +1754,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-        # 15 as above, plus the include_total counting queries (was 20).
-        with self.assertNumQueries(19):
+        # 16 as above, plus the include_total counting queries (was 20); the count runs a second
+        # HogQL database build, which pays the saved-expressions fetch again.
+        with self.assertNumQueries(21):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 

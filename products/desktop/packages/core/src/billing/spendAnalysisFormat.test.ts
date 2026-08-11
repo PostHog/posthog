@@ -46,17 +46,76 @@ describe("fillSpendDays", () => {
   it("zero-fills days without rows across the window", () => {
     const filled = fillSpendDays(
       [
-        { day: "2026-07-01", event_count: 3, cost_usd: 1.5 },
-        { day: "2026-07-03", event_count: 1, cost_usd: 0.25 },
+        {
+          day: "2026-07-01",
+          event_count: 3,
+          cost_usd: 1.5,
+          input_tokens: 100,
+          output_tokens: 10,
+        },
+        {
+          day: "2026-07-03",
+          event_count: 1,
+          cost_usd: 0.25,
+          input_tokens: 20,
+          output_tokens: 2,
+        },
       ],
       "2026-07-01T00:00:00Z",
       "2026-07-04T12:00:00Z",
+      [
+        {
+          day: "2026-07-01",
+          model: "model-a",
+          cost_usd: 1.5,
+          input_tokens: 100,
+          output_tokens: 10,
+          generation_count: 3,
+        },
+      ],
     );
     expect(filled).toEqual([
-      { day: "2026-07-01", event_count: 3, cost_usd: 1.5 },
-      { day: "2026-07-02", event_count: 0, cost_usd: 0 },
-      { day: "2026-07-03", event_count: 1, cost_usd: 0.25 },
-      { day: "2026-07-04", event_count: 0, cost_usd: 0 },
+      {
+        day: "2026-07-01",
+        event_count: 3,
+        cost_usd: 1.5,
+        input_tokens: 100,
+        output_tokens: 10,
+        models: [
+          {
+            day: "2026-07-01",
+            model: "model-a",
+            cost_usd: 1.5,
+            input_tokens: 100,
+            output_tokens: 10,
+            generation_count: 3,
+          },
+        ],
+      },
+      {
+        day: "2026-07-02",
+        event_count: 0,
+        cost_usd: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        models: [],
+      },
+      {
+        day: "2026-07-03",
+        event_count: 1,
+        cost_usd: 0.25,
+        input_tokens: 20,
+        output_tokens: 2,
+        models: [],
+      },
+      {
+        day: "2026-07-04",
+        event_count: 0,
+        cost_usd: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+        models: [],
+      },
     ]);
   });
 

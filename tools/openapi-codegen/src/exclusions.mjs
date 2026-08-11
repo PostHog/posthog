@@ -66,6 +66,18 @@ function excludePath(spec, parentObj, parentKey, segments) {
         return
     }
 
+    // oneOf/anyOf/allOf wrap the object schema without consuming a path segment —
+    // e.g. a nullable nested serializer renders as oneOf: [$ref, {type: null}]
+    for (const variantKey of ['oneOf', 'anyOf', 'allOf']) {
+        const variants = schema[variantKey]
+        if (!Array.isArray(variants)) {
+            continue
+        }
+        for (let i = 0; i < variants.length; i++) {
+            excludePath(spec, variants, i, segments)
+        }
+    }
+
     if (tail.length === 0) {
         if (schema.properties?.[head]) {
             delete schema.properties[head]

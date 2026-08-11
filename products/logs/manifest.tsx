@@ -46,6 +46,20 @@ export const manifest: ProductManifest = {
             activityScope: ActivityScope.LOG,
             layout: 'app-container',
         },
+        LogsRetentionNew: {
+            import: () => import('./frontend/scenes/LogsRetentionNewScene/LogsRetentionNewScene'),
+            projectBased: true,
+            name: 'New retention rule',
+            activityScope: ActivityScope.LOG,
+            layout: 'app-container',
+        },
+        LogsRetentionDetail: {
+            import: () => import('./frontend/scenes/LogsRetentionDetailScene/LogsRetentionDetailScene'),
+            projectBased: true,
+            name: 'Retention rule',
+            activityScope: ActivityScope.LOG,
+            layout: 'app-container',
+        },
     },
     routes: {
         '/logs': ['Logs', 'logs'],
@@ -53,6 +67,8 @@ export const manifest: ProductManifest = {
         '/logs/alerts/:id/notifications/:hogFunctionId': ['LogsAlertNotificationDetail', 'logsAlertNotificationDetail'],
         '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
         '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
+        '/logs/retention-rules/new': ['LogsRetentionNew', 'logsRetentionNew'],
+        '/logs/retention-rules/:id': ['LogsRetentionDetail', 'logsRetentionDetail'],
     },
     redirects: {
         '/logs/sampling/new': (_params, searchParams, hashParams) =>
@@ -68,6 +84,8 @@ export const manifest: ProductManifest = {
             `/logs/alerts/${alertId}/notifications/${hogFunctionId}`,
         logsSamplingNew: (): string => '/logs/drop-rules/new',
         logsSamplingDetail: (id: string): string => `/logs/drop-rules/${id}`,
+        logsRetentionNew: (): string => '/logs/retention-rules/new',
+        logsRetentionDetail: (id: string): string => `/logs/retention-rules/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

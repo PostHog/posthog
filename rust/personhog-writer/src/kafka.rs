@@ -15,6 +15,13 @@ pub struct PersonConsumer {
 }
 
 impl PersonConsumer {
+    /// Client-level fatal state, queryable even after the event that
+    /// set it was consumed. A fatal client never recovers, so the
+    /// caller must exit rather than keep polling it.
+    pub fn fatal_error(&self) -> Option<(rdkafka::error::RDKafkaErrorCode, String)> {
+        self.consumer.client().fatal_error()
+    }
+
     pub fn from_config(
         kafka: &KafkaConfig,
         consumer_group: &str,
@@ -28,6 +35,16 @@ impl PersonConsumer {
             .set("auto.offset.reset", offset_reset)
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
+            // Only committed transactions: with the leader's epoch fencing
+            // on, aborted windows and zombie leftovers must never reach
+            // Postgres. Identical behavior on a non-transactional topic.
+            // The price is a liveness coupling: this consumer cannot
+            // advance past an open window, so a leader that stops
+            // mid-window holds the partition at its last stable offset
+            // until the broker abandons the transaction — bounded by the
+            // leader's derived broker transaction timeout (about 6s at
+            // the production lease).
+            .set("isolation.level", "read_committed")
             // Cooperative-sticky: during scale events, only partitions that need
             // to move are revoked. Non-moving partitions keep being consumed.
             .set("partition.assignment.strategy", "cooperative-sticky");

@@ -3,7 +3,7 @@ from collections import defaultdict
 
 from django.core.management.base import BaseCommand, CommandError
 
-from products.data_modeling.backend.logic.freshness import format_cadence
+from products.data_modeling.backend.logic.cohort_scheduling import format_tier, tier_sort_key
 from products.data_modeling.backend.logic.schedule_reconcile import DagSchedulePreview, preview_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -55,8 +55,8 @@ class Command(BaseCommand):
         self.stdout.write(f"\nDAG {dag.name} ({dag.id}) — team {dag.team_id}{seeded_note}")
 
         tiers = "  ".join(
-            f"{format_cadence(interval)} x{len(node_ids)}"
-            for interval, node_ids in sorted(preview.desired_tiers.items())
+            f"{format_tier(tier)} x{len(node_ids)}"
+            for tier, node_ids in sorted(preview.desired_tiers.items(), key=lambda kv: tier_sort_key(kv[0]))
         )
         unscheduled = sum(1 for cadence in preview.effective.values() if cadence is None)
         tier_line = tiers or "(none)"
@@ -106,19 +106,19 @@ class Command(BaseCommand):
             self.stdout.write(f"    {names.get(node_id, node_id)}: {cadence}")
 
         self.stdout.write("  Desired tiers:")
-        for interval, node_ids in sorted(preview.desired_tiers.items()):
+        for tier, node_ids in sorted(preview.desired_tiers.items(), key=lambda kv: tier_sort_key(kv[0])):
             members = ", ".join(sorted(names.get(node_id, node_id) for node_id in node_ids))
-            self.stdout.write(f"    {interval}: {members}")
+            self.stdout.write(f"    {format_tier(tier)}: {members}")
 
         plan = preview.plan
         self.stdout.write("  Plan vs current schedules:")
         if not (plan.to_create or plan.to_update or plan.to_delete):
             self.stdout.write("    (already in sync)")
             return
-        for schedule_id, (interval, node_ids) in sorted(plan.to_create.items()):
-            self.stdout.write(f"    CREATE {schedule_id} ({interval}, {len(node_ids)} nodes)")
-        for schedule_id, (interval, node_ids) in sorted(plan.to_update.items()):
-            self.stdout.write(f"    UPDATE {schedule_id} ({interval}, {len(node_ids)} nodes)")
+        for schedule_id, (tier, node_ids) in sorted(plan.to_create.items()):
+            self.stdout.write(f"    CREATE {schedule_id} ({format_tier(tier)}, {len(node_ids)} nodes)")
+        for schedule_id, (tier, node_ids) in sorted(plan.to_update.items()):
+            self.stdout.write(f"    UPDATE {schedule_id} ({format_tier(tier)}, {len(node_ids)} nodes)")
         for schedule_id in sorted(plan.to_delete):
             self.stdout.write(f"    DELETE {schedule_id}")
 

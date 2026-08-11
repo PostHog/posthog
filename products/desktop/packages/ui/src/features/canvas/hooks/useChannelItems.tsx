@@ -2,7 +2,9 @@ import {
   buildChannelItems,
   type ChannelItemModel,
   type ChannelItemOwner,
+  type ChannelSessionFacts,
 } from "@posthog/core/canvas/channelItems";
+import type { WorkspaceMode } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -16,12 +18,11 @@ import {
   useDashboardMutations,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
-import {
-  PERSONAL_CHANNEL_NAME,
-  useBackendChannel,
-} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -30,13 +31,10 @@ import { useMemo } from "react";
  * A channel's canvases + task feed as merged, newest-first items, plus the row
  * actions and the viewer's identity for the recent-list filters.
  *
- * The channel's *name* is resolved here rather than accepted as an argument: it
- * feeds `useBackendChannel`, whose resolve-or-create effect provisions a backend
- * channel for any name it's handed. A caller with a half-loaded channel list has
- * nothing truthful to pass, and a placeholder would create a real channel named
- * after the placeholder. While the name is unknown the hook reports loading and
- * yields nothing — which also keeps the personal-channel ownership filter from
- * running against an identity we haven't established yet.
+ * The channel is looked up in the channels list to establish its identity
+ * (personal vs public). While it's unknown the hook reports loading and yields
+ * nothing — which keeps the personal-channel ownership filter from running
+ * against an identity we haven't established yet.
  */
 export function useChannelItems(channelId: string): {
   items: ChannelItemModel[];
@@ -51,16 +49,12 @@ export function useChannelItems(channelId: string): {
 
   const { channels, isLoading: channelsLoading } = useChannels();
   const channel = channels.find((c) => c.id === channelId);
-  const channelName = channel?.name;
-  const identityKnown = channelName !== undefined;
-  const isPersonal = channelName === PERSONAL_CHANNEL_NAME;
+  const identityKnown = channel !== undefined;
+  const isPersonal = channel?.channelType === "personal";
 
   const { dashboards, isLoading: dashboardsLoading } = useDashboards(channelId);
-  const { channel: backendChannel, isLoading: channelLoading } =
-    useBackendChannel(channelName);
-  const { tasks: feedTasks, isLoading: feedLoading } = useChannelFeed(
-    backendChannel?.id,
-  );
+  const { tasks: feedTasks, isLoading: feedLoading } =
+    useChannelFeed(channelId);
   const { tasks: filedTaskRecords, isLoading: filedTasksLoading } =
     useChannelTasks(channelId);
   const { data: allTasks = [], isLoading: allTasksLoading } = useTasks({
@@ -75,6 +69,31 @@ export function useChannelItems(channelId: string): {
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
   });
+
+  // What the filters ask about beyond the task itself: a live session's
+  // permission prompt, when you last looked, and where the workspace is. The
+  // session map is the sidebar's own subscription, which ignores the streamed
+  // events a turn fires and only wakes on the fields a row reads.
+  const sessions = useSidebarSessionMap();
+  const { timestamps } = useTaskViewed();
+  const { data: workspaces } = useWorkspaces();
+  const sessionFacts = useMemo<ChannelSessionFacts>(() => {
+    const needsInputTaskIds = new Set<string>();
+    for (const [taskId, session] of sessions) {
+      if ((session.pendingPermissions?.size ?? 0) > 0) {
+        needsInputTaskIds.add(taskId);
+      }
+    }
+    const workspaceModeByTaskId = new Map<string, WorkspaceMode>();
+    for (const [taskId, workspace] of Object.entries(workspaces ?? {})) {
+      if (workspace.mode) workspaceModeByTaskId.set(taskId, workspace.mode);
+    }
+    return {
+      needsInputTaskIds,
+      viewedTimestamps: timestamps,
+      workspaceModeByTaskId,
+    };
+  }, [sessions, timestamps, workspaces]);
 
   const meUuid = currentUser?.uuid ?? null;
   const me = useMemo<ChannelItemOwner>(() => ({ uuid: meUuid }), [meUuid]);
@@ -104,9 +123,11 @@ export function useChannelItems(channelId: string): {
       // The personal channel is yours — but don't filter until we know
       // who you are, or #me flashes everyone's items on a cold load.
       ownedBy: isPersonal && viewerKnown ? me : null,
+      sessionFacts,
     });
   }, [
     identityKnown,
+    sessionFacts,
     dashboards,
     feedTasks,
     filedTaskRecords,
@@ -182,7 +203,6 @@ export function useChannelItems(channelId: string): {
       (channelsLoading ||
         !identityKnown ||
         dashboardsLoading ||
-        channelLoading ||
         feedLoading ||
         filedTasksLoading ||
         allTasksLoading ||

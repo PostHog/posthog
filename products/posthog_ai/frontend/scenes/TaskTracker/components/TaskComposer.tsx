@@ -25,7 +25,7 @@ import { RepositorySelector } from './RepositorySelector'
 export function TaskComposer(): JSX.Element {
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion, clearConsentBlock } =
         useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, consentBlocked } =
+    const { newTaskData, isSubmittingTask, activeSuggestionGroup, displayHeadline, consentBlocked } =
         useValues(taskTrackerSceneLogic)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
@@ -45,7 +45,7 @@ export function TaskComposer(): JSX.Element {
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col items-center gap-4">
-                <Welcome headline={headline} />
+                <Welcome headline={displayHeadline} />
 
                 <Suggestions.Root
                     activeGroup={activeSuggestionGroup}

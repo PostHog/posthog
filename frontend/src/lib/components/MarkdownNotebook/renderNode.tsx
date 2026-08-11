@@ -35,6 +35,7 @@ export function renderNode({
     rememberedComponentPanels,
     persistComponentPanelVisibility,
     allowViewModeFilters,
+    hideResourceLinks,
     isSelected,
     toggleComponentPanel,
     setLocalComponentPanels,
@@ -83,6 +84,7 @@ export function renderNode({
     rememberedComponentPanels?: ComponentPanelVisibility
     persistComponentPanelVisibility: boolean
     allowViewModeFilters?: boolean
+    hideResourceLinks?: boolean
     isSelected: boolean
     toggleComponentPanel: (panel: ComponentPanel) => void
     setLocalComponentPanels: (nodeId: string, panels: ComponentPanelVisibility) => void
@@ -185,6 +187,7 @@ export function renderNode({
                 rememberedComponentPanels={rememberedComponentPanels}
                 persistComponentPanelVisibility={persistComponentPanelVisibility}
                 allowViewModeFilters={allowViewModeFilters}
+                hideResourceLinks={hideResourceLinks}
                 setLocalComponentPanels={setLocalComponentPanels}
                 rememberComponentPanels={rememberComponentPanels}
                 setBlockRef={setBlockRef}

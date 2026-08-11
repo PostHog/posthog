@@ -131,9 +131,12 @@ export function PinnedBadge() {
 }
 
 /**
- * A task's identity as stacked avatars: the pin, then source, cloud, and
- * PR/branch. The pin goes first, which in a reversed stack puts it leftmost and
- * underneath — it says how the row got here, not what came out of it.
+ * A task's identity as stacked avatars: the pin, then source and PR/branch. The
+ * pin goes first, which in a reversed stack puts it leftmost and underneath — it
+ * says how the row got here, not what came out of it.
+ *
+ * A row with nothing to say gets no stack at all, rather than an empty group
+ * whose padding would still push the row's other content around.
  */
 export function TaskBadgeStack({
   status,
@@ -142,10 +145,14 @@ export function TaskBadgeStack({
   status: TaskStatusInput;
   pinned?: boolean;
 }) {
+  const badges = taskBadges(status);
+  if (!pinned && badges.length === 0) {
+    return null;
+  }
   return (
     <AvatarGroup stacked reverse size="xs" className="shrink-0">
       {pinned ? <PinnedBadge /> : null}
-      {taskBadges(status).map(({ key, Icon, label, tone }) => (
+      {badges.map(({ key, Icon, label, tone }) => (
         <RowTooltip key={key} label={label} side="top">
           {/* The tooltip names the badge on hover; `aria-label` is what names it
               for everyone else — without it the stack is a row of blank avatars

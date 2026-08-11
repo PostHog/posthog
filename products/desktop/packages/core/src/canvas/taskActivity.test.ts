@@ -40,9 +40,28 @@ describe("toTaskActivityItems", () => {
         snippet: "ping @[Me](me@posthog.com)",
         author: ann,
         messageId: "m1",
+        commentId: null,
+        commentTarget: null,
         isUnread: true,
       },
     ]);
+  });
+
+  it("maps a comment activity target for exact navigation", () => {
+    const [item] = toTaskActivityItems([
+      activity({
+        latest_message_id: null,
+        latest_comment_id: "comment-1",
+        latest_comment_scope: "task_artifact",
+        latest_comment_item_id: "artifact-1",
+      }),
+    ]);
+
+    expect(item.commentId).toBe("comment-1");
+    expect(item.commentTarget).toEqual({
+      scope: "task_artifact",
+      itemId: "artifact-1",
+    });
   });
 
   it("labels untitled tasks and tolerates missing optional values", () => {

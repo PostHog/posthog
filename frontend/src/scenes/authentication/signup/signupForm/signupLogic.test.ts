@@ -141,3 +141,123 @@ describe('signupLogic — pending invite banner', () => {
         expect(logic.values.pendingInviteResent).toBe(false)
     })
 })
+
+describe('signupLogic — name handling', () => {
+    let logic: ReturnType<typeof signupLogic.build>
+    let signupRequestBody: Record<string, any> | null
+
+    const advanceToOnboardingPanel = async (): Promise<void> => {
+        logic.actions.setSignupPanelEmailValue('email', 'test@example.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(1)
+        logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
+        logic.actions.submitSignupPanelAuth()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.panel).toBe(2)
+    }
+
+    beforeEach(() => {
+        signupRequestBody = null
+        useMocks({
+            post: {
+                '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
+                // 400 rather than 201 so that the submit handler never assigns `location.href`,
+                // which jsdom does not implement. The request body is captured before the response.
+                '/api/signup/': async (info) => {
+                    signupRequestBody = (await info.request.clone().json()) as Record<string, any>
+                    return [400, { type: 'validation_error', code: 'error', detail: 'Mocked failure', attr: null }]
+                },
+            },
+        })
+        initKeaTests()
+        router.actions.push('/signup')
+        logic = signupLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('trims and splits the name before building the signup payload', async () => {
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: '  John van Der Berg ',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signupRequestBody?.first_name).toBe('John')
+        expect(signupRequestBody?.last_name).toBe('van Der Berg')
+    })
+
+    it('omits a whitespace-only organization name so the backend applies its default', async () => {
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: '   ',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signupRequestBody).not.toBeNull()
+        expect(signupRequestBody).not.toHaveProperty('organization_name')
+    })
+
+    it('fails client-side validation for a whitespace-only name without issuing the POST', async () => {
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: '   ',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(signupRequestBody).toBeNull()
+        expect(logic.values.panel).toBe(2)
+    })
+
+    it('surfaces a first_name API error on the name field instead of the generic banner', async () => {
+        useMocks({
+            post: {
+                '/api/signup/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'blank',
+                        detail: 'This field may not be blank.',
+                        attr: 'first_name',
+                    },
+                ],
+            },
+        })
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.signupPanelOnboardingManualErrors.name).toBe('This field may not be blank.')
+        expect(logic.values.signupPanelOnboardingManualErrors.generic).toBeUndefined()
+        // The display-level selector fields read from — the error must remain visible after the
+        // failed submit (a successful submit resets showErrors and would hide it)
+        expect(logic.values.signupPanelOnboardingErrors.name).toBe('This field may not be blank.')
+        expect(logic.values.panel).toBe(2)
+    })
+})

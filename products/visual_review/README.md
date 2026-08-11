@@ -88,7 +88,7 @@ Final job: `vr run complete --run-id <id>`
   - backend fetches baseline from GitHub
   - classifies all snapshots, detects removals
   - triggers diffs, posts GitHub Check
-  - exit code gates the pipeline (1 = changes need review)
+  - exit code gates the pipeline (1 = changes need review, 2 = command failed)
 ```
 
 The backend is the source of truth for baselines — it fetches the `.snapshots.yml` from GitHub at `complete_run` time. The CLI no longer sends baseline hashes; it only sends snapshot identifiers and content hashes.
@@ -111,7 +111,10 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 
 **`vr run upload`** — per-shard: hashes PNGs in a directory, sends identifiers + hashes via `add-snapshots`, uploads missing artifacts.
 
-**`vr run complete`** — triggers completion (classification, removal detection, diffs). On `review` runs: exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set. On `observe` runs: always exits 0 (non-gating).
+**`vr run complete`** — triggers completion (classification, removal detection, diffs).
+Exits 1 if unapproved changes are detected, 0 if clean or `--auto-approve` is set, and 2 if the command itself failed (auth, network, timeout, backend processing).
+The exit code does not depend on `--purpose`: an `observe` run still exits 1 on unapproved changes, so a caller that wants tracking-only behavior has to tolerate exit 1 itself.
+`ci-storybook.yml` does exactly that on master pushes and merge-queue branches, and treats exit 2 as a failure everywhere.
 
 ### Run purposes
 

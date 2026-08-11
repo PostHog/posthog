@@ -164,6 +164,68 @@ export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
+ * Opt every recipient in the list out of the category named on their entry, or a default category.
+ * @summary Add multiple recipients to the opt-out list
+ */
+export const messagingPreferencesBulkAddOptOutsCreateBodyOptOutsItemIdentifierMax = 512
+
+export const MessagingPreferencesBulkAddOptOutsCreateBody = /* @__PURE__ */ zod.object({
+    opt_outs: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingPreferencesBulkAddOptOutsCreateBodyOptOutsItemIdentifierMax)
+                    .describe('The recipient identifier to opt out (e.g. email address).'),
+                category_key: zod
+                    .string()
+                    .optional()
+                    .describe('Message category key for this recipient. Overrides the request-level category_key.'),
+            })
+        )
+        .describe('Recipients to opt out, at most 1000 per request.'),
+    category_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages.'
+        ),
+})
+
+/**
+ * Generate an unsubscribe link for the current user's email address
+ * @summary Generate a preferences page link for a recipient
+ */
+export const messagingPreferencesGenerateLinkCreateBodyRecipientMax = 512
+
+export const MessagingPreferencesGenerateLinkCreateBody = /* @__PURE__ */ zod.object({
+    recipient: zod
+        .string()
+        .max(messagingPreferencesGenerateLinkCreateBodyRecipientMax)
+        .optional()
+        .describe("Recipient to generate the link for. Defaults to the requesting user's own email address."),
+})
+
+/**
+ * Opt a recipient back in to a specific category, or to all marketing messages.
+ * @summary Remove a recipient from the opt-out list
+ */
+export const messagingPreferencesRemoveOptOutCreateBodyIdentifierMax = 512
+
+export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.object({
+    identifier: zod
+        .string()
+        .max(messagingPreferencesRemoveOptOutCreateBodyIdentifierMax)
+        .describe('The recipient identifier to opt back in (e.g. email address).'),
+    category_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional message category key. If omitted, the recipient is opted back in to all marketing messages.'
+        ),
+})
+
+/**
  * Manually suppress an email address so no workflow sends to it.
  * @summary Manually add an email address to the suppression list
  */

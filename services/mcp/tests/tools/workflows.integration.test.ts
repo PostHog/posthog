@@ -414,16 +414,6 @@ describe('Workflows', { concurrent: false }, () => {
             expect(renamed.id).toBe(created.id)
             expect(renamed.name).toBe('mcp-test-renamed')
         })
-
-        it('should refuse editing an active workflow via MCP', async () => {
-            const created = parseToolResponse(await createTool.handler(context, makeWorkflowParams()))
-            createdWorkflowIds.push(created.id)
-            await enableTool.handler(context, { id: created.id })
-
-            await expect(
-                updateTool.handler(context, { id: created.id, name: 'mcp-test-active-rename' })
-            ).rejects.toThrow(/active workflow isn't supported via MCP/)
-        })
     })
 
     // workflows-test-run hits the invocations endpoint, which forwards to the CDP plugin

@@ -4,13 +4,21 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
 from posthog.hogql.database.utils import qualify_join_key_expr
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError
 
 
 def _qualified_key_expr(table_key: str, table_name: str) -> ast.Expr:
     expr = qualify_join_key_expr(table_key, table_name)
     if expr is None:
-        raise ResolutionError("Data Warehouse Join HogQL expression should be a Field or Call node")
+        # A join key that doesn't root in a Field or Call fails deterministically for every
+        # query touching the join - it's the join's configuration, not a server fault, so
+        # raise an exposed error naming what to fix instead of an internal 500.
+        raise QueryError(
+            f"Data warehouse join key {table_key!r} on '{table_name}' can't be used in a query. "
+            "A join key must be a field or a function call on a field, like properties.email or "
+            "lower(properties.email). Update the join's key expression, or remove references to "
+            "its joined fields."
+        )
     return expr
 
 

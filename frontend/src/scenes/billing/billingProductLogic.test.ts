@@ -44,6 +44,37 @@ describe('billingProductLogic', () => {
         return logic
     }
 
+    describe('product deep-link scrolling', () => {
+        it('does not retrigger a stale product scroll when another product logic mounts later', () => {
+            billingLogic.mount()
+            billingLogic.actions.setScrollToProductKey('product_analytics' as any)
+
+            const scrollIntoView = jest.fn()
+            const productAnalyticsLogic = billingProductLogic({
+                product: productByType('product_analytics'),
+                productRef: { current: { scrollIntoView } as unknown as HTMLDivElement },
+            })
+
+            jest.useFakeTimers()
+            try {
+                productAnalyticsLogic.mount()
+                mounted.push(productAnalyticsLogic)
+                jest.runOnlyPendingTimers()
+
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+                expect(productAnalyticsLogic.values.scrollToProductKey).toBe(null)
+
+                const sessionReplayLogic = mountProduct('session_replay')
+                expect(sessionReplayLogic.values.scrollToProductKey).toBe(null)
+                jest.runOnlyPendingTimers()
+
+                expect(scrollIntoView).toHaveBeenCalledTimes(1)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+    })
+
     describe('custom billing limit resolution', () => {
         // $0 is a real, meaningful limit (drop all usage) — it must not be conflated with
         // "no limit set" (unbounded spend). This guards the `=== 0` handling in the

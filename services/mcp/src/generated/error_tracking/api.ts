@@ -6207,6 +6207,10 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Issue status to set. Deprecated archived and pending_release values are rejected.\n\n\* `active` - active\n\* `resolved` - resolved\n\* `suppressed` - suppressed'
         ),
+    severity: zod
+        .union([zod.enum(['low', 'medium', 'high', 'critical']), zod.null()])
+        .optional()
+        .describe('Issue severity to set, or null to remove the assigned severity.'),
     name: zod.string().nullish().describe('Optional issue display name.'),
     description: zod.string().nullish().describe('Optional issue description.'),
 })

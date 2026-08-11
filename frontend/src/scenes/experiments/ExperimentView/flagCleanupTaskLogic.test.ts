@@ -1,3 +1,4 @@
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import { experimentsFlagCleanupTaskRetrieve } from 'products/experiments/frontend/generated/api'
@@ -18,6 +19,7 @@ describe('flagCleanupTaskLogic', () => {
     })
 
     afterEach(() => {
+        resumeKeaLoadersErrors()
         jest.useRealTimers()
     })
 
@@ -53,6 +55,7 @@ describe('flagCleanupTaskLogic', () => {
     })
 
     it('keeps polling through transient failures', async () => {
+        silenceKeaLoadersErrors()
         mockRetrieve
             .mockRejectedValueOnce(new Error('502'))
             .mockRejectedValueOnce(new Error('timeout'))
@@ -80,6 +83,7 @@ describe('flagCleanupTaskLogic', () => {
     })
 
     it('stops polling after three consecutive failures', async () => {
+        silenceKeaLoadersErrors()
         mockRetrieve.mockRejectedValue(new Error('502'))
 
         const logic = flagCleanupTaskLogic({ experimentId: 1 })

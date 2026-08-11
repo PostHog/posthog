@@ -19,6 +19,7 @@ real $0.00). Grouped results are small, but each query keeps an explicit ``LIMIT
 
 from collections import defaultdict
 from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime
 
 from posthog.hogql import ast
@@ -48,6 +49,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
     date_to_filter_clause,
+    merge_queue_branch_predicate,
     run_scope_filter_clause,
 )
 
@@ -330,13 +332,31 @@ def query_author_workflow_costs(
 # The window-cost shape twice over — the current window and the equal-length one before it — as
 # per-window conditional aggregates on one cost-source scan, so the repo hub's delta doesn't pay the
 # scan twice. The previous window is half-open ([prev_from, date_from)) so no run lands in both.
+# __QUEUE_AGG__ rides the same scan: the merge-queue slice of each window's billable seconds.
 _WINDOW_COST_WITH_PREV_SELECT = """
-    SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__
+    SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__, __QUEUE_AGG__
     FROM __COST_SOURCE__ AS c
     WHERE c.run_started_at >= {prev_from} __DATE_TO__
     GROUP BY c.workflow_name
     LIMIT 1000000
 """
+
+
+@dataclass(frozen=True, kw_only=True)
+class WindowCostsWithPrev:
+    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue slice
+    of each window's billable seconds — carried on the same scan so queue spend never needs a
+    second pass over the cost source."""
+
+    by_workflow: dict[str, PRCostAggregate]
+    by_workflow_prev: dict[str, PRCostAggregate]
+    merge_queue_billable_seconds: float
+    merge_queue_billable_seconds_prev: float
+
+
+_EMPTY_WINDOW_COSTS = WindowCostsWithPrev(
+    by_workflow={}, by_workflow_prev={}, merge_queue_billable_seconds=0.0, merge_queue_billable_seconds_prev=0.0
+)
 
 
 def query_workflow_window_costs_with_prev(
@@ -345,17 +365,17 @@ def query_workflow_window_costs_with_prev(
     date_from: datetime,
     date_to: datetime | None,
     prev_from: datetime,
-) -> tuple[dict[str, PRCostAggregate], dict[str, PRCostAggregate]]:
+) -> WindowCostsWithPrev:
     """``query_workflow_window_costs`` for [date_from, date_to] and [prev_from, date_from] in one scan.
 
-    Returns ``(current, previous)``, both keyed by workflow_name; empty when the jobs source isn't synced.
+    Both dicts are keyed by workflow_name; everything is empty when the jobs source isn't synced.
     A workflow lands in a window's dict only when it had at least one job in that window (same as the
     prior implementation), so a workflow present only in the other window doesn't create a phantom
     zero-cost entry.
     """
     cost_source = curated.job_cost_source()
     if cost_source is None:
-        return {}, {}
+        return _EMPTY_WINDOW_COSTS
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
@@ -367,10 +387,16 @@ def query_workflow_window_costs_with_prev(
     if date_to is not None:
         date_to_clause = "AND c.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
+    queue = merge_queue_branch_predicate("c.head_branch")
+    queue_agg = (
+        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {cur}) AS queue_billable_seconds, "
+        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {prev}) AS queue_billable_seconds_prev"
+    )
     sql = (
         _WINDOW_COST_WITH_PREV_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__CUR_AGG__", _cost_aggregates(when=cur))
         .replace("__PREV_AGG__", _cost_aggregates(when=prev, suffix="_prev"))
+        .replace("__QUEUE_AGG__", queue_agg)
         .replace("__DATE_TO__", date_to_clause)
     )
     response = curated.run(
@@ -378,6 +404,7 @@ def query_workflow_window_costs_with_prev(
     )
     by_workflow_cur: dict[str, PRCostAggregate] = {}
     by_workflow_prev: dict[str, PRCostAggregate] = {}
+    queue_billable = queue_billable_prev = 0.0
     for workflow_name, *columns in response.results or []:
         workflow = workflow_name or ""
         cur_agg = _aggregate(*columns[0:5])
@@ -386,7 +413,14 @@ def query_workflow_window_costs_with_prev(
             by_workflow_cur[workflow] = cur_agg
         if _has_jobs(prev_agg):
             by_workflow_prev[workflow] = prev_agg
-    return by_workflow_cur, by_workflow_prev
+        queue_billable += float(columns[10] or 0.0)
+        queue_billable_prev += float(columns[11] or 0.0)
+    return WindowCostsWithPrev(
+        by_workflow=by_workflow_cur,
+        by_workflow_prev=by_workflow_prev,
+        merge_queue_billable_seconds=queue_billable,
+        merge_queue_billable_seconds_prev=queue_billable_prev,
+    )
 
 
 # CI cost per merged PR over time (repo hub's Cost section trend). Two bucketed scans — cost by run

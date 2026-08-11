@@ -7,12 +7,15 @@ from posthog.models.activity_logging.activity_log import (
     Change,
     ChangeAction,
     Detail,
+    LogActivityEntry,
+    bulk_log_activity,
     changes_between,
     log_activity,
 )
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
+from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.llm_prompt import LLMPromptLabel
 
@@ -87,6 +90,30 @@ def _strip_compiled_from_eval_config(config: dict[str, Any] | None) -> dict[str,
     return {k: v for k, v in config.items() if k not in _COMPILED_KEYS}
 
 
+def _evaluation_directory_change(before_update: Evaluation | None, after_update: Evaluation | None) -> Change | None:
+    if before_update is None or after_update is None:
+        return None
+
+    before_directory_id = str(before_update.directory_id) if before_update.directory_id else None
+    after_directory_id = str(after_update.directory_id) if after_update.directory_id else None
+    if before_directory_id == after_directory_id:
+        return None
+
+    action: ChangeAction = "changed"
+    if before_directory_id is None:
+        action = "created"
+    elif after_directory_id is None:
+        action = "deleted"
+
+    return Change(
+        type="Evaluation",
+        action=action,
+        field="directory",
+        before=before_directory_id,
+        after=after_directory_id,
+    )
+
+
 @mutable_receiver(model_activity_signal, sender=Evaluation)
 def handle_evaluation_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
@@ -107,6 +134,11 @@ def handle_evaluation_change(
         if before_deleted is not None and after_deleted is not None and before_deleted != after_deleted:
             activity = "restored" if after_deleted is False else "deleted"
 
+    changes = changes_between(scope, before_log, after_log)
+    directory_change = _evaluation_directory_change(before_update, after_update)
+    if directory_change is not None:
+        changes.append(directory_change)
+
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
@@ -116,8 +148,62 @@ def handle_evaluation_change(
         scope=scope,
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_log, current=after_log),
+            changes=changes,
             name=after_update.name,
+        ),
+    )
+
+
+def log_evaluations_moved_to_top_level(evaluations: list[Evaluation]) -> None:
+    user = activity_storage.get_user()
+    was_impersonated = activity_storage.get_was_impersonated()
+    bulk_log_activity(
+        [
+            LogActivityEntry(
+                organization_id=None,
+                team_id=evaluation.team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=str(evaluation.id),
+                scope="Evaluation",
+                activity="updated",
+                detail=Detail(
+                    name=evaluation.name,
+                    changes=[
+                        Change(
+                            type="Evaluation",
+                            action="deleted",
+                            field="directory",
+                            before=str(evaluation.directory_id),
+                            after=None,
+                        )
+                    ],
+                ),
+            )
+            for evaluation in evaluations
+        ]
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=EvaluationDirectory)
+def handle_evaluation_directory_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    directory = after_update or before_update
+    if directory is None:
+        return
+
+    log_activity(
+        organization_id=directory.team.organization_id,
+        team_id=directory.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=directory.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            name=directory.name,
+            changes=changes_between(scope, before_update, after_update),
         ),
     )
 

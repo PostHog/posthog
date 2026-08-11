@@ -121,7 +121,7 @@ describe('SourceWebhooksConsumer', () => {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: createMockJobQueue(),
             })
-            mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
+            mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutorAsync'], 'execute')
             mockQueueInvocationsSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogQueue'], 'queueInvocations')
             mockQueueHogflowInvocationsSpy = jest.spyOn(
                 api['cdpSourceWebhooksConsumer']['hogflowQueue'],

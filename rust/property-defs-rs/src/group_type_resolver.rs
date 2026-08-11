@@ -24,6 +24,31 @@ use crate::{
 const METHOD: &str = "GetGroupTypeMappingsByTeamIds";
 const CLIENT: &str = "property-defs-rs";
 
+// Metric label for a gRPC status code, as a static string so the error path allocates nothing.
+// The values are the PascalCase variant names on purpose: the Node.js and Python personhog
+// clients emit the same `error_type` values, and these three metric names are shared with them.
+fn code_label(code: Code) -> &'static str {
+    match code {
+        Code::Ok => "Ok",
+        Code::Cancelled => "Cancelled",
+        Code::Unknown => "Unknown",
+        Code::InvalidArgument => "InvalidArgument",
+        Code::DeadlineExceeded => "DeadlineExceeded",
+        Code::NotFound => "NotFound",
+        Code::AlreadyExists => "AlreadyExists",
+        Code::PermissionDenied => "PermissionDenied",
+        Code::ResourceExhausted => "ResourceExhausted",
+        Code::FailedPrecondition => "FailedPrecondition",
+        Code::Aborted => "Aborted",
+        Code::OutOfRange => "OutOfRange",
+        Code::Unimplemented => "Unimplemented",
+        Code::Internal => "Internal",
+        Code::Unavailable => "Unavailable",
+        Code::DataLoss => "DataLoss",
+        Code::Unauthenticated => "Unauthenticated",
+    }
+}
+
 fn is_retryable(code: Code) -> bool {
     matches!(
         code,
@@ -59,13 +84,13 @@ where
         match make_call().await {
             Ok(value) => return Ok(value),
             Err(status) => {
-                let error_type = format!("{:?}", status.code());
+                let error_type = code_label(status.code());
 
                 metrics::counter!(
                     PERSONHOG_ERRORS_TOTAL,
                     "method" => method,
                     "client" => client,
-                    "error_type" => error_type.clone(),
+                    "error_type" => error_type,
                 )
                 .increment(1);
 
@@ -216,8 +241,8 @@ impl GroupTypeResolver {
                 Err(e) => {
                     let error_type = e
                         .downcast_ref::<Status>()
-                        .map(|s| format!("{:?}", s.code()))
-                        .unwrap_or_else(|| "unknown".to_string());
+                        .map(|s| code_label(s.code()))
+                        .unwrap_or("unknown");
                     warn!(error = %e, error_type = %error_type, "personhog group type resolution failed");
                     metrics::counter!(PERSONHOG_RESOLVE_ERRORS).increment(1);
                     return Err(e);

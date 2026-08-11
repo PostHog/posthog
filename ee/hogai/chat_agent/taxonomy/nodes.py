@@ -50,7 +50,9 @@ class TaxonomyAgentNode(
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team, user=user)
-        self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
+        state_classes = self._get_state_class(TaxonomyAgentNode)
+        self._state_class = state_classes.state_class
+        self._partial_state_class = state_classes.partial_state_class
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -168,7 +170,9 @@ class TaxonomyAgentToolsNode(
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team, user=user)
-        self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
+        state_classes = self._get_state_class(TaxonomyAgentToolsNode)
+        self._state_class = state_classes.state_class
+        self._partial_state_class = state_classes.partial_state_class
 
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []

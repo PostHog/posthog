@@ -1,4 +1,6 @@
 import {
+  type ChannelScopedTask,
+  countSessionsByChannel,
   latestActivityForChannel,
   unreadChannelIds,
 } from "@posthog/core/canvas/channelUnread";
@@ -79,6 +81,37 @@ describe("unreadChannelIds", () => {
       mention({ channelId: null, createdAt: "2026-07-16T10:00Z" }),
     ];
     expect([...unreadChannelIds(items, {})]).toEqual([]);
+  });
+});
+
+describe("countSessionsByChannel", () => {
+  const counted = new Set(["a", "b", "unfiled"]);
+  const tasks: ChannelScopedTask[] = [
+    { id: "a", channel: "c1" },
+    { id: "b", channel: "c1" },
+    { id: "quiet", channel: "c1" },
+    { id: "unfiled", channel: null },
+    { id: "other", channel: "c2" },
+  ];
+
+  it("counts a channel's sessions and leaves out the ones that don't count", () => {
+    const byChannel = countSessionsByChannel(tasks, (t) => counted.has(t.id));
+    expect(byChannel.get("c1")).toBe(2);
+  });
+
+  // A zero would render an empty dot slot; the row has to be able to ask "is
+  // there anything here" and get nothing back.
+  it("leaves a channel with nothing counted out of the map entirely", () => {
+    const byChannel = countSessionsByChannel(tasks, (t) => counted.has(t.id));
+    expect(byChannel.has("c2")).toBe(false);
+  });
+
+  it("skips sessions filed nowhere, however they count", () => {
+    const byChannel = countSessionsByChannel(tasks, () => true);
+    expect([...byChannel]).toEqual([
+      ["c1", 3],
+      ["c2", 1],
+    ]);
   });
 });
 

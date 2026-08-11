@@ -1,7 +1,11 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getLlmGatewayUrl } from "./gateway";
-import { DEFAULT_MODEL, fallbackModelConfigs } from "./models";
+import {
+  DEFAULT_MODEL,
+  fallbackModelConfigs,
+  resolveModelConfigsFromGatewayModels,
+} from "./models";
 import * as oauth from "./oauth";
 import {
   buildPosthogProvider,
@@ -66,7 +70,7 @@ describe("buildPosthogProvider", () => {
     ).toBe(true);
     expect(
       (config.models ?? [])
-        .filter((model) => model.api === "openai-responses")
+        .filter((model) => model.api?.startsWith("openai-"))
         .every((model) => model.baseUrl === "http://127.0.0.1:1234/v1"),
     ).toBe(true);
   });
@@ -252,11 +256,35 @@ describe("model classification", () => {
     }
   });
 
-  it("exposes the GLM model via the anthropic-messages surface", () => {
+  it("routes GLM through chat completions so Pi function tools stay local", () => {
     const glm = byId("us").get("@cf/zai-org/glm-5.2");
     expect(glm).toBeDefined();
-    expect(glm?.api).toBe("anthropic-messages");
+    expect(glm?.api).toBe("openai-completions");
+    expect(glm?.baseUrl).toBe("https://gateway.us.posthog.com/posthog_code/v1");
     expect(glm?.input).toEqual(["text"]);
+  });
+
+  it("routes DeepSeek through chat completions so Pi function tools stay local", () => {
+    const [deepseek] = resolveModelConfigsFromGatewayModels(
+      [
+        {
+          id: "deepseek-ai/deepseek-v4-flash-0731",
+          owned_by: "baseten",
+          context_window: 1_048_000,
+        },
+      ],
+      "us",
+    );
+    expect(deepseek?.api).toBe("openai-completions");
+    expect(deepseek?.reasoning).toBe(false);
+    expect(deepseek?.baseUrl).toBe(
+      "https://gateway.us.posthog.com/posthog_code/v1",
+    );
+    expect(deepseek?.contextWindow).toBe(1_048_000);
+  });
+
+  it("keeps DeepSeek out of the offline fallback list", () => {
+    expect(byId("us").has("deepseek-ai/deepseek-v4-flash-0731")).toBe(false);
   });
 
   it("points OpenAI models at the region-specific gateway", () => {

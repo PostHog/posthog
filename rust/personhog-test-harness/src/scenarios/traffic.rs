@@ -29,7 +29,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
-use metrics::{counter, gauge};
+use assignment_coordination::store::{EtcdStore, StoreConfig};
+use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
 use serde_json::{json, Value};
@@ -41,6 +42,7 @@ use uuid::Uuid;
 
 use crate::cli::TrafficArgs;
 use crate::client::HarnessClient;
+use crate::client::{IdentityClient, LifecycleClient};
 use crate::scenarios::chaos::{self, ChaosConfig, TargetKind, TargetSpec};
 use crate::scenarios::{blast, consistency};
 use crate::seed;
@@ -81,6 +83,14 @@ const STALE_ROW_AGE: Duration = Duration::from_secs(3600);
 pub async fn run(args: TrafficArgs) -> Result<()> {
     validate_args(&args)?;
 
+    let team_id = args.team_id;
+    let hostile_team_id = args.hostile_team_id;
+    // Instances share the team pair; disjointness comes from the boot
+    // nonce in every distinct id, so verification (id-scoped) and the
+    // janitor (age-guarded) never cross instances.
+    let nonce = format!("{:08x}", rand::random::<u32>());
+    tracing::info!(%nonce, team_id, hostile_team_id, "instance identity");
+
     traffic_metrics::spawn_server(args.metrics_port)?;
     gauge!("personhog_traffic_enabled").set(if args.enabled { 1.0 } else { 0.0 });
     if !args.enabled {
@@ -91,6 +101,8 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         return Ok(());
     }
     let client = HarnessClient::connect(&args.router_url).await?;
+    let identity = IdentityClient::connect(&args.identity_url).await?;
+    let lifecycle = LifecycleClient::connect(&args.identity_url).await?;
     let pool = PgPool::connect(&args.persons_db_url)
         .await
         .context("connecting to persons DB")?;
@@ -99,13 +111,13 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // this database. On failure the process exits and the Deployment's
     // restart loop retries — which also rides out startup races where the
     // leader hasn't claimed partitions yet.
-    sentinel_round_trip(&client, &pool, &args.pg_target_table, args.team_id).await?;
+    sentinel_round_trip(&client, &pool, &args.pg_target_table, team_id).await?;
 
     // A crashed prior run leaves rows behind; reap the ones old enough
     // that they cannot belong to a live sibling — a rolling restart
     // briefly runs two bed pods against the same team, each on its own
     // disjoint id pool, and a fresh row is the sibling's business.
-    for team in [args.team_id, args.hostile_team_id] {
+    for team in [team_id, hostile_team_id] {
         seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
     }
 
@@ -113,7 +125,12 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
     // small (fixed keys, no journal growth) and their outcomes are only
     // observed, never verified.
     let hostile_ids = if args.hostile_rate > 0.0 {
-        Arc::new(seed::seed_persons(&pool, &args.pg_target_table, args.hostile_team_id, 4).await?)
+        // Nonce'd ids: a restart must insert fresh hostile rows, not
+        // revive the previous boot's tombstones, and a sibling instance
+        // must never resolve onto this one's rows.
+        let distinct_ids: Vec<String> =
+            (0..4).map(|i| format!("bed-hostile-{nonce}-{i}")).collect();
+        Arc::new(seed::seed_persons_via_identity(&identity, hostile_team_id, &distinct_ids).await?)
     } else {
         Arc::new(Vec::new())
     };
@@ -133,14 +150,15 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         });
     }
 
-    gauge!("personhog_traffic_chaos_enabled").set(if args.chaos_enabled { 1.0 } else { 0.0 });
+    // Chaos is a singleton: N instances compounding kill cadences would
+    // roll the stack permanently, so a Postgres advisory lock elects
+    // exactly one killer and the rest stay candidates.
+    gauge!("personhog_traffic_chaos_enabled").set(0.0);
     if args.chaos_enabled {
-        // Chaos runs for the process lifetime, independent of epochs:
-        // the bed is expected to stay correct while pods die under load.
-        let cfg = chaos_config(&args);
+        let args = args.clone();
         let shutdown = shutdown.clone();
         tokio::spawn(async move {
-            chaos::run(cfg, shutdown).await;
+            chaos_singleton(&args, shutdown).await;
         });
     }
 
@@ -155,17 +173,26 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 
         // The hostile pool outlives epochs; keep its liveness stamp fresh
         // so a sibling pod's startup janitor never reaps it mid-use.
-        seed::refresh_created_at(
-            &pool,
-            &args.pg_target_table,
-            args.hostile_team_id,
-            &hostile_ids,
-        )
-        .await?;
+        seed::refresh_created_at(&pool, &args.pg_target_table, hostile_team_id, &hostile_ids)
+            .await?;
 
-        let person_ids = Arc::new(
-            seed::seed_persons(&pool, &args.pg_target_table, args.team_id, args.pool_size).await?,
-        );
+        // The per-epoch janitor: crashed-run leftovers and the
+        // tombstones lifecycle rotation leaves behind both age into
+        // eligibility; without this the table grows one pool per epoch
+        // for the life of the deployment.
+        for team in [team_id, hostile_team_id] {
+            seed::reap_stale_team_rows(&pool, &args.pg_target_table, team, STALE_ROW_AGE).await?;
+        }
+
+        // Fresh ids every epoch, nonce'd per instance: each create
+        // inserts a new row rather than reviving a tombstone, and
+        // sibling instances on the shared team never resolve onto each
+        // other's rows.
+        let distinct_ids: Vec<String> = (0..args.pool_size)
+            .map(|i| format!("bed-{nonce}-e{epoch}-p{i}"))
+            .collect();
+        let person_ids =
+            Arc::new(seed::seed_persons_via_identity(&identity, team_id, &distinct_ids).await?);
         let collector = Arc::new(StatsCollector::new());
         let state = PersonState::new();
 
@@ -174,7 +201,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let person_ids = person_ids.clone();
             let collector = collector.clone();
             let state = state.clone();
-            let (team_id, duration, concurrency) = (args.team_id, args.epoch, args.concurrency);
+            let (team_id, duration, concurrency) = (team_id, args.epoch, args.concurrency);
             let prefix = format!("traffic_e{epoch}_");
             let stop = shutdown.clone();
             tokio::spawn(async move {
@@ -198,7 +225,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             let person_ids = person_ids.clone();
             let collector = collector.clone();
             let state = state.clone();
-            let (team_id, duration, prober_count) = (args.team_id, args.epoch, args.probers);
+            let (team_id, duration, prober_count) = (team_id, args.epoch, args.probers);
             let stop = shutdown.clone();
             tokio::spawn(async move {
                 consistency::run_probers(
@@ -217,7 +244,7 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         let hostile = {
             let client = client.clone();
             let hostile_ids = hostile_ids.clone();
-            let (team_id, duration, rate) = (args.hostile_team_id, args.epoch, args.hostile_rate);
+            let (team_id, duration, rate) = (hostile_team_id, args.epoch, args.hostile_rate);
             let stop = shutdown.clone();
             tokio::spawn(async move {
                 run_hostile(&client, team_id, hostile_ids, duration, rate, stop).await
@@ -231,10 +258,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         // Close the epoch: everything acked in it must now be visible.
         let mut violations = prober_violations;
         violations.extend(state.take_anomalies().await);
-        violations.extend(blast::verify_strong(&client, &collector, &state, args.team_id).await?);
+        violations.extend(blast::verify_strong(&client, &collector, &state, team_id).await?);
         let journal = state.snapshot().await;
-        violations
-            .extend(verify_postgres(&pool, &args.pg_target_table, args.team_id, &journal).await?);
+        violations.extend(verify_postgres(&pool, &args.pg_target_table, team_id, &journal).await?);
         traffic_metrics::record_violations(epoch, &violations);
 
         let writes = collector.writes.snapshot();
@@ -252,20 +278,15 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             "epoch closed"
         );
 
-        // Rotate the pool: delete this epoch's persons so the next epoch
-        // starts from fresh documents. By id, not by team — a successor
+        // Rotate the pool through the lifecycle delete saga: the same
+        // path production deletes take, exercised every epoch under
+        // whatever chaos is running. By id, not by team — a successor
         // pod may already be running its own pool against this team.
-        seed::cleanup_persons(&pool, &args.pg_target_table, args.team_id, &person_ids).await?;
+        delete_pool(&lifecycle, team_id, &person_ids).await?;
 
         if shutdown.load(Ordering::SeqCst) {
             tracing::info!("cleaning up and exiting");
-            seed::cleanup_persons(
-                &pool,
-                &args.pg_target_table,
-                args.hostile_team_id,
-                &hostile_ids,
-            )
-            .await?;
+            delete_pool(&lifecycle, hostile_team_id, &hostile_ids).await?;
             return Ok(());
         }
     }
@@ -280,6 +301,160 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 /// personhog charts follow: `app.kubernetes.io/name` equals the release
 /// (and namespace) name, and `component=app` excludes the pgbouncer
 /// sidecars sharing the namespace.
+/// The lease TTL bounding both sides of the chaos election: a dead
+/// holder's claim expires within this window, and a live holder demotes
+/// on its first unconfirmed keepalive, well inside it.
+const CHAOS_LEASE_TTL: Duration = Duration::from_secs(30);
+const CHAOS_KEEPALIVE_TICK: Duration = Duration::from_secs(10);
+const CHAOS_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(5);
+// The demotion bound. Anchor at S, the send instant of the last
+// confirmed keepalive: etcd expires the key no earlier than S + TTL,
+// while the holder's next round starts within timeout + tick of S and
+// concludes (send and read each bounded by the timeout) within another
+// 2 * timeout. So the holder is demoted before the key can expire and
+// admit a successor, and two concurrent chaos runners are impossible.
+const _: () = assert!(
+    CHAOS_KEEPALIVE_TICK.as_secs() + 3 * CHAOS_KEEPALIVE_TIMEOUT.as_secs()
+        < CHAOS_LEASE_TTL.as_secs()
+);
+
+/// Lease-backed chaos election on the coordination etcd. The winner
+/// claims `{prefix}chaos_leader` under a lease it keeps alive; losers
+/// retry on a slow cadence. Without etcd endpoints there is nothing to
+/// elect against, so a single instance is assumed and chaos runs
+/// directly.
+async fn chaos_singleton(args: &TrafficArgs, shutdown: Arc<AtomicBool>) {
+    const RETRY: Duration = Duration::from_secs(30);
+
+    let Some(endpoints) = args.chaos_etcd_endpoints.clone() else {
+        tracing::warn!("chaos enabled without etcd endpoints; running unelected");
+        gauge!("personhog_traffic_chaos_enabled").set(1.0);
+        chaos::run(chaos_config(args), shutdown).await;
+        return;
+    };
+
+    while !shutdown.load(Ordering::SeqCst) {
+        if let Err(error) = campaign(args, &endpoints, &shutdown).await {
+            tracing::warn!(%error, "chaos election attempt failed; retrying");
+        }
+        tokio::time::sleep(RETRY).await;
+    }
+}
+
+/// One election attempt: claim the leader key, and while the claim
+/// holds, run chaos. Returns after losing the campaign, demoting, or
+/// shutdown; the caller paces the next attempt.
+async fn campaign(args: &TrafficArgs, endpoints: &str, shutdown: &Arc<AtomicBool>) -> Result<()> {
+    let store = EtcdStore::connect(StoreConfig {
+        endpoints: endpoints.split(',').map(String::from).collect(),
+        prefix: args.chaos_etcd_prefix.clone(),
+    })
+    .await
+    .context("connecting to etcd for the chaos election")?;
+    let key = format!("{}chaos_leader", store.prefix());
+
+    let lease_id = store.grant_lease(CHAOS_LEASE_TTL.as_secs() as i64).await?;
+    if !store
+        .put_if_absent(&key, b"held".to_vec(), lease_id)
+        .await?
+    {
+        store.revoke_lease(lease_id).await.ok();
+        return Ok(());
+    }
+
+    gauge!("personhog_traffic_chaos_enabled").set(1.0);
+    tracing::info!("chaos leadership claimed; this instance runs chaos");
+    let result = hold_and_run(args, &store, lease_id, shutdown).await;
+    gauge!("personhog_traffic_chaos_enabled").set(0.0);
+    // Free the key immediately on a clean exit so a successor need not
+    // wait out the TTL. Best-effort: expiry covers an unreachable etcd.
+    store.revoke_lease(lease_id).await.ok();
+    result
+}
+
+/// Runs chaos while keepalives confirm the lease, demoting on the
+/// first doubt: a send or read failure, a timeout, or a keepalive
+/// answered with TTL 0 (etcd already expired the lease). Doubt is
+/// cheap because the failure direction is one-sided — the key outlives
+/// the hold until revoke or expiry, so a spurious demotion costs a
+/// short chaos gap, never a second runner. Chaos's own etcd bounce
+/// lands here too: the holder demotes and re-campaigns once the
+/// cluster settles.
+async fn hold_and_run(
+    args: &TrafficArgs,
+    store: &EtcdStore,
+    lease_id: i64,
+    shutdown: &Arc<AtomicBool>,
+) -> Result<()> {
+    let chaos = chaos::run(chaos_config(args), shutdown.clone());
+    tokio::pin!(chaos);
+    let (mut keeper, mut stream) = store.keep_alive(lease_id).await?;
+    let mut tick = tokio::time::interval(CHAOS_KEEPALIVE_TICK);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = &mut chaos => return Ok(()),
+            _ = tick.tick() => {
+                let confirmed = async {
+                    tokio::time::timeout(CHAOS_KEEPALIVE_TIMEOUT, keeper.keep_alive())
+                        .await
+                        .ok()?
+                        .ok()?;
+                    let resp = tokio::time::timeout(CHAOS_KEEPALIVE_TIMEOUT, stream.message())
+                        .await
+                        .ok()?
+                        .ok()??;
+                    (resp.ttl() > 0).then_some(())
+                }
+                .await;
+                if confirmed.is_none() {
+                    tracing::warn!("chaos lease unconfirmed; demoting");
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+/// Delete the epoch's pool through the saga and account for every
+/// outcome. `deleted` is the expected answer; `not_found` means someone
+/// else already removed the row (a startup janitor's reap, never a
+/// second bed — pools are id-disjoint) and is counted, not fatal;
+/// `skipped_conflict` means a lifecycle operation is stuck holding a
+/// pool person, which the bed exists to surface, so it fails the run.
+async fn delete_pool(lifecycle: &LifecycleClient, team_id: i64, person_ids: &[i64]) -> Result<()> {
+    use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
+
+    // The lifecycle service caps batches at 250 person ids.
+    for chunk in person_ids.chunks(200) {
+        let op_id = uuid::Uuid::new_v4();
+        let started = std::time::Instant::now();
+        let outcomes = lifecycle
+            .delete_persons(team_id, chunk.to_vec(), &op_id)
+            .await?;
+        histogram!("personhog_traffic_pool_delete_duration_ms")
+            .record(started.elapsed().as_secs_f64() * 1000.0);
+        for (person_id, outcome) in outcomes {
+            let label = match outcome {
+                DeletePersonOutcome::Deleted => "deleted",
+                DeletePersonOutcome::NotFound => "not_found",
+                DeletePersonOutcome::SkippedConflict => "skipped_conflict",
+                DeletePersonOutcome::Unspecified => "unspecified",
+            };
+            counter!("personhog_traffic_pool_delete_total", "outcome" => label).increment(1);
+            if matches!(
+                outcome,
+                DeletePersonOutcome::SkippedConflict | DeletePersonOutcome::Unspecified
+            ) {
+                anyhow::bail!(
+                    "pool rotation delete returned {label} for person {person_id} on team {team_id}"
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 fn chaos_config(args: &TrafficArgs) -> ChaosConfig {
     let target = |kind: TargetKind, namespace: &str| TargetSpec {
         kind,
@@ -454,11 +629,49 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
 
+    /// Needs the CI gate's etcd; run explicitly with `--ignored`.
+    #[tokio::test]
+    #[ignore = "needs a local etcd"]
+    async fn chaos_claim_is_exclusive_and_freed_by_lease_revoke() {
+        let endpoints =
+            std::env::var("ETCD_ENDPOINTS").unwrap_or_else(|_| "http://localhost:2379".to_string());
+        let store = EtcdStore::connect(StoreConfig {
+            endpoints: endpoints.split(',').map(String::from).collect(),
+            prefix: "/personhog-harness-test/".to_string(),
+        })
+        .await
+        .unwrap();
+        // A per-run key: a crashed prior run's claim lives only as long
+        // as its lease, but a fresh key avoids waiting that out.
+        let key = format!("{}chaos_leader_{}", store.prefix(), Uuid::new_v4());
+
+        let holder = store.grant_lease(30).await.unwrap();
+        let contender = store.grant_lease(30).await.unwrap();
+        assert!(store
+            .put_if_absent(&key, b"a".to_vec(), holder)
+            .await
+            .unwrap());
+        assert!(!store
+            .put_if_absent(&key, b"b".to_vec(), contender)
+            .await
+            .unwrap());
+
+        // Revoking the holder's lease deletes the key with it, freeing
+        // the claim immediately.
+        store.revoke_lease(holder).await.unwrap();
+        assert!(store
+            .put_if_absent(&key, b"b".to_vec(), contender)
+            .await
+            .unwrap());
+        store.revoke_lease(contender).await.unwrap();
+    }
+
     #[test]
     fn vacuous_or_panicking_configurations_are_rejected() {
         let valid = TrafficArgs {
             chaos_etcd_namespace: None,
             router_url: "http://localhost:1".to_string(),
+            identity_url: "http://localhost:2".to_string(),
             enabled: true,
             team_id: 900_101,
             hostile_team_id: 900_102,

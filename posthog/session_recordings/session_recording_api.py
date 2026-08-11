@@ -9,6 +9,7 @@ import asyncio
 import builtins
 from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, Literal, cast
 from urllib.parse import urlparse
@@ -583,20 +584,28 @@ class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
-def list_recordings_response(
-    listing_result: tuple[list[SessionRecording], bool, str, str | None], context: dict[str, Any]
-) -> Response:
-    (recordings, more_recordings_available, timings_header, next_cursor) = listing_result
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RecordingsListingResult:
+    recordings: list[SessionRecording]
+    more_recordings_available: bool
+    timings_header: str
+    next_cursor: str | None
 
-    session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
+
+def list_recordings_response(listing_result: RecordingsListingResult, context: dict[str, Any]) -> Response:
+    session_recording_serializer = SessionRecordingSerializer(listing_result.recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    response_data: dict[str, Any] = {"results": results, "has_next": more_recordings_available, "version": 4}
-    if next_cursor is not None:
-        response_data["next_cursor"] = next_cursor
+    response_data: dict[str, Any] = {
+        "results": results,
+        "has_next": listing_result.more_recordings_available,
+        "version": 4,
+    }
+    if listing_result.next_cursor is not None:
+        response_data["next_cursor"] = listing_result.next_cursor
 
     response = Response(response_data)
-    response.headers["Server-Timing"] = timings_header
+    response.headers["Server-Timing"] = listing_result.timings_header
 
     return response
 
@@ -1184,12 +1193,12 @@ class SessionRecordingViewSet(
             "limit": len(session_recording_ids),
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _, _ = list_recordings_from_query(query, None, self.team)
+        listing_result = list_recordings_from_query(query, None, self.team)
 
         user_access_control = self.user_access_control
         accessible_recordings = [
             recording
-            for recording in recordings
+            for recording in listing_result.recordings
             if user_access_control.check_access_level_for_object(recording, required_level="editor")
         ]
 
@@ -1692,12 +1701,6 @@ class SessionRecordingViewSet(
 
         recording = self.get_object()
 
-        cache_key = f"summarize_recording_{self.team.pk}_{recording.session_id}"
-        # Check if the response is cached
-        cached_response = cache.get(cache_key)
-        if cached_response is not None:
-            return Response(cached_response)
-
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
@@ -2012,6 +2015,12 @@ def _load_recording_if_matches_filters(
     Check if a specific recording matches the current filters (ignoring pagination).
     Returns the recording if it matches, None otherwise.
     """
+    # An explicit id set is itself a filter: callers that pass session_ids (pinned recordings,
+    # comment search, the experiment recordings tab's session buckets) are asking for that set
+    # and nothing else, so an id outside it does not match however well it fits the rest.
+    if query.session_ids is not None and session_id not in query.session_ids:
+        return None
+
     prepend_check_query = query.model_copy(
         update={
             "session_ids": [session_id],
@@ -2068,7 +2077,7 @@ def list_recordings_from_query(
     team: Team,
     allow_event_property_expansion: bool = False,
     bypass_date_window_for_session_ids: bool = False,
-) -> tuple[list[SessionRecording], bool, str, str | None]:
+) -> RecordingsListingResult:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -2090,27 +2099,24 @@ def list_recordings_from_query(
 
     timer = ServerTimingsGathered()
 
-    # If session_recording_id is provided, add it to session_ids to fetch it along with the rest
+    # An explicitly requested recording gets the same treatment whatever else the query asks for.
+    # Folding it into session_ids instead would load it straight from Postgres by id, which skips
+    # both the match check (so it is never flagged) and, for a recording not yet persisted to S3,
+    # the guarantee that it comes back at all.
     if session_recording_id_to_prepend:
-        if all_session_ids:
-            all_session_ids = [session_recording_id_to_prepend] + [
-                sid for sid in all_session_ids if sid != session_recording_id_to_prepend
-            ]
-        else:
-            # We need to fetch this specific recording alongside the filtered results
-            with timer("load_prepend_recording"):
-                prepend_recording = _load_recording_if_matches_filters(
-                    session_recording_id_to_prepend,
-                    query,
-                    team,
-                    allow_event_property_expansion,
-                )
-                if prepend_recording is None:
-                    # The recording was explicitly requested (e.g. a shared link) but doesn't match
-                    # the current filters - include it anyway so the link still opens it
-                    prepend_recording = _load_selected_recording_ignoring_filters(session_recording_id_to_prepend, team)
-                if prepend_recording:
-                    recordings.append(prepend_recording)
+        with timer("load_prepend_recording"):
+            prepend_recording = _load_recording_if_matches_filters(
+                session_recording_id_to_prepend,
+                query,
+                team,
+                allow_event_property_expansion,
+            )
+            if prepend_recording is None:
+                # The recording was explicitly requested (e.g. a shared link) but doesn't match
+                # the current filters - include it anyway so the link still opens it
+                prepend_recording = _load_selected_recording_ignoring_filters(session_recording_id_to_prepend, team)
+            if prepend_recording:
+                recordings.append(prepend_recording)
 
     if all_session_ids:
         with timer("load_persisted_recordings"), tracer.start_as_current_span("load_persisted_recordings"):
@@ -2174,12 +2180,13 @@ def list_recordings_from_query(
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
 
-            # If we have specified session_ids we need to sort them by the order they were specified
-            if all_session_ids:
-                recordings = sorted(
-                    recordings,
-                    key=lambda x: cast(list[str], all_session_ids).index(x.session_id),
-                )
+    # If we have specified session_ids we need to sort them by the order they were specified. This sits
+    # outside the ClickHouse branch because a request whose ids are all already persisted skips that
+    # branch entirely, and it needs the caller's ordering just the same. An explicitly requested
+    # recording outside the set sorts first, which is where prepending already put it.
+    if all_session_ids:
+        ordering = {session_id: index for index, session_id in enumerate(all_session_ids)}
+        recordings = sorted(recordings, key=lambda x: ordering.get(x.session_id, -1))
 
     # Deduplicate recordings by session_id (if session_recording_id was fetched separately and also in results)
     if session_recording_id_to_prepend:
@@ -2230,7 +2237,12 @@ def list_recordings_from_query(
             if matched_person:
                 recording.person = matched_person
 
-    return recordings, more_recordings_available, timer.to_header_string(hogql_timings), next_cursor
+    return RecordingsListingResult(
+        recordings=recordings,
+        more_recordings_available=more_recordings_available,
+        timings_header=timer.to_header_string(hogql_timings),
+        next_cursor=next_cursor,
+    )
 
 
 def _other_users_viewed(recording_ids_in_list: list[str], user: User | None, team: Team) -> dict[str, list[str]]:

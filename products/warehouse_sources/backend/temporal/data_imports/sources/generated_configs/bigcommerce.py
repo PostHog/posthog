@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class BigCommerceSourceConfig(config.Config):
-    pass
+    store_hash: str
+    access_token: str

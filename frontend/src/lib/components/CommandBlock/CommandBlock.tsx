@@ -44,14 +44,17 @@ interface CommandBlockProps {
     /** Skip the "Copied … to clipboard" toast. Set when this block lives inside another
      *  long-lived toast that would otherwise get pushed around by the success info toast. */
     silentCopy?: boolean
-    /** Hide noise (`-y` flags and `@latest` version pins) from the displayed text to keep the
-     *  block compact. The full `command` is still what gets copied. */
+    /** Hide noise (`-y` flags, `@latest` version pins, `--project-id` targeting) from the
+     *  displayed text to keep the block compact. The full `command` is still what gets copied. */
     condensed?: boolean
 }
 
-/** Strips display noise (`-y` flags, `@latest` pins) from a command; copy the original, show this. */
+/** Strips display noise (`-y`, `@latest`, `--project-id=N`) from a command; copy the original, show this. */
 export function condenseCommand(command: string): string {
-    return command.replace(/ -y\b/g, '').replace(/@latest\b/g, '')
+    return command
+        .replace(/ -y\b/g, '')
+        .replace(/@latest\b/g, '')
+        .replace(/ --project-id=\S+/g, '')
 }
 
 export function CommandBlock({

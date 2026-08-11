@@ -19,6 +19,7 @@ from posthog.settings.overrides import *
 
 from posthog.settings.logs import *
 from posthog.settings.base_variables import *
+from posthog.settings.canvas import *
 
 from posthog.settings.access import *
 from posthog.settings.activity_log import *

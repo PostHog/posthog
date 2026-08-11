@@ -4,6 +4,12 @@ import { useEffect, useRef, useState } from "react";
 
 const TICKER_SPEED_PX_PER_SECOND = 50;
 const TICKER_FADE_PX = 24;
+/**
+ * Below this, the text stays put and keeps its tail fade rather than scrolling.
+ * A name that overflows by a character or two costs more to read while it moves
+ * than the last glyphs are worth, and the fade already says there is more.
+ */
+const TICKER_MIN_OVERFLOW_PX = 12;
 
 function tickerMask(overflowPx: number, isTicking: boolean, showsEnd: boolean) {
   if (overflowPx === 0) return undefined;
@@ -70,7 +76,7 @@ export function OverflowTickerText({
   }, []);
 
   const prefersReducedMotion = useReducedMotion();
-  const isTicking = reveal && overflowPx > 0;
+  const isTicking = reveal && overflowPx >= TICKER_MIN_OVERFLOW_PX;
   const showsEnd = reachedEnd || (isTicking && prefersReducedMotion === true);
   const maskImage = tickerMask(overflowPx, isTicking, showsEnd);
 

@@ -70,6 +70,12 @@ REPLAY_VISION_CREDITS_CONSUMED = Counter(
     ["scanner_type", "model"],
 )
 
+REPLAY_VISION_BACKFILL_TICK_OUTCOMES = Counter(
+    "replay_vision_backfill_tick_outcomes_total",
+    "Backfill tick outcomes: dispatched, throttled, paused on quota, skipped, or completed",
+    ["outcome"],
+)
+
 REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     "replay_vision_sweep_outcomes_total",
     "Sweep tick outcomes: throttled at an in-flight cap, no candidates, or candidates found",
@@ -177,6 +183,11 @@ def record_sweep_outcome(outcome: str, candidates: int = 0) -> None:
     if candidates > 0:
         REPLAY_VISION_SWEEP_CANDIDATES.inc(candidates)
         _otel.record_counter_twin(REPLAY_VISION_SWEEP_CANDIDATES, candidates, {})
+
+
+def record_backfill_tick_outcome(outcome: str) -> None:
+    REPLAY_VISION_BACKFILL_TICK_OUTCOMES.labels(outcome=outcome).inc()
+    _otel.record_counter_twin(REPLAY_VISION_BACKFILL_TICK_OUTCOMES, 1, {"outcome": outcome})
 
 
 def record_observation_e2e(scanner_type: str, seconds: float) -> None:

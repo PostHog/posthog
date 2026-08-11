@@ -37,7 +37,8 @@
     "format": "biome format --write",
     "clean": "pnpm -r clean",
     "knip": "knip",
-    "skills:pull": "node scripts/pull-skills.mjs"
+    "skills:pull": "node scripts/pull-skills.mjs",
+    "hosthog:build": "pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/web... && pnpm exec turbo build --filter=@posthog/web && ln -sfn apps/web/dist dist"
   },
   "keywords": [
     "posthog",

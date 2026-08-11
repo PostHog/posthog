@@ -94,7 +94,9 @@ export function AttachedContextBar(): JSX.Element {
                         <Tooltip key={key} title={label}>
                             <LemonTag
                                 icon={iconForType(item.type)}
-                                onClose={() => (pickedKeys.has(key) ? removePickedItem(key) : dismissContext(key))}
+                                onClose={() =>
+                                    pickedKeys.has(key) ? removePickedItem(key) : dismissContext(key, item.dismissGroup)
+                                }
                                 closable
                                 closeOnClick
                                 className="flex items-center text-secondary max-w-48"

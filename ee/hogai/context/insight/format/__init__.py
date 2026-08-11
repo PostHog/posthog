@@ -29,7 +29,7 @@ from .funnel import FunnelResultsFormatter
 from .lifecycle import LifecycleResultsFormatter
 from .paths import PathsResultsFormatter
 from .retention import RetentionResultsFormatter
-from .sql import TRUNCATED_MARKER, SQLResultsFormatter
+from .sql import NULL_MARKER, TRUNCATED_MARKER, SQLResultsFormatter
 from .stickiness import StickinessResultsFormatter
 from .trends import TrendsResultsFormatter
 
@@ -129,6 +129,7 @@ __all__ = [
     "StickinessResultsFormatter",
     "TrendsResultsFormatter",
     "TRUNCATED_MARKER",
+    "NULL_MARKER",
     "format_access_control_warnings",
     "format_query_results_for_llm",
     "format_warehouse_sync_warnings",

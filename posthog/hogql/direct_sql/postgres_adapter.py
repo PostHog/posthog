@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, TypedDict, cast
 import psycopg
 from opentelemetry import trace
 from psycopg.types.datetime import DateLoader
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
@@ -302,7 +303,7 @@ class PostgresAdapter:
                             # successful, empty result instead of surfacing a spurious error.
                             description = cursor.description or []
                             results = cursor.fetchall() if description else []
-        except (psycopg.Error, ExposedHogQLError) as error:
+        except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=postgres_error_to_message(error))

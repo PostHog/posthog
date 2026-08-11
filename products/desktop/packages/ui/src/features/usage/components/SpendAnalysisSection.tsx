@@ -7,6 +7,7 @@ import { Button, Callout, Flex, Spinner, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
 import { useSpendAnalysis } from "../useSpendAnalysis";
 import { ModelBreakdownCards } from "./ModelBreakdownCards";
+import { SpendAnalysisSkeleton } from "./SpendAnalysisSkeleton";
 import {
   ProductBreakdownCard,
   ToolBreakdownCard,
@@ -31,15 +32,13 @@ export function SpendAnalysisSection() {
       data.by_day.items,
       data.summary.date_from,
       data.summary.date_to,
+      data.by_day_model,
     );
   }, [data]);
 
   return (
     <Flex direction="column" gap="3">
-      <Flex align="center" justify="between">
-        <Text className="font-medium text-(--gray-9) text-sm">
-          Personal spend analysis
-        </Text>
+      <Flex justify="end">
         <Flex align="center" gap="4">
           <WindowSelector value={spendWindow} onChange={setSpendWindow} />
           <Button
@@ -75,14 +74,7 @@ export function SpendAnalysisSection() {
           </Callout.Text>
         </Callout.Root>
       ) : isLoading ? (
-        <Flex
-          align="center"
-          justify="center"
-          p="6"
-          className="rounded-(--radius-3) border border-(--gray-5)"
-        >
-          <Spinner size="2" />
-        </Flex>
+        <SpendAnalysisSkeleton />
       ) : data ? (
         <>
           <SpendKpiStrip data={data} filledDays={filledDays} />
@@ -91,10 +83,8 @@ export function SpendAnalysisSection() {
             rows={data.by_model.items}
             scopedCostUsd={data.summary.scoped_cost_usd}
           />
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <ToolBreakdownCard rows={data.by_tool.items} />
-            <ProductBreakdownCard rows={data.by_product.items} />
-          </div>
+          <ToolBreakdownCard rows={data.by_tool.items} />
+          <ProductBreakdownCard rows={data.by_product.items} />
           <SpendInsights data={data} />
         </>
       ) : null}

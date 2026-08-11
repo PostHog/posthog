@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonCollapse, Link, Spinner } from '@posthog
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -97,6 +98,7 @@ export function HogFlowFunctionConfiguration({
     setMappings,
     errors,
     warnings,
+    emailFieldErrors,
 }: {
     templateId: string
     inputs: Record<string, CyclotronJobInputType>
@@ -105,6 +107,7 @@ export function HogFlowFunctionConfiguration({
     setMappings?: (mappings: HogFunctionMappingType[]) => void
     errors?: Record<string, string>
     warnings?: Record<string, string>
+    emailFieldErrors?: EmailFieldErrors
 }): JSX.Element {
     const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -155,6 +158,7 @@ export function HogFlowFunctionConfiguration({
         <CyclotronJobInputs
             errors={errors}
             warnings={warnings}
+            emailFieldErrors={emailFieldErrors}
             configuration={{ inputs: inputs as Record<string, CyclotronJobInputType>, inputs_schema: schema }}
             showSource={false}
             sampleGlobalsWithInputs={sampleGlobals}

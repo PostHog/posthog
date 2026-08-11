@@ -81,6 +81,7 @@ def capture_certification_event(
         {
             "certification_id": str(cert.id),
             "status": cert.status,
+            "proposed_status": cert.proposed_status,
             "target": certification_target_name(cert),
             "target_kind": "table" if cert.table_id else "view",
         },

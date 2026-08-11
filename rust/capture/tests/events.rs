@@ -901,14 +901,13 @@ async fn it_overflows_events_on_burst() -> Result<()> {
 
     topic.assert_empty();
 
-    // Third event should be in overflow topic, but has no
-    // message key as overflow locality is off for this test
-    assert_json_include!(
-        actual: overflow_topic.next_event()?,
-        expected: json!({
-            "token": token,
-            "distinct_id": distinct_id,
-        })
+    // Third event should be in overflow topic. Locality is off for this
+    // test, but a person-on burst keeps its key anyway: the overflow
+    // consumer updates persons keyed on distinct id, so the key only drops
+    // once person processing is off.
+    assert_eq!(
+        overflow_topic.next_message_key()?.unwrap(),
+        format!("{token}:{distinct_id}")
     );
 
     overflow_topic.assert_empty();

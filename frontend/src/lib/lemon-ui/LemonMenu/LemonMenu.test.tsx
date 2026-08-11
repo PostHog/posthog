@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef } from 'react'
 
@@ -53,5 +53,42 @@ describe('LemonMenu', () => {
         await userEvent.click(screen.getByText('Trigger via ref'))
 
         expect(screen.getByText('First')).toBeInTheDocument()
+    })
+
+    it('can keep a nested menu open until the user clicks outside', async () => {
+        const onSelect = jest.fn()
+
+        render(
+            <div>
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Change view',
+                            closeOnClickInside: false,
+                            closeParentPopoverOnClickInside: false,
+                            items: [{ label: 'Summary', onClick: onSelect }],
+                        },
+                    ]}
+                >
+                    <LemonButton>More actions</LemonButton>
+                </LemonMenu>
+                <button type="button">Outside</button>
+            </div>
+        )
+
+        await userEvent.click(screen.getByText('More actions'))
+        await userEvent.click(await screen.findByText('Change view'))
+        await userEvent.click(await screen.findByText('Summary'))
+
+        expect(onSelect).toHaveBeenCalledTimes(1)
+        expect(screen.getByText('Change view')).toBeInTheDocument()
+        expect(screen.getByText('Summary')).toBeInTheDocument()
+
+        await userEvent.click(screen.getByText('Outside'))
+
+        await waitFor(() => {
+            expect(screen.queryByText('Change view')).not.toBeInTheDocument()
+            expect(screen.queryByText('Summary')).not.toBeInTheDocument()
+        })
     })
 })

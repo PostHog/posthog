@@ -34,6 +34,7 @@ pub mod app_context;
 pub mod config;
 pub mod metrics_utils;
 pub mod organization;
+pub mod recently_seen;
 
 pub async fn handle_batch(
     requests: Vec<EmbeddingRequest>,

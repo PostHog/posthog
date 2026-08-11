@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -97,6 +97,33 @@ class TestFlattenItem:
         assert "attributes" not in row
 
 
+class TestSessionCapture:
+    def test_validate_credentials_disables_http_sample_capture(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona.make_tracked_session"
+        ) as make_session:
+            make_session.return_value.get.return_value = MagicMock(status_code=200)
+            persona.validate_credentials("persona_test")
+        # Inquiry bodies carry KYC PII the name-based scrubber can't reliably strip.
+        assert make_session.call_args.kwargs["capture"] is False
+
+    def test_get_rows_disables_http_sample_capture(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(persona, "_fetch_page", lambda *a, **kw: {"data": [], "links": {"next": None}})
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.persona.persona.make_tracked_session"
+        ) as make_session:
+            list(
+                get_rows(
+                    api_key="persona_test",
+                    endpoint="inquiries",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        # Verification bodies carry KYC PII the name-based scrubber can't reliably strip.
+        assert make_session.call_args.kwargs["capture"] is False
+
+
 class TestFetchPageRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
@@ -125,7 +152,13 @@ class TestFetchPageRetryClassification:
         assert session.get.call_count == 1
 
 
-def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: list[dict], **kwargs: Any) -> list[dict]:
+def _collect(
+    manager: _FakeResumableManager,
+    monkeypatch: Any,
+    pages: list[dict],
+    endpoint: str = "inquiries",
+    **kwargs: Any,
+) -> list[dict]:
     """Feed canned pages to get_rows in order and return the flattened rows."""
     calls: list[str] = []
     iterator = iter(pages)
@@ -139,7 +172,7 @@ def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: list[dict]
     rows: list[dict] = []
     for table in get_rows(
         api_key="persona_test",
-        endpoint="inquiries",
+        endpoint=endpoint,
         logger=MagicMock(),
         resumable_source_manager=manager,  # type: ignore[arg-type]
         **kwargs,
@@ -225,8 +258,139 @@ class TestResume:
         assert "page[after]=inq_saved" in manager.fetched_urls[0]  # type: ignore[attr-defined]
 
 
+def _verifications(count: int, prefix: str) -> list[dict]:
+    return [
+        {"type": "verification/selfie", "id": f"{prefix}_{index}", "attributes": {"status": "passed"}}
+        for index in range(count)
+    ]
+
+
+class TestVerificationsFanout:
+    def test_hydrates_each_inquiry_and_tags_rows_with_the_parent(self, monkeypatch: Any) -> None:
+        pages = [
+            {
+                "data": [{"type": "inquiry", "id": "inq_1", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}],
+                "links": {"next": None},
+            },
+            {
+                "data": {"type": "inquiry", "id": "inq_1", "attributes": {}},
+                "included": [
+                    {"type": "verification/government-id", "id": "ver_1", "attributes": {"status": "failed"}},
+                    {"type": "verification/selfie", "id": "ver_2", "attributes": {"status": "passed"}},
+                    # Accounts on an older API version serialize related resources beyond the ones asked
+                    # for; only verifications belong in this table.
+                    {"type": "account", "id": "act_1", "attributes": {"status": "active"}},
+                ],
+            },
+        ]
+        manager = _FakeResumableManager()
+        rows = _collect(manager, monkeypatch, pages, endpoint="verifications")
+
+        assert [r["id"] for r in rows] == ["ver_1", "ver_2"]
+        assert [r["status"] for r in rows] == ["failed", "passed"]
+        assert {r["inquiry-id"] for r in rows} == {"inq_1"}
+        assert {r["inquiry-created-at"] for r in rows} == {"2026-01-03T00:00:00.000Z"}
+        # Persona has no cross-inquiry list of verifications and rejects `include` on list endpoints,
+        # so each inquiry has to be hydrated on its own.
+        assert manager.fetched_urls[1] == "https://api.withpersona.com/api/v1/inquiries/inq_1?include=verifications"  # type: ignore[attr-defined]
+
+    def test_resume_cursor_is_an_inquiry_id_not_a_verification_id(self, monkeypatch: Any) -> None:
+        # A `ver_` id is a meaningless `page[after]` on /inquiries, and a cursor that overshoots the
+        # inquiry still being batched drops its buffered rows on resume.
+        pages: list[dict[str, Any]] = [
+            {
+                "data": [
+                    {"type": "inquiry", "id": "inq_a", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}},
+                    {"type": "inquiry", "id": "inq_b", "attributes": {"created-at": "2026-01-02T00:00:00.000Z"}},
+                ],
+                "links": {"next": "/api/v1/inquiries?page[after]=inq_b"},
+            },
+            # One row short of the batcher's chunk size, so the flush lands part-way through `inq_b`.
+            {"data": {}, "included": _verifications(1999, "vera")},
+            {"data": {}, "included": _verifications(2, "verb")},
+            {"data": [], "links": {"next": None}},
+        ]
+        manager = _FakeResumableManager()
+        _collect(manager, monkeypatch, pages, endpoint="verifications")
+
+        assert [state.after for state in manager.saved] == ["inq_a"]
+
+    def test_hydrate_404_skips_parent_instead_of_aborting_the_sync(self, monkeypatch: Any) -> None:
+        # An inquiry can be redacted/deleted between the list page and this hydrate call. Without a
+        # 404 guard, that fetch raises and kills the whole generator, and since the checkpoint only
+        # advances after an item's rows are processed, a resume re-fetches the same gone inquiry
+        # forever instead of moving on to the rest.
+        calls: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            calls.append(url)
+            if "/inquiries/inq_gone" in url:
+                response = requests.Response()
+                response.status_code = 404
+                raise requests.HTTPError(response=response)
+            if "/inquiries/inq_ok" in url:
+                return {
+                    "data": {"type": "inquiry", "id": "inq_ok", "attributes": {}},
+                    "included": [{"type": "verification/selfie", "id": "ver_1", "attributes": {"status": "passed"}}],
+                }
+            return {
+                "data": [
+                    {"type": "inquiry", "id": "inq_gone", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}},
+                    {"type": "inquiry", "id": "inq_ok", "attributes": {"created-at": "2026-01-02T00:00:00.000Z"}},
+                ],
+                "links": {"next": None},
+            }
+
+        monkeypatch.setattr(persona, "_fetch_page", fake_fetch)
+        manager = _FakeResumableManager()
+
+        rows: list[dict] = []
+        for table in get_rows(
+            api_key="persona_test",
+            endpoint="verifications",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            rows.extend(table.to_pylist())
+
+        assert [r["id"] for r in rows] == ["ver_1"]
+        assert calls == [
+            "https://api.withpersona.com/api/v1/inquiries?page[size]=100",
+            "https://api.withpersona.com/api/v1/inquiries/inq_gone?include=verifications",
+            "https://api.withpersona.com/api/v1/inquiries/inq_ok?include=verifications",
+        ]
+
+    def test_hydrate_non_404_error_still_aborts_the_sync(self, monkeypatch: Any) -> None:
+        # Only a 404 (gone parent) is safe to swallow. A 500 or any other failure must still surface,
+        # not get silently treated the same as a deleted inquiry.
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            if "/inquiries/inq_1" in url:
+                response = requests.Response()
+                response.status_code = 500
+                raise requests.HTTPError(response=response)
+            return {
+                "data": [{"type": "inquiry", "id": "inq_1", "attributes": {"created-at": "2026-01-03T00:00:00.000Z"}}],
+                "links": {"next": None},
+            }
+
+        monkeypatch.setattr(persona, "_fetch_page", fake_fetch)
+        manager = _FakeResumableManager()
+
+        with pytest.raises(requests.HTTPError):
+            list(
+                get_rows(
+                    api_key="persona_test",
+                    endpoint="verifications",
+                    logger=MagicMock(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+
 class TestPersonaSourceResponse:
-    @parameterized.expand([("inquiries", "created_at"), ("events", "created_at")])
+    @parameterized.expand(
+        [("inquiries", "created_at"), ("events", "created_at"), ("verifications", "inquiry_created_at")]
+    )
     def test_incremental_endpoint_partitions_on_created_at_desc(self, endpoint: str, partition_key: str) -> None:
         response = persona_source(
             api_key="persona_test",

@@ -132,6 +132,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "FlamingoBot (hackernews.pink)",
         "heritrix/3.14.2 (+image-meta.com)",
         "crawlcrawl-actors/1.0",
+        "crawler_eb_germany_2.0",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",

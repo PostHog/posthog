@@ -74,6 +74,13 @@ describe('PieChart', () => {
         expect(text).toContain('50%')
     })
 
+    it('renders value and percentage on one line when sliceValueDisplay is both', () => {
+        const { chart } = renderHogChart(
+            <PieChart series={SERIES} theme={THEME} config={{ sliceValueDisplay: 'both' }} />
+        )
+        expect(sliceLabels(chart.element).join('|')).toContain('50 (50%)')
+    })
+
     it('suppresses on-slice value labels when showValueOnSlice is false', () => {
         const { chart } = renderHogChart(
             <PieChart series={SERIES} theme={THEME} config={{ showValueOnSlice: false }} />

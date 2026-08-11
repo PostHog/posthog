@@ -40,4 +40,19 @@ describe('widgetAvailability', () => {
             }).isAvailable
         ).toBe(false)
     })
+
+    it('evaluates conversations_enabled requirement', () => {
+        expect(
+            isWidgetAvailabilityRequirementMet('conversations_enabled', {
+                ...MOCK_DEFAULT_TEAM,
+                conversations_enabled: false,
+            })
+        ).toBe(false)
+        expect(
+            isWidgetAvailabilityRequirementMet('conversations_enabled', {
+                ...MOCK_DEFAULT_TEAM,
+                conversations_enabled: true,
+            })
+        ).toBe(true)
+    })
 })

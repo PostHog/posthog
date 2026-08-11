@@ -8,7 +8,7 @@ from rest_framework import serializers
 
 from posthog.api.utils import on_permitted_recording_domain
 from posthog.models import Team
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 
 from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
@@ -54,11 +54,12 @@ class WidgetAuthSerializer(serializers.Serializer):
     identity_distinct_id = serializers.CharField(
         required=False, max_length=400, help_text="Verified distinct_id (requires identity_hash)"
     )
-    identity_hash = serializers.CharField(
+    # Hex charset enforced here, not just the length: hmac.compare_digest raises TypeError
+    # on non-ASCII str, which would surface as a 500 instead of a rejected request.
+    identity_hash = serializers.RegexField(
+        r"^[0-9a-f]{64}$",
         required=False,
-        min_length=64,
-        max_length=64,
-        help_text="HMAC-SHA256 of identity_distinct_id using team secret_api_token",
+        help_text="HMAC-SHA256 of identity_distinct_id using the team's signing secret",
     )
 
     def validate(self, data):
@@ -216,7 +217,9 @@ def validate_url_domain(url: str, team: Team) -> bool:
     if not domains:
         return False
 
-    if has_authority_bypass_chars(url):
+    # The restore link is emailed with this authority intact, so it has to be unambiguous
+    # rather than merely parseable.
+    if has_ambiguous_authority(url):
         return False
 
     parsed = urlparse(url)
@@ -258,7 +261,7 @@ def validate_url_matches_request_origin(request, url: str) -> bool:
 
     origin = request.headers.get("Origin") or request.headers.get("Referer") or ""
 
-    if has_authority_bypass_chars(url):
+    if has_ambiguous_authority(url):
         return False
 
     parsed_url = urlparse(url)

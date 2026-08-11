@@ -6,7 +6,6 @@ from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from langchain_core.messages import (
-    AIMessage,
     HumanMessage as LangchainHumanMessage,
     SystemMessage,
 )
@@ -20,6 +19,7 @@ from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
 from .prompts import SUPPORT_SUMMARIZER_SYSTEM_PROMPT, SUPPORT_SUMMARIZER_USER_PROMPT
+from .transcript import customer_turns, render_transcript, strip_unverifiable_quotes
 
 
 class TicketCommand(SlashCommand):
@@ -120,25 +120,25 @@ class TicketCommand(SlashCommand):
             # so leaving it on would let thinking eat the summary's budget.
             thinking={"type": "disabled"},
             billable=False,
+            # The project/org/user context is about answering questions in-app, down to URL
+            # formatting, none of which applies to writing a ticket description.
+            inject_context=False,
         )
 
     async def _summarize_conversation(self, messages: Sequence[AssistantMessageUnion]) -> str:
         """Summarize the conversation for the support ticket."""
         summarization_header = "PostHog AI Support Ticket Summary"
-        messages_list: list[SystemMessage | LangchainHumanMessage | AIMessage] = [
-            SystemMessage(content=SUPPORT_SUMMARIZER_SYSTEM_PROMPT)
+        transcript = render_transcript(messages)
+        messages_list: list[SystemMessage | LangchainHumanMessage] = [
+            SystemMessage(content=SUPPORT_SUMMARIZER_SYSTEM_PROMPT),
+            LangchainHumanMessage(
+                content=f"<transcript>\n{transcript}\n</transcript>\n\n{SUPPORT_SUMMARIZER_USER_PROMPT}"
+            ),
         ]
-
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                messages_list.append(LangchainHumanMessage(content=msg.content))
-            elif isinstance(msg, AssistantMessage) and msg.content:
-                messages_list.append(AIMessage(content=msg.content))
-
-        messages_list.append(LangchainHumanMessage(content=SUPPORT_SUMMARIZER_USER_PROMPT))
 
         response = await self._get_model().ainvoke(messages_list)
         content = response.content
         if isinstance(content, list):
             content = "".join(str(item) for item in content)
-        return f"{summarization_header}:\n\n{content}"
+        verified = strip_unverifiable_quotes(content, customer_turns(messages))
+        return f"{summarization_header}:\n\n{verified}"

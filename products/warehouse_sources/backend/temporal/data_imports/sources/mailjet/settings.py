@@ -96,8 +96,32 @@ MAILJET_ENDPOINTS: dict[str, MailjetEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(MAILJET_ENDPOINTS.keys())
+# The Event API pushes per-recipient engagement and delivery events. Mailjet exposes no list
+# endpoint for that stream — `/openinformation` and `/clickstatistics` cover opens and clicks
+# only, under different field names — so these rows can only ever arrive by webhook, and they
+# land in their own table rather than merging into a polled one.
+WEBHOOK_TABLE_NAME = "messageevent"
+
+# Every event type Mailjet's Event API can push. Each one is a separate `eventcallbackurl`
+# registration; all of them feed the single `messageevent` table.
+MAILJET_WEBHOOK_EVENTS: tuple[str, ...] = ("sent", "open", "click", "bounce", "blocked", "spam", "unsub")
+
+WEBHOOK_SCHEMA_NAMES: frozenset[str] = frozenset({WEBHOOK_TABLE_NAME})
+
+# Schema name -> the `schema_mapping` key the Hog template routes incoming events by.
+SCHEMA_TO_WEBHOOK_RESOURCE: dict[str, str] = {WEBHOOK_TABLE_NAME: WEBHOOK_TABLE_NAME}
+
+# Mailjet event payloads carry no event identifier, so the Hog template derives one by hashing
+# the raw delivery body. Retries (Mailjet re-POSTs every 30s for up to 24h until it gets a 200)
+# repeat the same body, so they collapse onto the same row.
+WEBHOOK_PRIMARY_KEY = "event_id"
+
+POLL_ENDPOINTS = tuple(MAILJET_ENDPOINTS.keys())
+
+ENDPOINTS = (*POLL_ENDPOINTS, WEBHOOK_TABLE_NAME)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in MAILJET_ENDPOINTS.items()
 }
+# Webhook rows arrive as they happen, so there is no cursor to advance.
+INCREMENTAL_FIELDS[WEBHOOK_TABLE_NAME] = []

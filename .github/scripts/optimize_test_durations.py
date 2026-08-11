@@ -13,12 +13,14 @@ Prepare test durations for pytest-split sharding.
 Merges timing artifacts from CI shards and removes migration-tax
 contamination using JUnit call times as a setup-free contamination signal.
 
-Under --reuse-db the per-shard Django DB build (~7 min on master) is
-absorbed into whichever test first touches the DB, inflating its recorded
-duration and skewing pytest-split. This script merges the per-shard
-artifacts, floors any test recorded far above its JUnit call time (or
-sitting at a flat-default placeholder) back to that call time, and outputs
-clean durations for balanced distribution.
+Jobs without a restored schema cache build the test DB in the "Migrate
+test_posthog from scratch" workflow step, but when that step fails,
+--reuse-db falls back to building it in-process and the walk is absorbed
+into whichever test first touches the DB, inflating its recorded duration
+and skewing pytest-split.
+This script merges the per-shard artifacts, floors any test recorded far
+above its JUnit call time (or sitting at a flat-default placeholder) back
+to that call time, and outputs clean durations for balanced distribution.
 """
 
 import re
@@ -43,10 +45,11 @@ MIN_DURATION = 0.01
 # are candidates for migration carriers (real tests rarely exceed this)
 CARRIER_THRESHOLD_SECONDS = 200.0
 # A test recorded this far above its JUnit call time absorbed per-shard DB
-# setup. Under --reuse-db the migration walk lands on whichever test first
-# touches the DB (not reliably the first test in the file), so detect it by
-# the call-time gap rather than by position. Migration/DB setup is hundreds
-# of seconds; legit per-test setup is tens at most, so this separates them.
+# setup. When the out-of-process migrate step fell back to in-pytest, the
+# walk lands on whichever test first touches the DB (not reliably the first
+# test in the file), so detect it by the call-time gap rather than by
+# position. Migration/DB setup is hundreds of seconds; legit per-test setup
+# is tens at most, so this separates them.
 MIGRATION_TAX_THRESHOLD_SECONDS = 120.0
 # pytest-split writes these flat values for tests it has no timing for. They
 # are placeholders, not measurements — when JUnit has a real call time for
@@ -239,10 +242,13 @@ class TimingMerger:
 class MigrationTaxCorrector:
     """Removes migration-tax contamination from merged durations.
 
-    Under --reuse-db the per-shard Django DB build (~7 min on master) lands
-    on whichever test first touches the DB, inflating that test's recorded
-    setup+call duration and skewing pytest-split's shard balancing. The
-    outlier-merge then prefers that inflated value over the test's real one.
+    When a job's out-of-process migrate step fails, --reuse-db builds the
+    DB in-process and the walk lands on whichever test first touches the
+    DB, inflating that test's recorded setup+call duration and skewing
+    pytest-split's shard balancing. The outlier-merge then prefers that
+    inflated value over the test's real one. Normally the walk happens in
+    its own workflow step (or a cached schema is restored), so no test
+    carries tax and both modes below are cheap no-ops.
 
     Two modes:
     - JUnit-based (preferred): JUnit call time is the call phase only, so a
@@ -352,7 +358,11 @@ class MigrationTaxCorrector:
 
         Uses expected_shard_count as the number of carriers to look for.
         Only selects tests above CARRIER_THRESHOLD_SECONDS to avoid
-        false positives from genuinely slow tests.
+        false positives from genuinely slow tests. That guard is now the
+        whole story on tax-free runs (the normal path migrates
+        out-of-process): a genuine test above the threshold would be
+        misread as a carrier and floored, so if one ever appears, raise
+        the threshold or drop this mode rather than trusting it.
         """
         candidates = sorted(self.durations.items(), key=lambda x: -x[1])
 

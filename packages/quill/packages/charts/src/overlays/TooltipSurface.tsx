@@ -46,6 +46,11 @@ export function TooltipSurface({
     )
 }
 
+/** Divider plus muted row below a tooltip's content — e.g. a "click to inspect" hint. */
+export function TooltipFooter({ children }: { children: React.ReactNode }): React.ReactElement {
+    return <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60 text-center">{children}</div>
+}
+
 /** Round series-color swatch used in tooltip rows. */
 export function TooltipSwatch({ color }: { color: string }): React.ReactElement {
     return (

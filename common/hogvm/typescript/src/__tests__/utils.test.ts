@@ -31,6 +31,28 @@ describe('hogvm utils', () => {
             const [a, b] = unifyComparisonTypes(laterDateTime, toHogDateTime(1782988689))
             expect(a === b).toBe(true)
         })
+
+        // Regression: a hand-written SQL trigger filter like `timestamp > toDateTime('2026-06-01')`
+        // only wraps the RHS in toDateTime, so the VM ends up unifying a plain ISO string against a
+        // HogDateTime object. Before this fix temporalSeconds(string) was null, the pair fell through
+        // unchanged, and `string > object` was always false — the trigger silently never fired.
+        const laterIsoTimestamp = '2026-06-28T00:00:00.000Z' // same instant as laterDateTime
+        const earlierIsoTimestamp = '2026-06-23T00:00:00.000Z' // same instant as earlierDateTime
+
+        test.each([
+            ['string vs HogDateTime', laterIsoTimestamp, earlierDateTime],
+            ['HogDateTime vs string', laterDateTime, earlierIsoTimestamp],
+        ])('orders %s chronologically by parsing the string as a date', (_label, later, earlier) => {
+            const [a, b] = unifyComparisonTypes(later, earlier)
+            expect(a > b).toBe(true)
+            expect(a < b).toBe(false)
+        })
+
+        test('a non-date string against a temporal value falls through unchanged', () => {
+            const [a, b] = unifyComparisonTypes('not-a-date', laterDateTime)
+            expect(a).toBe('not-a-date')
+            expect(b).toBe(laterDateTime)
+        })
     })
 
     test('calculateCost', async () => {

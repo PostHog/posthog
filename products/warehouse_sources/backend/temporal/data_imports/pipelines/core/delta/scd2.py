@@ -18,21 +18,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 
 if TYPE_CHECKING:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-        DeltaTableHelper,
-    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 
 class Scd2DeltaWriter:
     """SCD Type 2 writer over one schema's Delta table.
 
-    Stateless over a `DeltaTableHelper`, which holds the cached table handle — construct one at
+    Stateless over a `DeltaTableRef`, which holds the cached table handle — construct one at
     the call site. The validity-interval column names are injected so the writer stays generic;
     today's only caller is the CDC load path, which passes the columns `cdc/batcher.py` stamps
     via `build_scd2_table`.
     """
 
-    def __init__(self, table: "DeltaTableHelper", *, valid_from_column: str, valid_to_column: str) -> None:
+    def __init__(self, table: "DeltaTableRef", *, valid_from_column: str, valid_to_column: str) -> None:
         self._table = table
         self._logger = table.logger
         self._valid_from_column = valid_from_column

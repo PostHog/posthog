@@ -45,6 +45,15 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
             "403 Client Error: Forbidden for url": "Your Close API key does not have access to this resource. Please check the key's permissions.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # Both `CLOSE_RETRY` (Advanced Filtering search) and `DEFAULT_RETRY` (the list endpoints)
+        # already retry a dropped connection or read timeout before re-raising once that budget is
+        # exhausted. urllib3 wraps all of those as "... Max retries exceeded with url: ..."
+        # regardless of the underlying cause (refused connection, read timeout, dropped socket), so
+        # match that stable prefix rather than the per-request URL or nested error detail. Temporal
+        # then retries the whole activity, so the failure is transient and self-recovering.
+        return {"Max retries exceeded with url"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.close.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
@@ -103,6 +112,7 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            logger=inputs.logger,
             should_use_incremental_field=inputs.should_use_incremental_field,
             incremental_field=inputs.incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value

@@ -9,6 +9,9 @@ from products.web_analytics.backend.api.heatmaps_api import (
 )
 from products.web_analytics.backend.api.web_analytics_achievements import WebAnalyticsAchievementsViewSet
 from products.web_analytics.backend.api.web_analytics_filter_preset import WebAnalyticsFilterPresetViewSet
+from products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions import (
+    WebAnalyticsPathCleaningSuggestionViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -29,5 +32,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"web_analytics_achievements",
         WebAnalyticsAchievementsViewSet,
         "project_web_analytics_achievements",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_path_cleaning_suggestions",
+        WebAnalyticsPathCleaningSuggestionViewSet,
+        "project_web_analytics_path_cleaning_suggestions",
         ["team_id"],
     )

@@ -257,6 +257,10 @@ class SlackIdentity(BaseModel):
     slack_email: str | None = None
     user_access_token: str
     user_refresh_token: str | None = None
+    # What Slack actually granted, space-delimited. Normally OIDC_SCOPES verbatim —
+    # the consent screen grants them together — so this is a record of what an older
+    # link was created with rather than something to branch on.
+    user_scopes: str = ""
 
 
 def _credentials() -> tuple[str, str]:
@@ -346,6 +350,7 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
         # `refresh_token` is only present when the Slack app has
         # `token_rotation_enabled`; falls back to None in today's manifest.
         user_refresh_token=token_response.get("refresh_token"),
+        user_scopes=token_response.get("scope") or "",
     )
 
 

@@ -52,9 +52,13 @@ pub struct StackConfig {
     pub writer_flush_interval_ms: u64,
     /// The table the writer upserts into.
     pub pg_target_table: String,
-    /// Leader in-memory cache capacity (entries). Lower it below the seeded
-    /// person count to put the cache under eviction pressure.
+    /// Leader per-partition cache budget in bytes (entries are weighed
+    /// by serialized size). Lower it below the seeded pool's footprint
+    /// to put the cache under eviction pressure.
     pub cache_memory_capacity: usize,
+    /// Extra environment for spawned leaders, appended after the
+    /// standard set (so it can override any of it).
+    pub extra_leader_env: Vec<(String, String)>,
     pub recovery_pool_size: usize,
     /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
     /// (unrevoked) leader stays the registered owner.
@@ -93,6 +97,26 @@ pub struct Stack {
 }
 
 impl Stack {
+    /// The distinct id and hash-key-override tables paired with a person
+    /// table. Identity writes the mapping (and clears overrides) in the same
+    /// id namespace as its person table, so the three always travel together.
+    fn identity_companion_tables(person_table: &str) -> Result<(&'static str, &'static str)> {
+        match person_table {
+            "posthog_person" => Ok((
+                "posthog_persondistinctid",
+                "posthog_featureflaghashkeyoverride",
+            )),
+            "personhog_person_tmp" => Ok((
+                "personhog_persondistinctid_tmp",
+                "personhog_featureflaghashkeyoverride_tmp",
+            )),
+            other => bail!(
+                "--create-via-identity has no known identity table set for \
+                 --pg-target-table {other:?}"
+            ),
+        }
+    }
+
     pub async fn up(config: StackConfig) -> Result<Self> {
         if config.routers == 0 || config.routers > MAX_ROUTERS {
             bail!("--routers must be between 1 and {MAX_ROUTERS}");
@@ -218,8 +242,12 @@ impl Stack {
 
         // Identity resolves and creates on the Postgres primary and pushes
         // initial properties through the traffic router; it holds no etcd
-        // state, so it can come up alongside the routers.
+        // state, so it can come up alongside the routers. Its table set is
+        // derived from the stack's person table so identity, writer, and the
+        // leader fallback agree on one id namespace.
         let identity_url = if config.spawn_identity {
+            let (pdi_table, ffhko_table) =
+                Self::identity_companion_tables(&config.pg_target_table)?;
             infra.push(ServiceProcess::spawn(
                 "identity",
                 &config.bin_dir.join("personhog-identity"),
@@ -228,6 +256,9 @@ impl Stack {
                     ("PRIMARY_DATABASE_URL", config.persons_db_url.clone()),
                     ("ROUTER_URL", router_url.clone()),
                     ("METRICS_PORT", IDENTITY_METRICS_PORT.to_string()),
+                    ("PERSON_TABLE", config.pg_target_table.clone()),
+                    ("PERSON_DISTINCT_ID_TABLE", pdi_table.to_string()),
+                    ("FF_HASH_KEY_OVERRIDE_TABLE", ffhko_table.to_string()),
                 ],
                 &log_dir,
             )?);
@@ -279,7 +310,7 @@ impl Stack {
         // Heartbeats must land well inside the lease window or a healthy
         // pod's lease expires between renewals.
         let heartbeat_secs = (self.config.leader_lease_ttl / 3).max(1);
-        let proc = ServiceProcess::spawn(
+        let proc = ServiceProcess::spawn_with_extra(
             &format!("leader-{index}"),
             &self.config.bin_dir.join("personhog-leader"),
             &[
@@ -288,7 +319,7 @@ impl Stack {
                 ("LEASE_TTL", self.config.leader_lease_ttl.to_string()),
                 ("HEARTBEAT_INTERVAL_SECS", heartbeat_secs.to_string()),
                 (
-                    "CACHE_MEMORY_CAPACITY",
+                    "CACHE_MEMORY_CAPACITY_BYTES",
                     self.config.cache_memory_capacity.to_string(),
                 ),
                 (
@@ -316,6 +347,7 @@ impl Stack {
                     (LEADER_METRICS_BASE_PORT + index as u16).to_string(),
                 ),
             ],
+            &self.config.extra_leader_env,
             &self.log_dir,
         )?;
 

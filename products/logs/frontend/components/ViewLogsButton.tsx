@@ -16,23 +16,15 @@ export interface ViewLogsButtonProps extends Pick<LemonButtonProps, 'size' | 'ty
     iconOnly?: boolean
 }
 
-// Opens the logs viewer modal filtered to one session, using the team's configured
-// session ID attribute keys. The session-replay / error-tracking counterpart of
-// logs' own ViewRecordingButton usage. Gated here rather than at call sites so
-// every surface of the logs-in-error-tracking rollout toggles with one flag.
-export function ViewLogsButton({
-    sessionId,
-    timestamp,
-    iconOnly,
-    ...buttonProps
-}: ViewLogsButtonProps): JSX.Element | null {
+export function useViewLogsButton({ sessionId, timestamp }: Pick<ViewLogsButtonProps, 'sessionId' | 'timestamp'>): {
+    enabled: boolean
+    onClick: (() => void) | undefined
+    loading: boolean
+    disabledReason: string | undefined
+} {
     const { configuredSessionIdKeys, logsConfigLoading } = useValues(logsConfigLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
     const enabled = useFeatureFlag('LOGS_IN_ERROR_TRACKING')
-
-    if (!enabled) {
-        return null
-    }
 
     // Until the team's logs config resolves we don't know which session-ID keys to filter on.
     // Opening with the fallback key here would silently show logs filtered by the wrong
@@ -47,13 +39,34 @@ export function ViewLogsButton({
                   })
             : undefined
 
+    return {
+        enabled,
+        onClick,
+        loading: logsConfigLoading,
+        disabledReason: sessionId ? undefined : 'No session ID associated with this event',
+    }
+}
+
+// The shared hook keeps the feature flag and configured session ID keys consistent across every logs entry point.
+export function ViewLogsButton({
+    sessionId,
+    timestamp,
+    iconOnly,
+    ...buttonProps
+}: ViewLogsButtonProps): JSX.Element | null {
+    const { enabled, onClick, loading, disabledReason } = useViewLogsButton({ sessionId, timestamp })
+
+    if (!enabled) {
+        return null
+    }
+
     return (
         <LemonButton
             icon={<IconLive />}
             onClick={onClick}
-            loading={logsConfigLoading}
+            loading={loading}
             tooltip={iconOnly ? 'View logs from this session' : undefined}
-            disabledReason={sessionId ? undefined : 'No session ID associated with this event'}
+            disabledReason={disabledReason}
             {...buttonProps}
         >
             {iconOnly ? null : 'View logs'}

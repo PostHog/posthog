@@ -11,7 +11,11 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -24,7 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.gusto import (
-    GUSTO_API_VERSION,
+    GUSTO_API_VERSION_2024_04_01,
+    GUSTO_API_VERSION_2026_06_15,
     GustoResumeConfig,
     gusto_source,
     validate_credentials as validate_gusto_credentials,
@@ -41,9 +46,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class GustoSource(ResumableSource[GustoSourceConfig, GustoResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    supported_versions = (GUSTO_API_VERSION,)
-    default_version = GUSTO_API_VERSION
+    supported_versions = (GUSTO_API_VERSION_2024_04_01, GUSTO_API_VERSION_2026_06_15)
+    default_version = GUSTO_API_VERSION_2026_06_15
     api_docs_url = "https://docs.gusto.com/embedded-payroll/reference"
+    # Gusto gives a deprecated version 12 months of phased support before calls return 406, but
+    # publishes no end-of-life date for 2024-04-01 — advisory only, so existing pins are left in place.
+    deprecated_versions = (VersionDeprecation(version=GUSTO_API_VERSION_2024_04_01, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -118,6 +126,8 @@ Gusto rotates refresh tokens, so the token you paste here is exchanged on every 
             "400 Client Error: Bad Request for url: https://api.gusto": "Gusto rejected these OAuth credentials. Refresh tokens rotate on use — generate a new one and reconnect.",
             "401 Client Error: Unauthorized for url: https://api.gusto": "Gusto authentication failed. Check your client ID and secret, then reconnect with a fresh refresh token.",
             "403 Client Error: Forbidden for url: https://api.gusto": "Your Gusto app is not authorized to read this data. Reconnect with a payroll admin authorization for the company.",
+            # Gusto returns 406 once a pinned API version reaches end of life; retrying can't recover it.
+            "406 Client Error: Not Acceptable for url: https://api.gusto": "This Gusto API version is no longer supported. Reconnect the source to move to the current version.",
         }
 
     def get_schemas(

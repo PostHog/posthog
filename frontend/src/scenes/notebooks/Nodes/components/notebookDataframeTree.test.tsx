@@ -110,6 +110,13 @@ describe('buildDataframeTreeSection', () => {
         ])
     })
 
+    it('gives each column the name QueryDatabase inserts at the cursor', () => {
+        // Without it, the click handler throws before the tree item's link can preventDefault and
+        // the browser follows the placeholder href, dropping the user on the project home page.
+        const column = buildDataframeTreeSection([sqlNode('events_df')], [])[0].children?.[0].children?.[0]
+        expect(column?.record).toMatchObject({ type: 'column', columnName: 'id' })
+    })
+
     it('still lists a written cell that has not run', () => {
         // Written but un-run is a real intent to bind that name, so it stays with a nudge to run.
         const section = buildDataframeTreeSection([sqlNode('draft', false, 'SELECT 1')], [])

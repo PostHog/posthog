@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional, Union
 
 from django.utils import timezone
@@ -27,7 +29,10 @@ from products.experiments.backend.hogql_queries.breakdown_injector import Breakd
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
-from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import FunnelQueryBuilder
+from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import (
+    FunnelQueryBuilder,
+    FunnelTemporalSetup,
+)
 from products.experiments.backend.hogql_queries.experiment_mean_query_builder import MeanQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_metric_values import (
     build_conversion_window_predicate,
@@ -44,30 +49,80 @@ from products.experiments.backend.hogql_queries.experiment_query_context import 
 )
 from products.experiments.backend.hogql_queries.experiment_ratio_query_builder import RatioQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_retention_query_builder import RetentionQueryBuilder
-from products.experiments.backend.hogql_queries.exposure_query_logic import normalize_to_exposure_criteria
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    is_default_exposure_config,
+    normalize_to_exposure_criteria,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.hogql_queries.funnel_step_builder import FunnelStepBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 
+def resolve_exposure_config_for_builder(
+    exposure_config: ExperimentEventExposureConfig | ActionsNode,
+    team: Team,
+    start_date: Optional[datetime],
+) -> ExperimentEventExposureConfig | ActionsNode:
+    if isinstance(exposure_config, ExperimentEventExposureConfig) and exposure_config.event == DEFAULT_EXPOSURE_EVENT:
+        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(team, start_date)})
+    return exposure_config
+
+
+@dataclass(frozen=True, kw_only=True)
+class ExposureQueryParams:
+    """Exposure-related parameters required by the query builder, resolved from stored criteria."""
+
+    exposure_config: ExperimentEventExposureConfig | ActionsNode
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None
+    multiple_variant_handling: MultipleVariantHandling
+    filter_test_accounts: bool
+
+
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
-) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
+    team: Team,
+    start_date: Optional[datetime],
+) -> ExposureQueryParams:
     """Returns exposure-related parameters required by the query builder."""
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
+    activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+        exposure_config = ExperimentEventExposureConfig(
+            event=resolve_default_exposure_event(team, start_date), properties=[]
+        )
         filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
-            exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])
+            exposure_config = ExperimentEventExposureConfig(
+                event=resolve_default_exposure_event(team, start_date), properties=[]
+            )
+        elif (
+            isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
+            and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
+        ):
+            # A config naming $feature_flag_called explicitly is the default exposure, not a
+            # custom one (same convention as get_exposure_event_and_property), so it follows
+            # the same event resolution while keeping its property filters.
+            exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, team, start_date)
         else:
             exposure_config = criteria.exposure_config
+        # Activation only composes with the default exposure; a custom exposure_config
+        # disables it (validation rejects the combination, but stored data predating it
+        # must not silently change semantics).
+        if is_default_exposure_config(criteria.exposure_config):
+            activation_config = criteria.activation_config
         filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
-    return (exposure_config, multiple_variant_handling, filter_test_accounts)
+    return ExposureQueryParams(
+        exposure_config=exposure_config,
+        activation_config=activation_config,
+        multiple_variant_handling=multiple_variant_handling,
+        filter_test_accounts=filter_test_accounts,
+    )
 
 
 class ExperimentQueryBuilder:
@@ -87,6 +142,7 @@ class ExperimentQueryBuilder:
         breakdowns: list[Breakdown] | None = None,
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
+        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -96,6 +152,7 @@ class ExperimentQueryBuilder:
         self.date_range_query = date_range_query
         self.entity_key = entity_key
         self.exposure_config = exposure_config
+        self.activation_config = activation_config
         self.filter_test_accounts = filter_test_accounts
         self.multiple_variant_handling = multiple_variant_handling
         self.breakdowns = breakdowns or []
@@ -103,6 +160,12 @@ class ExperimentQueryBuilder:
         self.preaggregation_job_ids: list[str] | None = None
         self.metric_events_preaggregation_job_ids: list[str] | None = None
         self.cuped_config = cuped_config or CupedQueryConfig()
+        # ponytail: funnel CUPED sources its pre-exposure covariate from the metric_events
+        # scan, but activation mode forces the temporal filter that removes those rows, so
+        # the covariate would silently be 0 for everyone. Disable it until the covariate
+        # gets its own pre-window scan.
+        if activation_config is not None and isinstance(metric, ExperimentFunnelMetric):
+            self.cuped_config = CupedQueryConfig(enabled=False, lookback_days=self.cuped_config.lookback_days)
 
         # Experiment-level invariants, gathered into a single frozen context for
         # later extracted modules to consume. Additive: every self.* attribute
@@ -119,6 +182,7 @@ class ExperimentQueryBuilder:
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
+            activation_config=self.activation_config,
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
@@ -503,10 +567,10 @@ class ExperimentQueryBuilder:
     def _extend_date_from_for_funnel_cuped(self, date_from: ast.Expr) -> ast.Expr:
         return self._cuped_query_builder().extend_date_from_for_funnel_cuped(date_from)
 
-    def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
+    def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> FunnelTemporalSetup:
         """
-        Returns (first_exposures_cte_str, temporal_join, having_clause) for the
-        optimized funnel query.
+        Returns the FunnelTemporalSetup (first exposures CTE, temporal join,
+        having clause) for the optimized funnel query.
 
         Three call sites collapse into one place:
 
@@ -622,6 +686,13 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().build_exposure_predicate()
 
+    def _build_exposure_step_predicate(self) -> ast.Expr:
+        """
+        Predicate for rows that can serve as the funnel's exposure step (step_0); the
+        activation predicate in activation mode, the exposure predicate otherwise.
+        """
+        return self._exposure_query_builder().build_exposure_step_predicate()
+
     def _get_exposure_query(self) -> ast.SelectQuery:
         return self._exposure_query_builder().select_query()
 
@@ -655,12 +726,13 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().precomputation_query()
 
-    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+    def get_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
         Returns the SELECT query that the lazy computation system wraps in an
-        INSERT INTO experiment_metric_events_preaggregated. This is the write
-        path — it scans the events table and stores one row per matching event
-        with step indicators packed into an Array(UInt8).
+        INSERT INTO experiment_metric_events_preaggregated, dispatched by metric
+        type. This is the write path — it scans the events table and stores one
+        row per matching event: funnel metrics pack step indicators into an
+        Array(UInt8), mean metrics store the per-event value in numeric_value.
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
@@ -668,6 +740,28 @@ class ExperimentQueryBuilder:
         Returns:
             Tuple of (query_string, placeholders_dict)
         """
+        match self.metric:
+            case ExperimentFunnelMetric():
+                return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
+            case ExperimentMeanMetric():
+                return self._mean_query_builder().get_mean_metric_events_query_for_precomputation()
+            case ExperimentRetentionMetric():
+                return self._retention_query_builder().get_retention_metric_events_query_for_precomputation()
+            case _:
+                raise NotImplementedError(f"Metric-events precomputation is not supported for {type(self.metric)}")
+
+    def get_metric_events_window_extension_seconds(self) -> int:
+        """
+        How far past the experiment end date the metric-events precompute scan must
+        extend. The conversion window for funnel/mean metrics; retention adds the
+        retention window on top (completions can land that much after a start event).
+        """
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            return self._retention_query_builder().get_metric_events_window_extension_seconds()
+        return self._get_conversion_window_seconds()
+
+    def get_funnel_metric_events_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
+        """Funnel-specific write query; prefer get_metric_events_query_for_precomputation()."""
         return self._funnel_query_builder().get_funnel_metric_events_query_for_precomputation()
 
     def _build_variant_expr_for_mean(self) -> ast.Expr:

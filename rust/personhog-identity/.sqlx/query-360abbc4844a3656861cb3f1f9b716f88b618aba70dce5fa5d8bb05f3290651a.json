@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE lifecycle_op SET step = $3 WHERE op_id = $1 AND step = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "360abbc4844a3656861cb3f1f9b716f88b618aba70dce5fa5d8bb05f3290651a"
+}

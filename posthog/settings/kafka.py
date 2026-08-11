@@ -217,5 +217,5 @@ KAFKA_BASE64_KEYS: bool = get_from_env("KAFKA_BASE64_KEYS", False, type_cast=str
 
 # Per-topic overrides for the kafka_client.routing map. Comma-separated
 # "topic=profile" entries; merged over the code-level defaults at lookup time.
-# Example: "clickhouse_precalculated_person_properties=warpstream_calculated_events"
+# Example: "cohort_membership_changed=calculated_events"
 KAFKA_TOPIC_ROUTING_OVERRIDES: str = os.getenv("KAFKA_TOPIC_ROUTING_OVERRIDES", "") or ""

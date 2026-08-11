@@ -38,11 +38,12 @@ class TestSCIMGroupsAPI(APILicensedTest):
         # Generate SCIM token
         token = generate_scim_token()
         self.plain_token = token.plain
-        config = IdentityProviderConfig.objects.create(
+        self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = config
+        self.domain.identity_provider_config = self.config
         self.domain.save()
+        self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
         self.client.credentials(**self.scim_headers)

@@ -288,6 +288,102 @@ describe('create-event-step', () => {
             }
         })
 
+        describe('$experiment_exposure duplication', () => {
+            it('duplicates multivariate $feature_flag_called events for allowlisted teams with a deterministic uuid', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT, '2')
+                const input = {
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        teamId: 2,
+                        projectId: 2 as ProjectId,
+                        event: '$feature_flag_called',
+                        properties: {
+                            $feature_flag: 'checkout-experiment',
+                            $feature_flag_response: 'test',
+                            unchanged: 'value',
+                        },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                }
+                const result = await step(input)
+                const rerun = await step(input)
+
+                expect(isOkResult(result)).toBe(true)
+                expect(isOkResult(rerun)).toBe(true)
+                if (isOkResult(result) && isOkResult(rerun)) {
+                    expect(result.value.eventsToEmit).toHaveLength(2)
+                    const [flagCalled, exposure] = result.value.eventsToEmit
+                    expect(exposure.output).toBe(EVENTS_OUTPUT)
+                    expect(exposure.event.uuid).not.toBe(flagCalled.event.uuid)
+                    expect(exposure.event).toEqual({
+                        ...flagCalled.event,
+                        event: '$experiment_exposure',
+                        uuid: exposure.event.uuid,
+                    })
+                    // A redelivered message must reproduce the same exposure row for
+                    // ClickHouse's ReplacingMergeTree to collapse it.
+                    expect(rerun.value.eventsToEmit[1].event.uuid).toBe(exposure.event.uuid)
+                }
+            })
+
+            it.each([
+                ['a team outside the allowlist', 1, '$feature_flag_called', 'test'],
+                ['a boolean response', 2, '$feature_flag_called', true],
+                ['a stringified boolean response', 2, '$feature_flag_called', 'true'],
+                ['an empty response', 2, '$feature_flag_called', ''],
+                ['a missing response', 2, '$feature_flag_called', undefined],
+                ['a different event', 2, '$pageview', 'test'],
+            ])('does not duplicate %s', async (_, teamId, event, response) => {
+                const step = createCreateEventStep(EVENTS_OUTPUT, '2')
+                const result = await step({
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        teamId,
+                        projectId: teamId as ProjectId,
+                        event,
+                        properties: { $feature_flag_response: response },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                }
+            })
+
+            it('does not duplicate when no teams are configured', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const result = await step({
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        teamId: 2,
+                        projectId: 2 as ProjectId,
+                        event: '$feature_flag_called',
+                        properties: { $feature_flag_response: 'test' },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                }
+            })
+        })
+
         describe('historicalMigration flag', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)

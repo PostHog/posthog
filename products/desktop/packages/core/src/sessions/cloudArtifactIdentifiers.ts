@@ -5,7 +5,7 @@ import type {
 
 export interface CloudArtifactUploadRequest {
   name: string;
-  type: "user_attachment" | "skill_bundle";
+  type: "output" | "user_attachment" | "skill_bundle";
   size: number;
   content_type?: string;
   source?: string;

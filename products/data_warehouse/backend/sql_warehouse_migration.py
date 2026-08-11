@@ -11,6 +11,7 @@ from typing import Any
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import (
+    DottedNameParts,
     SourceRegistry,
     SQLSource,
     fill_missing_from_dotted_name,
@@ -143,8 +144,8 @@ def detect_schema_clear_transition(
     return existing.strip()
 
 
-def _extract_source_location_from_row(row: Any) -> tuple[str | None, str | None]:
-    """`(source_schema, source_table_name)` — metadata first, dotted name fallback, else `(None, None)`."""
+def _extract_source_location_from_row(row: Any) -> DottedNameParts:
+    """Source schema/table for a row: metadata first, dotted name fallback, else both `None`."""
     metadata = (row.sync_type_config or {}).get("schema_metadata")
     source_schema: str | None = None
     source_table_name: str | None = None
@@ -153,7 +154,7 @@ def _extract_source_location_from_row(row: Any) -> tuple[str | None, str | None]
             source_schema = metadata["source_schema"]
         if isinstance(metadata.get("source_table_name"), str):
             source_table_name = metadata["source_table_name"]
-    return fill_missing_from_dotted_name(source_schema, source_table_name, row.name)
+    return fill_missing_from_dotted_name(schema=source_schema, table=source_table_name, display_name=row.name)
 
 
 def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, str]:
@@ -173,9 +174,9 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
     unqualified_rows: list[ExternalDataSchema] = []
     for row in rows:
         if "." in row.name:
-            source_schema, source_table_name = _extract_source_location_from_row(row)
-            if source_schema and source_table_name:
-                qualified_rows_by_table_name.setdefault(source_table_name, []).append((source_schema, row))
+            location = _extract_source_location_from_row(row)
+            if location.schema and location.table:
+                qualified_rows_by_table_name.setdefault(location.table, []).append((location.schema, row))
         else:
             unqualified_rows.append(row)
 
@@ -183,17 +184,17 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
     name_substitutions: dict[str, str] = {}
 
     for legacy in unqualified_rows:
-        legacy_metadata_source_schema, legacy_metadata_source_table_name = _extract_source_location_from_row(legacy)
+        legacy_location = _extract_source_location_from_row(legacy)
         qualified_matches = qualified_rows_by_table_name.get(legacy.name, [])
 
         # Disambiguate multi-match using legacy's own pinned metadata.
-        if len(qualified_matches) > 1 and legacy_metadata_source_schema is not None:
-            filtered = [m for m in qualified_matches if m[0] == legacy_metadata_source_schema]
+        if len(qualified_matches) > 1 and legacy_location.schema is not None:
+            filtered = [m for m in qualified_matches if m[0] == legacy_location.schema]
             if len(filtered) == 1:
                 qualified_matches = filtered
 
         target_source_schema: str | None
-        target_source_table_name: str | None = legacy_metadata_source_table_name
+        target_source_table_name: str | None = legacy_location.table
         duplicate: Any | None = None
 
         if len(qualified_matches) == 1:
@@ -201,8 +202,8 @@ def apply_on_refresh(*, source: ExternalDataSource, team_id: int) -> dict[str, s
         elif len(qualified_matches) > 1:
             # Ambiguous — let the user resolve via the UI.
             continue
-        elif legacy_metadata_source_schema is not None:
-            target_source_schema = legacy_metadata_source_schema
+        elif legacy_location.schema is not None:
+            target_source_schema = legacy_location.schema
         elif default_schema is not None:
             target_source_schema = default_schema
         else:

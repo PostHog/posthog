@@ -75,6 +75,7 @@ class ClickHouseUser(StrEnum):
     ERROR_TRACKING = "error_tracking"
     ENDPOINTS = "endpoints"
     BILLING = "billing"
+    REPLAY_VISION = "replay_vision"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -89,7 +90,7 @@ class ClickHouseUser(StrEnum):
     DICT_READER = "dict_reader"
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class ClickHouseCredentials:
     user: str
     password: str = field(repr=False)

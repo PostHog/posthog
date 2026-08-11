@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonLabel, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,12 +18,35 @@ import {
 import { HomepageConfiguration } from '~/layout/scenes/HomepageConfiguration'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { productConfiguration } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemImport, SidebarDensity } from '~/queries/schema/schema-general'
 
 export function HomepageSetting(): JSX.Element {
     return (
         <div className="max-w-160">
             <HomepageConfiguration />
+        </div>
+    )
+}
+
+export function SidebarLayoutSetting(): JSX.Element {
+    const { sidebarDensity } = useValues(uiCustomizationLogic)
+    const { setSidebarDensity } = useActions(uiCustomizationLogic)
+
+    return (
+        <div className="flex flex-col gap-4 max-w-160">
+            <div className="flex flex-col gap-2">
+                <LemonLabel>Density</LemonLabel>
+                <LemonSegmentedButton
+                    value={sidebarDensity}
+                    onChange={(value) => setSidebarDensity(value as SidebarDensity)}
+                    options={[
+                        { value: 'comfortable', label: 'Comfortable' },
+                        { value: 'compact', label: 'Compact' },
+                    ]}
+                    size="small"
+                    data-attr="sidebar-customization-density"
+                />
+            </div>
         </div>
     )
 }

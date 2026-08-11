@@ -10,6 +10,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { ReplayFiltersTab } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import {
     getDefaultFilters,
     SessionRecordingPlaylistLogicProps,
@@ -58,7 +59,7 @@ function ScanBySessionId({ scannerId }: { scannerId: string }): JSX.Element {
                     Paste the recording's session ID below.
                 </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <LemonInput
                     value={sessionId}
                     onChange={setSessionId}
@@ -90,6 +91,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
         scannerRunTabLogic({ scannerId })
     )
     const { setVisibleSessionIds, startScan, startBulkScan } = useActions(scannerRunTabLogic({ scannerId }))
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const editDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level)
 
@@ -105,7 +107,10 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             key: 'session',
             width: 300,
             render: (_, recording) => (
-                <Link to={urls.replaySingle(recording.id)} className="font-mono text-xs text-primary truncate block">
+                <Link
+                    onClick={() => openSessionPlayer({ id: recording.id })}
+                    className="font-mono text-xs text-primary truncate block"
+                >
                     {recording.id}
                 </Link>
             ),

@@ -305,8 +305,19 @@
         ].map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
 
         const maxLoad = Math.max(1, ...s.workers.map((w) => w.in_flight_messages));
+        // Stable order — slice members first, then by IP. Sorting by load made
+        // rows jump around on every poll.
+        const workerSortKey = (url) => {
+          const host = (url.match(/^[a-z]+:\/\/([^:/]+)/i) || [])[1] || url;
+          // Zero-pad IPv4 octets so "10.2.30.1" sorts numerically, not lexically.
+          return /^\d+(\.\d+){3}$/.test(host)
+            ? host.split(".").map((octet) => octet.padStart(3, "0")).join(".")
+            : host;
+        };
         $("workers").innerHTML = s.workers.length
-          ? s.workers.sort((a, b) => b.in_flight_messages - a.in_flight_messages).map((w) => {
+          ? s.workers.sort((a, b) =>
+              (sliceSet.has(b.url) - sliceSet.has(a.url)) ||
+              workerSortKey(a.url).localeCompare(workerSortKey(b.url))).map((w) => {
               const cls = w.draining ? "draining" : w.state;
               const label = w.draining ? "draining" : w.state;
               const pct = Math.round((w.in_flight_messages / maxLoad) * 100);

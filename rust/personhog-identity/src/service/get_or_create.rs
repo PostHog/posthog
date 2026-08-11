@@ -216,6 +216,8 @@ impl PersonHogIdentityService {
             set_properties: entry.set_properties.clone(),
             set_once_properties: entry.set_once_properties.clone(),
             unset_properties: Vec::new(),
+            is_identified: None,
+            last_seen_at: None,
         };
 
         match self

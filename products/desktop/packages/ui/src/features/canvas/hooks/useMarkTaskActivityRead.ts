@@ -22,8 +22,17 @@ export function useMarkTaskActivityRead() {
       return client.markTaskActivityRead(activities);
     },
     onMutate: async (activities: TaskActivityReadMarker[]) => {
-      const marked = new Map(
-        activities.map((activity) => [activity.task_id, activity.seen_before]),
+      const markedTasks = new Map(
+        activities.flatMap((activity) =>
+          activity.activity_id
+            ? []
+            : [[activity.task_id, activity.seen_before] as const],
+        ),
+      );
+      const markedCommentActivities = new Set(
+        activities.flatMap((activity) =>
+          activity.activity_id ? [activity.activity_id] : [],
+        ),
       );
       queryClient.setQueryData<InfiniteData<TaskActivityPage>>(
         TASK_ACTIVITY_QUERY_KEY,
@@ -32,9 +41,13 @@ export function useMarkTaskActivityRead() {
           const clearing = data.pages
             .flatMap((page) => page.results)
             .filter((row) => {
-              const seenBefore = marked.get(row.task_id);
+              const seenBefore = markedTasks.get(row.task_id);
               return (
-                row.is_unread && seenBefore && row.activity_at <= seenBefore
+                row.is_unread &&
+                (markedCommentActivities.has(row.id) ||
+                  (!row.latest_comment_id &&
+                    !!seenBefore &&
+                    row.activity_at <= seenBefore))
               );
             }).length;
           return {
@@ -46,8 +59,11 @@ export function useMarkTaskActivityRead() {
                   ? Math.max(0, page.unread_count - clearing)
                   : page.unread_count,
               results: page.results.map((row) => {
-                const seenBefore = marked.get(row.task_id);
-                return seenBefore && row.activity_at <= seenBefore
+                const seenBefore = markedTasks.get(row.task_id);
+                return markedCommentActivities.has(row.id) ||
+                  (!row.latest_comment_id &&
+                    !!seenBefore &&
+                    row.activity_at <= seenBefore)
                   ? { ...row, is_unread: false }
                   : row;
               }),

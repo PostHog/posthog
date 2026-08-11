@@ -33,7 +33,7 @@ type BillingLimitConfigResolver = (context: BillingLimitConfigContext) => Partia
 
 // Mirrors the caps the billing service enforces for startup-program customers, so the form
 // rejects out-of-range limits before the API does. The billing API product names are too
-// verbose for copy (e.g. "PostHog Code (usage-based)").
+// verbose for copy (e.g. "PostHog Desktop (usage-based)").
 const startupProgramCapResolver = (productName: string): BillingLimitConfigResolver => {
     return ({ billing, customLimitUsd, billingLimitNextPeriod }) => {
         if (!billing?.startup_program_label) {
@@ -58,7 +58,7 @@ const startupProgramCapResolver = (productName: string): BillingLimitConfigResol
 }
 
 const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver> = {
-    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: startupProgramCapResolver('Code'),
+    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: startupProgramCapResolver('Desktop'),
     [REPLAY_VISION_PRODUCT_KEY]: startupProgramCapResolver('Replay vision'),
 }
 

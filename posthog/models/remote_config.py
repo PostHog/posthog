@@ -366,33 +366,38 @@ class RemoteConfig(UUIDTModel):
                     f"\n{{\n  id: '{site_app.token}',\n  init: function(config) {{\n    {indent_js(site_app.source, indent=4)}().inject({{ config:{json.dumps(config)}, posthog:config.posthog }});\n    config.callback(); return {{}}  }}\n}}"
                 )
             )
-        site_functions = (
-            HogFunction.objects.select_related("team")
-            .filter(
-                team=self.team,
-                enabled=True,
-                deleted=False,
-                type__in=("site_destination", "site_app"),
-            )
-            .all()
-        )
-
         site_functions_js = []
 
-        for site_function in site_functions:
-            try:
-                source = get_transpiled_function(site_function)
-                # NOTE: It is an object as we can later add other properties such as a consent ID
-                # Indentation to make it more readable (and therefore debuggable)
-                site_functions_js.append(
-                    indent_js(
-                        f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
-                    )
+        try:
+            site_functions = (
+                HogFunction.objects.select_related("team")
+                .filter(
+                    team=self.team,
+                    enabled=True,
+                    deleted=False,
+                    type__in=("site_destination", "site_app"),
                 )
-            except Exception:
-                # TODO: Should we track this to somewhere?
-                logger.exception(f"Failed to build JS for site function {site_function.id}")
-                pass
+                .only("id", "team_id", "inputs", "hog", "filters", "mappings")
+            )
+
+            for site_function in site_functions:
+                try:
+                    source = get_transpiled_function(site_function)
+                    # NOTE: It is an object as we can later add other properties such as a consent ID
+                    # Indentation to make it more readable (and therefore debuggable)
+                    site_functions_js.append(
+                        indent_js(
+                            f"\n{{\n  id: '{site_function.id}',\n  init: function(config) {{ return {indent_js(source, indent=4)}().init(config) }} \n}}"
+                        )
+                    )
+                except Exception as e:
+                    # Caught exceptions never reach error tracking on their own, and degrading
+                    # silently here hides a broken site function from everyone.
+                    logger.exception(f"Failed to build JS for site function {site_function.id}")
+                    capture_exception(e)
+        except Exception as e:
+            logger.exception(f"Failed to fetch site functions for team {self.team.id}")
+            capture_exception(e)
 
         return site_apps_js + site_functions_js
 

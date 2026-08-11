@@ -10,7 +10,7 @@
             "labels": ["team/feature-flags", "feature/cohorts"]
         },
         {
-            "scopes": ["desktop", "tasks", "agent-proxy"],
+            "scopes": ["desktop", "tasks", "agent-proxy", "canvas"],
             "labels": ["feature/desktop"]
         }
     ]

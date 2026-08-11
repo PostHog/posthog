@@ -218,6 +218,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
 
         # Compute per-item metadata for labeling (O(n) instead of O(n × k))
         item_metadata = _compute_item_labeling_metadata(compute_result)
+        trace_id = str(workflow.uuid4())
 
         # Activity 2: Generate LLM labels (longer timeout for agent run)
         labels_result = await workflow.execute_activity(
@@ -233,6 +234,10 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     window_end=window_end,
                     analysis_level=compute_result.analysis_level,
                     batch_run_ids=compute_result.batch_run_ids,
+                    trace_id=trace_id,
+                    session_id=f"{trace_id}:session",
+                    clustering_run_id=compute_result.clustering_run_id,
+                    clustering_job_id=inputs.job_id,
                 )
             ],
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,

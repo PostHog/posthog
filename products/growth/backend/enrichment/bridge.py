@@ -24,6 +24,7 @@ from django.conf import settings
 from posthog.models.group.util import get_group_by_key
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team import Team
+from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
 
@@ -76,6 +77,10 @@ def _organization_group_type_index(team: Team) -> int:
 
 def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
     """Fetch the Clay-written score inputs for one org. Raises if the group store can't be read."""
+    # Clay only ever wrote to the US internal project, so outside US there is nothing to read —
+    # skip the lookup entirely instead of querying a project the bridge never touched.
+    if get_instance_region() != "US":
+        return ClayBridgeInputs()
     # The internal project the enrichment group properties are projected onto, and the same one
     # the ProductLed_Outbound consumer reads them back from (ee/billing/dags/productled_outbound_targets.py).
     team = Team.objects.get(id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID)

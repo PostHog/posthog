@@ -1,62 +1,54 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { isSelectGroup } from "@posthog/shared";
 
-export function stripGlmModelOption(
+function stripModelOptions(
   option: SessionConfigOption,
-): SessionConfigOption {
-  if (option.type !== "select") return option;
-
-  if (isSelectGroup(option.options)) {
-    return {
-      ...option,
-      options: option.options.map((group) => ({
-        ...group,
-        options: group.options.filter(
-          (o) => !o.value.toLowerCase().includes("glm"),
-        ),
-      })),
-    };
-  }
-
-  return {
-    ...option,
-    options: option.options.filter(
-      (o) => !o.value.toLowerCase().includes("glm"),
-    ),
-  };
-}
-
-export function stripKimiModelOption(
-  option: SessionConfigOption,
+  isStripped: (value: string) => boolean,
 ): SessionConfigOption {
   if (option.type !== "select") return option;
 
   if (isSelectGroup(option.options)) {
     const options = option.options.map((group) => ({
       ...group,
-      options: group.options.filter(
-        (model) => model.value !== "moonshotai/kimi-k3",
-      ),
+      options: group.options.filter((model) => !isStripped(model.value)),
     }));
     return {
       ...option,
       options,
-      currentValue:
-        option.currentValue === "moonshotai/kimi-k3"
-          ? (options.flatMap((group) => group.options)[0]?.value ?? "")
-          : option.currentValue,
+      currentValue: isStripped(option.currentValue)
+        ? (options.flatMap((group) => group.options)[0]?.value ?? "")
+        : option.currentValue,
     };
   }
 
-  const options = option.options.filter(
-    (model) => model.value !== "moonshotai/kimi-k3",
-  );
+  const options = option.options.filter((model) => !isStripped(model.value));
   return {
     ...option,
     options,
-    currentValue:
-      option.currentValue === "moonshotai/kimi-k3"
-        ? (options[0]?.value ?? "")
-        : option.currentValue,
+    currentValue: isStripped(option.currentValue)
+      ? (options[0]?.value ?? "")
+      : option.currentValue,
   };
+}
+
+export function stripGlmModelOption(
+  option: SessionConfigOption,
+): SessionConfigOption {
+  return stripModelOptions(option, (value) =>
+    value.toLowerCase().includes("glm"),
+  );
+}
+
+export function stripDeepseekModelOption(
+  option: SessionConfigOption,
+): SessionConfigOption {
+  return stripModelOptions(option, (value) =>
+    value.toLowerCase().includes("deepseek"),
+  );
+}
+
+export function stripKimiModelOption(
+  option: SessionConfigOption,
+): SessionConfigOption {
+  return stripModelOptions(option, (value) => value === "moonshotai/kimi-k3");
 }

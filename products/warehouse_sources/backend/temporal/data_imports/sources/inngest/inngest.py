@@ -10,6 +10,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import (
     INNGEST_DEFAULT_VERSION,
@@ -121,7 +122,7 @@ def _coerce_datetime(value: Any) -> datetime | None:
     return None
 
 
-def _event_window(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> tuple[str, str]:
+def _event_window(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> SyncWindow[str]:
     """Compute the [received_after, received_before] RFC3339 window for a /v1/events walk.
 
     `received_after` defaults to only 1 hour ago server-side, so it is always passed explicitly.
@@ -140,7 +141,7 @@ def _event_window(should_use_incremental_field: bool, db_incremental_field_last_
     # forever; clamp it so the sync self-heals.
     if after > now:
         after = now
-    return _format_rfc3339(after), _format_rfc3339(now)
+    return SyncWindow(start=_format_rfc3339(after), end=_format_rfc3339(now))
 
 
 def _normalize_event(item: dict[str, Any]) -> dict[str, Any]:
@@ -182,18 +183,18 @@ def _iter_event_pages(
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.received_after and resume.received_before:
-        received_after, received_before = resume.received_after, resume.received_before
+        window: SyncWindow[str] = SyncWindow(start=resume.received_after, end=resume.received_before)
         cursor = resume.cursor
-        logger.debug(f"Inngest: resuming events walk from cursor={cursor}, window ends {received_before}")
+        logger.debug(f"Inngest: resuming events walk from cursor={cursor}, window ends {window.end}")
     else:
-        received_after, received_before = _event_window(should_use_incremental_field, db_incremental_field_last_value)
+        window = _event_window(should_use_incremental_field, db_incremental_field_last_value)
         cursor = None
 
     while True:
         params: dict[str, Any] = {
             "limit": EVENTS_PAGE_SIZE,
-            "received_after": received_after,
-            "received_before": received_before,
+            "received_after": window.start,
+            "received_before": window.end,
         }
         if cursor:
             params["cursor"] = cursor
@@ -210,7 +211,7 @@ def _iter_event_pages(
         # treat it as the end of the walk.
         has_more = len(items) == EVENTS_PAGE_SIZE and bool(next_cursor) and next_cursor != cursor
         next_state = (
-            InngestResumeConfig(cursor=next_cursor, received_after=received_after, received_before=received_before)
+            InngestResumeConfig(cursor=next_cursor, received_after=window.start, received_before=window.end)
             if has_more
             else None
         )

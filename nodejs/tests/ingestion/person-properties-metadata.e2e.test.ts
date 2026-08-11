@@ -15,7 +15,6 @@ import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhou
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { UUIDT } from '~/common/utils/utils'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
@@ -185,7 +184,6 @@ const createTestWithTeamIngester = (baseConfig: Partial<PluginsServerConfig> = {
             const outputs = createTestIngestionOutputs(kafkaProducer)
             const ingester = new IngestionConsumer(infra.config, {
                 ...infra,
-                aiSubpipelineFactory: createAiEventSubpipeline,
                 hogTransformer: createHogTransformerService(infra.config, {
                     ...infra,
                     monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),

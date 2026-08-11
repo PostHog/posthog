@@ -26,6 +26,7 @@ import { Logger } from "./utils/logger";
 export interface ResumeState {
   conversation: ConversationTurn[];
   latestGitCheckpoint: GitCheckpointEvent | null;
+  latestGitCheckpoints?: GitCheckpointEvent[];
   interrupted: boolean;
   lastDevice?: DeviceInfo;
   logEntryCount: number;
@@ -93,6 +94,7 @@ export async function resumeFromLog(
   return {
     conversation: result.data.conversation as ConversationTurn[],
     latestGitCheckpoint: result.data.latestGitCheckpoint,
+    latestGitCheckpoints: result.data.latestGitCheckpoints,
     interrupted: result.data.interrupted,
     lastDevice: result.data.lastDevice,
     logEntryCount: result.data.logEntryCount,

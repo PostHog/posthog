@@ -180,7 +180,7 @@ jobs:
                       echo "xattr -dr com.apple.quarantine \"/Applications/PostHog.app\""
                       echo "\`\`\`"
                       echo ""
-                      echo "Then open **PostHog Code** normally. (Fully notarized, double-click-to-run builds ship only from the tagged release pipeline.)"
+                      echo "Then open **PostHog Desktop** normally. (Fully notarized, double-click-to-run builds ship only from the tagged release pipeline.)"
                       echo ""
                       echo "<sub>Built from ${GITHUB_SHA} · rebuilds on each push while the \`build-installer\` label is present. Downloading requires being signed in to GitHub with repo access.</sub>"
                     } > comment-body.md

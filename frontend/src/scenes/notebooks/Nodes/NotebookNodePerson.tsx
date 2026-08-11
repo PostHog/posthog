@@ -37,7 +37,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
     useAttachedLogic(mountedPersonLogic, notebookLogic)
 
     useEffect(() => {
-        const title = person ? `Person: ${asDisplay(person)}` : 'Person'
+        const title = person ? asDisplay(person) : 'Person'
         setTitlePlaceholder(title)
         setActions([
             {
@@ -276,6 +276,7 @@ type NotebookNodePersonAttributes = {
 export const NotebookNodePerson = createPostHogWidgetNode<NotebookNodePersonAttributes>({
     nodeType: NotebookNodeType.Person,
     titlePlaceholder: 'Person',
+    editableTitle: false,
     Component,
     expandable: false,
     href: (attrs) => {

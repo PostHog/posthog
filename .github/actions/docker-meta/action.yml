@@ -46,6 +46,9 @@ outputs:
     labels:
         description: 'Docker metadata labels'
         value: ${{ steps.meta.outputs.labels }}
+    annotations:
+        description: 'Docker metadata annotations'
+        value: ${{ steps.annotations.outputs.value }}
     ecr-registry:
         description: 'ECR registry URL'
         value: ${{ steps.aws-ecr.outputs.registry }}
@@ -109,14 +112,60 @@ runs:
               PUSH_TO_GHCR: ${{ inputs.push-to-ghcr }}
               PUSH_TO_ECR: ${{ inputs.push-to-ecr }}
 
+        - name: Extract commit metadata
+          id: commit
+          shell: bash
+          env:
+              EVENT_AUTHOR: ${{ github.event.head_commit.author.username }}
+              EVENT_COMMITTER: ${{ github.event.head_commit.committer.username }}
+              LC_ALL: C.UTF-8
+          run: |
+              set -euo pipefail
+              subject="$(git log -1 --format=%s)"
+              author="${EVENT_AUTHOR:-$(git log -1 --format=%an)}"
+              committer="${EVENT_COMMITTER:-$(git log -1 --format=%cn)}"
+              timestamp="$(TZ=UTC git show -s --date=format-local:%Y-%m-%dT%H:%M:%SZ --format=%cd HEAD)"
+              if [ "${#subject}" -gt 160 ]; then
+                subject="${subject:0:157}..."
+              fi
+              {
+                echo "subject=${subject}"
+                echo "author=${author}"
+                echo "committer=${committer}"
+                echo "timestamp=${timestamp}"
+              } >> "$GITHUB_OUTPUT"
+
         - name: Docker meta
           id: meta
           uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+          env:
+              DOCKER_METADATA_ANNOTATIONS_LEVELS: index
           with:
               images: ${{ steps.images.outputs.list }}
               tags: |
                   type=ref,event=pr
                   type=ref,event=branch
-                  type=sha
+                  type=sha,format=long
                   type=raw,value=${{ github.sha }}
                   type=raw,value=latest,enable={{is_default_branch}}
+
+        - name: Add commit annotations
+          id: annotations
+          shell: bash
+          env:
+              AUTHOR: ${{ steps.commit.outputs.author }}
+              COMMITTER: ${{ steps.commit.outputs.committer }}
+              MESSAGE: ${{ steps.commit.outputs.subject }}
+              METADATA_ANNOTATIONS: ${{ steps.meta.outputs.annotations }}
+              TIMESTAMP: ${{ steps.commit.outputs.timestamp }}
+          run: |
+              set -euo pipefail
+              {
+                echo "value<<ANNOTATIONS_EOF"
+                printf '%s\n' "$METADATA_ANNOTATIONS"
+                printf 'index:com.posthog.image.author=%s\n' "$AUTHOR"
+                printf 'index:com.posthog.image.committer=%s\n' "$COMMITTER"
+                printf 'index:com.posthog.image.message=%s\n' "$MESSAGE"
+                printf 'index:com.posthog.image.commit-timestamp=%s\n' "$TIMESTAMP"
+                echo "ANNOTATIONS_EOF"
+              } >> "$GITHUB_OUTPUT"

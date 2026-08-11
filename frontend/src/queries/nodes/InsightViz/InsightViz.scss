@@ -93,6 +93,7 @@
     min-height: 0;
 
     .NotebookNode &,
+    .MarkdownNotebook__real-node &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
@@ -184,6 +185,7 @@
     }
 
     .NotebookNode &,
+    .MarkdownNotebook__real-node &,
     .InsightCard &,
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
@@ -282,7 +284,8 @@
     &--type-trends {
         min-height: var(--insight-viz-min-height);
 
-        .NotebookNode & {
+        .NotebookNode &,
+        .MarkdownNotebook__real-node & {
             min-height: 0;
         }
 

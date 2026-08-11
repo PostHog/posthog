@@ -15,6 +15,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.cdp.validation import build_html_wrap_design
 
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
@@ -142,6 +143,11 @@ class MessageTemplateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"content": {"email": {"subject": "Subject is required for email templates."}}}
             )
+        # Programmatically authored templates often supply html without a design, which the
+        # visual editor can't open. Wrap the html in a single custom HTML block; the stored
+        # html stays untouched, so nothing about the sent email changes.
+        if email and email.get("html") and not email.get("design"):
+            email["design"] = build_html_wrap_design(email["html"])
         # Design-only saves get their html rendered server-side (the send path uses html
         # verbatim). A submitted html is trusted as-is — that's the visual editor's own export.
         if email and email.get("design") and not email.get("html"):

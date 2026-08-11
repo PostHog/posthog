@@ -18,7 +18,10 @@ import {
   createInitialTaskLayout,
   splitPanelTree,
 } from "@posthog/core/panels/panelLayoutTransforms";
-import { createFileTabId } from "@posthog/core/panels/panelStoreHelpers";
+import {
+  activeArtifactId,
+  createFileTabId,
+} from "@posthog/core/panels/panelStoreHelpers";
 import { findTabInTree } from "@posthog/core/panels/panelTree";
 import { ANALYTICS_EVENTS, getFileExtension } from "@posthog/shared";
 import {
@@ -528,3 +531,14 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
     },
   ),
 );
+
+/**
+ * The artifact the reader is looking at, so a pane elsewhere (the task's
+ * comment list) can narrow itself to whatever is on screen.
+ */
+export function useActiveArtifactId(taskId: string): string | null {
+  return usePanelLayoutStore((state) => {
+    const layout = state.taskLayouts[taskId];
+    return layout ? activeArtifactId(layout) : null;
+  });
+}

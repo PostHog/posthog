@@ -19,6 +19,10 @@ If the symptom is "metric count is far smaller than exposures" (e.g. 10× or 100
 file before `numbers-vs-sql.md` — that shape of divergence is most often a bucketing / identity
 problem (A3/A4), not a query-scope problem.
 
+The SQL in this file filters exposures on `$feature_flag_called`. If the experiment's
+`resolved_exposure_event` (from `experiment-get`) is `$experiment_exposure`, substitute that event
+name — it carries the same properties, so nothing else changes.
+
 ## Contents
 
 - A1 — Multi-variant exclusion bias on uneven split (the in-app banner)

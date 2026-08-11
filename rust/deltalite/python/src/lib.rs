@@ -392,10 +392,43 @@ impl DeltaLiteTable {
         let stats = py
             .detach(|| {
                 runtime().block_on(async move {
-                    // Take a fresh snapshot for the upsert so a retried batch never
-                    // plans against stale state.
-                    let table = open_table_multipart(&uri, so, multipart).await?;
-                    deltalite_core::upsert::upsert(&table, batches, schema, opts).await
+                    // A concurrent writer can make delta-rs reject the commit with a
+                    // "must rerun" conflict (it read data another transaction deleted).
+                    // delta-rs's own commit retries re-attempt the SAME, now-stale actions and
+                    // keep conflicting; the only fix is to re-read the table and re-plan. So on
+                    // a Conflict we re-open a fresh snapshot and re-run the whole upsert a few
+                    // times before giving up -- after which the caller falls back to the MERGE.
+                    // Re-opening each attempt also gives every try a fresh snapshot, so a
+                    // retried batch never plans against stale state.
+                    //
+                    // Only data conflicts are retried. A concurrent schema/protocol change
+                    // surfaces as Error::Unsupported (see core `errors.rs`), not Conflict, and so
+                    // breaks straight out to the MERGE fallback -- re-planning a blind rewrite
+                    // against changed metadata could null-pad a newly-added column.
+                    const CONFLICT_RETRIES: usize = 5;
+                    let mut attempt = 0usize;
+                    loop {
+                        let table = open_table_multipart(&uri, so.clone(), multipart).await?;
+                        match deltalite_core::upsert::upsert(
+                            &table,
+                            batches.clone(),
+                            schema.clone(),
+                            opts.clone(),
+                        )
+                        .await
+                        {
+                            Err(Error::Conflict(_)) if attempt < CONFLICT_RETRIES => {
+                                attempt += 1;
+                                // Short linear backoff so two upserts racing a hot table don't
+                                // live-lock re-reading each other's in-flight commit.
+                                tokio::time::sleep(std::time::Duration::from_millis(
+                                    50 * attempt as u64,
+                                ))
+                                .await;
+                            }
+                            other => break other,
+                        }
+                    }
                 })
             })
             .map_err(to_py_err)?;

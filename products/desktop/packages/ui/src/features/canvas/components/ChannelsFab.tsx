@@ -81,7 +81,7 @@ export function ChannelsFab({ channelId }: { channelId?: string }) {
       variant="primary"
       size="icon-lg"
       aria-label="Create"
-      className="absolute right-3 bottom-3 z-10 rounded-full shadow-lg"
+      className="absolute right-3 bottom-3 z-10"
     >
       <PlusIcon size={20} weight="bold" />
       {channelsLayout && hasDraft && (

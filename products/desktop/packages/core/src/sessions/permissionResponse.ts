@@ -1,4 +1,5 @@
-import type { PermissionRequest } from "@posthog/shared";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import { flattenSelectOptions, type PermissionRequest } from "@posthog/shared";
 
 export type PermissionOption = PermissionRequest["options"][number];
 
@@ -78,6 +79,35 @@ export interface PermissionSelectionPlan {
   applyAllowAlwaysUpgrade: boolean;
   respondWithCustomInput: boolean;
   resendPromptText: string | null;
+}
+
+/**
+ * Resolves whether an "allow always" approval should change the session's
+ * permission mode. Sessions not already in Auto use the least broad available
+ * automatic mode.
+ */
+export function resolveAllowAlwaysUpgradeMode(
+  modeOption: SessionConfigOption | undefined,
+): string | undefined {
+  if (modeOption?.type !== "select") {
+    return undefined;
+  }
+
+  const availableIds = new Set(
+    flattenSelectOptions(modeOption.options).map((option) => option.value),
+  );
+  // Allow-always saves a tool-specific rule. Preserve Auto because switching to
+  // Accept edits would downgrade the session's broader permission mode.
+  if (modeOption.currentValue === "auto" && availableIds.has("auto")) {
+    return undefined;
+  }
+  if (availableIds.has("acceptEdits")) {
+    return "acceptEdits";
+  }
+  if (availableIds.has("auto")) {
+    return "auto";
+  }
+  return undefined;
 }
 
 export function planPermissionResponse(

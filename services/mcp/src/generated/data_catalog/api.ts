@@ -19,6 +19,8 @@ export const DataCatalogCertificationsCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
+export const dataCatalogCertificationsCreateBodyProposedStatusDefault = `certified`
+
 export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
     .object({
         table_id: zod.string().optional().describe('Warehouse table id to certify (XOR the other targets).'),
@@ -26,6 +28,13 @@ export const DataCatalogCertificationsCreateBody = /* @__PURE__ */ zod
         table_name: zod.string().optional().describe('Table name; 409 with candidates if ambiguous.'),
         view_name: zod.string().optional().describe('View name; 409 with candidates if ambiguous.'),
         notes: zod.string().optional().describe('Why this mark exists.'),
+        proposed_status: zod
+            .enum(['certified', 'deprecated'])
+            .describe('\* `certified` - certified\n\* `deprecated` - deprecated')
+            .default(dataCatalogCertificationsCreateBodyProposedStatusDefault)
+            .describe(
+                "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n\* `certified` - certified\n\* `deprecated` - deprecated"
+            ),
     })
     .describe('Input for proposing a certification: address the target by id or (convenience) by name.')
 
@@ -69,6 +78,8 @@ export const dataCatalogMetricsCreateBodyNameMax = 128
 export const dataCatalogMetricsCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsCreateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsCreateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsCreateBodyUnitMax = 64
 
 export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
@@ -89,7 +100,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsCreateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsCreateBodyDescriptionMax)
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsCreateBodyUnitMax)
@@ -137,6 +153,8 @@ export const dataCatalogMetricsPartialUpdateBodyNameMax = 128
 export const dataCatalogMetricsPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
 export const dataCatalogMetricsPartialUpdateBodyDisplayNameMax = 255
 
+export const dataCatalogMetricsPartialUpdateBodyDescriptionMax = 1000
+
 export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
@@ -158,7 +176,13 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyDisplayNameMax)
         .optional()
         .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod.string().optional().describe('What the metric means and how to interpret it.'),
+    description: zod
+        .string()
+        .max(dataCatalogMetricsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe(
+            "What the metric means and what it serves, in 1-3 short sentences: the business meaning plus any load-bearing inclusions\/exclusions or grain. Never narrate or restate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+        ),
     unit: zod
         .string()
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)

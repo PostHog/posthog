@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from importlib import util as importlib_util
 from pathlib import Path
@@ -11,6 +12,7 @@ from types import ModuleType
 import duckdb
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 MAX_RETRIES = 30
 
 

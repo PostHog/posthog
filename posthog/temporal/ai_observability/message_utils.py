@@ -13,6 +13,9 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     - OpenAI tool calling: assistant messages with `tool_calls` (rendered alongside any content),
       paired with `role: "tool"` results that carry a `tool_call_id` for correlation
     - Anthropic: [{"role": "user", "content": [{"type": "text", "text": "..."}]}]
+    - OTel GenAI semconv: [{"role": "user", "parts": [{"type": "text", "content": "..."}]}]
+      as ingested verbatim from `gen_ai.input.messages` / `gen_ai.output.messages`
+      by `/i/v0/ai/otel` (e.g. Vercel AI SDK spans)
     - Simple strings
 
     Returns formatted string like:
@@ -30,9 +33,10 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
         formatted_parts = []
         for msg in messages:
             if isinstance(msg, dict):
-                rendered_msg = _render_message(msg)
-                if rendered_msg is not None:
-                    formatted_parts.append(rendered_msg)
+                for flattened in _flatten_parts_message(msg):
+                    rendered_msg = _render_message(flattened)
+                    if rendered_msg is not None:
+                        formatted_parts.append(rendered_msg)
             elif isinstance(msg, str):
                 formatted_parts.append(msg)
 
@@ -41,7 +45,79 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     # Handle single dict message — render it the same way as a one-element
     # list so that role prefixes and tool_call_id correlation are surfaced
     # consistently regardless of the wrapper shape.
-    return _render_message(messages) or ""
+    rendered_messages = [_render_message(flattened) for flattened in _flatten_parts_message(messages)]
+    return "\n".join(rendered for rendered in rendered_messages if rendered is not None)
+
+
+def _flatten_parts_message(msg: dict) -> list[dict]:
+    """Convert an OTel GenAI semconv parts-shaped message into flat chat message(s).
+
+    `/i/v0/ai/otel` stores `gen_ai.input.messages` / `gen_ai.output.messages` verbatim,
+    so messages arrive as `{"role": ..., "parts": [...]}` with the text inside typed
+    parts instead of a flat `content` key. `_render_message` only reads `content` and
+    `tool_calls`, which made these messages render as a bare `role:` line and left the
+    LLM judge grading an empty conversation.
+
+    Mirrors the trace UI's `otel.yaml` normalizer recipe so the judge sees the same
+    conversation the trace view renders:
+    - `{"type": "text", "content": ...}` parts join into the message's `content`
+    - `{"type": "tool_call", "id", "name", "arguments"}` parts become `tool_calls`
+    - each `{"type": "tool_call_response", "id", "result"}` part becomes its own
+      follow-up `role: "tool"` message so the existing `tool[<id>]:` correlation applies
+    - `reasoning` and other non-text parts are dropped, matching the trace view
+
+    Like the recipe, this only applies to dicts with a string `role` alongside the
+    `parts` list, so a structured-output payload that happens to have its own `parts`
+    array still reaches the JSON-stringify fallback in `_render_message`.
+
+    Messages that already carry `content` or `tool_calls`, or have no `parts` list,
+    pass through unchanged.
+    """
+    parts = msg.get("parts")
+    if not isinstance(msg.get("role"), str) or not isinstance(parts, list):
+        return [msg]
+    if msg.get("content") or msg.get("tool_calls"):
+        return [msg]
+
+    text_chunks: list[str] = []
+    tool_calls: list[dict] = []
+    tool_results: list[dict] = []
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        part_type = part.get("type")
+        if part_type == "text":
+            content = part.get("content")
+            if isinstance(content, str) and content:
+                text_chunks.append(content)
+        elif part_type == "tool_call":
+            tool_calls.append(
+                {
+                    "id": part.get("id"),
+                    "function": {"name": part.get("name", ""), "arguments": part.get("arguments", "")},
+                }
+            )
+        elif part_type == "tool_call_response":
+            result = part.get("result", "")
+            if not isinstance(result, str):
+                result = json.dumps(result, default=str)
+            tool_results.append({"role": "tool", "content": result, "tool_call_id": part.get("id")})
+
+    primary = {key: value for key, value in msg.items() if key != "parts"}
+    if text_chunks:
+        primary["content"] = " ".join(text_chunks)
+    if tool_calls:
+        primary["tool_calls"] = tool_calls
+
+    # Keep an empty primary only when there are no follow-up tool results, so a
+    # message whose parts produce nothing still holds its `role:` conversation slot
+    # (matching how empty flat messages render) without adding a stray blank line
+    # in front of every tool result.
+    flattened: list[dict] = []
+    if text_chunks or tool_calls or not tool_results:
+        flattened.append(primary)
+    flattened.extend(tool_results)
+    return flattened
 
 
 def _render_message(msg: dict) -> str | None:

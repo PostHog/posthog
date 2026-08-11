@@ -10,6 +10,7 @@ from unittest.mock import patch
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import (
+    _MAX_SKILL_FILE_COUNT,
     CanonicalSkill,
     CanonicalSkillFile,
     CanonicalSkillParseError,
@@ -363,8 +364,8 @@ class TestDiscoverCanonicalSkills:
             discover_canonical_skills(tmp_path)
 
     def test_too_many_bundled_files_raises(self, tmp_path: Path) -> None:
-        # File count limit mirrors MAX_SKILL_FILE_COUNT (50).
-        bundled = {f"references/file_{i:03d}.md": f"# file {i}\n" for i in range(51)}
+        # File count limit mirrors MAX_SKILL_FILE_COUNT.
+        bundled = {f"references/file_{i:03d}.md": f"# file {i}\n" for i in range(_MAX_SKILL_FILE_COUNT + 1)}
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-too-many",
@@ -377,7 +378,7 @@ class TestDiscoverCanonicalSkills:
             body="# Body\n",
             bundled_files=bundled,
         )
-        with pytest.raises(CanonicalSkillParseError, match="exceeding the 50 limit"):
+        with pytest.raises(CanonicalSkillParseError, match=f"exceeding the {_MAX_SKILL_FILE_COUNT} limit"):
             discover_canonical_skills(tmp_path)
 
     def test_overlong_path_raises(self, tmp_path: Path) -> None:

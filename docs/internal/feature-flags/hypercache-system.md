@@ -244,6 +244,28 @@ if team is None:
 
 The cached team is serialized using `CachingTeamSerializer` and reconstructed as a `Team` instance on retrieval.
 
+## Read repair
+
+Both readers write an S3 hit back into Redis so the next read of the same key is served by Redis instead of paying another S3 read.
+
+The Django reader (`HyperCache.get_from_cache_with_source`) repairs on every S3 hit, synchronously, through the normal write path with the full cache TTL.
+
+The Rust reader (`rust/common/hypercache`) has an opt-in variant, deliberately more conservative than Django's:
+
+- Repairs only on a confirmed Redis miss. A read that fell through to S3 because Redis errored or timed out does not repair, since that tier is degraded and repair writes would add load to it.
+- Writes with `SET NX`, so a repair never overwrites an existing entry and concurrent repairs of one cold key collapse into one write.
+- Uses a short TTL (`HYPERCACHE_READ_REPAIR_TTL_SECONDS`, default 600) and does not register the entry in the expiry sorted set, so the Django refresh job stays the only owner of an entry's real lifetime. The short TTL also bounds how long a resurrected entry lingers in the `HyperCacheWriter::delete` race, where a reader that read S3 just before the delete writes the key back afterwards.
+- Is detached and best-effort: a Redis failure cannot fail a request that already has its value.
+- Refuses etag-enabled namespaces at reader construction (with a startup warning), because the payload and its companion `:etag` key are written atomically by the writer and a payload-only repair would leave the pair inconsistent.
+
+Enabled by default for the readers with no in-process cache in front of them: `array/config.json` in the feature-flags service, and `surveys` and `array/config.json` in hypercache-server. The `feature_flags` readers are excluded: they are etag-paired, and `FlagDefinitionsCache` already absorbs repeat reads of a cold key in process. `team_metadata` is excluded too: a hit there is trusted as proof of a valid token with no Postgres re-check, and team deletion clears Redis before S3, so a repair landing in that gap would resurrect a deleted team in Redis for up to the repair TTL.
+
+Operational controls:
+
+- `HYPERCACHE_READ_REPAIR_TTL_SECONDS=0` disables repair for a service without a code change. The deployment charts pass arbitrary env vars through `.Values.env`, so no chart change is needed.
+- In the feature-flags service, `SKIP_WRITES=true` also disables repair, keeping read-only instances read-only.
+- The `posthog_hypercache_read_repair` counter tracks repair outcomes. A sustained high repair rate means keys are repeatedly going cold (eviction, expiry outpacing the refresh job), which the S3 read rate alone no longer shows because repair suppresses it.
+
 ## Cache TTL settings
 
 | Cache                 | Hit TTL | Miss TTL              |
@@ -251,6 +273,7 @@ The cached team is serialized using `CachingTeamSerializer` and reconstructed as
 | HyperCache (default)  | 30 days | 1 day                 |
 | Remote config serving | 1 day   | 1 day                 |
 | Team authentication   | 5 days  | N/A (deleted on miss) |
+| Rust read repair      | 600s    | N/A (no miss writes)  |
 
 ## Performance characteristics
 
@@ -269,8 +292,13 @@ The cached team is serialized using `CachingTeamSerializer` and reconstructed as
 | `posthog_hypercache_sync`                  | `result`, `namespace`, `value` | Cache sync task outcomes        |
 | `posthog_hypercache_sync_duration_seconds` | `result`, `namespace`, `value` | Cache sync timing               |
 | `posthog_remote_config_via_cache`          | `result`                       | Remote config cache performance |
+| `posthog_hypercache_read_repair`           | `result`, `namespace`, `value` | Rust reader repair outcomes     |
 
 Result labels: `hit_redis`, `hit_s3`, `hit_db`, `missing`, `batch_miss`
+
+Read repair result labels: `success`, `skipped` (key already existed, repair deferred to it), `error`
+
+`skipped` also covers replica lag: reads go to the replica and repairs to the primary, so a key written to the primary but not yet replicated reads as cold and its repair is correctly refused.
 
 ## Debugging
 

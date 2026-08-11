@@ -182,9 +182,13 @@ function ColumnEditSection({
     column: string
     columnIndex: number
     onClose: () => void
-}): JSX.Element {
-    const { aliasToDefinition } = useValues(accountsColumnConfigLogic)
+}): JSX.Element | null {
+    const { aliasToDefinition, hogqlCleanupEnabled } = useValues(accountsColumnConfigLogic)
     const definition = aliasToDefinition[extractDisplayLabel(column)]
+
+    if (!definition && hogqlCleanupEnabled) {
+        return null
+    }
 
     return (
         <div className="w-full flex flex-col gap-2 p-3 border border-border rounded" data-attr="accounts-column-edit">
@@ -314,7 +318,8 @@ function SelectedAccountColumn({
     onEdit: (index: number) => void
     onRemove: (column: string) => void
 }): JSX.Element {
-    const { aliasToDefinition, aliasToRelationshipDefinition } = useValues(accountsColumnConfigLogic)
+    const { aliasToDefinition, aliasToRelationshipDefinition, hogqlCleanupEnabled } =
+        useValues(accountsColumnConfigLogic)
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
     const alias = extractDisplayLabel(column)
     // Custom-property and relationship columns are aliased to opaque `cp_<id>` / `rel_<id>`
@@ -323,6 +328,7 @@ function SelectedAccountColumn({
     // `name` carries the row identity (account id) and external_id for the
     // Account cell — removing it would break row expansion and role updates.
     const isMandatory = column === ACCOUNTS_NAME_COLUMN
+    const canEdit = !isMandatory && (!!aliasToDefinition[alias] || !hogqlCleanupEnabled)
 
     return (
         <div
@@ -339,13 +345,13 @@ function SelectedAccountColumn({
                     {label}
                 </span>
                 <div className="flex-1" />
-                {isMandatory ? null : (
+                {canEdit ? (
                     <Tooltip title="Edit">
                         <LemonButton onClick={() => onEdit(dataIndex)} size="small" active={isEditing}>
                             <IconPencil data-attr="column-display-item-edit-icon" />
                         </LemonButton>
                     </Tooltip>
-                )}
+                ) : null}
                 <Tooltip title={isMandatory ? 'This column is required' : 'Remove'}>
                     <LemonButton
                         onClick={() => onRemove(column)}

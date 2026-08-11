@@ -151,6 +151,7 @@ const agentStubRouter = router({
         getLlmGatewayUrl(input.apiHost),
         input.region,
         accessToken,
+        auth.getState().currentProjectId ?? undefined,
       );
     }),
   // Model/mode/effort options for the task-input preview + cloud run creation
@@ -490,7 +491,8 @@ export const webHostRouter = router({
   browserTabs: browserTabsRouter,
   // Canvas / Channels: real host-router routers over the host-agnostic canvas
   // core services (bound via canvasCoreModule in web-container), which reach the
-  // PostHog desktop_file_system API through authenticatedFetch — no Node backend.
+  // PostHog canvases + task_channels APIs through authenticatedFetch — no Node
+  // backend.
   canvasData: canvasDataRouter,
   canvasTemplates: canvasTemplatesRouter,
   channelTasks: channelTasksRouter,

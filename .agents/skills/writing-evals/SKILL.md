@@ -104,7 +104,7 @@ The contract:
 Shared building blocks live in `products/posthog_ai/eval_harness/seeders/` (`common.py` seeded-name providers and the `[lookup]` prefix, `insight.py` noise insights, `survey.py` flags); domain seeders live next to their suites (`data_warehouse/seeder.py`, `error_tracking/seeders.py`, `experiments/seeders.py`).
 
 **Synthesizers** are the generation half of a two-part split, used when the seeded catalog is large or synthetic. A synthesizer is a pure, Django-free, deterministic generator that emits frozen dataclasses — no ORM, no I/O — and the seeder translates that catalog into ORM/ClickHouse/S3 rows inside the case's team.
-The split exists so generation stays unit-testable and byte-for-byte reproducible (see `ee/hogai/test/eval/test_warehouse_synthesizer.py`) while installation stays an integration concern.
+The split exists so generation stays unit-testable and byte-for-byte reproducible (see `products/posthog_ai/eval_harness/test/test_warehouse_synthesizer.py`) while installation stays an integration concern.
 The reference implementation is `data_warehouse/synthesizer.py`: ~250 realistic noise tables plus seven planted "needles", each targeting one discovery skill, with needle name constants that prompts, `expected` values, and scorers all import verbatim so they can never drift apart.
 Follow this split (and the constants-shared-by-all-three pattern) when seeding any new synthetic catalog.
 

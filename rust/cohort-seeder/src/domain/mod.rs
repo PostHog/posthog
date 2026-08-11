@@ -28,16 +28,16 @@ pub use chunk::{
     ScannedChunk, StreamedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
-    BehavioralShapeHash, BehavioralShapeHashError, PersonSeed, ReconcileCompleteMarker,
-    ReconcileTile, SeedTile,
+    BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
+    ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
 };
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
     CommittedOffset, CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch,
     DispatchedReconcile, LivenessCheck, MarkerNovelty, MarkerPartition, MarkerPartitionError,
-    MarkerWatch, MembershipPartition, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
+    MarkerWatch, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
     PartitionBitmapError, ProducedOffset, ReconcileHwms, ReconcileHwmsError, SeedGroupCommits,
-    SettleProof, UndispatchedReason, WatchPositions,
+    SettleProof, UndispatchedReason, WatchPartition, WatchPositions,
 };
 pub use condition::{EventNameSet, Lookback, PinnedCondition};
 pub use ids::{

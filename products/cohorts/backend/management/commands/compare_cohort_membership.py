@@ -35,6 +35,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from itertools import chain
 from typing import Any, Optional
 from uuid import UUID
 
@@ -47,7 +48,13 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortComparison, classify_cohort, summarize
 from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, ScreenedCohort, screen_team
 from products.cohorts.backend.parity.fold import fold_membership_changes, members, reconcile_completeness_by_cohort
-from products.cohorts.backend.parity.kafka_io import DEFAULT_SHADOW_TOPIC, DrainStats, consumer_config, drain_topic
+from products.cohorts.backend.parity.kafka_io import (
+    DEFAULT_MARKER_TOPIC,
+    DEFAULT_SHADOW_TOPIC,
+    DrainStats,
+    consumer_config,
+    drain_topic,
+)
 from products.cohorts.backend.parity.oracle import (
     OracleSetTooLarge,
     load_day_counts,
@@ -122,7 +129,7 @@ COVERAGE_CAVEATS = (
     "the diff is bounded to persons the new pipeline decided on (O); old-only persons outside O are excluded and only probed for missed emissions",
     "suspect_missing gates FAIL only where the store provably covers the window (window <= pipeline age, or property-only cohorts); on longer windows unobserved actives are unresolvable until warmup (no snapshot resolves pre-since qualifiers) and report as WARMUP",
     "minute/hour-window cohorts get suspect≈0 by construction — the probe cutoff collapses to now",
-    "cohorts the old pipeline never recomputed count all only_new as fresh (residual_new is 0 there)",
+    "cohorts with no recompute clock (never recomputed, or the stamp cleared by an edit) count all only_new as fresh (residual_new is 0 there)",
     "a partial drain (poll timeout or --max-messages) understates the new side and biases toward FAIL",
 )
 
@@ -390,7 +397,10 @@ class Command(BaseCommand):
             help="old-pipeline only: O-bounded raw diff, no R-FRESH/R-STALE rules or suspect probe",
         )
         parser.add_argument("--shadow-topic", type=str, default=DEFAULT_SHADOW_TOPIC)
-        parser.add_argument("--new-kafka-hosts", type=str, default=None, help="Override shadow-topic bootstrap servers")
+        parser.add_argument("--marker-topic", type=str, default=DEFAULT_MARKER_TOPIC)
+        parser.add_argument(
+            "--new-kafka-hosts", type=str, default=None, help="Override bootstrap servers for both drained topics"
+        )
         parser.add_argument("--security-protocol", type=str, default=None, help="Override Kafka security protocol")
         parser.add_argument("--format", choices=["table", "json"], default="table")
         parser.add_argument("--max-messages", type=int, default=None, help="Cap on shadow messages drained")
@@ -479,14 +489,23 @@ class Command(BaseCommand):
             hosts_override=options["new_kafka_hosts"],
             security_protocol_override=options["security_protocol"],
         )
-        log(f"draining {options['shadow_topic']} from {since.isoformat()} via {config['bootstrap.servers']}")
+        log(
+            f"draining {options['shadow_topic']} and {options['marker_topic']} from {since.isoformat()} "
+            f"via {config['bootstrap.servers']}"
+        )
         drain_stats = DrainStats()
-        messages = drain_topic(
-            options["shadow_topic"],
-            config=config,
-            since=since,
-            stats=drain_stats,
-            max_messages=options["max_messages"],
+        # Reconcile markers ride their own topic, so completeness needs a second drain chained into
+        # the same fold. Without it every cohort reads as having no complete reconcile run, and the
+        # recompute and population oracles caveat their own numbers as unmeasurable.
+        messages = chain(
+            drain_topic(
+                options["shadow_topic"],
+                config=config,
+                since=since,
+                stats=drain_stats,
+                max_messages=options["max_messages"],
+            ),
+            drain_topic(options["marker_topic"], config=config, since=since, stats=DrainStats()),
         )
         # An explicit --at pins the comparison clock, so the fold has to converge to that instant too.
         new_state, fold_stats = fold_membership_changes(

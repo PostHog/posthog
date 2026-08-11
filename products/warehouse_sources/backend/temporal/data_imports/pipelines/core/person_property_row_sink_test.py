@@ -3,7 +3,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 import pyarrow as pa
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySourceProjection,
@@ -33,14 +36,14 @@ def _projection(key_column: str, *columns: str) -> PersonPropertySourceProjectio
 
 
 @pytest.mark.asyncio
-async def test_should_stage_reflects_projection():
+async def test_should_run_reflects_projection():
     sink = _sink()
     with patch(f"{_MODULE}.person_property_projection_for", return_value=None):
-        assert await sink.should_stage() is False
+        assert await sink.should_run() is False
 
     other = _sink()
     with patch(f"{_MODULE}.person_property_projection_for", return_value=[_projection("distinct_id", "plan")]):
-        assert await other.should_stage() is True
+        assert await other.should_run() is True
 
 
 @pytest.mark.asyncio
@@ -116,7 +119,7 @@ def _s3_client(find_result=None) -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_clear_chunks_keeps_fresh_sibling_prefixes_and_sweeps_abandoned_ones():
+async def test_clear_keeps_fresh_sibling_prefixes_and_sweeps_abandoned_ones():
     # A fresh sibling prefix belongs to a consumer that is merely lagging — deleting it loses an
     # incremental sync's staged delta for good. Only long-abandoned prefixes may be swept.
     sink = _sink()
@@ -132,7 +135,7 @@ async def test_clear_chunks_keeps_fresh_sibling_prefixes_and_sweeps_abandoned_on
     )
 
     with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
-        await sink.clear_chunks()
+        await sink.clear()
 
     removed = [call.args[0] for call in s3_client._rm.await_args_list]
     assert f"s3://{sink._get_path_prefix()}/" in removed  # own job prefix cleared on full refresh
@@ -141,7 +144,7 @@ async def test_clear_chunks_keeps_fresh_sibling_prefixes_and_sweeps_abandoned_on
 
 
 @pytest.mark.asyncio
-async def test_clear_chunks_keeps_own_prefix_on_incremental_syncs():
+async def test_clear_keeps_own_prefix_on_incremental_syncs():
     # An incremental retry resumes past the committed cursor, so the failed attempt's staged
     # files are the only record of those rows — clearing the job prefix would lose them for good.
     sink = _sink(is_incremental=True)
@@ -151,7 +154,7 @@ async def test_clear_chunks_keeps_own_prefix_on_incremental_syncs():
     )
 
     with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
-        await sink.clear_chunks()
+        await sink.clear()
 
     removed = [call.args[0] for call in s3_client._rm.await_args_list]
     assert f"s3://{sink._get_path_prefix()}/" not in removed  # own prefix survives the retry
@@ -177,8 +180,28 @@ async def test_stage_chunk_filenames_are_unique_per_attempt():
     assert len(set(paths)) == 2
 
 
+@parameterized.expand([("local_setup", True), ("non_local_setup", False)])
+def test_get_fs_reuses_the_same_filesystem_across_calls(_name, use_local_setup):
+    # stage_chunk() calls _get_fs() once per chunk over a whole sync (potentially thousands of
+    # chunks); constructing a fresh S3FileSystem per call leaks its underlying connections/file
+    # descriptors until the process runs out of them. Both branches build their own S3FileSystem,
+    # so both must cache it.
+    sink = _sink()
+
+    with (
+        patch.object(settings, "USE_LOCAL_SETUP", use_local_setup),
+        patch(f"{_MODULE}.pa_fs.S3FileSystem") as mock_s3_filesystem,
+        patch(f"{_MODULE}.ensure_bucket_exists"),
+    ):
+        first = sink._get_fs()
+        second = sink._get_fs()
+
+    mock_s3_filesystem.assert_called_once()
+    assert first is second
+
+
 @pytest.mark.asyncio
-async def test_clear_chunks_tolerates_missing_prefixes():
+async def test_clear_tolerates_missing_prefixes():
     # First sync of a schema has nothing staged anywhere; clearing must not fail the sync.
     sink = _sink()
     s3_client = _s3_client()
@@ -186,4 +209,4 @@ async def test_clear_chunks_tolerates_missing_prefixes():
     s3_client._find = AsyncMock(side_effect=FileNotFoundError)
 
     with patch(f"{_MODULE}.aget_s3_client", return_value=_FakeS3ClientCM(s3_client)):
-        await sink.clear_chunks()
+        await sink.clear()

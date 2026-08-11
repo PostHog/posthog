@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
+from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 
 
 class SweepScannerInputs(BaseModel, frozen=True):
@@ -38,6 +38,9 @@ class CandidateSessionPayload(BaseModel, frozen=True):
 class FindScannerCandidatesOutput(BaseModel, frozen=True):
     candidates: list[CandidateSessionPayload]
     saturated: bool
+    # Settle horizon the query covered; None on short-circuit paths and pre-deploy histories,
+    # which keeps replays deterministic since the empty-sweep advance is gated on it.
+    swept_through: dt.datetime | None = None
 
 
 class RefreshPromptSuggestionInputs(BaseModel, frozen=True):

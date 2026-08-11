@@ -3,6 +3,14 @@ import { MarkdownManager } from '@tiptap/markdown'
 import { Extensions } from '@tiptap/react'
 import { marked } from 'marked'
 
+/**
+ * Convert markdown to HTML for TipTap's setContent / HTML parser.
+ * Prefer createTiptapMarkdownConverter when you need TipTap JSON instead.
+ */
+export function markdownToHtml(markdown: string): string {
+    return marked.parse(markdown, { async: false }) as string
+}
+
 const TABLE_DELIMITER_SEGMENT_RE = /^\|(?:\s*:?-{2,}:?\s*\|)+\s*$/
 // Matches the boundary between two flattened rows: a closing `|` directly followed by the
 // next row's opening `|`. The whitespace is optional because some sources (e.g. AI chat

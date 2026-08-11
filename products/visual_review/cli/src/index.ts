@@ -141,7 +141,10 @@ run.command('complete')
             process.exit(exitCode)
         } catch (error) {
             console.error('Error:', error)
-            process.exit(1)
+            // 2, not 1, so callers can tell a failed CLI apart from the exit 1 that
+            // runComplete returns for unresolved visual changes. CI tolerates the latter
+            // on tracking-only runs and must never tolerate this.
+            process.exit(2)
         }
     })
 

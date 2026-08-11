@@ -120,3 +120,15 @@ export function withSessionReplayProjectState(enabled: boolean): Decorator {
         return <Story />
     }
 }
+
+/** Configured = Support enabled for the project. Unconfigured = availability setup prompt. */
+export function withConversationsProjectState(enabled: boolean): Decorator {
+    return (Story: React.ComponentType): JSX.Element => {
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            conversations_enabled: enabled,
+        })
+        return <Story />
+    }
+}

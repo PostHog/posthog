@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "channel_id": {
+            "description": "Id of the channel to create the canvas in — the channel the task was created in, from the task's context. Use channel-list only to resolve a channel the user named; never pick a channel from the listing yourself (the personal #me channel is not a default).",
+            "type": "string"
+        },
+        "name": {
+            "description": "Display name for the canvas.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "template_id": {
+            "default": "freeform",
+            "description": "Canvas template identifier.",
+            "maxLength": 64,
+            "type": "string"
+        }
+    },
+    "required": ["name", "channel_id"],
+    "type": "object"
+}

@@ -3572,11 +3572,20 @@ class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(converted), 1)
         self.assertEqual(len(dropped_off), 1)
 
-    def test_days_of_week_does_not_affect_steps_viz(self):
-        # A regular (steps) funnel must ignore daysOfWeek until dropping mid-sequence
-        # events gets defined semantics there
+    def test_days_of_week_filters_steps_viz(self):
+        # Events on excluded days don't exist for the funnel: user_saturday never enters,
+        # and user_cross's Tuesday step two doesn't count even though the conversion
+        # window spans it
         journeys_for(
             {
+                "user_monday": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 11)},
+                ],
+                "user_cross": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 12)},
+                ],
                 "user_saturday": [
                     {"event": "step one", "timestamp": datetime(2021, 6, 12, 10)},
                     {"event": "step two", "timestamp": datetime(2021, 6, 12, 11)},
@@ -3595,8 +3604,46 @@ class TestFunnelTrendsDaysOfWeekUDF(ClickhouseTestMixin, APIBaseTest):
         )
         results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
-        self.assertEqual(results[0]["count"], 1)
+        self.assertEqual(results[0]["count"], 2)
         self.assertEqual(results[1]["count"], 1)
+
+    def test_days_of_week_filters_time_to_convert_viz(self):
+        # Only user_monday's conversion survives a Mondays-only filter; user_saturday's
+        # entrance and conversion are on an excluded day. user_saturday converts in 5 hours
+        # (vs. user_monday's 1 hour) so an unfiltered run would report a different average.
+        journeys_for(
+            {
+                "user_monday": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 7, 11)},
+                ],
+                "user_saturday": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 12, 15)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(
+                date_from="2021-06-07 00:00:00",
+                date_to="2021-06-13 23:59:59",
+                daysOfWeek=[1],
+            ),
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType=FunnelVizType.TIME_TO_CONVERT,
+                funnelFromStep=0,
+                funnelToStep=1,
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY,
+            ),
+        )
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # user_saturday is filtered out; only user_monday's one-hour conversion survives
+        self.assertEqual(results.average_conversion_time, 3600)
 
 
 @override_settings(IN_UNIT_TESTING=True)

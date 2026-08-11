@@ -48,12 +48,18 @@ export function useHasActiveUpdate(): boolean {
   );
 }
 
-export function useInstallUpdate(): () => Promise<void> {
+/**
+ * Returns whether the install handoff succeeded. On success the app quits to
+ * apply the update, so only the failure result is typically observable —
+ * callers that commit state at the handoff (announcement acknowledgements)
+ * use it to revert.
+ */
+export function useInstallUpdate(): () => Promise<boolean> {
   const client = useService<UpdatesClient>(UPDATES_CLIENT);
 
   return async () => {
     if (getUpdateUiStatus() === "installing") {
-      return;
+      return false;
     }
 
     updateStore.getState().setStatus("installing");
@@ -64,9 +70,11 @@ export function useInstallUpdate(): () => Promise<void> {
         log.error("Update install returned not installed");
         updateStore.getState().setStatus("ready");
       }
+      return result.installed;
     } catch (error) {
       log.error("Failed to install update", { error });
       updateStore.getState().setStatus("ready");
+      return false;
     }
   };
 }

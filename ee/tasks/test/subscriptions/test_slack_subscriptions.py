@@ -660,6 +660,22 @@ class TestSlackErrorTruncation(APIBaseTest):
         assert "*My Test subscription*" in text
         assert ASSET_GENERATION_FAILED_MESSAGE in text
 
+    def test_block_for_asset_hides_out_of_memory_cause(self) -> None:
+        oom_error = (
+            "This query ran out of memory before it could finish, usually because it's scanning too "
+            "much data. Try a shorter date range or narrower filters."
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", exception=oom_error
+        )
+
+        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+
+        text = block["text"]["text"]
+        assert "ran out of memory" not in text
+        assert "shorter date range" not in text
+        assert ASSET_GENERATION_FAILED_MESSAGE in text
+
 
 class TestSlackSummaryNotice(APIBaseTest):
     def setUp(self) -> None:

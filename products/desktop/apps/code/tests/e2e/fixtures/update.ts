@@ -1,5 +1,6 @@
 import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import {
+  cpSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -13,6 +14,8 @@ const OUT_DIR = path.join(__dirname, "../../../out");
 
 export const PRISTINE_APP = path.join(OUT_DIR, "mac-arm64/PostHog.app");
 export const FEED_DIR = path.join(OUT_DIR, "dev-update-feed");
+export const CHAIN_FEED_DIR = path.join(OUT_DIR, "dev-update-feed-chain");
+export const CHAIN_RUN_FEED_DIR = path.join(OUT_DIR, "e2e-chain-feed");
 export const RUN_DIR = path.join(OUT_DIR, "e2e-update-run");
 export const RUN_APP = path.join(RUN_DIR, "PostHog.app");
 export const RUN_APP_BIN = path.join(RUN_APP, "Contents/MacOS/PostHog");
@@ -53,6 +56,9 @@ const PROOF_FILE = path.join(PROOF_DIR, "proof.json");
 export const FORGE_PROOF_DIR = path.join(OUT_DIR, "update-proof-forge");
 const FORGE_PROOF_FILE = path.join(FORGE_PROOF_DIR, "proof.json");
 
+export const CHAIN_PROOF_DIR = path.join(OUT_DIR, "update-proof-chain");
+const CHAIN_PROOF_FILE = path.join(CHAIN_PROOF_DIR, "proof.json");
+
 const SERVE_SCRIPT = path.join(
   __dirname,
   "../../../scripts/dev-update/serve.mjs",
@@ -66,6 +72,8 @@ export type UpdateProof = {
   newVersion: string;
   bootedOn?: string;
   feedAvailableVersion?: string;
+  intermediateVersion?: string;
+  restagedVersion?: string;
   downloaded?: boolean;
   bundleVersionAfterSwap?: string;
   autoRelaunchedExecutable?: string;
@@ -87,6 +95,26 @@ export function writeForgeProof(proof: UpdateProof): void {
   writeFileSync(FORGE_PROOF_FILE, `${JSON.stringify(proof, null, 2)}\n`);
 }
 
+export function writeChainProof(proof: UpdateProof): void {
+  mkdirSync(CHAIN_PROOF_DIR, { recursive: true });
+  writeFileSync(CHAIN_PROOF_FILE, `${JSON.stringify(proof, null, 2)}\n`);
+}
+
+// The chain leg serves a disposable copy of the feed so bumping it mid-test
+// never mutates dev-update-feed, which the other legs and the CI feed artifact
+// rely on staying at the intermediate version.
+export function prepareChainFeed(): void {
+  rmSync(CHAIN_RUN_FEED_DIR, { recursive: true, force: true });
+  cpSync(FEED_DIR, CHAIN_RUN_FEED_DIR, { recursive: true });
+}
+
+// Overlay the newer feed onto the served dir mid-test. serve.mjs re-reads
+// latest-mac.yml on every request, so no server restart is needed; the old zip
+// stays behind harmlessly while the yml now points at the newer one.
+export function bumpChainFeed(): void {
+  cpSync(CHAIN_FEED_DIR, CHAIN_RUN_FEED_DIR, { recursive: true });
+}
+
 // Copy the pristine built app into a disposable run dir so the in-place update
 // swap never mutates the build output, which lets a retry start from 1.0.0
 // again. ditto preserves the code signature that Squirrel.Mac verifies.
@@ -102,8 +130,11 @@ export function prepareForgeRunApp(): void {
   execFileSync("ditto", [FORGE_PRISTINE_APP, FORGE_RUN_APP]);
 }
 
-export function startFeedServer(port: number): ChildProcess {
-  return spawn("node", [SERVE_SCRIPT, FEED_DIR, String(port)], {
+export function startFeedServer(
+  port: number,
+  dir: string = FEED_DIR,
+): ChildProcess {
+  return spawn("node", [SERVE_SCRIPT, dir, String(port)], {
     stdio: "inherit",
   });
 }

@@ -46,7 +46,10 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
 
         // `forceRepaint` publishes fresh state even when nothing moved — for a restored context,
         // whose bitmap came back blank while every value stayed identical.
-        const updateSize = (forceRepaint = false): void => {
+        // `layoutRect` overrides the measurement — getBoundingClientRect is scaled by ancestor
+        // transforms (e.g. a modal's open animation), so observer-driven updates pass the entry's
+        // transform-immune layout size instead.
+        const updateSize = (forceRepaint = false, layoutRect?: SizeRect): void => {
             const canvas = canvasRef.current
             const overlayCanvas = overlayCanvasRef.current
             if (!canvas || !overlayCanvas) {
@@ -61,7 +64,7 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
                 return
             }
 
-            const rect = wrapper.getBoundingClientRect()
+            const rect = layoutRect ?? wrapper.getBoundingClientRect()
             rectRef.current = rect
             const dpr = window.devicePixelRatio || 1
 
@@ -87,10 +90,14 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             )
         }
 
+        // The synchronous measure can be transform-scaled (a chart mounting inside a modal's
+        // open animation reads the mid-animation size, and no resize ever fires because the
+        // layout size never changed). The observer's guaranteed initial delivery corrects it.
         updateSize()
 
-        const observer = new ResizeObserver(() => {
-            updateSize()
+        const observer = new ResizeObserver((entries) => {
+            const box = entries[entries.length - 1]?.borderBoxSize?.[0]
+            updateSize(false, box ? { width: box.inlineSize, height: box.blockSize } : undefined)
         })
         observer.observe(wrapper)
 

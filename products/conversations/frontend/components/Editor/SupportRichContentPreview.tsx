@@ -3,7 +3,7 @@ import './SupportEditor.scss'
 import { JSONContent, getSchema } from '@tiptap/core'
 import { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { EditorContent } from '@tiptap/react'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { cn } from 'lib/utils/css-classes'
@@ -69,6 +69,17 @@ function RichContentPreviewEditor({ content, className }: { content: JSONContent
         disabled: true,
         initialContent: content,
     })
+
+    // TipTap only applies initialContent once; push updates when note content changes in place.
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+        const next = JSON.stringify(content)
+        if (JSON.stringify(editor.getJSON()) !== next) {
+            editor.commands.setContent(content, { emitUpdate: false })
+        }
+    }, [editor, content])
 
     return (
         <>

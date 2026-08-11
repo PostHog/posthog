@@ -128,6 +128,34 @@ describe("describeTrigger", () => {
       }),
     ).toBe("Schedule · */15 * * * * (UTC)");
   });
+
+  it.each([
+    [undefined, "GitHub · posthog/posthog · pull_request"],
+    [
+      [{ path: "requested_team.slug", equals: "team-security" }],
+      "GitHub · posthog/posthog · pull_request · 1 payload condition",
+    ],
+    [
+      [
+        { path: "requested_team.slug", equals: "team-security" },
+        { path: "pull_request.draft", equals: "false" },
+      ],
+      "GitHub · posthog/posthog · pull_request · 2 payload conditions",
+    ],
+    // A gated trigger must not read the same as an ungated one in the detail view.
+  ])("surfaces payload conditions on a github trigger", (payload, expected) => {
+    expect(
+      describeTrigger({
+        type: "github",
+        config: {
+          github_integration_id: 7,
+          repository: "posthog/posthog",
+          events: ["pull_request"],
+          ...(payload ? { filters: { payload } } : {}),
+        },
+      }),
+    ).toBe(expected);
+  });
 });
 
 describe("summarizeNotificationDestinations", () => {

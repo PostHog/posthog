@@ -267,6 +267,14 @@ function isSameUsage(a: UsageOutput | null, b: UsageOutput): boolean {
     a.ai_credits?.exhausted === b.ai_credits?.exhausted &&
     a.ai_credits?.used_usd === b.ai_credits?.used_usd &&
     a.ai_credits?.limit_usd === b.ai_credits?.limit_usd &&
+    a.ai_credits?.breakdown?.token_credits ===
+      b.ai_credits?.breakdown?.token_credits &&
+    a.ai_credits?.breakdown?.compute_credits ===
+      b.ai_credits?.breakdown?.compute_credits &&
+    a.ai_credits?.breakdown?.cpu_millicore_seconds ===
+      b.ai_credits?.breakdown?.cpu_millicore_seconds &&
+    a.ai_credits?.breakdown?.memory_mib_seconds ===
+      b.ai_credits?.breakdown?.memory_mib_seconds &&
     isSameBucket(a.burst, b.burst) &&
     isSameBucket(a.sustained, b.sustained)
   );

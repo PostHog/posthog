@@ -1,25 +1,29 @@
-import type { LemonTagType } from '@posthog/lemon-ui'
+import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
-import { SignalReportStatus } from '~/scenes/inbox/types'
-
-/**
- * PR open/merged/closed state, mapped to muted palette tags (outlined: --success / --purple /
- * --danger). "merged" comes from `implementation_pr_merged`, the flag the GitHub webhook sets on
- * merge — report status can't stand in for it, since a report can be resolved directly without its
- * PR ever landing. A failed report means the PR never landed; everything else is still an open PR.
- *
- * Shared so every surface that shows a report's PR agrees on what its state means, including the
- * support ticket sidebar, where "did this ship?" is the question a teammate is answering.
- */
-export const PR_BADGE_STATE: Record<'open' | 'merged' | 'closed', { label: string; type: LemonTagType }> = {
-    open: { label: 'open', type: 'success' },
-    merged: { label: 'merged', type: 'completion' },
-    closed: { label: 'closed', type: 'danger' },
+export const PR_BADGE_STATE = {
+    open: {
+        label: 'Open',
+        className: 'border-success bg-success-highlight text-success',
+        hoverClassName:
+            'hover:border-success-dark hover:text-success-dark dark:hover:border-success-light dark:hover:text-success-light',
+    },
+    merged: {
+        label: 'Merged',
+        className:
+            'border-[var(--color-purple-600)] bg-[color-mix(in_oklab,var(--color-purple-600)_10%,transparent)] text-[var(--color-purple-700)] dark:border-[var(--color-purple-400)] dark:bg-[color-mix(in_oklab,var(--color-purple-400)_10%,transparent)] dark:text-[var(--color-purple-300)]',
+        hoverClassName:
+            'hover:border-[var(--color-purple-800)] hover:text-[var(--color-purple-800)] dark:hover:border-[var(--color-purple-200)] dark:hover:text-[var(--color-purple-200)]',
+    },
+    closed: {
+        label: 'Closed',
+        className: 'border-danger bg-danger-highlight text-danger',
+        hoverClassName:
+            'hover:border-danger-dark hover:text-danger-dark dark:hover:border-danger-light dark:hover:text-danger-light',
+    },
 }
 
 export type PrBadgeState = keyof typeof PR_BADGE_STATE
 
-/** `status` is widened to string so callers holding the generated API enum can pass it directly. */
 export function derivePrState(status: SignalReportStatus | string, prMerged: boolean): PrBadgeState {
     if (prMerged) {
         return 'merged'

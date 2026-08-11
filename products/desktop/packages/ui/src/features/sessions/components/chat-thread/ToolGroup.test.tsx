@@ -7,13 +7,15 @@ import { Container } from "inversify";
 import { describe, expect, it } from "vitest";
 import { ToolGroup } from "./ToolGroup";
 
+type SessionUpdateItem = Extract<ConversationItem, { type: "session_update" }>;
+
 function subagentItem(
   id: string,
   options: {
     status?: "completed" | "in_progress";
     turnComplete?: boolean;
   } = {},
-): Extract<ConversationItem, { type: "session_update" }> {
+): SessionUpdateItem {
   return {
     type: "session_update",
     id,
@@ -31,44 +33,81 @@ function subagentItem(
       turnCancelled: false,
       turnComplete: options.turnComplete ?? true,
     },
-  } as Extract<ConversationItem, { type: "session_update" }>;
+  } as SessionUpdateItem;
+}
+
+function thoughtItem(
+  id: string,
+  options: { thoughtComplete: boolean; turnComplete?: boolean },
+): SessionUpdateItem {
+  return {
+    type: "session_update",
+    id,
+    update: {
+      sessionUpdate: "agent_thought_chunk",
+      content: { type: "text", text: "weighing the options" },
+    },
+    thoughtComplete: options.thoughtComplete,
+    turnContext: {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: options.turnComplete ?? true,
+    },
+  } as SessionUpdateItem;
+}
+
+function renderGroup(items: SessionUpdateItem[]) {
+  return render(
+    <ServiceProvider container={new Container()}>
+      <Theme>
+        <ToolGroup items={items} />
+      </Theme>
+    </ServiceProvider>,
+  );
 }
 
 describe("ToolGroup", () => {
-  it("labels Codex spawn batches as subagents", () => {
-    render(
-      <ServiceProvider container={new Container()}>
-        <Theme>
-          <ToolGroup
-            tools={[subagentItem("spawn-1"), subagentItem("spawn-2")]}
-          />
-        </Theme>
-      </ServiceProvider>,
-    );
+  const running = { status: "in_progress", turnComplete: false } as const;
 
-    expect(screen.getByText("Used Subagents")).toBeInTheDocument();
+  // The row is one line standing in for a whole run, so what that line says is the contract: what
+  // is happening while it runs, what it did once it settles.
+  it.each([
+    {
+      name: "tallies the run once it settles",
+      items: [subagentItem("spawn-1"), subagentItem("spawn-2")],
+      expected: "2 subagents",
+    },
+    {
+      name: "names the current tool while the run is active",
+      items: [
+        subagentItem("spawn-1", running),
+        subagentItem("spawn-2", running),
+      ],
+      expected: "Subagents",
+    },
+    {
+      name: "reads as thinking while a trailing thought streams",
+      items: [
+        subagentItem("spawn-1", running),
+        subagentItem("spawn-2", running),
+        thoughtItem("thought-1", {
+          thoughtComplete: false,
+          turnComplete: false,
+        }),
+      ],
+      expected: "Thinking…",
+    },
+  ])("$name", ({ items, expected }) => {
+    renderGroup(items);
+    expect(screen.getByText(expected)).toBeInTheDocument();
   });
 
-  it("labels unresolved Codex spawn batches as active subagents", () => {
-    render(
-      <ServiceProvider container={new Container()}>
-        <Theme>
-          <ToolGroup
-            tools={[
-              subagentItem("spawn-1", {
-                status: "in_progress",
-                turnComplete: false,
-              }),
-              subagentItem("spawn-2", {
-                status: "in_progress",
-                turnComplete: false,
-              }),
-            ]}
-          />
-        </Theme>
-      </ServiceProvider>,
+  it("starts collapsed", () => {
+    renderGroup([subagentItem("spawn-1"), subagentItem("spawn-2")]);
+    expect(screen.getAllByRole("button")[0]).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
-
-    expect(screen.getByText("Using Subagents")).toBeInTheDocument();
   });
 });

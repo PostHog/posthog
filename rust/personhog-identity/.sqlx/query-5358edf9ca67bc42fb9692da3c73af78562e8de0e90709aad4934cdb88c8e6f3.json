@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM posthog_cohortpeople WHERE person_id = ANY($1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5358edf9ca67bc42fb9692da3c73af78562e8de0e90709aad4934cdb88c8e6f3"
+}

@@ -76,7 +76,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
             ),
         prompt: zod
             .string()
@@ -153,7 +153,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+                'Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
             ),
         bysetpos: zod
             .number()
@@ -259,7 +259,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.'
             ),
         prompt: zod
             .string()
@@ -340,7 +340,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             )
             .nullish()
             .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
+                'Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
             ),
         bysetpos: zod
             .number()

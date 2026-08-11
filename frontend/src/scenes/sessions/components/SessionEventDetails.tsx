@@ -37,7 +37,13 @@ export function SessionEventDetails({ event, errorDisplayIdSuffix }: SessionEven
                             const eventId = errorDisplayIdSuffix
                                 ? `${baseEventId}::${errorDisplayIdSuffix}`
                                 : baseEventId
-                            return <ErrorDisplay eventProperties={properties} eventId={eventId} />
+                            return (
+                                <ErrorDisplay
+                                    eventProperties={properties}
+                                    eventId={eventId}
+                                    eventTimestamp={event.timestamp}
+                                />
+                            )
                         case 'raw':
                             return (
                                 <pre className="text-xs text-secondary whitespace-pre-wrap">

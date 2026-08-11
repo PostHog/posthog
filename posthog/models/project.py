@@ -1,5 +1,6 @@
 from functools import cached_property
 from typing import TYPE_CHECKING, Optional, cast
+from uuid import UUID
 
 from django.core.validators import MinLengthValidator
 from django.db import models, transaction
@@ -10,7 +11,35 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
-class ProjectManager(models.Manager):
+DEFAULT_PROJECT_NAME = "Default project"
+
+
+class ProjectManager(models.Manager["Project"]):
+    def get_unique_default_name(self, organization_id: "UUID | str") -> str:
+        """Return the default project name, suffixed with a number if already taken in the organization."""
+        taken = {
+            name.strip().lower()
+            for name in self.filter(
+                organization_id=organization_id, name__istartswith=DEFAULT_PROJECT_NAME
+            ).values_list("name", flat=True)
+        }
+        if DEFAULT_PROJECT_NAME.lower() not in taken:
+            return DEFAULT_PROJECT_NAME
+        suffix = 2
+        while f"{DEFAULT_PROJECT_NAME.lower()} {suffix}" in taken:
+            suffix += 1
+        return f"{DEFAULT_PROJECT_NAME} {suffix}"
+
+    def create(self, **kwargs) -> "Project":
+        # Without an explicit name the model default would produce ever more "Default project"
+        # duplicates in the org, so pick the first free numbered variant instead.
+        if not kwargs.get("name"):
+            kwargs.pop("name", None)
+            organization_id = kwargs.get("organization_id") or getattr(kwargs.get("organization"), "id", None)
+            if organization_id is not None:
+                kwargs["name"] = self.get_unique_default_name(organization_id)
+        return super().create(**kwargs)
+
     def create_with_team(
         self, *, team_fields: Optional[dict] = None, initiating_user: Optional["User"], **kwargs
     ) -> tuple["Project", "Team"]:
@@ -18,6 +47,11 @@ class ProjectManager(models.Manager):
 
         if team_fields is None:
             team_fields = {}
+        if not kwargs.get("name"):
+            kwargs.pop("name", None)
+            organization_id = kwargs.get("organization_id") or getattr(kwargs.get("organization"), "id", None)
+            if organization_id is not None:
+                kwargs["name"] = self.get_unique_default_name(organization_id)
         if "name" in kwargs and "name" not in team_fields:
             team_fields["name"] = kwargs["name"]
 

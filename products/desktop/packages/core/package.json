@@ -33,6 +33,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "esbuild": "0.27.2",
     "@posthog/git": "workspace:*",
     "@posthog/tsconfig": "workspace:*",
     "typescript": "catalog:",

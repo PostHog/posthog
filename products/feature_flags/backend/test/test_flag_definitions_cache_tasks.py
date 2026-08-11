@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 
+from posthog.storage.cache_expiry_manager import CacheRefreshCounts
 from posthog.tasks.test.utils import PushGatewayTaskTestMixin
 
 from products.feature_flags.backend.tasks import (
@@ -13,11 +14,13 @@ from products.feature_flags.backend.tasks import (
 class TestRefreshExpiringFlagDefinitionsCacheEntries(PushGatewayTaskTestMixin, TestCase):
     @patch("posthog.storage.cache_expiry_manager.refresh_expiring_caches")
     def test_refreshes_cache(self, mock_refresh: MagicMock) -> None:
-        mock_refresh.return_value = (5, 0)
+        mock_refresh.return_value = CacheRefreshCounts(successful=5, failed=0)
 
         refresh_expiring_flag_definitions_cache_entries()
 
         mock_refresh.assert_called_once()
+        assert self.registry.get_sample_value("posthog_flag_definitions_cache_refresh_successful_count") == 5
+        assert self.registry.get_sample_value("posthog_flag_definitions_cache_refresh_failed_count") == 0
 
     @patch("posthog.storage.cache_expiry_manager.refresh_expiring_caches")
     def test_propagates_error(self, mock_refresh: MagicMock) -> None:

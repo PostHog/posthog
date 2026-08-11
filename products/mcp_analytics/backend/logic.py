@@ -23,7 +23,7 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
-from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend import intent_generation, mcp_harness
 from products.mcp_analytics.backend.constants import (
     MAX_SNAPSHOT_CLUSTERS,
     MCP_MISSING_CAPABILITY_EVENT,
@@ -421,17 +421,33 @@ ACTIVITY_TOP_TOOLS_LIMIT = 5
 ACTIVITY_CLIENTS_LIMIT = 6
 ACTIVITY_RECENT_CALLS_LIMIT = 20
 
-_ACTIVITY_STATS_SQL = """
+_ACTIVITY_STATS_SQL = f"""
 SELECT
-    countIf(event = {tool_call_event}) AS total_calls,
-    uniqIf(properties.$mcp_tool_name, event = {tool_call_event}) AS distinct_tools,
-    uniqIf($session_id, event = {tool_call_event} AND $session_id != '') AS distinct_sessions,
-    uniqIf(properties.$mcp_client_name, event = {tool_call_event} AND coalesce(properties.$mcp_client_name, '') != '') AS distinct_clients,
-    countIf(event = {tool_call_event} AND coalesce(properties.$mcp_intent, '') != '') AS calls_with_intent,
-    countIf(event = {tool_call_event} AND toString(properties.$mcp_is_error) IN ('true', '1')) AS error_calls,
-    countIf(event = {missing_capability_event}) AS missing_capability_reports
-FROM events
-WHERE event IN ({tool_call_event}, {missing_capability_event}) AND timestamp >= {date_from}
+    countIf(is_tool_call) AS total_calls,
+    uniqIf(tool, is_tool_call) AS distinct_tools,
+    uniqIf(session_id, is_tool_call AND session_id != '') AS distinct_sessions,
+    -- Counted over the resolved *label*, not the token: one client can arrive under
+    -- several tokens (`codex-mcp-client` and the `openai-mcp … (Codex)` user-agent both
+    -- mean Codex), which the Clients card folds into one row, so counting tokens would
+    -- put "2 clients" next to a one-row card. The raw `$mcp_client_name` is absent from
+    -- every non-initialize call and cannot be counted here at all.
+    uniqIf({mcp_harness.harness_label_or_token_sql("h")}, is_tool_call AND h != '') AS distinct_clients,
+    countIf(is_tool_call AND has_intent) AS calls_with_intent,
+    countIf(is_tool_call AND is_error) AS error_calls,
+    countIf(is_missing_capability) AS missing_capability_reports
+FROM (
+    SELECT
+        event = {{tool_call_event}} AS is_tool_call,
+        event = {{missing_capability_event}} AS is_missing_capability,
+        properties.$mcp_tool_name AS tool,
+        $session_id AS session_id,
+        coalesce(properties.$mcp_intent, '') != '' AS has_intent,
+        toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
+        {mcp_harness.HARNESS_TOKEN_SQL} AS h,
+        {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
+    FROM events
+    WHERE event IN ({{tool_call_event}}, {{missing_capability_event}}) AND timestamp >= {{date_from}}
+)
 """
 
 _ACTIVITY_TOP_TOOLS_SQL = """
@@ -446,44 +462,58 @@ ORDER BY calls DESC
 LIMIT {limit}
 """
 
-# Agents report the same client under many spellings — "claude-code", "Claude Code",
-# "CLAUDE_CODE" — so grouping on the raw property splits one client across several rows
-# and lets each land below the top-N cut. Case and separators are both normalised away
-# for grouping (matching the frontend's harness-label rules, which already treat
-# `[ ._-]` as interchangeable), and the most-seen spelling becomes the display name.
-_ACTIVITY_CLIENTS_SQL = """
+# Resolved through the canonical classifier rather than the raw `$mcp_client_name`,
+# which is absent on any call that isn't the session's `initialize` — reading it alone
+# left the large majority of calls unattributed and lumped whole clients under one
+# "unknown" row. `HARNESS_TOKEN_SQL` falls back through the other identity signals the
+# same event already carries, and the label bucketing folds one client's variant spellings
+# (differing case, or a name carrying mcp-remote's proxy signature) into a single row.
+# Unrecognized clients are named verbatim: this is a ranked top-N list, so a
+# self-reported name is more use than collapsing it into "Other".
+_ACTIVITY_CLIENTS_SQL = f"""
 SELECT
-    argMax(client_name, spelling_calls) AS client,
-    sum(spelling_calls) AS calls
+    {mcp_harness.harness_label_or_token_sql("h")} AS client,
+    count() AS calls
 FROM (
     SELECT
-        properties.$mcp_client_name AS client_name,
-        replaceRegexpAll(lower(properties.$mcp_client_name), '[ ._-]+', '') AS client_key,
-        count() AS spelling_calls
+        {mcp_harness.HARNESS_TOKEN_SQL} AS h,
+        {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
-    WHERE event = {tool_call_event} AND timestamp >= {date_from}
-    GROUP BY client_name, client_key
+    WHERE event = {{tool_call_event}} AND timestamp >= {{date_from}}
 )
-GROUP BY client_key
+GROUP BY client
 ORDER BY calls DESC
-LIMIT {limit}
+LIMIT {{limit}}
 """
 
-_ACTIVITY_RECENT_CALLS_SQL = """
+_ACTIVITY_RECENT_CALLS_SQL = f"""
 SELECT
     timestamp,
-    properties.$mcp_tool_name AS tool,
-    properties.$mcp_intent AS intent,
-    toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
-    if(toString(properties.$mcp_is_error) IN ('true', '1'),
-       coalesce(nullIf(toString(properties.$mcp_error_message), ''), toString(properties.$mcp_response)),
-       NULL) AS error_raw,
-    toFloat(properties.$mcp_duration_ms) AS duration_ms,
-    properties.$mcp_client_name AS client_name
-FROM events
-WHERE event = {tool_call_event} AND timestamp >= {date_from}
+    tool,
+    intent,
+    is_error,
+    error_raw,
+    duration_ms,
+    -- Resolved, not raw: the live feed showed a blank caller on most rows otherwise.
+    {mcp_harness.harness_label_or_token_sql("h")} AS client_name
+FROM (
+    SELECT
+        timestamp,
+        properties.$mcp_tool_name AS tool,
+        properties.$mcp_intent AS intent,
+        toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
+        if(toString(properties.$mcp_is_error) IN ('true', '1'),
+           coalesce(nullIf(toString(properties.$mcp_error_message), ''), toString(properties.$mcp_response)),
+           NULL) AS error_raw,
+        toFloat(properties.$mcp_duration_ms) AS duration_ms,
+        {mcp_harness.HARNESS_TOKEN_SQL} AS h,
+        {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
+    FROM events
+    WHERE event = {{tool_call_event}} AND timestamp >= {{date_from}}
+    ORDER BY timestamp DESC
+    LIMIT {{limit}}
+)
 ORDER BY timestamp DESC
-LIMIT {limit}
 """
 
 

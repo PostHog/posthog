@@ -139,7 +139,7 @@ def fetch_person_by_id(cursor, team_id: int, person_id: int) -> dict | None:
             created_at,
             is_user_id
         FROM posthog_person
-        WHERE team_id = %s AND id = %s
+        WHERE team_id = %s AND id = %s AND is_deleted = false
         """,
         (team_id, person_id),
     )
@@ -173,7 +173,7 @@ def fetch_persons_by_ids(cursor, team_id: int, person_ids: list[int]) -> dict[in
             created_at,
             is_user_id
         FROM posthog_person
-        WHERE team_id = %s AND id = ANY(%s)
+        WHERE team_id = %s AND id = ANY(%s) AND is_deleted = false
         """,
         (team_id, person_ids),
     )

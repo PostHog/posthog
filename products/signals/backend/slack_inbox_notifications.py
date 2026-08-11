@@ -316,7 +316,7 @@ def _build_message_blocks(
     reviewer_mentions: list[str],
     repository: str | None = None,
 ) -> tuple[list[dict], str]:
-    title_line = report.title or "New signals inbox item"
+    title_line = report.title or "New report"
     header_text = (
         title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
     )
@@ -372,7 +372,7 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox item{priority_suffix}: {_escape_mrkdwn(title_line)}"
+    fallback_text = f"Report{priority_suffix}: {_escape_mrkdwn(title_line)}"
     return blocks, fallback_text
 
 

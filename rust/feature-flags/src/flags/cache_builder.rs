@@ -1,7 +1,7 @@
 //! Cache builder logic for producing the hypercache flags payload.
 //!
 //! Rust equivalent of Python's `_get_feature_flags_for_service()` in
-//! `posthog/models/feature_flag/flags_cache.py`. Reads flags and cohorts from
+//! `products/feature_flags/backend/flags_cache.py`. Reads flags and cohorts from
 //! Postgres, computes evaluation metadata (dependency stages via Kahn's algorithm),
 //! and produces the `HypercacheFlagsWrapper` JSON payload.
 

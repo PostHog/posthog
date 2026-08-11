@@ -3,6 +3,11 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType, SourceFieldSelectConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailgun import (
     MailgunSourceConfig,
@@ -11,9 +16,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.ma
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    WEBHOOK_EVENTS_ENDPOINT,
+    WEBHOOK_RESOURCE_KEY,
+    WEBHOOK_TYPES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source import MailgunSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+WEBHOOK_URL = "https://us.posthog.com/public/webhooks/abc"
 
 
 class TestMailgunSource:
@@ -79,7 +89,7 @@ class TestMailgunSource:
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
+        assert {schema.name for schema in schemas} == {*ENDPOINTS, WEBHOOK_EVENTS_ENDPOINT}
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
         # Only the Events API exposes a server-side timestamp filter.
         assert incremental == {"events"}
@@ -164,3 +174,95 @@ class TestMailgunSource:
         self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
 
         assert mock_mailgun_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    def test_only_the_webhook_table_is_webhook_capable(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
+
+        # A polled schema switched to webhook mode stops polling, and Mailgun has no webhook for
+        # the `rejected`, `stored` and list-upload events the Events API returns, so turning
+        # webhooks on for `events` would quietly stop collecting them.
+        assert {name for name, schema in schemas.items() if schema.supports_webhooks} == {WEBHOOK_EVENTS_ENDPOINT}
+        assert {name for name, schema in schemas.items() if schema.webhook_only} == {WEBHOOK_EVENTS_ENDPOINT}
+
+    def test_webhook_table_advertises_no_polling_sync_methods(self):
+        schema = next(
+            s for s in self.source.get_schemas(self.config, self.team_id) if s.name == WEBHOOK_EVENTS_ENDPOINT
+        )
+
+        assert schema.supports_incremental is False
+        assert schema.supports_append is False
+        assert schema.incremental_fields == []
+
+    def test_webhook_resource_map_matches_the_template_routing_key(self):
+        assert self.source.webhook_resource_map == {WEBHOOK_EVENTS_ENDPOINT: WEBHOOK_RESOURCE_KEY}
+
+    def test_webhook_template_is_wired_up(self):
+        template = self.source.webhook_template
+
+        # Routing and signature checks are exercised by running the template in
+        # test_mailgun_webhook_template.py; this only guards the wiring.
+        assert template is not None
+        assert template.type == "warehouse_source_webhook"
+        assert template.id == "template-warehouse-source-mailgun"
+
+    def test_signing_secret_is_collected_as_a_webhook_field(self):
+        config = self.source.get_source_config
+
+        assert config.webhookFields is not None
+        secret_field = next(
+            f for f in config.webhookFields if isinstance(f, SourceFieldInputConfig) and f.name == "signing_secret"
+        )
+        assert secret_field.type == SourceFieldInputConfigType.PASSWORD
+        assert secret_field.secret is True
+        assert secret_field.required is True
+
+    @pytest.mark.parametrize(
+        "eligible_schema_names, expected",
+        [
+            ([WEBHOOK_EVENTS_ENDPOINT], sorted(WEBHOOK_TYPES)),
+            (["events"], None),
+            ([], None),
+        ],
+    )
+    def test_desired_webhook_events_speak_mailgun_type_ids(self, eligible_schema_names, expected):
+        assert self.source.get_desired_webhook_events(self.config, eligible_schema_names) == expected
+
+    @pytest.mark.parametrize(
+        "method, patched, return_value",
+        [
+            ("create_webhook", "create_mailgun_webhook", WebhookCreationResult(success=True)),
+            ("delete_webhook", "delete_mailgun_webhook", WebhookDeletionResult(success=True)),
+            ("get_external_webhook_info", "get_mailgun_webhook_info", ExternalWebhookInfo(exists=True)),
+        ],
+    )
+    def test_webhook_methods_target_the_configured_account_and_region(self, method, patched, return_value):
+        config = MailgunSourceConfig(api_key="key-123", region="eu")
+
+        with mock.patch(
+            f"products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source.{patched}"
+        ) as mock_fn:
+            mock_fn.return_value = return_value
+            result = getattr(self.source, method)(config, WEBHOOK_URL, self.team_id)
+
+        assert result is return_value
+        mock_fn.assert_called_once_with("key-123", "eu", WEBHOOK_URL)
+
+    @pytest.mark.parametrize(
+        "eligible_schema_names, expect_call",
+        [
+            ([WEBHOOK_EVENTS_ENDPOINT], True),
+            (["events"], False),
+        ],
+    )
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.source.sync_mailgun_webhook_events"
+    )
+    def test_sync_only_touches_mailgun_when_the_webhook_table_is_selected(
+        self, mock_sync, eligible_schema_names, expect_call
+    ):
+        mock_sync.return_value = mock.MagicMock(success=True)
+
+        result = self.source.sync_webhook_events(self.config, WEBHOOK_URL, self.team_id, eligible_schema_names)
+
+        assert result.success is True
+        assert mock_sync.called is expect_call

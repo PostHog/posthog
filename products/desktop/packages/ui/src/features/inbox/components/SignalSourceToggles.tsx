@@ -336,10 +336,10 @@ export function SignalSourceToggles({
         </Flex>
       </Flex>
 
-      {/* External connections — data-driven from the shared source registry */}
+      {/* External sources — data-driven from the shared source registry */}
       <Flex direction="column" gap="2" className="min-w-0 flex-1">
         <Text className="font-medium text-(--gray-9) text-[13px]">
-          External connections
+          External sources
         </Text>
         <Flex direction="column" gap="3">
           {EXTERNAL_INBOX_SOURCES.map((source) => {
@@ -400,7 +400,7 @@ export function SignalSourceTogglesSkeleton() {
       </Flex>
       <Flex direction="column" gap="2" className="min-w-0 flex-1">
         <Text className="font-medium text-(--gray-9) text-[13px]">
-          External connections
+          External sources
         </Text>
         <Flex direction="column" gap="3">
           {Array.from({ length: 4 }).map((_, index) => (

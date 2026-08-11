@@ -407,6 +407,29 @@ class TestTask(TestCase):
         self.assertTrue(task.deleted)
         self.assertIsNotNone(task.deleted_at)
 
+    def test_unclaimed_prewarm_cleanup_does_not_overwrite_claimed_task(self) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"prewarmed": True, "await_user_message": True},
+        )
+        Task.objects.filter(pk=task.pk).update(title="Claimed task", description="User prompt")
+
+        cleaned_up = task.soft_delete_if_unclaimed_prewarm(run)
+
+        task.refresh_from_db()
+        self.assertFalse(cleaned_up)
+        self.assertFalse(task.deleted)
+        self.assertEqual(task.title, "Claimed task")
+        self.assertEqual(task.description, "User prompt")
+
     def test_hard_delete_blocked(self):
         task = Task.objects.create(
             team=self.team,

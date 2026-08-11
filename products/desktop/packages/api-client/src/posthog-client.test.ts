@@ -210,8 +210,13 @@ describe("PostHogAPIClient", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       new URL("https://gateway.eu.posthog.com/posthog_code/v1/models"),
-      expect.objectContaining({ method: "GET" }),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.any(Headers),
+      }),
     );
+    const requestHeaders = fetch.mock.calls[0]?.[1]?.headers as Headers;
+    expect(requestHeaders.get("X-PostHog-Project-Id")).toBe("123");
     expect(options.find((option) => option.category === "model")).toMatchObject(
       {
         currentValue: "claude-opus-4-8",
@@ -1177,6 +1182,32 @@ describe("PostHogAPIClient", () => {
             body: JSON.stringify({
               repository: "PostHog/posthog",
               github_integration: 42,
+              branch: null,
+              runtime_adapter: null,
+              model: null,
+              reasoning_effort: null,
+            }),
+          },
+        }),
+      );
+    });
+
+    it("supports warming a repo-less sandbox", async () => {
+      const fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        text: async () =>
+          JSON.stringify({ task_id: "task-1", run_id: "run-1" }),
+      });
+      const client = makeClient(fetch);
+
+      await client.warmTask({ repository: null, github_integration: null });
+
+      expect(fetch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          overrides: {
+            body: JSON.stringify({
+              repository: null,
+              github_integration: null,
               branch: null,
               runtime_adapter: null,
               model: null,

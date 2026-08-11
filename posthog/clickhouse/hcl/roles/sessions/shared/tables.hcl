@@ -1,86 +1,6 @@
 database "posthog" {
-  table "cohortpeople" {
-    column "person_id" {
-      type = "UUID"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "sign" {
-      type = "Int8"
-    }
-    column "version" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "cohortpeople"
-      sharding_key    = "rand()"
-    }
-  }
-  table "person_distinct_id_overrides" {
-    column "team_id" {
-      type = "Int64"
-    }
-    column "distinct_id" {
-      type = "String"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "is_deleted" {
-      type = "Int8"
-    }
-    column "version" {
-      type = "Int64"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    column "_partition" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "person_distinct_id_overrides"
-      sharding_key    = "sipHash64(distinct_id)"
-    }
-  }
-  table "person_static_cohort" {
-    column "id" {
-      type = "UUID"
-    }
-    column "person_id" {
-      type = "UUID"
-    }
-    column "cohort_id" {
-      type = "Int64"
-    }
-    column "team_id" {
-      type = "Int64"
-    }
-    column "_timestamp" {
-      type = "DateTime"
-    }
-    column "_offset" {
-      type = "UInt64"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "person_static_cohort"
-      sharding_key    = "rand()"
-    }
-  }
   table "raw_sessions" {
+    override = true
     order_by     = ["team_id", "toStartOfHour(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))", "cityHash64(session_id_v7)", "session_id_v7"]
     partition_by = "toYYYYMM(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(session_id_v7, 80)), 1000)))"
     sample_by    = "cityHash64(session_id_v7)"
@@ -249,6 +169,7 @@ database "posthog" {
     }
   }
   table "sessions" {
+    override = true
     order_by     = ["toStartOfDay(min_timestamp)", "team_id", "session_id"]
     partition_by = "toYYYYMM(min_timestamp)"
     settings = {
@@ -347,68 +268,6 @@ database "posthog" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/sessions/noshard/posthog.sessions"
       replica_name = "{shard}-{replica}"
-    }
-  }
-  table "web_pre_aggregated_teams" {
-    column "team_id" {
-      type = "UInt64"
-    }
-    column "enabled_by" {
-      type    = "String"
-      default = "'system'"
-    }
-    column "version" {
-      type    = "UInt32"
-      default = "toUnixTimestamp(now())"
-    }
-    engine "distributed" {
-      cluster_name    = "posthog_single_shard"
-      remote_database = "posthog"
-      remote_table    = "web_pre_aggregated_teams"
-    }
-  }
-  dictionary "channel_definition_dict" {
-    primary_key = ["domain", "kind"]
-    lifetime {
-      min = 3000
-      max = 3600
-    }
-    attribute "domain" {
-      type = "String"
-    }
-    attribute "kind" {
-      type = "String"
-    }
-    attribute "domain_type" {
-      type = "Nullable(String)"
-    }
-    attribute "type_if_paid" {
-      type = "Nullable(String)"
-    }
-    attribute "type_if_organic" {
-      type = "Nullable(String)"
-    }
-    source "clickhouse" {
-      user  = "dict_reader"
-      table = "channel_definition"
-    }
-    layout "complex_key_hashed" {
-    }
-  }
-  dictionary "web_pre_aggregated_teams_dict" {
-    primary_key = ["team_id"]
-    lifetime {
-      min = 3000
-      max = 3600
-    }
-    attribute "team_id" {
-      type = "UInt64"
-    }
-    source "clickhouse" {
-      user  = "dict_reader"
-      query = "SELECT     team_id FROM     `web_pre_aggregated_teams` FINAL WHERE version > 0"
-    }
-    layout "hashed" {
     }
   }
 }

@@ -327,6 +327,108 @@ class TestExtractTextFromMessages:
         assert "user: Extract brands." in result
         assert "Google Ads" in result
 
+    @pytest.mark.parametrize(
+        "message",
+        [
+            pytest.param({"parts": ["wheel", "tire"]}, id="string_parts"),
+            pytest.param({"parts": [{"name": "wheel", "qty": 2}]}, id="dict_parts"),
+            pytest.param({"parts": [{"type": "text", "content": "wheel"}]}, id="otel_shaped_parts"),
+        ],
+    )
+    def test_structured_output_with_parts_key_is_json_stringified(self, message):
+        # A structured-output schema can have its own `parts` array. Parts flattening
+        # is keyed on a string `role` (as the trace UI's otel.yaml recipe is) so these
+        # still reach the JSON-stringify fallback instead of rendering as empty.
+        result = extract_text_from_messages(message)
+        assert result == json.dumps(message, default=str)
+
+    def test_otel_parts_text_message(self):
+        messages = [{"role": "user", "parts": [{"type": "text", "content": "How long is the warranty?"}]}]
+        assert extract_text_from_messages(messages) == "user: How long is the warranty?"
+
+    def test_otel_parts_text_selected_by_type_not_position(self):
+        messages = [
+            {
+                "role": "assistant",
+                "parts": [
+                    {"type": "reasoning", "content": "thinking it through"},
+                    {"type": "reasoning", "content": "more thinking"},
+                    {"type": "text", "content": "The warranty lasts three years."},
+                ],
+            }
+        ]
+        assert extract_text_from_messages(messages) == "assistant: The warranty lasts three years."
+
+    def test_otel_parts_multiple_text_parts_join(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "First."}, {"type": "text", "content": "Second."}]}
+        ]
+        assert extract_text_from_messages(messages) == "user: First. Second."
+
+    def test_otel_parts_agentic_conversation_correlates_calls_and_results(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "Weather in Montreal?"}]},
+            {
+                "role": "assistant",
+                "parts": [
+                    {"type": "reasoning", "content": "need the weather tool"},
+                    {
+                        "type": "tool_call",
+                        "id": "call_1",
+                        "name": "get_weather",
+                        "arguments": '{"location": "Montreal"}',
+                    },
+                ],
+            },
+            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", "result": "-10C"}]},
+            {"role": "assistant", "parts": [{"type": "text", "content": "It is -10C."}]},
+        ]
+        result = extract_text_from_messages(messages)
+        assert "user: Weather in Montreal?" in result
+        assert '[tool_call call_1: get_weather({"location": "Montreal"})]' in result
+        assert "tool[call_1]: -10C" in result
+        assert "assistant: It is -10C." in result
+        assert "need the weather tool" not in result
+
+    def test_otel_parts_dict_tool_call_response_result_is_stringified(self):
+        messages = [
+            {"role": "tool", "parts": [{"type": "tool_call_response", "id": "call_1", "result": {"temperature": 25}}]}
+        ]
+        assert extract_text_from_messages(messages) == 'tool[call_1]: {"temperature": 25}'
+
+    def test_otel_parts_message_with_flat_content_is_untouched(self):
+        messages = [{"role": "user", "content": "flat wins", "parts": [{"type": "text", "content": "ignored"}]}]
+        assert extract_text_from_messages(messages) == "user: flat wins"
+
+    def test_otel_parts_only_reasoning_preserves_role_slot(self):
+        messages = [
+            {"role": "user", "parts": [{"type": "text", "content": "hi"}]},
+            {"role": "assistant", "parts": [{"type": "reasoning", "content": "hmm"}]},
+        ]
+        result = extract_text_from_messages(messages)
+        assert "user: hi" in result
+        assert "assistant:" in result
+        assert "hmm" not in result
+
+    @pytest.mark.parametrize(
+        "parts",
+        [
+            pytest.param(["not-a-dict"], id="non_dict_part"),
+            pytest.param([{"type": "text"}], id="text_part_without_content"),
+            pytest.param([{"type": "tool_call"}], id="tool_call_without_name"),
+            pytest.param([{"no_type": True}], id="part_without_type"),
+            pytest.param([{"type": "file", "data": "aGVsbG8="}], id="unknown_part_type"),
+        ],
+    )
+    def test_malformed_or_unknown_parts_do_not_crash(self, parts):
+        messages = [{"role": "user", "parts": parts}, {"role": "assistant", "content": "ok"}]
+        result = extract_text_from_messages(messages)
+        assert "assistant: ok" in result
+
+    def test_single_dict_parts_message(self):
+        message = {"role": "user", "parts": [{"type": "text", "content": "Hello"}]}
+        assert extract_text_from_messages(message) == "user: Hello"
+
     def test_empty_dict_is_still_skipped(self):
         # The JSON-stringify fallback must not regress the empty-dict skip path
         # used by `test_completely_empty_message_is_skipped` — `{}` carries no

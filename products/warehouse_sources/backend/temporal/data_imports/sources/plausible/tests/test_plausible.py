@@ -22,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.
     ENDPOINTS,
     PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
+    SESSION_SCOPED_DIMENSIONS,
+    PlausibleEndpointConfig,
 )
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible"
@@ -269,6 +271,39 @@ class TestGetRows:
 
         with pytest.raises(Exception, match="400"):
             _rows(_source(endpoint="timeseries"))
+
+
+# Pinned rather than derived from the scope constants, so tampering with those fails here.
+_SESSION_METRICS = ["visitors", "visits", "bounce_rate", "visit_duration"]
+_SESSION_SCOPED_ENDPOINT_METRICS = {"entry_pages": _SESSION_METRICS, "exit_pages": _SESSION_METRICS}
+
+
+class TestEndpointMetricScopes:
+    @pytest.mark.parametrize("endpoint, expected", sorted(_SESSION_SCOPED_ENDPOINT_METRICS.items()))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_session_scoped_breakdown_requests_session_metrics_only(self, MockSession, endpoint, expected):
+        session = MockSession.return_value
+        bodies = _wire(session, [_response({"results": [], "meta": {"total_rows": 0}})])
+
+        _rows(_source(endpoint=endpoint))
+
+        assert bodies[0]["metrics"] == expected
+
+    def test_every_session_scoped_endpoint_is_covered(self):
+        # Forces a deliberate edit here when an endpoint is added on a session-scoped dimension,
+        # instead of the endpoint quietly dropping out of the parametrize list above.
+        covered = {
+            name
+            for name, config in PLAUSIBLE_ENDPOINTS.items()
+            if SESSION_SCOPED_DIMENSIONS.intersection(config.breakdown_dimensions)
+        }
+        assert covered == set(_SESSION_SCOPED_ENDPOINT_METRICS)
+
+    def test_endpoint_left_with_no_session_metrics_is_rejected(self):
+        with pytest.raises(ValueError, match="no session-scoped metrics"):
+            PlausibleEndpointConfig(
+                name="bad", breakdown_dimensions=["visit:exit_page"], metrics=["pageviews", "events"]
+            )
 
 
 class TestPlausibleSourceResponse:

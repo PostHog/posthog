@@ -18,13 +18,17 @@ import type {
     LogsAlertSimulateResponseApi,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
+    LogsAnomalyScanRequestApi,
+    LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
     LogsRetentionRuleApi,
+    LogsRetentionRuleNameSuggestionApi,
     LogsRetentionRuleReorderApi,
+    LogsRetentionRuleSuggestNameApi,
     LogsRetentionRulesListParams,
     LogsRetentionRulesReorderCreateParams,
     LogsSamplingRuleApi,
@@ -299,6 +303,27 @@ export const logsAlertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertSimulateRequestApi),
+    })
+}
+
+export const getLogsAnomaliesScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/scan/`
+}
+
+/**
+ * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * @summary Scan a service's logs for volume anomalies
+ */
+export const logsAnomaliesScanCreate = async (
+    projectId: string,
+    logsAnomalyScanRequestApi: LogsAnomalyScanRequestApi,
+    options?: RequestInit
+): Promise<LogsAnomalyScanResponseApi> => {
+    return apiMutator<LogsAnomalyScanResponseApi>(getLogsAnomaliesScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAnomalyScanRequestApi),
     })
 }
 
@@ -744,6 +769,26 @@ export const logsRetentionRulesReorderCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsRetentionRuleReorderApi),
+    })
+}
+
+export const getLogsRetentionRulesSuggestNameCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/suggest_name/`
+}
+
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const logsRetentionRulesSuggestNameCreate = async (
+    projectId: string,
+    logsRetentionRuleSuggestNameApi: LogsRetentionRuleSuggestNameApi,
+    options?: RequestInit
+): Promise<LogsRetentionRuleNameSuggestionApi> => {
+    return apiMutator<LogsRetentionRuleNameSuggestionApi>(getLogsRetentionRulesSuggestNameCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleSuggestNameApi),
     })
 }
 

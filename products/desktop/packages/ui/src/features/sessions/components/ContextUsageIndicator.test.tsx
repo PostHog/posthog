@@ -1,6 +1,6 @@
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextUsageIndicator } from "./ContextUsageIndicator";
 
@@ -34,44 +34,35 @@ describe("ContextUsageIndicator", () => {
     expect(container.querySelector("button")).toBeNull();
   });
 
-  it("renders the compact used/size label, percentage, and aria-label", () => {
-    render(
-      <Theme>
-        <ContextUsageIndicator usage={usage()} />
-      </Theme>,
-    );
-    expect(screen.getByText(/50K\/200K · 25%/)).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Context usage: 25%" }),
-    ).toBeInTheDocument();
-  });
-
-  it("shows only the token count when the context window is unknown (size 0)", () => {
-    render(
+  // The ring carries no text, so the accessible name is the only way the
+  // numbers reach a reader — including the "/0 · 0%" an unknown window must
+  // never claim, and the cost the flag is supposed to surface.
+  it.each([
+    ["a known window", {}, false, "Context usage: 25%"],
+    [
+      "an unknown window (size 0)",
+      { used: 50_000, size: 0, percentage: 0 },
+      false,
+      "Context usage: 50K tokens",
+    ],
+    [
+      "cost enabled",
+      { cost: { amount: 0.42, currency: "USD" } },
+      true,
+      "Context usage: 25% · $0.42",
+    ],
+  ])("names itself for %s", (_case, overrides, costEnabled, expected) => {
+    flagState.enabled = costEnabled;
+    const { container } = render(
       <Theme>
         <ContextUsageIndicator
-          usage={usage({ used: 50_000, size: 0, percentage: 0 })}
+          usage={usage(overrides as Partial<ContextUsage>)}
         />
       </Theme>,
     );
-    // No misleading "/0 · 0%" — just the used tokens.
-    expect(screen.getByText("50K")).toBeInTheDocument();
-    expect(screen.queryByText(/\/0/)).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Context usage: 50K tokens" }),
-    ).toBeInTheDocument();
-  });
-
-  it("appends the estimated cost to the label when the flag is enabled", () => {
-    flagState.enabled = true;
-    render(
-      <Theme>
-        <ContextUsageIndicator
-          usage={usage({ cost: { amount: 0.42, currency: "USD" } })}
-        />
-      </Theme>,
+    expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
+      expected,
     );
-    expect(screen.getByText(/50K\/200K · 25% · \$0\.42/)).toBeInTheDocument();
   });
 
   it("renders a finite stroke offset at 0% (no NaN/Infinity)", () => {
@@ -85,6 +76,5 @@ describe("ContextUsageIndicator", () => {
     const progress = container.querySelectorAll("circle")[1];
     const offset = Number(progress?.getAttribute("stroke-dashoffset"));
     expect(Number.isFinite(offset)).toBe(true);
-    expect(screen.getByText(/0\/200K · 0%/)).toBeInTheDocument();
   });
 });

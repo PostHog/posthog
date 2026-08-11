@@ -425,6 +425,7 @@ export async function createIngestionTestInfra(
     const postgresGroupRepository = new PostgresGroupRepository(postgres)
     const postgresPersonRepository = new PostgresPersonRepository(postgres, {
         calculatePropertiesSize: serverConfig.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
+        personMergeTombstoneTeamAllowlist: serverConfig.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
     })
     const personRepository = buildPersonRepository(
         personhogClient,

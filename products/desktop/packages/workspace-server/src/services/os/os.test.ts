@@ -179,6 +179,8 @@ describe("OsService.getUserAgentInstructions", () => {
   const agentsPath = path.join(home, ".agents", "AGENTS.md");
   const codexPath = path.join(home, ".codex", "AGENTS.md");
   const claudePath = path.join(home, ".claude", "CLAUDE.md");
+  const rootAgentsPath = path.join(home, "AGENTS.md");
+  const rootClaudePath = path.join(home, "CLAUDE.md");
 
   function givenFiles(files: Record<string, string>) {
     mockReadFile.mockImplementation(async (filePath: string) => {
@@ -215,6 +217,61 @@ describe("OsService.getUserAgentInstructions", () => {
     {
       label: "falls back to the user CLAUDE.md when no AGENTS.md exists",
       files: { [claudePath]: "claude instructions" },
+      winner: {
+        path: claudePath,
+        displayPath: "~/.claude/CLAUDE.md",
+        content: "claude instructions",
+      },
+    },
+    {
+      label: "reads ~/AGENTS.md at the home root",
+      files: { [rootAgentsPath]: "root agents instructions" },
+      winner: {
+        path: rootAgentsPath,
+        displayPath: "~/AGENTS.md",
+        content: "root agents instructions",
+      },
+    },
+    {
+      label: "reads ~/CLAUDE.md at the home root",
+      files: { [rootClaudePath]: "root claude instructions" },
+      winner: {
+        path: rootClaudePath,
+        displayPath: "~/CLAUDE.md",
+        content: "root claude instructions",
+      },
+    },
+    {
+      label: "prefers ~/.agents/AGENTS.md over the home-root AGENTS.md",
+      files: {
+        [agentsPath]: "agents instructions",
+        [rootAgentsPath]: "root agents instructions",
+      },
+      winner: {
+        path: agentsPath,
+        displayPath: "~/.agents/AGENTS.md",
+        content: "agents instructions",
+      },
+    },
+    {
+      label: "prefers the home-root AGENTS.md over any CLAUDE.md",
+      files: {
+        [rootAgentsPath]: "root agents instructions",
+        [claudePath]: "claude instructions",
+        [rootClaudePath]: "root claude instructions",
+      },
+      winner: {
+        path: rootAgentsPath,
+        displayPath: "~/AGENTS.md",
+        content: "root agents instructions",
+      },
+    },
+    {
+      label: "prefers ~/.claude/CLAUDE.md over the home-root CLAUDE.md",
+      files: {
+        [claudePath]: "claude instructions",
+        [rootClaudePath]: "root claude instructions",
+      },
       winner: {
         path: claudePath,
         displayPath: "~/.claude/CLAUDE.md",

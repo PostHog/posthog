@@ -43,6 +43,11 @@ const BASE_ALLOWED_TOOLS = [
   ...AGENT_TOOLS,
 ];
 
+const AUTO_ALLOWED_LOCAL_TOOLS = [
+  "mcp__posthog-code-tools__list_repos",
+  "mcp__posthog-code-tools__clone_repo",
+];
+
 const AUTO_ALLOWED_TOOLS: Record<string, Set<string>> = {
   // Auto mode is hands-off: it auto-approves file edits and shell commands on
   // top of the base read/search/web/agent tools. Without WRITE_TOOLS and
@@ -50,7 +55,12 @@ const AUTO_ALLOWED_TOOLS: Record<string, Set<string>> = {
   // call, which contradicts what the mode advertises. MCP tools are still gated
   // separately (do_not_use is denied, needs_approval still prompts) in
   // canUseTool, so auto stays narrower than bypassPermissions.
-  auto: new Set([...BASE_ALLOWED_TOOLS, ...WRITE_TOOLS, ...BASH_TOOLS]),
+  auto: new Set([
+    ...BASE_ALLOWED_TOOLS,
+    ...WRITE_TOOLS,
+    ...BASH_TOOLS,
+    ...AUTO_ALLOWED_LOCAL_TOOLS,
+  ]),
   default: new Set(BASE_ALLOWED_TOOLS),
   acceptEdits: new Set([...BASE_ALLOWED_TOOLS, ...WRITE_TOOLS]),
   plan: new Set(BASE_ALLOWED_TOOLS),

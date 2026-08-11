@@ -10,6 +10,7 @@ from posthog.models import Organization
 
 from products.managed_warehouse.backend.common import (
     default_bucket_region,
+    duckgres_data_imports_table_name,
     initialize_ducklake,
     is_version_mismatch,
     reset_ducklake_catalog,
@@ -52,6 +53,36 @@ class TestDefaultBucketRegion:
     def test_region_follows_cloud_deployment(self, _name, deployment, expected):
         with override_settings(CLOUD_DEPLOYMENT=deployment):
             assert default_bucket_region() == expected
+
+
+class TestDuckgresDataImportsTableName:
+    @parameterized.expand(
+        [
+            ("copy_mysql", "copy_v1", "MySQL", "SalesEU", "orders", "mysql_saleseu_orders"),
+            ("copy_google_ads", "copy_v1", "GoogleAds", None, "video", "googleads_video"),
+            ("legacy_batch_tiktok", "legacy_batch_v1", "TikTokAds", None, "video", "tik_tok_ads_video"),
+        ]
+    )
+    def test_uses_the_org_policy(
+        self,
+        _name: str,
+        naming_version: str,
+        source_type: str,
+        prefix: str | None,
+        normalized_name: str,
+        expected: str,
+    ) -> None:
+        schema = MagicMock()
+        schema.source.source_type = source_type
+        schema.source.prefix = prefix
+        schema.normalized_name = normalized_name
+        schema.team_id = 1
+
+        with patch(
+            "products.managed_warehouse.backend.team_state.data_imports_table_naming_version",
+            return_value=naming_version,
+        ):
+            assert duckgres_data_imports_table_name(schema) == expected
 
 
 TEST_CONFIG = {

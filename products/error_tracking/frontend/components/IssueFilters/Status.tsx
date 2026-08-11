@@ -6,7 +6,7 @@ import { Dot, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } fr
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
-import { ISSUE_STATUS_CONFIG, IssueStatusDot, LabelIndicator, StatusIndicator } from '../Indicators'
+import { IssueStatusDot, LabelIndicator, StatusIndicator, getIssueStatusConfig } from '../Indicators'
 import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 
 export type ErrorTrackingStatusSelectValue = ErrorTrackingIssue['status'] | 'all'
@@ -33,7 +33,7 @@ function quillStatusOptionLabel(key: ErrorTrackingStatusSelectValue): JSX.Elemen
     return (
         <span className="flex items-center gap-2">
             <IssueStatusDot status={key} />
-            {ISSUE_STATUS_CONFIG[key].label}
+            {getIssueStatusConfig(key).label}
         </span>
     )
 }

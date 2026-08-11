@@ -115,7 +115,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
     assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid"
-    assert text == "Inbox item (P1): Checkout errors spiked"
+    assert text == "Report (P1): Checkout errors spiked"
 
 
 def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
@@ -330,7 +330,7 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert fake_client.chat_postMessage.call_count == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "C123"
-    assert "Inbox item (P1)" in call_kwargs["text"]
+    assert "Report (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "Test report"
     assert blocks[1]["text"]["text"].startswith("*❗ P1 · Error tracking*")

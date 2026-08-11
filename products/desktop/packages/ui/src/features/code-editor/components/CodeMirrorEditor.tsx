@@ -41,8 +41,8 @@ export interface EditorSelection {
   /** 1-based line numbers. */
   fromLine: number;
   toLine: number;
-  /** Viewport pixel anchor below the selection, or null when off-screen. */
-  anchor: { top: number; left: number } | null;
+  /** Viewport position of the selection's end caret, or null when off-screen. */
+  anchor: { top: number; endX: number; bottom: number } | null;
 }
 
 interface CodeMirrorEditorProps {
@@ -53,6 +53,7 @@ interface CodeMirrorEditorProps {
   enrichment?: SerializedEnrichment | null;
   /** Fires on every selection (or doc) change with the current selection. */
   onSelectionChange?: (selection: EditorSelection) => void;
+  onContentChange?: (content: string) => void;
   /** Highlight the active selection as full lines (code-review style). */
   highlightSelectedLines?: boolean;
 }
@@ -64,6 +65,7 @@ export function CodeMirrorEditor({
   readOnly = false,
   enrichment,
   onSelectionChange,
+  onContentChange,
   highlightSelectedLines = false,
 }: CodeMirrorEditorProps) {
   const enrichmentEnabled = enrichment !== undefined;
@@ -75,10 +77,19 @@ export function CodeMirrorEditor({
 
   // Ref-stable listener: a changing extension would tear down the editor.
   const onSelectionChangeRef = useRef(onSelectionChange);
-  onSelectionChangeRef.current = onSelectionChange;
+  useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
+  const onContentChangeRef = useRef(onContentChange);
+  useEffect(() => {
+    onContentChangeRef.current = onContentChange;
+  }, [onContentChange]);
   const selectionExtension = useMemo(
     () =>
       EditorView.updateListener.of((update) => {
+        if (update.docChanged) {
+          onContentChangeRef.current?.(update.state.doc.toString());
+        }
         const cb = onSelectionChangeRef.current;
         if (!cb) return;
         const changed = update.selectionSet || update.docChanged;
@@ -100,13 +111,16 @@ export function CodeMirrorEditor({
           return;
         }
         const endRect = update.view.coordsAtPos(sel.to);
-        const startRect = update.view.coordsAtPos(doc.lineAt(sel.to).from);
         cb({
           text: doc.sliceString(sel.from, sel.to),
           fromLine: doc.lineAt(sel.from).number,
           toLine: doc.lineAt(sel.to).number,
           anchor: endRect
-            ? { top: endRect.bottom, left: (startRect ?? endRect).left }
+            ? {
+                top: endRect.top,
+                endX: endRect.right,
+                bottom: endRect.bottom,
+              }
             : null,
         });
       }),

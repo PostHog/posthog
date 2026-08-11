@@ -17,6 +17,7 @@ export type HealthIssueKind =
     | 'reverse_proxy'
     | 'partial_proxy'
     | 'web_vitals'
+    | 'path_cleaning_suggestions'
     | 'ingestion_lag'
     | 'ingestion_warning'
     | 'sdk_outdated'
@@ -108,6 +109,7 @@ const KIND_TO_CATEGORY: Record<HealthIssueKind, HealthIssueCategory> = {
     reverse_proxy: 'web_analytics',
     partial_proxy: 'web_analytics',
     web_vitals: 'web_analytics',
+    path_cleaning_suggestions: 'web_analytics',
 }
 
 export const KIND_LABELS: Record<HealthIssueKind, string> = {
@@ -118,6 +120,7 @@ export const KIND_LABELS: Record<HealthIssueKind, string> = {
     reverse_proxy: 'No reverse proxy',
     partial_proxy: 'Partial reverse proxy',
     web_vitals: 'No web vitals',
+    path_cleaning_suggestions: 'Path cleaning suggestions',
     ingestion_lag: 'Ingestion lag',
     external_data_failure: 'External data failures',
     ingestion_warning: 'Ingestion warning',

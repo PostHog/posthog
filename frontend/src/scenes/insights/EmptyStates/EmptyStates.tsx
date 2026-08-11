@@ -546,7 +546,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
                 you're still having issues,{' '}
                 <Link
                     onClick={() => {
-                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                        openSupportForm({ kind: 'bug' })
                     }}
                 >
                     let us know
@@ -712,7 +712,7 @@ export function InsightErrorState({
         <Link
             data-attr="insight-error-bug-report"
             onClick={() => {
-                openSupportForm({ kind: 'bug', target_area: 'analytics' })
+                openSupportForm({ kind: 'bug' })
             }}
         >
             If this persists, submit a bug report.

@@ -10,7 +10,7 @@ import { PropertyOperator } from '~/types'
  *
  * Call sites using this preset:
  * - `products/workflows/frontend/Workflows/hogflows/steps/StepTrigger.tsx`
- * - `frontend/src/scenes/heatmaps/components/FilterPanel.tsx`
+ * - `products/web_analytics/frontend/heatmaps/components/FilterPanel.tsx`
  *
  * Feature flag release conditions deliberately do NOT use this preset: flag
  * matching supports `not_in` cohorts (see the Rust cohort-membership evaluation

@@ -67,13 +67,65 @@ DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
 }
 
 
+# What `api/integrations/authorize?kind=` expects. Spelled out because no kebab-case rule gets
+# both Snapchat ("snapchat") and TikTok ("tiktok-ads") right; pinned by a test to `supported_kinds`.
+OAUTH_KIND_BY_NATIVE: dict[NativeMarketingSource, str] = {
+    NativeMarketingSource.GOOGLE_ADS: "google-ads",
+    NativeMarketingSource.META_ADS: "meta-ads",
+    NativeMarketingSource.BING_ADS: "bing-ads",
+    NativeMarketingSource.LINKEDIN_ADS: "linkedin-ads",
+    NativeMarketingSource.REDDIT_ADS: "reddit-ads",
+    NativeMarketingSource.PINTEREST_ADS: "pinterest-ads",
+    NativeMarketingSource.SNAPCHAT_ADS: "snapchat",
+    NativeMarketingSource.TIK_TOK_ADS: "tiktok-ads",
+}
+
+
 def display_name_for_key(key: NativeIntegration) -> str:
     return DISPLAY_NAMES[KEY_TO_NATIVE[key]]
+
+
+def oauth_kind_for(native: NativeMarketingSource) -> str | None:
+    return OAUTH_KIND_BY_NATIVE.get(native)
 
 
 def normalize(value: str) -> str:
     """Lowercase and strip non-alphanumerics. `Facebook-Ads` → `facebookads`."""
     return "".join(c.lower() for c in value if c.isalnum())
+
+
+def primary_source_for(native: NativeMarketingSource) -> str | None:
+    """The `source_name` an integration's adapter emits ('google', 'meta').
+
+    Lazy import for the same reason as `_build_canonical_aliases`: the constants
+    module pulls in services indirectly during Django app boot.
+    """
+    from products.marketing_analytics.backend.hogql_queries.constants import INTEGRATION_PRIMARY_SOURCE
+
+    primary = INTEGRATION_PRIMARY_SOURCE.get(native)
+    return str(primary).lower().strip() if primary else None
+
+
+@cache
+def primary_source_to_native() -> Mapping[str, NativeMarketingSource]:
+    """Reverse of `INTEGRATION_PRIMARY_SOURCE`: 'google' → GOOGLE_ADS.
+
+    Adapters emit `source_name` (the primary source), but team config is keyed by
+    the PascalCase `NativeMarketingSource` value — anything crossing between the
+    two needs this. Cached and read-only.
+    """
+    out: dict[str, NativeMarketingSource] = {}
+    for native in NativeMarketingSource:
+        primary = primary_source_for(native)
+        if primary:
+            out[primary] = native
+    return MappingProxyType(out)
+
+
+def native_for_primary_source(primary_source: str) -> NativeMarketingSource | None:
+    """Resolve an adapter's `source_name` back to its integration, or None if the
+    value isn't a known primary source (e.g. an unmapped custom utm_source)."""
+    return primary_source_to_native().get(primary_source.lower().strip())
 
 
 def _build_canonical_aliases() -> dict[str, NativeIntegration]:

@@ -32,6 +32,7 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
+    isPathsV2Query,
     isPersonsNode,
     isRetentionQuery,
     isStickinessQuery,
@@ -42,6 +43,8 @@ import {
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
+
+import { summarizeJourneys } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 
 function summarizeSingularBreakdown(
     breakdown: BreakdownKeyType | undefined,
@@ -220,6 +223,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             summary += `${query.pathsFilter?.startPoint ? ' and' : ''} ending at ${query.pathsFilter?.endPoint}`
         }
         return summary
+    } else if (isPathsV2Query(query)) {
+        return summarizeJourneys(query.pathsV2Filter)
     } else if (isStickinessQuery(query)) {
         return capitalizeFirstLetter(
             query.series

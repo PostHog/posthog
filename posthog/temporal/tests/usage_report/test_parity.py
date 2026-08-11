@@ -194,7 +194,7 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     team_b = Team.objects.create(organization=org_b, name="B")
 
     celery_at = datetime(2026, 5, 5, 0, 0, 0, tzinfo=UTC)
-    period_start, period_end = get_previous_day(celery_at)
+    period = get_previous_day(celery_at)
     seeded = _seed_all_data(team_a1.id, team_a2.id, team_b.id)
 
     s3 = _install_in_memory_object_storage(monkeypatch)
@@ -218,10 +218,10 @@ def test_end_to_end_parity_celery_task_vs_temporal_activity(
     # ---- Temporal path ----
     ctx = WorkflowContext(
         run_id="e2e-parity-test",
-        workflow_started_at=period_start,
-        period_start=period_start,
-        period_end=period_end,
-        date_str=period_start.strftime("%Y-%m-%d"),
+        workflow_started_at=period.start,
+        period_start=period.start,
+        period_end=period.end,
+        date_str=period.start.strftime("%Y-%m-%d"),
         organization_ids=None,
     )
     query_results = _seed_temporal_query_files(s3, ctx, seeded)

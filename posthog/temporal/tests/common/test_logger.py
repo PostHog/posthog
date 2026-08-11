@@ -475,7 +475,11 @@ async def test_logger_produces_to_log_queue_from_activity(activity_environment, 
 @pytest.fixture
 def log_entries_table():
     """Manage log_entries table for testing."""
-    sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL())
+    # Each test gets its own consumer group because ClickHouse leaves a dropped table's
+    # consumer registered with the broker until its session.timeout.ms elapses. Sharing
+    # one group would make every test after the first wait out that stale member's
+    # rebalance before its own messages are assigned to it.
+    sync_execute(KAFKA_LOG_ENTRIES_TABLE_SQL(group=f"test_log_entries_{uuid.uuid4().hex}"))
     sync_execute(LOG_ENTRIES_TABLE_MV_SQL)
     sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
@@ -743,24 +747,29 @@ async def test_logger_produces_to_kafka_from_workflow(producer, queue, log_entri
         assert log_dict["team_id"] == FIRST_WORKFLOW_TEAM_ID + i
         assert log_dict["timestamp"] == "2024-01-01 00:00:00.000000"
 
-    results = sync_execute(
-        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
+    # The fixture's consumer group is new, so it replays the topic from the start and
+    # ingests rows produced by earlier tests. Scope the query to this workflow's own
+    # rows instead of counting everything in the table.
+    instance_id = log_dict["instance_id"]
+    query = (
+        f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp "
+        f"FROM {log_entries_table} WHERE instance_id = '{instance_id}' ORDER BY team_id ASC"
     )
+
+    results = sync_execute(query)
 
     iterations = 0
     while not len(results) == entries_captured:
         # It may take a bit for CH to ingest.
         await asyncio.sleep(1)
-        results = sync_execute(
-            f"SELECT instance_id, level, log_source, log_source_id, message, team_id, timestamp FROM {log_entries_table} ORDER BY team_id ASC"
-        )
+        results = sync_execute(query)
 
         iterations += 1
         if iterations > 10:
             raise TimeoutError("Timedout waiting for logs")
 
     for index, row in enumerate(results):
-        assert row[0] == log_dict["instance_id"]
+        assert row[0] == instance_id
         assert row[1] == "info"
         assert row[2] == log_source
         assert row[3] == log_source_id
@@ -808,6 +817,39 @@ def test_log_messages_renderer_event_level_log_source_override():
     assert payload["log_source"] == "external_data_jobs"
     assert payload["log_source_id"] == "019df430-79ff-0000-4434-e9fc02f7216b"
     assert payload["instance_id"] == "abc-run-id"
+
+
+def test_log_messages_renderer_keeps_structured_fields_out_of_the_produce_message():
+    """Only the message text reaches `log_entries`; other event keys stay in the written log.
+
+    Callers rely on this to keep sensitive values (compiled SQL, credentials) out of the rows
+    users can read, by passing them as fields instead of interpolating them into the message.
+    """
+    from posthog.temporal.common.logger import Logger, LogMessagesRenderer
+
+    renderer = LogMessagesRenderer(event_key="msg")
+    event_dict = {
+        "msg": "Running clickhouse query",
+        "query": "SELECT secret_column FROM some_private_table",
+        "level": "debug",
+        "team_id": 2,
+        "timestamp": "2024-01-01 00:00:00.000000",
+        "workflow_type": "data-modeling-materialize-view",
+        "workflow_id": "materialize-view-abc-def",
+        "workflow_run_id": "abc-run-id",
+        "log_source": "data_modeling_run",
+        "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",
+    }
+
+    rendered = renderer(logger=cast(Logger, None), name="debug", event_dict=event_dict)
+
+    assert rendered["produce_message"] is not None
+    assert rendered["write_message"] is not None
+
+    produced = rendered["produce_message"].decode("utf-8")
+    assert json.loads(produced)["message"] == "Running clickhouse query"
+    assert "secret_column" not in produced
+    assert "secret_column" in rendered["write_message"]
 
 
 def test_log_messages_renderer_appends_resource_to_message():

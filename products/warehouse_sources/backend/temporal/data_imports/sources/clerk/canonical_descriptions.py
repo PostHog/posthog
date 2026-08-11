@@ -96,18 +96,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             abandon_at="Time the session is abandoned, as a Unix timestamp in milliseconds.",
         ),
     },
-    "clients": {
-        "description": "A client representing a browser or native app the Clerk instance has seen.",
-        "docs_url": "https://clerk.com/docs/reference/backend-api/tag/Clients",
-        "columns": _columns(
-            session_ids="IDs of the sessions that belong to the client.",
-            sessions="The sessions that belong to the client.",
-            sign_in_id="ID of the sign-in attempt in progress on the client.",
-            sign_up_id="ID of the sign-up attempt in progress on the client.",
-            last_active_session_id="ID of the session that was last active on the client.",
-            last_authentication_strategy="The authentication strategy last used to authenticate on the client.",
-        ),
-    },
     "organization_invitations": {
         "description": "An invitation asking a user to join an organization in the Clerk instance.",
         "docs_url": "https://clerk.com/docs/reference/backend-api/tag/Organization-Invitations",

@@ -133,6 +133,18 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_campaigns_rows_read_from_singular_key(self, MockSession) -> None:
+        # Omnisend's `/campaigns` nests rows under the singular `campaign`, unlike every other
+        # endpoint's plural key. Extraction must follow that, or the sync fails loud on 0 rows.
+        session = MockSession.return_value
+        _wire(session, [_page([{"campaignID": "c1"}], next_url=None, key="campaign")])
+
+        manager = _make_manager()
+        rows = _rows(omnisend_source("test-key", "campaigns", team_id=1, job_id="j", resumable_source_manager=manager))
+
+        assert rows == [{"campaignID": "c1"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_empty_page_yields_nothing(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_page([], next_url=None)])

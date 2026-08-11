@@ -170,6 +170,10 @@ type SceneMainTitleProps = {
      */
     forceEdit?: boolean
     /**
+     * If true, the description is always rendered and the show/hide toggle is omitted
+     */
+    descriptionAlwaysVisible?: boolean
+    /**
      * The number of milliseconds to debounce the name and description changes
      * useful for renaming resources that update too fast
      * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
@@ -236,6 +240,7 @@ export function SceneTitleSection({
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
+    descriptionAlwaysVisible = false,
     renameDebounceMs,
     saveOnBlur = false,
     noBorder = false,
@@ -358,7 +363,7 @@ export function SceneTitleSection({
                                     suffix={
                                         <>
                                             {nameSuffix}
-                                            {hasDescription ? (
+                                            {hasDescription && !descriptionAlwaysVisible ? (
                                                 <ButtonPrimitive
                                                     className={cn(
                                                         'size-[var(--button-height-sm)] shrink-0',
@@ -402,7 +407,7 @@ export function SceneTitleSection({
                 </div>
                 {/* Border is handled by the outer container's border-b */}
             </div>
-            {hasDescription && (showDescription || forceEdit) && (
+            {hasDescription && (descriptionAlwaysVisible || showDescription || forceEdit) && (
                 <div className={cn('[&_svg]:size-6', noPadding ? cn('pl-4 pr-2', className) : '-mt-4')}>
                     <SceneDescription
                         description={effectiveDescription}

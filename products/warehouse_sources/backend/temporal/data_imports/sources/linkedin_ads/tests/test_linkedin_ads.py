@@ -33,10 +33,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_a
     _extract_type_and_id_from_urn,
     _flatten_linkedin_record,
     _get_integration,
+    get_schemas,
     linkedin_ads_client,
     linkedin_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.schemas import (
+    DEMOGRAPHIC_RETENTION_DAYS,
     FLOAT_FIELDS,
     INT_FIELDS,
 )
@@ -1042,3 +1044,148 @@ class TestLinkedinAdsSource:
         list(items)
 
         assert mock_client.get_data_by_resource.call_args[1]["date_start"] == "2024-01-01"
+
+
+class TestDemographicStatsFlattening:
+    @pytest.mark.parametrize(
+        "resource_name,pivot_value",
+        [
+            ("member_company_stats", "urn:li:organization:1111"),
+            # MEMBER_COMPANY_SIZE is the one demographic pivot whose value isn't a URN, so an
+            # id-parsing shortcut would silently drop every row on this table.
+            ("member_company_size_stats", "SIZE_11_TO_50"),
+            ("member_country_stats", "urn:li:geo:103644278"),
+            ("member_industry_stats", "urn:li:industry:96"),
+            ("member_job_title_stats", "urn:li:title:9"),
+            ("member_seniority_stats", "urn:li:seniority:6"),
+        ],
+    )
+    def test_pivot_value_is_kept_verbatim(self, resource_name: str, pivot_value: str):
+        schema = get_schemas()[resource_name]
+
+        flattened = _flatten_linkedin_record(
+            {
+                "impressions": 6,
+                "pivotValues": [pivot_value],
+                "dateRange": {
+                    "start": {"year": 2024, "month": 5, "day": 28},
+                    "end": {"year": 2024, "month": 5, "day": 28},
+                },
+            },
+            schema,
+        )
+
+        assert flattened is not None
+        assert flattened["pivot_value"] == pivot_value
+        assert flattened["date_start"] == dt.date(2024, 5, 28)
+        assert schema.primary_keys == ["date_start", "date_end", "pivot_value"]
+
+    @pytest.mark.parametrize("pivot_values", [[], [None], [""]])
+    def test_row_without_a_pivot_value_is_dropped(self, pivot_values: list):
+        schema = get_schemas()["member_industry_stats"]
+
+        flattened = _flatten_linkedin_record(
+            {
+                "impressions": 6,
+                "pivotValues": pivot_values,
+                "dateRange": {
+                    "start": {"year": 2024, "month": 5, "day": 28},
+                    "end": {"year": 2024, "month": 5, "day": 28},
+                },
+            },
+            schema,
+        )
+
+        assert flattened is None
+
+    def test_performance_stats_keep_their_entity_id_columns(self):
+        schema = get_schemas()["campaign_stats"]
+
+        flattened = _flatten_linkedin_record(
+            {
+                "impressions": 6,
+                "pivotValues": ["urn:li:sponsoredCampaign:123"],
+                "dateRange": {
+                    "start": {"year": 2024, "month": 5, "day": 28},
+                    "end": {"year": 2024, "month": 5, "day": 28},
+                },
+            },
+            schema,
+        )
+
+        assert flattened is not None
+        assert flattened["campaign_id"] == 123
+        assert "pivot_value" not in flattened
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.linkedin_ads_client"
+    )
+    def test_first_sync_stays_within_the_demographic_retention_window(self, mock_client_func):
+        mock_client = mock.MagicMock()
+        mock_client.get_data_by_resource.return_value = [([], None)]
+        mock_client_func.return_value = mock_client
+
+        result = linkedin_ads_source(
+            config=LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456"),
+            resource_name="member_industry_stats",
+            team_id=789,
+            resumable_source_manager=_make_resume_manager(),
+            logger=mock.MagicMock(),
+            should_use_incremental_field=True,
+            incremental_field="date_start",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=None,
+        )
+
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
+
+        date_start = dt.date.fromisoformat(mock_client.get_data_by_resource.call_args[1]["date_start"])
+        expected_floor = (dt.datetime.now() - dt.timedelta(days=DEMOGRAPHIC_RETENTION_DAYS)).date()
+        assert abs((date_start - expected_floor).days) <= 1
+        assert DEMOGRAPHIC_RETENTION_DAYS < INITIAL_ANALYTICS_LOOKBACK_DAYS
+
+
+class TestConversionsFlattening:
+    def test_conversion_record_flattens_to_queryable_columns(self):
+        schema = get_schemas()["conversions"]
+
+        flattened = _flatten_linkedin_record(
+            {
+                "id": 104012,
+                "name": "Signup",
+                "type": "SIGN_UP",
+                "enabled": True,
+                "account": "urn:li:sponsoredAccount:519072844",
+                "campaigns": ["urn:li:sponsoredCampaign:345396555"],
+                "attributionType": "LAST_TOUCH_BY_CAMPAIGN",
+                "postClickAttributionWindowSize": 30,
+                "viewThroughAttributionWindowSize": 7,
+                "value": {"amount": "10", "currencyCode": "USD"},
+                "created": 1563230311551,
+                "lastModified": 1563230411551,
+            },
+            schema,
+        )
+
+        assert flattened is not None
+        assert flattened["id"] == 104012
+        assert flattened["account_id"] == 519072844
+        assert flattened["value_amount"] == "10"
+        assert flattened["value_currency_code"] == "USD"
+        # `created_time` is the partition key, so it has to survive the epoch-ms conversion.
+        assert flattened["created_time"] == dt.date(2019, 7, 15)
+        assert flattened["last_modified_time"] == dt.date(2019, 7, 15)
+
+    def test_conversion_without_a_monetary_value_keeps_stable_columns(self):
+        schema = get_schemas()["conversions"]
+
+        flattened = _flatten_linkedin_record(
+            {"id": 104012, "name": "Signup", "created": 1563230311551},
+            schema,
+        )
+
+        assert flattened is not None
+        assert flattened["value_amount"] is None
+        assert flattened["value_currency_code"] is None

@@ -5,7 +5,6 @@ import {
   getOverallUsageColor,
 } from "@posthog/ui/features/sessions/contextColors";
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
-import { Flex, Text } from "@radix-ui/themes";
 
 interface ContextBreakdownPopoverProps {
   usage: ContextUsage;
@@ -23,22 +22,20 @@ export function ContextBreakdownPopover({
   const hasSize = size > 0;
 
   return (
-    <Flex direction="column" gap="3" className="min-w-[280px]">
-      <Flex align="center" justify="between">
-        <Text className="font-medium text-(--gray-12) text-[13px]">
-          Context
-        </Text>
-        <Text className="text-(--gray-10) text-[12px] tabular-nums">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-6">
+        <span className="font-medium text-[13px] text-foreground">Context</span>
+        <span className="text-[12px] text-muted-foreground tabular-nums">
           {hasSize
             ? `~${formatTokensCompact(used)} / ${formatTokensCompact(size)} tokens`
             : `~${formatTokensCompact(used)} tokens`}
-        </Text>
-      </Flex>
+        </span>
+      </div>
 
       {hasSize && (
-        <Text className="font-semibold text-(--gray-12) text-[15px]">
+        <span className="font-semibold text-[15px] text-foreground">
           {percentage}% full
-        </Text>
+        </span>
       )}
 
       {breakdown ? (
@@ -48,48 +45,42 @@ export function ContextBreakdownPopover({
       )}
 
       {breakdown && (
-        <Flex direction="column" gap="2">
+        <div className="flex flex-col gap-2">
           {CONTEXT_CATEGORIES.filter((c) => breakdown[c.key] > 0).map((cat) => (
-            <Flex
+            <div
               key={cat.key}
-              align="center"
-              justify="between"
-              className="text-[13px]"
+              className="flex items-center justify-between gap-6 text-[13px]"
             >
-              <Flex align="center" gap="2">
+              <span className="flex items-center gap-2">
                 <span
                   className="inline-block size-2.5 rounded-sm"
                   style={{ backgroundColor: cat.color }}
                 />
-                <Text className="text-(--gray-12)">{cat.label}</Text>
-              </Flex>
-              <Text className="text-(--gray-11) tabular-nums">
+                <span className="text-foreground">{cat.label}</span>
+              </span>
+              <span className="text-muted-foreground tabular-nums">
                 {formatTokensCompact(breakdown[cat.key])}
-              </Text>
-            </Flex>
+              </span>
+            </div>
           ))}
-        </Flex>
+        </div>
       )}
 
       {!breakdown && usage.breakdownAvailable !== false && (
-        <Text className="text-(--gray-10) text-[12px]">
+        <span className="text-[12px] text-muted-foreground">
           Detailed breakdown available after the first response.
-        </Text>
+        </span>
       )}
 
       {showCost && cost && (
-        <Flex
-          align="center"
-          justify="between"
-          className="border-(--gray-4) border-t pt-2 text-[13px]"
-        >
-          <Text className="text-(--gray-11)">Estimated cost</Text>
-          <Text className="font-medium text-(--gray-12) tabular-nums">
+        <div className="flex items-center justify-between border-border border-t pt-2 text-[13px]">
+          <span className="text-muted-foreground">Estimated cost</span>
+          <span className="font-medium text-foreground tabular-nums">
             {formatCostUsd(cost.amount)}
-          </Text>
-        </Flex>
+          </span>
+        </div>
       )}
-    </Flex>
+    </div>
   );
 }
 
@@ -103,13 +94,13 @@ function SegmentedBar({
   fallback: string;
 }) {
   if (size <= 0) {
-    return <div className="h-1.5 w-full rounded-full bg-(--gray-4)" />;
+    return <div className="h-1.5 w-full rounded-full bg-muted" />;
   }
 
   // Scale each segment to the full context window so the filled portion
   // matches the "% full" figure and the empty track reads as remaining context.
   return (
-    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-(--gray-4)">
+    <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
       {CONTEXT_CATEGORIES.map((cat) => {
         const value = breakdown[cat.key];
         if (value <= 0) return null;
@@ -135,7 +126,7 @@ function SinglePercentBar({
   color: string;
 }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-(--gray-4)">
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
       <div
         className="h-full rounded-full"
         style={{ width: `${percentage}%`, backgroundColor: color }}

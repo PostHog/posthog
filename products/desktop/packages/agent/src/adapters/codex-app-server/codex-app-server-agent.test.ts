@@ -929,6 +929,106 @@ describe("CodexAppServerAgent", () => {
     expect(requestPermission).not.toHaveBeenCalled();
   });
 
+  it("auto-accepts repository tools from the built-in local MCP server in auto mode", async () => {
+    const stub = makeStubRpc({
+      initialize: {},
+      "thread/start": { thread: { id: "thr_1" } },
+    });
+    const requestPermission = vi.fn();
+    const client = {
+      sessionUpdate: async () => {},
+      requestPermission,
+      extNotification: async () => {},
+    } as unknown as AgentSideConnection;
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      model: "gpt-5.5",
+      rpcFactory: stub.factory,
+    });
+    await agent.initialize(init);
+    await agent.newSession({
+      cwd: "/repo",
+      _meta: {
+        environment: "cloud",
+        channelMode: true,
+        permissionMode: "auto",
+      },
+    } as unknown as NewSessionRequest);
+
+    stub.emit("item/started", {
+      item: {
+        type: "mcpToolCall",
+        id: "m1",
+        server: "posthog-code-tools",
+        tool: "clone_repo",
+        arguments: { repo: "PostHog/posthog" },
+      },
+    });
+    const decision = await stub.invokeRequest("mcpServer/elicitation/request", {
+      threadId: "thr_1",
+      turnId: "turn_1",
+      serverName: "posthog-code-tools",
+      mode: "form",
+      message:
+        'Allow the posthog-code-tools MCP server to run tool "clone_repo"?',
+    });
+
+    expect(decision).toMatchObject({ action: "accept" });
+    expect(requestPermission).not.toHaveBeenCalled();
+  });
+
+  // The inverse of the auto-accept above: outside the hands-off modes a
+  // repository tool must still go through the permission prompt.
+  it("prompts for repository tools outside hands-off modes", async () => {
+    const stub = makeStubRpc({
+      initialize: {},
+      "thread/start": { thread: { id: "thr_1" } },
+    });
+    const requestPermission = vi.fn(async () => ({
+      outcome: { outcome: "selected", optionId: "decline" },
+    }));
+    const client = {
+      sessionUpdate: async () => {},
+      requestPermission,
+      extNotification: async () => {},
+    } as unknown as AgentSideConnection;
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      model: "gpt-5.5",
+      rpcFactory: stub.factory,
+    });
+    await agent.initialize(init);
+    await agent.newSession({
+      cwd: "/repo",
+      _meta: {
+        environment: "cloud",
+        channelMode: true,
+        permissionMode: "read-only",
+      },
+    } as unknown as NewSessionRequest);
+
+    stub.emit("item/started", {
+      item: {
+        type: "mcpToolCall",
+        id: "m1",
+        server: "posthog-code-tools",
+        tool: "clone_repo",
+        arguments: { repo: "PostHog/posthog" },
+      },
+    });
+    const decision = await stub.invokeRequest("mcpServer/elicitation/request", {
+      threadId: "thr_1",
+      turnId: "turn_1",
+      serverName: "posthog-code-tools",
+      mode: "form",
+      message:
+        'Allow the posthog-code-tools MCP server to run tool "clone_repo"?',
+    });
+
+    expect(requestPermission).toHaveBeenCalledOnce();
+    expect(decision).toMatchObject({ action: "decline" });
+  });
+
   it("auto-accepts a gated PostHog exec sub-tool in local hands-off modes", async () => {
     const stub = makeStubRpc({
       initialize: {},

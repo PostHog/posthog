@@ -1,5 +1,3 @@
-import { Flex, Text, Tooltip } from "@radix-ui/themes";
-
 export interface PrDiffIndicatorProps {
   added: number;
   removed: number;
@@ -26,24 +24,17 @@ export function PrDiffIndicator({
       ? `${files} file${files === 1 ? "" : "s"} changed`
       : undefined;
 
-  const indicator = (
-    <Flex
-      align="center"
-      gap="1.5"
-      className={`shrink-0 font-mono text-[12px] tabular-nums ${className}`}
+  return (
+    <span
+      className={`flex shrink-0 items-center gap-1.5 font-mono text-[12px] tabular-nums ${className}`}
+      title={fileLabel}
     >
       {added > 0 && (
-        <Text className="font-medium text-(--green-11)">+{added}</Text>
+        <span className="font-medium text-(--green-11)">+{added}</span>
       )}
       {removed > 0 && (
-        <Text className="font-medium text-(--red-11)">−{removed}</Text>
+        <span className="font-medium text-(--red-11)">−{removed}</span>
       )}
-    </Flex>
+    </span>
   );
-
-  if (!fileLabel) {
-    return indicator;
-  }
-
-  return <Tooltip content={fileLabel}>{indicator}</Tooltip>;
 }

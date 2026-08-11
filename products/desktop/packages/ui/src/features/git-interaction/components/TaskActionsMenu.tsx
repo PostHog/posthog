@@ -312,6 +312,7 @@ function PrBadgeControl({
         draft={draft}
         isPrPending={isPrPending}
         attachedRight={hasDropdown}
+        otherCount={otherPrs.length}
       />
       {hasDropdown && (
         <DropdownMenu.Root>

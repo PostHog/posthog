@@ -3005,3 +3005,16 @@ class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
         assert not ctx.exception.is_permanent
         assert OAUTH2_PERMANENT_ERROR_MARKER not in str(ctx.exception)
         assert not _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+
+class TestCustomSourceHttpNonRetryableClassification(SimpleTestCase):
+    def test_404_is_non_retryable_with_a_url_free_message(self):
+        # A 404 on a manifest-configured URL is deterministic, so it must be classified
+        # non-retryable to stop the loop, and its message must not echo the customer's hostname.
+        # Classification is a substring match on str(error), so the exception type doesn't matter;
+        # a plain Exception carries the realistic message without requests' typed constructor.
+        error = Exception("404 Client Error: Not Found for url: https://host.example.com/export")
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert _classify_non_retryable(error)
+        matched = [message for key, message in non_retryable.items() if key in str(error)]
+        assert matched and all(message is not None and "://" not in message for message in matched)

@@ -2,7 +2,7 @@ import os
 import re
 import json
 from collections.abc import Iterable
-from typing import Any, Protocol, cast
+from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -17,12 +17,14 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from slack_sdk.errors import SlackApiError
 
 from posthog.api.github_callback import state as github_callback_state
+from posthog.api.github_callback.personal_state import user_has_personal_github_integration
 from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
@@ -103,12 +105,36 @@ from posthog.utils import is_relative_url
 
 from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+class SlackIntegrationInactiveError(APIException):
+    # Actionable 4xx (reconnect Slack) rather than a raw 500, so the channel picker can render
+    # guidance inline instead of an unhelpful "server error" toast on every retry.
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "slack_integration_inactive"
+    default_detail = (
+        "Your Slack connection is no longer active. Reconnect Slack to load channels and pick a destination."
+    )
+
+
+def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
+    """Translate an inactive-auth Slack error into an actionable 4xx; re-raise everything else.
+
+    The auth-failure codes come from the Slack auth-state cache, which already decides what
+    counts as an install that can no longer authenticate. A second list here would drift from
+    it — whatever bricks the workspace there is the same thing the user reconnects to fix.
+    """
+    error_code = error.response.get("error") if error.response is not None else None
+    if error_code in SLACK_AUTH_FAILURE_CODES:
+        raise SlackIntegrationInactiveError() from error
+    raise error
 
 
 def _github_account_type(owner_type: str | None) -> str | None:
@@ -434,8 +460,14 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # still be classified as a create and could land `disabled` over the policy an admin had just
         # written. Omitting the key entirely stays open to members and is what connecting a channel
         # without touching the policy does — that path preserves whatever is already stored.
-        requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
-        if requested_verification and not github_callback_state.has_team_management_access(
+        config_in = validated_data.get("config") or {}
+        requested_verification = config_in.get("push_identity_verification")
+        # Registering/clearing public keys is a security-policy change (it decides which signer is
+        # trusted), so it carries the same admin bar as the mode. `is not None` covers clearing too.
+        requested_public_keys = config_in.get("push_identity_public_keys")
+        if (
+            requested_verification or requested_public_keys is not None
+        ) and not github_callback_state.has_team_management_access(
             self.context["request"].user, self.context["get_team"]()
         ):
             raise PermissionDenied("Changing push identity verification requires project admin access.")
@@ -500,6 +532,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 team_id,
                 request.user,
                 push_identity_verification=(validated_data.get("config") or {}).get("push_identity_verification"),
+                push_identity_public_keys=(validated_data.get("config") or {}).get("push_identity_public_keys"),
             )
             return instance
 
@@ -713,6 +746,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 created_by=request.user,
                 environment=environment,
                 push_identity_verification=config.get("push_identity_verification"),
+                push_identity_public_keys=config.get("push_identity_public_keys"),
             )
             return instance
 
@@ -920,14 +954,23 @@ class GitHubAvailableInstallationSerializer(serializers.Serializer):
         help_text="GitHub account type, e.g. 'Organization' or 'User'.",
     )
     source_team_id = serializers.IntegerField(
-        help_text="A project in the organization that already has this installation linked.",
+        allow_null=True,
+        help_text="A project in the organization that already has this installation linked. "
+        "Null when the installation isn't linked to any project yet — it was found via the user's "
+        "personal GitHub link and can be adopted by linking it here.",
     )
 
 
 class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
     installations = GitHubAvailableInstallationSerializer(
         many=True,
-        help_text="Distinct GitHub installations in the organization available to link to this project.",
+        help_text="GitHub installations available to link to this project: the organization's "
+        "existing installations plus any the user's personal GitHub link can see but that aren't "
+        "linked to any project yet.",
+    )
+    personal_github_connected = serializers.BooleanField(
+        help_text="Whether the requesting user has a personal GitHub account linked (via Linked "
+        "Accounts). Used to prompt for that link when it would surface more installations to adopt.",
     )
 
 
@@ -1235,7 +1278,10 @@ class IntegrationViewSet(
                 for channel in data["channels"]:
                     if channel["id"] == channel_id:
                         return Response({"channels": [channel]})
-            channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
+            try:
+                channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
+            except SlackApiError as e:
+                _reraise_slack_api_error(e)
             if channel:
                 return Response({"channels": [self._serialize_slack_channel(channel)]})
             return Response({"channels": []})
@@ -1249,11 +1295,12 @@ class IntegrationViewSet(
         data = cache.get(key)
 
         if data is None or force_refresh:
+            try:
+                channels = slack.list_channels(should_include_private_channels, authed_user)
+            except SlackApiError as e:
+                _reraise_slack_api_error(e)
             data = {
-                "channels": [
-                    self._serialize_slack_channel(channel)
-                    for channel in slack.list_channels(should_include_private_channels, authed_user)
-                ],
+                "channels": [self._serialize_slack_channel(channel) for channel in channels],
                 "lastRefreshedAt": timezone.now().isoformat(),
             }
             cache.set(key, data, 60 * 60)  # one hour
@@ -1611,18 +1658,27 @@ class IntegrationViewSet(
     @extend_schema(responses={200: GitHubAvailableInstallationsResponseSerializer})
     @action(methods=["GET"], detail=False, url_path="github/available_installations")
     def github_available_installations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the org's existing GitHub installations this project can reuse.
+        """List GitHub installations this project can link.
 
         A GitHub App installs once per organization, so a second project links an existing
-        installation rather than reinstalling. This backs the picker: when the org has more than
-        one installation, the client passes the chosen installation_id to github/link_existing.
+        installation rather than reinstalling. This backs the picker: when more than one option
+        exists, the client passes the chosen installation_id to github/link_existing. The list also
+        includes installations the user's personal GitHub link can see but that aren't linked to any
+        project yet (``source_team_id: null``) — orphan installations approved on GitHub outside
+        PostHog's callback, which ``github/link_existing`` can adopt.
         """
+        user = cast(User, request.user)
         installations = list_org_github_installations(
-            user=cast(User, request.user),
+            user=user,
             organization=self.organization,
             exclude_team_id=self.team_id,
         )
-        return Response({"installations": GitHubAvailableInstallationSerializer(installations, many=True).data})
+        return Response(
+            {
+                "installations": GitHubAvailableInstallationSerializer(installations, many=True).data,
+                "personal_github_connected": user_has_personal_github_integration(user),
+            }
+        )
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,

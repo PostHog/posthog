@@ -20,7 +20,7 @@ export function IssueSearchInput({
 
     return (
         <div className={cn('w-64 max-w-full shrink-0', className)}>
-            <InputGroup className="h-7">
+            <InputGroup className="h-7 border-muted-foreground/20 focus-within:border-ring/50">
                 <InputGroupAddon>
                     <IconSearch />
                 </InputGroupAddon>

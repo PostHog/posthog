@@ -1,6 +1,6 @@
 //! Coverage for the `toDateTime`/`toDate` natives and Hog-temporal comparison. This VM orders
-//! temporals by `dt` seconds to match ClickHouse (the reference Python/TS HogVMs cannot order them);
-//! naive strings parse as UTC, not the process-local timezone.
+//! temporals by `dt` seconds to match ClickHouse, matching the Python/TS reference VMs; naive
+//! strings parse as UTC, not the process-local timezone.
 
 use chrono::{NaiveDate, TimeZone, Utc};
 use hogvm::{sync_execute, ExecutionContext, Program};
@@ -170,6 +170,25 @@ fn legacy_default_compares_temporals_structurally_not_by_epoch() {
         run_legacy(compare(&kolkata, &utc, OP_EQ)),
         Value::Bool(false),
         "legacy: structurally distinct (zone differs)",
+    );
+}
+
+#[test]
+fn bare_field_string_orders_against_a_datetime_by_parsing_it() {
+    // Regression: a hand-written SQL trigger filter like `timestamp > toDateTime('2026-01-01')`
+    // only wraps the RHS in toDateTime, so the VM compares a bare String literal (the filter globals'
+    // ISO `timestamp`) against a HogDateTime object. Before this fix, exactly one side being temporal
+    // fell straight to `CannotCoerce` — the trigger's filter would error, not silently pass, but it
+    // never matched by ordering either.
+    let bare_timestamp = vec![json!(OP_STRING), json!("2026-06-28T00:00:00.000Z")];
+    let threshold = to_datetime("2026-01-01 00:00:00");
+    assert_eq!(
+        run(compare(&bare_timestamp, &threshold, OP_GT)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        run(compare(&threshold, &bare_timestamp, OP_GT)),
+        Value::Bool(false)
     );
 }
 

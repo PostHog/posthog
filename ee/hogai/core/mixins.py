@@ -1,5 +1,6 @@
 import datetime
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, get_args, get_origin
 from uuid import UUID
 
@@ -146,10 +147,18 @@ class AssistantContextMixin(ABC):
         return False
 
 
+@dataclass(frozen=True)
+class StateClasses:
+    """The state types extracted from a class's generic parameters."""
+
+    state_class: type
+    partial_state_class: type
+
+
 class StateClassMixin:
     """Mixin to extract state types from generic class parameters."""
 
-    def _get_state_class(self, target_class: type) -> tuple[type, type]:
+    def _get_state_class(self, target_class: type) -> StateClasses:
         """Extract the State type from the class's generic parameters."""
         # Check if this class has generic arguments
         if hasattr(self.__class__, "__orig_bases__"):
@@ -157,7 +166,8 @@ class StateClassMixin:
                 if get_origin(base) is target_class:
                     args = get_args(base)
                     if args:
-                        return args[0], args[1]  # State is the first argument and PartialState is the second argument
+                        # State is the first argument and PartialState is the second argument
+                        return StateClasses(state_class=args[0], partial_state_class=args[1])
 
         # No generic type found - this shouldn't happen in proper usage
         raise ValueError(

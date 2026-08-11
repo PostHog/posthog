@@ -44,6 +44,72 @@ class TrpcPiSession implements PiSession {
     return this.hostClient.piSession.clearQueue.mutate({ taskId: this.taskId });
   }
 
+  onMcpToolPermissionRequest(
+    onRequest: Parameters<
+      NonNullable<PiSession["onMcpToolPermissionRequest"]>
+    >[0],
+    onError: Parameters<
+      NonNullable<PiSession["onMcpToolPermissionRequest"]>
+    >[1],
+  ): () => void {
+    const subscription =
+      this.hostClient.piSession.onMcpToolPermissionRequest.subscribe(
+        { taskId: this.taskId },
+        { onData: onRequest, onError },
+      );
+    return () => subscription.unsubscribe();
+  }
+
+  respondMcpToolPermission(
+    request: Parameters<NonNullable<PiSession["respondMcpToolPermission"]>>[0],
+    decision: Parameters<NonNullable<PiSession["respondMcpToolPermission"]>>[1],
+  ): Promise<void> {
+    return this.hostClient.piSession.respondMcpToolPermission.mutate({
+      taskId: this.taskId,
+      request,
+      decision,
+    });
+  }
+
+  getProjectTrust() {
+    return this.hostClient.piSession.getProjectTrust.query({
+      taskId: this.taskId,
+    });
+  }
+
+  setProjectTrusted(trusted: boolean) {
+    return this.hostClient.piSession.setProjectTrusted.mutate({
+      taskId: this.taskId,
+      trusted,
+    });
+  }
+
+  respondToExtensionUI(
+    response: Parameters<NonNullable<PiSession["respondToExtensionUI"]>>[0],
+  ) {
+    return this.hostClient.piSession.respondToExtensionUI.mutate({
+      taskId: this.taskId,
+      response,
+    });
+  }
+
+  onExtensionEvent(
+    onEvent: Parameters<NonNullable<PiSession["onExtensionEvent"]>>[0],
+    onError: Parameters<NonNullable<PiSession["onExtensionEvent"]>>[1],
+    onComplete?: Parameters<NonNullable<PiSession["onExtensionEvent"]>>[2],
+  ): () => void {
+    const subscription = this.hostClient.piSession.onExtensionEvent.subscribe(
+      { taskId: this.taskId },
+      {
+        onData: onEvent,
+        onError,
+        onComplete,
+      },
+    );
+
+    return () => subscription.unsubscribe();
+  }
+
   onConversationEvent(
     onEvent: Parameters<PiSession["onConversationEvent"]>[0],
     onError: Parameters<PiSession["onConversationEvent"]>[1],

@@ -1,6 +1,16 @@
 from parameterized import parameterized
 
-from products.exports.backend.temporal.subscriptions.types import DeliveryStatus, GenerateAIReportResult
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+
+from products.exports.backend.temporal.subscriptions.types import (
+    UNDISCLOSED_QUERY_ERROR_TYPES,
+    DeliveryStatus,
+    GenerateAIReportResult,
+)
+
+
+def test_undisclosed_query_error_types_track_the_exception_class() -> None:
+    assert ClickHouseQueryMemoryLimitExceeded.__name__ in UNDISCLOSED_QUERY_ERROR_TYPES
 
 
 class TestGenerateAIReportResult:
@@ -47,6 +57,18 @@ class TestGenerateAIReportResult:
                 2,
                 ["ExposedHogQLError", "ResolutionError"],
                 "All 2 queries the AI generated failed to run (ExposedHogQLError, ResolutionError), so the report could not be computed.",
+            ),
+            (
+                "undisclosed_type_leaves_no_detail",
+                1,
+                ["ClickHouseQueryMemoryLimitExceeded"],
+                "The query the AI generated failed to run, so the report could not be computed.",
+            ),
+            (
+                "undisclosed_type_dropped_from_mixed_detail",
+                2,
+                ["ClickHouseQueryMemoryLimitExceeded", "ResolutionError"],
+                "All 2 queries the AI generated failed to run (ResolutionError), so the report could not be computed.",
             ),
         ]
     )

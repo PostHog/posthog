@@ -28,12 +28,14 @@ interface AgentMessageProps {
 
 export function AgentMessage({ content }: AgentMessageProps) {
   return (
-    <Box className="py-1 pl-3">
+    <div className="py-1 pl-3">
       <MarkdownRenderer content={content} />
-    </Box>
+    </div>
   );
 }
 ```
+
+Components come from `@posthog/quill`; layout is plain elements plus Tailwind. **Never import `@radix-ui/themes` or `@radix-ui/react-*`** — see [UI Components](../AGENTS.md#ui-components) for the full replacement mapping, including the layout primitives (`Box`, `Flex`, `Grid`) that become `div`s.
 
 Keep render functions short. Extract named components for distinct UI concerns instead of long inline conditionals.
 
@@ -134,7 +136,7 @@ Barrel files hide dependency edges, increase circular import risk, and make refa
 
 ## Styling
 
-Use Tailwind first. The project uses Tailwind v4 with Radix CSS variables.
+Use Tailwind first. The project uses Tailwind v4 with Radix CSS variables. Those *variables* are fine and stay; Radix *components* are banned (see [UI Components](../AGENTS.md#ui-components)).
 
 Examples:
 

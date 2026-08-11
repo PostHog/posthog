@@ -49,17 +49,28 @@ class TestTremendousSource:
         assert field.secret is True
         assert field.required is True
 
-    def test_get_schemas_only_orders_is_incremental(self) -> None:
+    def test_get_schemas_incremental_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
         by_name = {s.name: s for s in schemas}
-        # /orders is the only endpoint with a server-side timestamp filter (created_at[gte]).
-        assert by_name["orders"].supports_incremental is True
-        assert [f["field"] for f in by_name["orders"].incremental_fields] == ["created_at"]
+        # /orders and /balance_transactions are the only endpoints with a server-side timestamp
+        # filter (created_at[gte]).
+        incremental = {"orders", "balance_transactions"}
         for name, schema in by_name.items():
-            if name != "orders":
+            if name in incremental:
+                assert schema.supports_incremental is True
+                assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
+            else:
                 assert schema.supports_incremental is False
                 assert schema.incremental_fields == []
+
+    def test_balance_transactions_starts_opt_in(self) -> None:
+        # Its synthesized primary key is designed from the API docs but unconfirmed against live
+        # accounts, so the ledger table must not silently auto-enable at source creation.
+        schemas = self.source.get_schemas(self.config, self.team_id)
+        by_name = {s.name: s for s in schemas}
+        assert by_name["balance_transactions"].should_sync_default is False
+        assert all(s.should_sync_default for name, s in by_name.items() if name != "balance_transactions")
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["rewards"])
@@ -73,8 +84,9 @@ class TestTremendousSource:
         tables = self.source.get_documented_tables()
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
-        orders = next(t for t in tables if t["name"] == "orders")
-        assert "Incremental" in orders["sync_methods"]
+        for name in ("orders", "balance_transactions"):
+            table = next(t for t in tables if t["name"] == name)
+            assert "Incremental" in table["sync_methods"]
         assert all(t["description"] for t in tables)
 
     @parameterized.expand(

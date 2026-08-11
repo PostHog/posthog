@@ -221,6 +221,34 @@ export const ListsAndLinks: Story = {
     },
 }
 
+export const TablesInProse: Story = {
+    args: {
+        value: `## Weekly activation review
+
+Signup completion improved after the onboarding changes.
+
+| Step | Completion | Change |
+| --- | ---: | ---: |
+| Signup form | 82% | +4% |
+| Workspace setup | 61% | +1% |
+
+Both tables above and below belong to this passage, so they share its card.
+
+| Segment | Invite acceptance |
+| --- | ---: |
+| Self-serve | 44% |
+| Enterprise | 71% |
+
+The table below was added as a node of its own, so it keeps a card of its own.
+
+
+| Owner | Follow-up |
+| --- | --- |
+| Growth | Retry the invite email |
+| Onboarding | Shorten the setup step |`,
+    },
+}
+
 export const QueryBlock: Story = {
     args: {
         value: queryNotebook,

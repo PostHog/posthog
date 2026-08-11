@@ -15,7 +15,7 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 - [`data_imports/`](../../products/warehouse_sources/backend/temporal/data_imports/README.md) — data warehouse import pipelines (moved to the warehouse_sources product).
 - [`data_modeling/`](./data_modeling/AGENTS.md) — v1 frozen / v2 active split.
 - [`signals emission`](../../products/signals/backend/emission/AGENTS.md) — signal emission for data-imports events (moved to the signals product).
-- [`sync_person_distinct_ids/`](./sync_person_distinct_ids/README.md), [`experiments/`](./experiments/README.md), [`weekly_digest/`](./weekly_digest/README.md), [`ingestion_acceptance_test/`](./ingestion_acceptance_test/README.md), [`health_checks/`](./health_checks/README.md), [`llm_analytics/trace_summarization/`](./llm_analytics/trace_summarization/README.md) — each has its own README for context.
+- [`sync_person_distinct_ids/`](./sync_person_distinct_ids/README.md), [`experiments/`](./experiments/README.md), [`weekly_digest/`](./weekly_digest/README.md), [`ingestion_acceptance_test/`](./ingestion_acceptance_test/README.md), [`health_checks/`](./health_checks/README.md), [`ai_observability/trace_summarization/`](./ai_observability/trace_summarization/README.md) — each has its own README for context.
 
 ## Local eval scripts
 

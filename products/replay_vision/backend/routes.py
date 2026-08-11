@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
+    ReplayScannerBackfillViewSet,
     ReplayScannerPromptSuggestionViewSet,
     ReplayScannerViewSet,
     SessionReplayObservationViewSet,
@@ -17,6 +18,9 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     project_vision_scanners_router.register(
         r"observations", ReplayObservationViewSet, "project_vision_scanner_observations", ["team_id", "scanner_id"]
+    )
+    project_vision_scanners_router.register(
+        r"backfills", ReplayScannerBackfillViewSet, "project_vision_scanner_backfills", ["team_id", "scanner_id"]
     )
     project_vision_scanners_router.register(
         r"prompt_suggestions",

@@ -5,6 +5,7 @@ from unittest import mock
 
 from posthog.models.integration import UndecryptedIntegrationSecretError
 
+from products.warehouse_sources.backend.models.external_data_schema import SchemaSyncResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import sync_new_schemas as module
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
@@ -28,7 +29,9 @@ def _patch_common(source_mock, schemas_created=None, source_api_version=None):
         "is_registered": mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         "get_source": mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
         "sync_old_schemas_with_new_schemas": mock.patch.object(
-            module, "sync_old_schemas_with_new_schemas", return_value=(schemas_created or [], [])
+            module,
+            "sync_old_schemas_with_new_schemas",
+            return_value=SchemaSyncResult(created=schemas_created or [], deleted=[]),
         ),
         "auto_enable_new_schemas": mock.patch.object(module, "auto_enable_new_schemas", return_value=[]),
     }
@@ -77,9 +80,7 @@ def test_undecrypted_integration_secret_error_is_skipped():
     # failure and spams error tracking every cycle.
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
-    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError(
-        "Integration.sensitive_config['refresh_token'] is still encrypted; the stored credentials could not be decrypted"
-    )
+    source_mock.get_schemas.side_effect = UndecryptedIntegrationSecretError()
     source_mock.get_non_retryable_errors.return_value = {}
 
     _run_activity(source_mock)

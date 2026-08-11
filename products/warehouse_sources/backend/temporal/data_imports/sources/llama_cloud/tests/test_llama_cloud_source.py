@@ -217,3 +217,26 @@ class TestLlamaCloudSource:
         self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+class TestLlamaCloudSourceVersions:
+    def setup_method(self) -> None:
+        self.source = LlamaCloudSource()
+
+    def test_new_sources_default_to_v2(self) -> None:
+        # New sources (no pin) must be created on LlamaCloud's current API generation.
+        assert self.source.default_version == "v2"
+        assert self.source.resolve_api_version(None) == "v2"
+
+    @parameterized.expand([("v1",), ("v2",)])
+    def test_existing_pin_is_honored(self, version: str) -> None:
+        # Pinned rows — including the legacy "v1" default existing sources carry — keep their
+        # version after the default bump, so their syncs stay byte-for-byte unaffected.
+        assert version in self.source.supported_versions
+        assert self.source.resolve_api_version(version) == version
+
+    @parameterized.expand([("v1",), ("v2",)])
+    def test_no_version_is_deprecated(self, version: str) -> None:
+        # This is a plain update, not a sunset: neither label is deprecated, so the in-product
+        # deprecation banner must stay dark for existing v1 pins.
+        assert self.source.get_version_deprecation(version) is None

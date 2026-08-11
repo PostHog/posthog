@@ -17,6 +17,12 @@ from click.testing import CliRunner
 from hogli_commands import feedback
 
 
+@pytest.fixture(autouse=True)
+def local_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for env_var in feedback._CLOUD_TASK_ENV_VARS:
+        monkeypatch.delenv(env_var, raising=False)
+
+
 @pytest.fixture
 def isolated_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Keep get_anonymous_id() off the real ~/.config and pin a deterministic key.
@@ -77,6 +83,21 @@ def test_send_returns_error_on_network_failure(isolated_config: None) -> None:
         ok, err = feedback._send("hi", None, {})
     assert ok is False
     assert err
+
+
+@pytest.mark.parametrize("env_var", feedback._CLOUD_TASK_ENV_VARS)
+def test_cloud_task_skips_feedback(monkeypatch: pytest.MonkeyPatch, env_var: str) -> None:
+    monkeypatch.setenv(env_var, "task-123")
+    with (
+        patch.object(feedback, "_context_properties") as context,
+        patch.object(feedback, "_send") as send,
+    ):
+        result = CliRunner().invoke(feedback.devex_feedback, ["the message"])
+
+    assert result.exit_code == 0
+    assert "Skipping devex feedback" in result.output
+    context.assert_not_called()
+    send.assert_not_called()
 
 
 @pytest.mark.parametrize(

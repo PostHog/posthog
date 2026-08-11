@@ -1,43 +1,40 @@
-import { File, WarningCircle, X } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
 import {
   isGifFile,
   isRasterImageFile,
   parseImageDataUrl,
 } from "@posthog/shared";
+import {
+  Attachment,
+  type AttachmentUploadStatus,
+} from "@posthog/ui/features/message-editor/components/Attachment";
 import { SafeImagePreview } from "@posthog/ui/primitives/SafeImagePreview";
-import { Dialog, Flex, IconButton, Spinner, Text } from "@radix-ui/themes";
+import { Dialog, Flex, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { readFileAsDataUrl } from "../hostApi";
 
-export type AttachmentUploadStatus = "uploading" | "error";
+export type { AttachmentUploadStatus };
 
-function AttachmentStatusIcon({ status }: { status?: AttachmentUploadStatus }) {
-  if (status === "uploading") {
-    return <Spinner size="1" aria-label="Uploading attachment" />;
-  }
-  if (status === "error") {
-    return (
-      <WarningCircle
-        size={14}
-        className="text-red-9"
-        aria-label="Attachment upload failed"
-      />
-    );
-  }
-  return null;
-}
-
-function FrozenGifThumbnail({ src, alt }: { src: string; alt: string }) {
+/**
+ * A GIF's first frame, drawn once to a canvas. An animating thumbnail in the
+ * composer pulls the eye off what you are writing.
+ */
+function useFrozenGif(src: string | null | undefined, enabled: boolean) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
+    if (!enabled || !src) return;
     const img = new Image();
+    let cancelled = false;
     img.onload = () => {
+      // A decode that lands after the src changed would paint the previous
+      // GIF's frame onto the canvas the new one is about to use, and the
+      // handler holds the decoded image alive until it fires.
+      if (cancelled) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
-      const size = 56;
+      const size = 64;
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext("2d");
@@ -48,14 +45,16 @@ function FrozenGifThumbnail({ src, alt }: { src: string; alt: string }) {
       ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
     };
     img.src = src;
-  }, [src]);
+    return () => {
+      cancelled = true;
+      img.onload = null;
+    };
+  }, [src, enabled]);
 
-  return (
-    <canvas ref={canvasRef} aria-label={alt} className="size-3.5 rounded-sm" />
-  );
+  return canvasRef;
 }
 
-function ImageThumbnail({
+function ImageAttachment({
   attachment,
   onRemove,
   uploadStatus,
@@ -71,46 +70,31 @@ function ImageThumbnail({
   });
 
   const isGif = isGifFile(attachment.label);
+  const canvasRef = useFrozenGif(dataUrl, isGif);
   const parsedImage = dataUrl ? parseImageDataUrl(dataUrl) : null;
+
+  const preview = isGif ? (
+    <canvas ref={canvasRef} aria-hidden className="size-full object-cover" />
+  ) : dataUrl ? (
+    <img src={dataUrl} alt="" className="size-full object-cover" />
+  ) : (
+    // Holds the square's shape until the data URL resolves.
+    <span className="size-full bg-[var(--gray-a5)]" />
+  );
 
   return (
     <Dialog.Root>
-      <div className="group relative flex-shrink-0">
-        <Dialog.Trigger>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-[var(--radius-1)] bg-[var(--gray-a3)] p-1 font-medium text-[11px] text-[var(--gray-11)] hover:bg-[var(--gray-a4)]"
-          >
-            {dataUrl ? (
-              isGif ? (
-                <FrozenGifThumbnail src={dataUrl} alt={attachment.label} />
-              ) : (
-                <img
-                  src={dataUrl}
-                  alt={attachment.label}
-                  className="size-3.5 rounded-sm object-cover"
-                />
-              )
-            ) : (
-              <span className="size-3.5 rounded-sm bg-[var(--gray-a5)]" />
-            )}
-            <span className="max-w-[80px] truncate">{attachment.label}</span>
-            <AttachmentStatusIcon status={uploadStatus} />
-          </button>
-        </Dialog.Trigger>
-        <IconButton
-          size="1"
-          variant="solid"
-          color="gray"
-          className="!absolute -top-1 -right-1 !size-3.5 opacity-0 transition-opacity group-hover:opacity-100"
-          onClick={(e) => {
-            e.stopPropagation();
-            onRemove();
-          }}
-        >
-          <X size={8} weight="bold" />
-        </IconButton>
-      </div>
+      <Dialog.Trigger>
+        <div>
+          <Attachment
+            label={attachment.label}
+            preview={preview}
+            hint="Click to preview"
+            onRemove={onRemove}
+            status={uploadStatus}
+          />
+        </div>
+      </Dialog.Trigger>
       <Dialog.Content maxWidth="85vw" className="w-fit p-[16px]">
         <Dialog.Title mb="2" className="text-sm">
           {attachment.label}
@@ -132,40 +116,6 @@ function ImageThumbnail({
   );
 }
 
-function FileChip({
-  attachment,
-  onRemove,
-  uploadStatus,
-}: {
-  attachment: FileAttachment;
-  onRemove: () => void;
-  uploadStatus?: AttachmentUploadStatus;
-}) {
-  return (
-    <span className="group/chip inline-flex flex-shrink-0 items-center gap-1 rounded-[var(--radius-1)] bg-[var(--gray-a3)] p-1 font-medium text-[11px] text-[var(--gray-11)]">
-      <button
-        type="button"
-        tabIndex={-1}
-        aria-label="Remove attachment"
-        className="relative inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-      >
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
-          <File size={14} weight="duotone" />
-        </span>
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100 motion-reduce:transition-none">
-          <X size={12} weight="bold" />
-        </span>
-      </button>
-      <span className="max-w-[120px] truncate">{attachment.label}</span>
-      <AttachmentStatusIcon status={uploadStatus} />
-    </span>
-  );
-}
-
 interface AttachmentsBarProps {
   attachments: FileAttachment[];
   onRemove: (id: string) => void;
@@ -180,21 +130,21 @@ export function AttachmentsBar({
   if (attachments.length === 0) return null;
 
   return (
-    <Flex gap="1" align="center" className="flex-wrap pb-1.5">
+    <Flex gap="1" align="center" className="flex-wrap">
       {attachments.map((att) =>
         isRasterImageFile(att.label) ? (
-          <ImageThumbnail
+          <ImageAttachment
             key={att.id}
             attachment={att}
             onRemove={() => onRemove(att.id)}
             uploadStatus={uploadStatuses?.[att.id]}
           />
         ) : (
-          <FileChip
+          <Attachment
             key={att.id}
-            attachment={att}
+            label={att.label}
             onRemove={() => onRemove(att.id)}
-            uploadStatus={uploadStatuses?.[att.id]}
+            status={uploadStatuses?.[att.id]}
           />
         ),
       )}

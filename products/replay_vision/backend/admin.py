@@ -28,6 +28,7 @@ class ReplayObservationAdmin(admin.ModelAdmin):
         "session_id",
         "triggered_by",
         "triggered_by_user",
+        "backfill",
         "scanner_snapshot",
         "scanner_result",
         "workflow_id",

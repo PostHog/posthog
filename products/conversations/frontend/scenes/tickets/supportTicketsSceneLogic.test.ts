@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -335,6 +336,44 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.statusFilter).toEqual([])
             expect(logic.values.dateFrom).toBe('-7d')
             expect(router.values.searchParams.view).toBeUndefined()
+        })
+    })
+
+    describe('breadcrumbs', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                },
+            })
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        it('falls back to the generic scene name with no saved view applied', () => {
+            expect(logic.values.breadcrumbs).toEqual([{ key: Scene.SupportTickets, name: 'Ticket list' }])
+        })
+
+        it("uses the saved view's name while a view is applied, and drops it on detach", async () => {
+            await expectLogic(logic, () => {
+                logic.actions.applyView(makeSavedView('view-a'))
+            }).toFinishAllListeners()
+
+            expect(logic.values.breadcrumbs).toEqual([{ key: Scene.SupportTickets, name: 'View view-a' }])
+
+            await expectLogic(logic, () => {
+                logic.actions.clearActiveView()
+            }).toFinishAllListeners()
+
+            expect(logic.values.breadcrumbs).toEqual([{ key: Scene.SupportTickets, name: 'Ticket list' }])
         })
     })
 })

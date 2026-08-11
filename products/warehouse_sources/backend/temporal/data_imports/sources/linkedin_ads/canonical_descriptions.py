@@ -30,6 +30,20 @@ _STATS_COLUMNS = {
     "follows": "Number of new followers attributed to the ad.",
 }
 
+# Professional demographic breakdowns carry the same metrics minus conversion value, which LinkedIn
+# only reports for non-demographic pivots.
+_DEMOGRAPHIC_STATS_COLUMNS = {
+    key: value for key, value in _STATS_COLUMNS.items() if key != "conversion_value_in_local_currency"
+}
+
+_DEMOGRAPHIC_DOCS_URL = "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/ads-reporting"
+
+_DEMOGRAPHIC_CAVEAT = (
+    "LinkedIn approximates professional demographic metrics to protect member privacy: only the top "
+    "100 values per creative per day are returned, values with fewer than 3 events are dropped, and "
+    "the data is retained for two years."
+)
+
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "accounts": {
@@ -119,6 +133,74 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_STATS_COLUMNS,
             "creative_id": "ID of the creative these metrics are for.",
             "date_range": "The reporting date range these metrics cover.",
+        },
+    },
+    "conversions": {
+        "description": "A conversion rule defined on the ad account, describing an action on the advertiser's site that LinkedIn attributes back to ads.",
+        "docs_url": "https://learn.microsoft.com/en-us/linkedin/marketing/integrations/ads-reporting/conversion-tracking",
+        "columns": {
+            "id": "Unique identifier for the conversion rule.",
+            "name": "Short name for the rule, shown in Campaign Manager and in reports.",
+            "type": "What the member did (ADD_TO_CART, DOWNLOAD, INSTALL, KEY_PAGE_VIEW, LEAD, PURCHASE, SIGN_UP, OTHER).",
+            "enabled": "Whether the rule is currently able to record conversion events.",
+            "account_id": "ID of the ad account the conversion rule belongs to.",
+            "campaigns": "Campaign URNs the conversion rule is associated with.",
+            "attribution_type": "How conversions are counted: LAST_TOUCH_BY_CAMPAIGN (once per campaign) or LAST_TOUCH_BY_CONVERSION (once per conversion rule).",
+            "conversion_method": "How the conversion is recorded, for example via the LinkedIn Insight Tag or the Conversions API.",
+            "post_click_attribution_window_size": "Days after a click during which a conversion is still attributed, in days (1, 7 or 30).",
+            "view_through_attribution_window_size": "Days after an impression during which a conversion is still attributed, in days (1, 7 or 30).",
+            "value_amount": "Monetary value assigned to one conversion, as a decimal string.",
+            "value_currency_code": "Currency of the conversion value, matching the ad account's currency.",
+            "created_time": "Date the conversion rule was created.",
+            "last_modified_time": "Date the conversion rule was last modified.",
+        },
+    },
+    "member_company_stats": {
+        "description": f"Daily ad analytics broken down by the company members work at. {_DEMOGRAPHIC_CAVEAT}",
+        "docs_url": _DEMOGRAPHIC_DOCS_URL,
+        "columns": {
+            **_DEMOGRAPHIC_STATS_COLUMNS,
+            "pivot_value": "Organization URN of the member's company, for example urn:li:organization:1111. Results can include companies the campaign did not explicitly target.",
+        },
+    },
+    "member_company_size_stats": {
+        "description": f"Daily ad analytics broken down by the headcount band of the company members work at. {_DEMOGRAPHIC_CAVEAT}",
+        "docs_url": _DEMOGRAPHIC_DOCS_URL,
+        "columns": {
+            **_DEMOGRAPHIC_STATS_COLUMNS,
+            "pivot_value": "The company size band the metrics belong to, as LinkedIn returns it.",
+        },
+    },
+    "member_country_stats": {
+        "description": f"Daily ad analytics broken down by the country members are in. {_DEMOGRAPHIC_CAVEAT}",
+        "docs_url": _DEMOGRAPHIC_DOCS_URL,
+        "columns": {
+            **_DEMOGRAPHIC_STATS_COLUMNS,
+            "pivot_value": "Geo URN of the member's country, for example urn:li:geo:103644278. Resolve it with LinkedIn's Geo API.",
+        },
+    },
+    "member_industry_stats": {
+        "description": f"Daily ad analytics broken down by the industry members work in. {_DEMOGRAPHIC_CAVEAT}",
+        "docs_url": _DEMOGRAPHIC_DOCS_URL,
+        "columns": {
+            **_DEMOGRAPHIC_STATS_COLUMNS,
+            "pivot_value": "Industry URN of the member's industry, for example urn:li:industry:96. Resolve it with LinkedIn's Industries API.",
+        },
+    },
+    "member_job_title_stats": {
+        "description": f"Daily ad analytics broken down by member job title. {_DEMOGRAPHIC_CAVEAT}",
+        "docs_url": _DEMOGRAPHIC_DOCS_URL,
+        "columns": {
+            **_DEMOGRAPHIC_STATS_COLUMNS,
+            "pivot_value": "Title URN of the member's job title, for example urn:li:title:9. Resolve it with LinkedIn's Titles API.",
+        },
+    },
+    "member_seniority_stats": {
+        "description": f"Daily ad analytics broken down by member seniority. {_DEMOGRAPHIC_CAVEAT}",
+        "docs_url": _DEMOGRAPHIC_DOCS_URL,
+        "columns": {
+            **_DEMOGRAPHIC_STATS_COLUMNS,
+            "pivot_value": "Seniority URN of the member's seniority level, for example urn:li:seniority:6. Resolve it with LinkedIn's Seniorities API.",
         },
     },
 }

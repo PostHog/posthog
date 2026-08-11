@@ -6,4 +6,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class TrustPilotSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
+    business_unit: str

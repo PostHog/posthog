@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 
@@ -25,7 +25,7 @@ import {
 import { Experiment } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { experimentSceneLogic } from '../experimentSceneLogic'
+import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from '../experimentSceneLogic'
 import { DistributionModal, DistributionTable } from '../ExperimentView/DistributionTable'
 import { ExperimentWarningBanner } from '../ExperimentView/ExperimentWarningBanners'
 import { LoadingState } from '../ExperimentView/LoadingState'
@@ -168,6 +168,19 @@ export function LegacyExperimentView(): JSX.Element {
         }
     }, [experimentLoading, experiment?.id, experiment, refreshExperimentResults])
 
+    const tabs: LemonTab<ExperimentTab>[] = [
+        {
+            key: 'metrics',
+            label: 'Metrics',
+            content: <LegacyMetricsTab />,
+        },
+        {
+            key: 'variants',
+            label: 'Variants',
+            content: <VariantsTab />,
+        },
+    ]
+
     return (
         <BindLogic logic={legacyExperimentLogic} props={legacyLogicProps}>
             <SceneContent>
@@ -198,21 +211,13 @@ export function LegacyExperimentView(): JSX.Element {
 
                         {/* Tab navigation - only includes minimal tabs for legacy experiments */}
                         <LemonTabs
-                            activeKey={activeTabKey}
+                            // Fall back to the default tab if the active one isn't rendered here
+                            activeKey={
+                                tabs.some((tab) => tab.key === activeTabKey) ? activeTabKey : DEFAULT_EXPERIMENT_TAB
+                            }
                             onChange={(key) => setActiveTabKey(key)}
                             sceneInset
-                            tabs={[
-                                {
-                                    key: 'metrics',
-                                    label: 'Metrics',
-                                    content: <LegacyMetricsTab />,
-                                },
-                                {
-                                    key: 'variants',
-                                    label: 'Variants',
-                                    content: <VariantsTab />,
-                                },
-                            ]}
+                            tabs={tabs}
                         />
 
                         {/* Modals that legacy experiments support */}

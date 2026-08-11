@@ -59,10 +59,13 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project token and host from [your project
-                        settings](https://app.posthog.com/settings/project), then use the PostHog `query()` wrapper as a
-                        drop-in replacement for `claude_agent_sdk.query()`. This automatically captures
-                        `$ai_generation`, `$ai_span`, and `$ai_trace` events.
+                        {dedent`
+                            Initialize PostHog with your project token and host from [your project
+                            settings](https://app.posthog.com/settings/project). Then use the PostHog \`query()\`
+                            wrapper as a drop-in replacement for \`claude_agent_sdk.query()\`. This automatically
+                            captures \`$ai_generation\`, \`$ai_span\`, and \`$ai_trace\` events, including a span
+                            for each tool the agent uses, such as \`Bash\` below.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -81,16 +84,17 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                             async def main():
                                 options = ClaudeAgentOptions(
                                     max_turns=5,
-                                    permission_mode="plan",
+                                    allowed_tools=["Read", "Glob", "Grep"],
+                                    cwd="/path/to/your/project",
                                 )
 
                                 async for message in query(
-                                    prompt="Tell me a fun fact about hedgehogs",
+                                    prompt="Read the README and summarize this project",
                                     options=options,
                                     posthog_client=posthog,
                                     posthog_distinct_id="user_123", # optional
                                     posthog_trace_id="trace_123", # optional
-                                    posthog_properties={"conversation_id": "abc123"}, # optional
+                                    posthog_properties={"conversation_id": "abc123", "$ai_session_id": "conversation-abc"}, # optional
                                     posthog_groups={"company": "company_id_in_your_db"}, # optional
                                     posthog_privacy_mode=False, # optional
                                 ):
@@ -105,8 +109,9 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                         <Markdown>
                             {dedent`
                             **Notes:**
-                            - All original messages are yielded unchanged — the wrapper is fully transparent.
-                            - If you want to capture LLM events anonymously, **don't** pass a distinct ID. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
+                            - The wrapper yields all original messages unchanged, fully transparent to your code.
+                            - Pass \`$ai_session_id\` in \`posthog_properties\` to group every generation, span, and trace from a call into one PostHog session.
+                            - If you want to capture LLM events anonymously, **do not** pass a distinct ID. See our docs on [anonymous vs identified events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                             `}
                         </Markdown>
                     </Blockquote>
@@ -163,11 +168,11 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                         `}
                     />
 
-                    <Markdown>
-                        {dedent`
-                            You can override any PostHog parameter per-query:
+                    <Markdown>You can override any PostHog parameter per-query:</Markdown>
 
-                            \`\`\`python
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
                             async for msg in ph.query(
                                 prompt="...",
                                 options=options,
@@ -175,9 +180,8 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                                 posthog_properties={"extra": "data"},
                             ):
                                 ...
-                            \`\`\`
                         `}
-                    </Markdown>
+                    />
                 </>
             ),
         },
@@ -187,52 +191,36 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
             content: (
                 <>
                     <Markdown>
-                        PostHog captures the full trace hierarchy for multi-turn agent conversations with tool calls.
-                        Each tool use is captured as an `$ai_span` event linked to its parent generation.
+                        {dedent`
+                            The recommended example above already runs a tool-using query, and \`max_turns\` lets
+                            Claude take more than one internal turn before it replies. Inspect the message stream
+                            to see each turn and tool call as they happen.
+                        `}
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            import asyncio
-                            from posthog import Posthog
-                            from posthog.ai.claude_agent_sdk import query
-                            from claude_agent_sdk import ClaudeAgentOptions, AssistantMessage, TextBlock, ToolUseBlock
+                            from claude_agent_sdk import AssistantMessage, TextBlock, ToolUseBlock
 
-                            posthog = Posthog(
-                                "<ph_project_token>",
-                                host="<ph_client_api_host>"
-                            )
-
-                            options = ClaudeAgentOptions(
-                                max_turns=10,
-                                allowed_tools=["Read", "Glob", "Grep", "Bash"],
-                                permission_mode="bypassPermissions",
-                                cwd="/path/to/your/project",
-                            )
-
-                            async def main():
-                                async for message in query(
-                                    prompt="Read the README and summarize this project",
-                                    options=options,
-                                    posthog_client=posthog,
-                                    posthog_distinct_id="user_123",
-                                ):
-                                    if isinstance(message, AssistantMessage):
-                                        for block in message.content:
-                                            if isinstance(block, TextBlock):
-                                                print(block.text)
-                                            elif isinstance(block, ToolUseBlock):
-                                                print(f"Tool: {block.name}")
-
-                            asyncio.run(main())
-                            posthog.shutdown()
+                            async for message in query(
+                                prompt="Read the README and summarize this project",
+                                options=options,
+                                posthog_client=posthog,
+                                posthog_distinct_id="user_123",
+                            ):
+                                if isinstance(message, AssistantMessage):
+                                    for block in message.content:
+                                        if isinstance(block, TextBlock):
+                                            print(block.text)
+                                        elif isinstance(block, ToolUseBlock):
+                                            print(f"Tool: {block.name}")
                         `}
                     />
 
                     <Markdown>
                         {dedent`
-                            This captures:
+                            Across the whole query, PostHog captures:
                             - \`$ai_generation\` events for each LLM turn (with token counts, cost, and cache metrics)
                             - \`$ai_span\` events for each tool use (Read, Glob, Grep, Bash, etc.)
                             - An \`$ai_trace\` event grouping the entire conversation with total cost and latency
@@ -293,7 +281,9 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
 
                     <Markdown>
                         {dedent`
-                            Each \`receive_response()\` cycle emits \`$ai_generation\` events for that turn. When the client disconnects (exiting the \`async with\` block), a single \`$ai_trace\` event is emitted covering the entire session with aggregate latency.
+                            Each \`receive_response()\` cycle emits \`$ai_generation\` events for that turn. When the
+                            client disconnects, exiting the \`async with\` block, it emits a single \`$ai_trace\`
+                            event covering the entire session with aggregate latency.
                         `}
                     </Markdown>
                 </>

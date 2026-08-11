@@ -126,12 +126,9 @@ Your organization is the first path segment of your Azure DevOps URL — for `de
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # Pre-creation calls pass no pin and resolve to default_version — the version new rows start on.
-        if validate_azure_devops_credentials(
+        return validate_azure_devops_credentials(
             config.organization, config.personal_access_token, self.resolve_api_version(api_version)
-        ):
-            return True, None
-
-        return False, "Invalid Azure DevOps credentials"
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AzureDevOpsResumeConfig]:
         return ResumableSourceManager[AzureDevOpsResumeConfig](inputs, AzureDevOpsResumeConfig)

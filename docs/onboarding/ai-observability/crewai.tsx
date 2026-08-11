@@ -62,7 +62,7 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                         code={dedent`
                             import os
                             import litellm
-                            from crewai import Agent, Task, Crew
+                            from crewai import Agent, Task, Crew, LLM
 
                             # Set PostHog environment variables
                             os.environ["POSTHOG_API_KEY"] = "<ph_project_token>"
@@ -76,9 +76,10 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
-                            CrewAI uses LiteLLM under the hood for LLM provider access. By configuring PostHog as a
-                            LiteLLM callback, all LLM calls made through CrewAI are automatically captured as
-                            `$ai_generation` events without proxying your calls.
+                            CrewAI can route LLM calls either through its own provider clients or through LiteLLM.
+                            PostHog hooks into LiteLLM's callback system, so you need `is_litellm=True` on the `LLM` you
+                            pass to your agents. With it, PostHog captures every call as an `$ai_generation` event,
+                            without proxying your calls.
                         </Markdown>
                     </CalloutBox>
                 </>
@@ -90,30 +91,74 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Run your CrewAI agents as normal. PostHog automatically captures generation events for each LLM
-                        call.
+                        {dedent`
+                            Run your CrewAI agents as normal. PostHog automatically captures an \`$ai_generation\`
+                            event for each LLM call. LiteLLM's callback does not see the tools your agents call.
+                            Capture a tool's own execution as a span from inside the tool itself instead, as
+                            \`my_tool\` does below.
+                        `}
                     </Markdown>
 
                     <CodeBlock
                         language="python"
                         code={dedent`
+                            from posthog import Posthog
+                            from crewai.tools import tool
+                            import time, uuid
+
+                            posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
+
+                            trace_id = str(uuid.uuid4())
+
+                            @tool
+                            def my_tool(query: str) -> str:
+                                """Describe what your tool does."""
+                                start = time.time()
+                                result = run_tool(query)
+
+                                posthog.capture(
+                                    distinct_id="user_123",
+                                    event="$ai_span",
+                                    properties={
+                                        "$ai_trace_id": trace_id,
+                                        "$ai_session_id": "conversation-abc",
+                                        "$ai_span_id": str(uuid.uuid4()),
+                                        "$ai_span_name": "my_tool",
+                                        "$ai_input_state": {"query": query},
+                                        "$ai_output_state": result,
+                                        "$ai_latency": time.time() - start,
+                                    },
+                                )
+                                return result
+
+                            # is_litellm=True routes calls through LiteLLM so the PostHog
+                            # callback fires. Without it, CrewAI uses its own provider client
+                            # and no events are captured.
+                            llm = LLM(
+                                model="gpt-4o-mini",
+                                is_litellm=True,
+                                metadata={
+                                    "user_id": "user_123",
+                                    "$ai_session_id": "conversation-abc",
+                                    "$ai_trace_id": trace_id,
+                                },
+                            )
+
                             researcher = Agent(
                                 role="Researcher",
-                                goal="Find interesting facts about hedgehogs",
+                                goal="Find the weather in a city",
                                 backstory="You are an expert wildlife researcher.",
+                                llm=llm,
+                                tools=[my_tool],
                             )
 
                             task = Task(
-                                description="Research three fun facts about hedgehogs.",
-                                expected_output="A list of three fun facts.",
+                                description="Find the weather in Paris.",
+                                expected_output="The weather in Paris.",
                                 agent=researcher,
                             )
 
-                            crew = Crew(
-                                agents=[researcher],
-                                tasks=[task],
-                            )
-
+                            crew = Crew(agents=[researcher], tasks=[task])
                             result = crew.kickoff()
                             print(result)
                         `}

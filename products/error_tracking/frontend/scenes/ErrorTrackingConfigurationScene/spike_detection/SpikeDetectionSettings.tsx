@@ -16,10 +16,13 @@ import { spikeDetectionConfigLogic } from './spikeDetectionConfigLogic'
 export function SpikeDetectionSettings(): JSX.Element {
     const { configLoading, configFormChanged, isConfigFormSubmitting, hasSpikeAlerts } =
         useValues(spikeDetectionConfigLogic)
+    // Must match the props the configuration tab mounts settingsLogic with. The logic is keyed on
+    // logicKey alone, so a different sectionId here would rebuild the shared instance and break
+    // panel navigation for every error tracking setting.
     const { selectSetting } = useActions(
         settingsLogic({
             logicKey: ERROR_TRACKING_LOGIC_KEY,
-            sectionId: 'environment-error-tracking',
+            sectionId: 'environment-error-tracking-configuration',
             settingId: 'error-tracking-alerting',
         })
     )

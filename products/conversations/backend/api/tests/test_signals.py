@@ -208,6 +208,34 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.last_message_at == public_msg.created_at  # Unchanged
         assert self.ticket.updated_at == public_msg.created_at  # Unchanged
 
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_private_team_note_emits_private_message_sent_event(self, mock_capture, mock_on_commit):
+        self._create_team_message("Private note", is_private=True)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.message_count == 0
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["event_name"] == "$conversation_private_message_sent"
+        assert call_kwargs["properties"]["actor_id"] == self.user.id
+        # The note body must never reach the event stream: analytics events are
+        # team-scoped and bypass ticket-level access controls
+        assert "message_content" not in call_kwargs["properties"]
+        assert "Private note" not in str(call_kwargs["properties"])
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_private_ai_message_emits_no_event(self, mock_capture, mock_on_commit):
+        # Private AI messages have no human actor; emitting them would fire workflows with an empty actor
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="AI draft suggestion",
+            item_context={"author_type": "AI", "is_private": True},
+        )
+
+        mock_capture.assert_not_called()
+
     def test_soft_delete_private_message_does_not_decrement_count(self, mock_on_commit):
         """Deleting a private message should not decrement message_count (since it wasn't counted)."""
         self._create_customer_message("Public message")

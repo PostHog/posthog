@@ -106,6 +106,12 @@ To sync private content or authenticate, create an [Application Password](https:
             # a security or caching plugin) can't be turned into rows by retrying. Matches the stable
             # prefix RESTClientNonRetryableError uses, not the variable URL that follows.
             "Non-JSON response from": "The WordPress site returned a non-JSON response (for example an HTML error, login, or maintenance page) instead of data. Confirm the REST API is enabled and reachable at this URL and isn't blocked by a security or caching plugin, then try again.",
+            # The site's TLS certificate doesn't cover its own hostname — common on shared hosting
+            # platforms whose default certificate doesn't include the customer's custom domain. The
+            # cert is wrong every time, not just this request, so retrying can't help. Match the
+            # exception class name that `ssl_match_hostname.match_hostname` raises, not the hostname
+            # or cert names that follow it in the message.
+            "CertificateError": "The WordPress site's TLS certificate doesn't match its domain. This is often caused by a hosting platform's default certificate not covering a custom domain. Ask your hosting provider to install a certificate for this domain, then try again.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

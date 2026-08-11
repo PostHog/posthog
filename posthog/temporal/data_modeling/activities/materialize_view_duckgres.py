@@ -28,7 +28,12 @@ from products.managed_warehouse.backend.facade.api import (
 )
 
 from ..metrics import get_node_suspended_metric
-from .utils import CONSECUTIVE_FAILURES_TO_SUSPEND, clear_node_suspension_for_engine, maybe_suspend_node_for_engine
+from .utils import (
+    CONSECUTIVE_FAILURES_TO_SUSPEND,
+    bind_data_modeling_log_context,
+    clear_node_suspension_for_engine,
+    maybe_suspend_node_for_engine,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -163,6 +168,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
     logger = LOGGER.bind()
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
+    bind_data_modeling_log_context(inputs.team_id, saved_query.id)
     hogql_query = typing.cast(dict, saved_query.query)["query"]
     schema_name = duckgres_data_modeling_schema(team.pk)
     table_name = saved_query.normalized_name

@@ -32,14 +32,14 @@ async def tag_and_highlight_session_activity(
     """Write session tags and highlight flag to ClickHouse via Kafka."""
     try:
         # Read session metadata from the same Redis cache used by A6
-        redis_client, redis_input_key, _ = get_redis_state_client(
+        redis_state = get_redis_state_client(
             key_base=inputs.redis_key_base,
             input_label=StateActivitiesEnum.SESSION_DB_DATA,
             state_id=inputs.session_id,
         )
         llm_input = await get_data_class_from_redis(
-            redis_client=redis_client,
-            redis_key=redis_input_key,
+            redis_client=redis_state.client,
+            redis_key=redis_state.input_key,
             label=StateActivitiesEnum.SESSION_DB_DATA,
             target_class=SingleSessionSummaryLlmInputs,
         )

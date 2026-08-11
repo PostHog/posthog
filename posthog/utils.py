@@ -58,7 +58,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 
 tracer = trace.get_tracer(__name__)
 
@@ -121,7 +121,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if not url:
         return settings.SITE_URL
 
-    if has_authority_bypass_chars(url):
+    if has_ambiguous_authority(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
@@ -138,9 +138,15 @@ def absolute_uri(url: Optional[str] = None) -> str:
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
 
 
-def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class DayRange:
+    start: datetime.datetime
+    end: datetime.datetime
+
+
+def get_previous_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the preceding day.
+    Returns the start and end of the preceding day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -159,12 +165,12 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.d
         tzinfo=ZoneInfo("UTC"),
     )  # start of the previous day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
-def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.datetime, datetime.datetime]:
+def get_current_day(at: Optional[datetime.datetime] = None) -> DayRange:
     """
-    Returns a pair of datetimes, representing the start and end of the current day.
+    Returns the start and end of the current day.
     `at` is the datetime to use as a reference point.
     """
 
@@ -183,7 +189,7 @@ def get_current_day(at: Optional[datetime.datetime] = None) -> tuple[datetime.da
         tzinfo=ZoneInfo("UTC"),
     )  # start of the reference day
 
-    return (period_start, period_end)
+    return DayRange(start=period_start, end=period_end)
 
 
 def relative_date_parse_with_delta_mapping(
@@ -1618,6 +1624,14 @@ def get_safe_cache(cache_key: str):
         except Exception:
             pass
     return None
+
+
+def ensure_utc(value: dt.datetime) -> dt.datetime:
+    """Treat a tz-naive datetime as UTC, so it can be compared against tz-aware values.
+
+    ClickHouse and some third-party APIs hand back naive datetimes that are UTC by contract.
+    """
+    return value if value.tzinfo else value.replace(tzinfo=dt.UTC)
 
 
 def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:

@@ -18,16 +18,11 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-openai) and
                             [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-openai)
-                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
-                            the [Node.js
-                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-openai) and
-                            [Python
-                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-openai)
-                            examples.
+                            examples on GitHub.
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>Install the OpenTelemetry SDK, the OpenAI instrumentation, and the OpenAI SDK.</Markdown>
+                    <Markdown>Install the PostHog SDK and the OpenAI SDK.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -35,14 +30,14 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
+                                    pip install posthog openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install @posthog/ai posthog-node openai
                                 `,
                             },
                         ]}
@@ -51,13 +46,14 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to auto-instrument OpenAI SDK calls and export traces to PostHog.
-                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
+                        {dedent`
+                            Create a PostHog client, then swap in PostHog's OpenAI wrapper.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -66,54 +62,31 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.openai import OpenAI
+                                    import time, uuid, json
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
-                                        )
+                                    client = OpenAI(
+                                        api_key="your_openai_api_key",
+                                        posthog_client=posthog,
                                     )
-                                    trace.set_tracer_provider(provider)
-
-                                    OpenAIInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { OpenAIInstrumentation } from '@opentelemetry/instrumentation-openai'
+                                    import { OpenAI } from '@posthog/ai/openai'
+                                    import { PostHog } from 'posthog-node'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new OpenAIInstrumentation()],
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new OpenAI({
+                                      apiKey: 'your_openai_api_key',
+                                      posthog,
                                     })
-                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -127,8 +100,10 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the OpenAI SDK to call OpenAI, PostHog automatically captures `$ai_generation`
-                        events via the OpenTelemetry instrumentation.
+                        {dedent`
+                            When you use the wrapped client to call OpenAI, PostHog automatically captures an
+                            \`$ai_generation\` event.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -137,38 +112,36 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    import openai
-
-                                    client = openai.OpenAI(
-                                        api_key="your_openai_api_key",
-                                    )
+                                    trace_id = str(uuid.uuid4())
 
                                     response = client.responses.create(
                                         model="gpt-5-mini",
-                                        input=[
-                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                        ],
+                                        input=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                        tools=tools,
+                                        posthog_distinct_id="user_123",
+                                        posthog_trace_id=trace_id,
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                        },
                                     )
-
-                                    print(response.output_text)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import OpenAI from 'openai'
-
-                                    const client = new OpenAI({
-                                      apiKey: 'your_openai_api_key',
-                                    })
+                                    const traceId = crypto.randomUUID()
 
                                     const response = await client.responses.create({
                                       model: 'gpt-5-mini',
-                                      input: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
+                                      input: [{ role: 'user', content: "What's the weather in Paris?" }],
+                                      tools,
+                                      posthogDistinctId: 'user_123',
+                                      posthogTraceId: traceId,
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                      },
                                     })
-
-                                    console.log(response.output_text)
                                 `,
                             },
                         ]}
@@ -176,8 +149,8 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, omit `posthog_distinct_id` from the
+                            call. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -193,13 +166,90 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
             ),
         },
         {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            For standard responses, the posthog client captures it as a generation. For all tool calls, you must manually capture them as \`$ai_span\` events.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    for item in response.output:
+                                        if item.type != "function_call":
+                                            continue
+
+                                        start = time.time()
+                                        result = run_tool(item.name, json.loads(item.arguments))
+
+                                        posthog.capture(
+                                            distinct_id="user_123",
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": "conversation-abc",
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": item.name,
+                                                "$ai_input_state": item.arguments,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    for (const item of response.output) {
+                                      if (item.type !== 'function_call') continue
+
+                                      const start = Date.now()
+                                      const result = await runTool(item.name, JSON.parse(item.arguments))
+
+                                      posthog.capture({
+                                        distinctId: 'user_123',
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: 'conversation-abc',
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: item.name,
+                                          $ai_input_state: item.arguments,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                            properties.
+                        `}
+                    </Markdown>
+                </>
+            ),
+        },
+        {
             title: 'Capture embeddings',
             badge: 'optional',
             content: (
                 <>
                     <Markdown>
-                        PostHog can also capture embedding generations as `$ai_embedding` events. The OpenTelemetry
-                        instrumentation automatically captures these when you use the embeddings API:
+                        PostHog can also capture embedding generations as `$ai_embedding` events. The wrapped client
+                        captures these automatically when you use the embeddings API:
                     </Markdown>
 
                     <CodeBlock

@@ -19,6 +19,7 @@ def _company(**overrides):
         "tractionMetrics": {
             "headcount": {"latestMetricValue": 130},
             "headcountEngineering": {"latestMetricValue": 45},
+            "webTraffic": {"latestMetricValue": 551400},
         },
         "tags": [{"type": "INDUSTRY", "displayValue": "Developer Tools", "isPrimaryTag": True}],
         "tagsV2": [],
@@ -34,6 +35,7 @@ def test_transform_maps_all_registry_fields():
         "company_type": "STARTUP",
         "headcount": 130,  # tractionMetrics wins over the top-level headcount
         "headcount_engineering": 45,
+        "web_traffic": 551400,
         "industry": "Developer Tools",
         "country": "US",  # ISO alpha-2, matching the icp_country format
         "founded_year": 2019,
@@ -118,6 +120,19 @@ def test_unmapped_country_name_is_dropped_not_written_raw():
     assert fields.country is None
 
 
+def test_web_traffic_maps_from_traction_metrics():
+    fields = transform_harmonic_company(_company(tractionMetrics={"webTraffic": {"latestMetricValue": 12345}}))
+    assert fields is not None
+    assert fields.web_traffic == 12345
+
+
+def test_web_traffic_unset_when_traction_metrics_missing_key():
+    fields = transform_harmonic_company(_company(tractionMetrics={"headcount": {"latestMetricValue": 130}}))
+    assert fields is not None
+    assert fields.web_traffic is None
+    assert "web_traffic" not in fields.to_dict()
+
+
 def test_none_and_empty_payloads_return_none():
     assert transform_harmonic_company(None) is None
     assert transform_harmonic_company({}) is None
@@ -127,3 +142,65 @@ def test_partial_payload_leaves_missing_fields_unset():
     fields = transform_harmonic_company({"companyType": "ENTERPRISE"})
     assert fields is not None
     assert fields.to_dict() == {"company_type": "ENTERPRISE", "is_yc_company": False}
+
+
+@parameterized.expand(
+    [
+        ("mapped_when_present", {"ownershipStatus": "ACQUIRED_OR_MERGED"}, "ACQUIRED_OR_MERGED"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_ownership_status_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.ownership_status == expected
+    # Parent resolution is a provider-level concern (REST lookup), not part of the pure transform.
+    assert fields.parent_company is None
+    assert fields.parent_company_domain is None
+    assert "parent_company" not in fields.to_dict()
+
+
+@parameterized.expand(
+    [
+        ("dropped_with_no_round_data", "VENTURE_UNKNOWN", {}, None),
+        ("kept_with_funding_total", "VENTURE_UNKNOWN", {"fundingTotal": 5000000}, "VENTURE_UNKNOWN"),
+        ("kept_with_funding_rounds", "VENTURE_UNKNOWN", {"numFundingRounds": 1}, "VENTURE_UNKNOWN"),
+        ("real_stage_kept_with_no_round_data", "SEED", {}, "SEED"),
+    ]
+)
+def test_venture_unknown_placeholder_filtered_only_without_round_data(_name, stage, funding_overrides, expected):
+    funding = {"fundingStage": stage, **funding_overrides}
+    fields = transform_harmonic_company(_company(funding=funding))
+    assert fields is not None
+    assert fields.funding_stage == expected
+
+
+def test_venture_unknown_placeholder_dropped_entirely_from_to_dict():
+    fields = transform_harmonic_company(_company(funding={"fundingStage": "VENTURE_UNKNOWN"}))
+    assert fields is not None
+    assert "funding_stage" not in fields.to_dict()
+
+
+@parameterized.expand(
+    [
+        ("mapped_when_present", {"customerType": "B2B"}, "B2B"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_customer_type_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.customer_type == expected
+
+
+@parameterized.expand(
+    [
+        # Top-level Company field in the GraphQL schema, not nested under funding.
+        ("mapped_when_present", {"fundingAttributeNullStatus": "NULL_TRUE_ZERO"}, "NULL_TRUE_ZERO"),
+        ("unset_when_absent", {}, None),
+    ]
+)
+def test_funding_status_mapping(_name, overrides, expected):
+    fields = transform_harmonic_company(_company(**overrides))
+    assert fields is not None
+    assert fields.funding_status == expected

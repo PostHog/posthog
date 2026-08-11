@@ -84,4 +84,60 @@ describe("GitService", () => {
       new GitService().getBranchChangedFiles("posthog/code", "feature/new"),
     ).rejects.toThrow("Failed to fetch branch files");
   });
+
+  it("keeps review threads whose author account was deleted", async () => {
+    execGhMock.mockResolvedValueOnce(
+      ghResult({
+        stdout: JSON.stringify({
+          data: {
+            repository: {
+              pullRequest: {
+                reviewThreads: {
+                  pageInfo: { hasNextPage: false, endCursor: null },
+                  nodes: [
+                    {
+                      id: "thread-1",
+                      isResolved: false,
+                      isOutdated: false,
+                      path: "src/example.ts",
+                      diffSide: "RIGHT",
+                      line: 4,
+                      originalLine: 4,
+                      startLine: null,
+                      startDiffSide: null,
+                      subjectType: "LINE",
+                      comments: {
+                        nodes: [
+                          {
+                            databaseId: 42,
+                            body: "Still relevant",
+                            path: "src/example.ts",
+                            diffHunk: "@@ -1 +1 @@",
+                            replyTo: null,
+                            author: null,
+                            createdAt: "2026-08-07T00:00:00Z",
+                            updatedAt: "2026-08-07T00:00:00Z",
+                          },
+                        ],
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        }),
+      }),
+    );
+
+    const threads = await new GitService().getPrReviewComments(
+      "https://github.com/PostHog/posthog/pull/78690",
+    );
+
+    expect(threads[0]?.comments[0]?.user).toEqual({
+      login: "ghost",
+      avatar_url: "",
+      isBot: false,
+    });
+  });
 });

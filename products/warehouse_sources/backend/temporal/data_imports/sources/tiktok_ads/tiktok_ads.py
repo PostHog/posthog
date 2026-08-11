@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.settings import (
     BASE_URL,
@@ -170,17 +171,17 @@ def _iter_chunk(
     return resource
 
 
-def _get_chunk_dates(chunk_resource: dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
-    """Extract the chunk's ``(start_date, end_date)`` params, or ``(None, None)``."""
+def _get_chunk_dates(chunk_resource: dict[str, Any]) -> SyncWindow[Optional[str]]:
+    """Extract the chunk's ``start_date``/``end_date`` params (``None`` when absent)."""
     endpoint_cfg = chunk_resource.get("endpoint")
     if not isinstance(endpoint_cfg, dict):
-        return None, None
+        return SyncWindow(start=None, end=None)
     params = endpoint_cfg.get("params")
     if not isinstance(params, dict):
-        return None, None
+        return SyncWindow(start=None, end=None)
     start = params.get("start_date")
     end = params.get("end_date")
-    return (start if isinstance(start, str) else None, end if isinstance(end, str) else None)
+    return SyncWindow(start=start if isinstance(start, str) else None, end=end if isinstance(end, str) else None)
 
 
 def _resolve_resume_chunk_index(loaded: TikTokAdsResumeConfig, chunk_resources: list[dict[str, Any]]) -> Optional[int]:
@@ -198,8 +199,8 @@ def _resolve_resume_chunk_index(loaded: TikTokAdsResumeConfig, chunk_resources: 
         return None
 
     for idx, chunk in enumerate(chunk_resources):
-        start, end = _get_chunk_dates(chunk)
-        if start == loaded.chunk_start_date and end == loaded.chunk_end_date:
+        window = _get_chunk_dates(chunk)
+        if window.start == loaded.chunk_start_date and window.end == loaded.chunk_end_date:
             return idx
     return None
 
@@ -245,10 +246,10 @@ def tiktok_ads_source(
             if resumed_chunk_index is not None and chunk_index == resumed_chunk_index:
                 initial_paginator_state = {"page": resumed_page}
 
-            chunk_start, chunk_end = _get_chunk_dates(chunk_resource)
+            chunk_window = _get_chunk_dates(chunk_resource)
 
             def make_save_checkpoint(
-                idx: int, start: Optional[str], end: Optional[str]
+                idx: int, *, window: SyncWindow[Optional[str]]
             ) -> Callable[[Optional[dict[str, Any]]], None]:
                 def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
                     # The paginator only emits state while there are pages
@@ -259,8 +260,8 @@ def tiktok_ads_source(
                             TikTokAdsResumeConfig(
                                 page=int(state["page"]),
                                 chunk_index=idx,
-                                chunk_start_date=start,
-                                chunk_end_date=end,
+                                chunk_start_date=window.start,
+                                chunk_end_date=window.end,
                             )
                         )
 
@@ -273,7 +274,7 @@ def tiktok_ads_source(
                 job_id,
                 db_incremental_field_last_value,
                 initial_paginator_state,
-                make_save_checkpoint(chunk_index, chunk_start, chunk_end),
+                make_save_checkpoint(chunk_index, window=chunk_window),
             )
 
             flat = TikTokReportResource.process_resources([resource])

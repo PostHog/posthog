@@ -538,3 +538,38 @@ class TestConvexNonRetryableErrors:
     def test_transient_errors_do_not_match(self, _name: str, observed_error: str) -> None:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable_errors)
+
+
+class TestConvexRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "500",
+                "500 Server Error: Internal Server Error for url: "
+                "https://x.convex.cloud/api/list_snapshot?tableName=events&format=json",
+            ),
+            ("502", "502 Server Error: Bad Gateway for url: https://x.convex.cloud/api/document_deltas"),
+            ("503", "503 Server Error: Service Unavailable for url: https://x.convex.cloud/api/list_snapshot"),
+            ("504", "504 Server Error: Gateway Timeout for url: https://x.convex.cloud/api/document_deltas"),
+            ("cloudflare_520", "520 Server Error: Unknown Error for url: https://x.convex.cloud/api/list_snapshot"),
+            ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/list_snapshot"),
+        ]
+    )
+    def test_transient_errors_are_recognized_as_retryable(self, _name: str, observed_error: str) -> None:
+        retryable_errors = ConvexSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors), observed_error
+
+    @parameterized.expand(
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
+            ("403", "403 Client Error: Forbidden for url: https://x.convex.cloud/api/document_deltas"),
+            (
+                "invalid_window",
+                "Delta cursor for table 'events' is older than Convex's ~30 day retention window. "
+                "Please trigger a full resync of this source.",
+            ),
+        ]
+    )
+    def test_non_retryable_errors_do_not_match(self, _name: str, observed_error: str) -> None:
+        retryable_errors = ConvexSource().get_retryable_errors()
+        assert not any(key in observed_error for key in retryable_errors), observed_error

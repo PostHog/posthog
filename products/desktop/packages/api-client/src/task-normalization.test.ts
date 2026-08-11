@@ -28,6 +28,8 @@ describe("task response normalization", () => {
               type: "legacy_type",
               storage_path: "tasks/result.txt",
               uploaded_at: "2026-07-21T00:00:00Z",
+              uploaded_by: "user",
+              uploaded_by_user_id: 42,
             },
           ],
           created_at: "2026-07-21T00:00:00Z",
@@ -57,6 +59,8 @@ describe("task response normalization", () => {
           type: "artifact",
           storage_path: "tasks/result.txt",
           uploaded_at: "2026-07-21T00:00:00Z",
+          uploaded_by: "user",
+          uploaded_by_user_id: 42,
         },
       ],
       created_at: "2026-07-21T00:00:00Z",
@@ -111,5 +115,26 @@ describe("task response normalization", () => {
         state: {},
       },
     });
+  });
+
+  // Multi-repo handoff and cloud-run instructions read task.repositories, so
+  // dropping this fallback silently degrades every consumer to single-repo.
+  it.each([
+    [
+      "keeps the API's repositories list",
+      { repository: "posthog/posthog", repositories: ["a/b", "c/d"] },
+      ["a/b", "c/d"],
+    ],
+    [
+      "wraps a lone repository",
+      { repository: "posthog/posthog" },
+      ["posthog/posthog"],
+    ],
+    ["defaults to empty", {}, []],
+  ])("populates repositories (%s)", (_label, dto, expected) => {
+    expect(
+      normalizeTaskResponse({ id: "task-1", ...dto }, { teamId: 1 })
+        .repositories,
+    ).toEqual(expected);
   });
 });

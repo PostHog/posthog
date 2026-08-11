@@ -1,4 +1,5 @@
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,16 +9,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
     handle_corrupted_delta_log,
+    handle_non_retryable_error,
     handle_reset_or_full_refresh,
     persist_primary_keys,
     report_heartbeat_timeout,
     resolve_primary_keys,
+    validate_incremental_sync,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    MissingPrimaryKeysException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -171,6 +181,70 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
             assert event.host == "pod-abc"
             assert event.run_id == "run-1"
             assert event.gap_seconds == pytest.approx(gap_seconds)
+            # No workload reports were seeded, so evidence must be honestly absent (fails open), not 0.
+            assert event.self_phase is None and event.self_peak_buffer_bytes is None
+            assert event.self_report_age_at_death_seconds is None
+
+    def test_row_snapshots_workload_evidence_without_co_tenant_identifiers(self) -> None:
+        # The whole point of the stack: the dead attempt's own self-report and its pod's aggregates
+        # must survive onto the durable row (the Redis source expires in hours), and nothing on the
+        # row may carry another team's schema or run ids — this is a team-scoped table.
+        import json as _json
+
+        from django.forms.models import model_to_dict
+
+        from products.warehouse_sources.backend.temporal.data_imports import workload_report
+
+        schema = self._schema()
+        inputs = MagicMock(team_id=self.team.pk, schema_id=schema.id, source_id=str(uuid.uuid4()), run_id="run-1")
+        redis = workload_report._redis_client()
+        assert redis is not None
+        # Reports flushed 5s before the last heartbeat: fresh, so the rules may act on the evidence.
+        heartbeat_ts = datetime(2026, 7, 6, 12, 0, 0, tzinfo=UTC).timestamp() - 300
+        for run_id, schema_id, phase, peak, ts in (
+            ("run-1", str(schema.id), "merge", 900, heartbeat_ts - 5),
+            ("run-neighbour", "other-team-schema", "merge", 700_000, heartbeat_ts - 5),
+            # A neighbour that crashed an hour before the death: its lingering key must not
+            # reach the row's culprit evidence, however large its historical peak.
+            ("run-ancient", "other-team-schema-2", "merge", 9_000_000, heartbeat_ts - 3600),
+        ):
+            redis.setex(
+                workload_report.run_key(run_id),
+                60,
+                _json.dumps(
+                    {
+                        "run_id": run_id,
+                        "schema_id": schema_id,
+                        "host": "pod-abc",
+                        "phase": phase,
+                        "buffer_bytes": peak,
+                        "peak_buffer_bytes": peak,
+                        "ts": ts,
+                    }
+                ),
+            )
+            redis.sadd(workload_report.host_key("pod-abc"), run_id)
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.activity.info", return_value=self._info(attempt=2, gap_seconds=300)),
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+        ):
+            report_heartbeat_timeout(inputs, MagicMock())
+
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).get(schema_id=schema.id)
+        assert event.self_phase == "merge"
+        assert event.self_report_age_at_death_seconds == pytest.approx(5.0)
+        assert event.self_peak_buffer_bytes == 900
+        assert event.co_tenant_correlated_max_peak_buffer_bytes == 700_000, (
+            "stale neighbour peak must not reach the row"
+        )
+        assert event.co_tenant_report_count == 2
+        # The serialized row is what any admin, API or export surface would expose: no field on it
+        # may carry the co-tenant's identifiers, only the aggregates asserted above.
+        serialized_row = _json.dumps({field: str(value) for field, value in model_to_dict(event).items()})
+        assert "other-team-schema" not in serialized_row and "run-neighbour" not in serialized_row
+        # The culprit rule then discounts this row: a strictly larger co-tenant makes us the victim.
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
 
 
 # transaction=True: handle_corrupted_delta_log writes to the DB from the async thread pool
@@ -436,3 +510,85 @@ class TestHandleResetOrFullRefresh:
         helper.reset_table.assert_awaited_once()
         schema.refresh_from_db()
         assert "reset_pipeline" not in schema.sync_type_config
+
+
+class TestValidateIncrementalSync:
+    @parameterized.expand(
+        [
+            # The failure this guard exists for: a keyless incremental table can never merge into
+            # the Delta table that an earlier run already wrote.
+            ("keyless_incremental_after_first_sync_raises", True, False, None, True),
+            # The first run writes the whole table, so it doesn't need a merge key. Raising here
+            # would break every initial sync of a keyless table.
+            ("keyless_incremental_first_sync_allowed", True, True, None, False),
+            # Full refresh overwrites, so it never merges on a key.
+            ("keyless_full_refresh_allowed", False, False, None, False),
+            ("incremental_with_key_allowed", True, False, ["id"], False),
+        ]
+    )
+    def test_missing_primary_keys(
+        self,
+        _name: str,
+        is_incremental: bool,
+        is_first_sync: bool,
+        primary_keys: list[str] | None,
+        expect_raise: bool,
+    ):
+        resource = MagicMock(primary_keys=primary_keys, has_duplicate_primary_keys=False)
+
+        if not expect_raise:
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+            return
+
+        with pytest.raises(MissingPrimaryKeysException):
+            validate_incremental_sync(is_incremental, resource, is_first_sync=is_first_sync)
+
+    def test_message_stays_classified_as_non_retryable(self):
+        # The message is what pauses the schema: without a matching Any_Source_Errors entry the
+        # run is retried on every schedule even though only the user can resolve it.
+        message = str(MissingPrimaryKeysException())
+        assert [key for key in Any_Source_Errors if key in message]
+
+
+class TestHandleNonRetryableError:
+    def _fake_get_redis(self, incr_return: int):
+        redis_client = MagicMock(incr=AsyncMock(return_value=incr_return), expire=AsyncMock())
+
+        @asynccontextmanager
+        async def _get_redis():
+            yield redis_client
+
+        return _get_redis
+
+    def test_retry_attempt_is_not_reported_to_error_tracking(self):
+        # `handle_non_retryable_error` only runs once a source has already classified `error` as
+        # a known non-retryable condition (e.g. Meta Ads' "Ad account owner has NOT granted
+        # ads_read permission"). Re-raising the raw `error` on a below-limit attempt reported that
+        # already-understood error to error tracking on every retry; it must come back as a
+        # NonReportableError so the activity interceptor skips capturing it.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=1)):
+            with pytest.raises(NonReportableError) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert not isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+
+    def test_gives_up_after_retry_limit_without_reporting(self):
+        # Past the retry budget, the give-up exception is the exact same already-classified
+        # condition and must stay out of error tracking too.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+
+        with patch(
+            f"{_EXTRACT_MODULE}._get_redis", self._fake_get_redis(incr_return=NON_RETRYABLE_ERROR_RETRY_LIMIT + 1)
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonReportableError)
+        assert exc_info.value.__cause__ is original_error

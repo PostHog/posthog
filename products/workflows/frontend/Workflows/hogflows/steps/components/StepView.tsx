@@ -28,6 +28,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         selectedNodeCanBeCopiedOrMoved,
         animatingEdgePair,
         workflow,
+        isZoomedOutFar,
     } = useValues(hogFlowEditorLogic)
     const { setSelectedNodeId, startCopyingNode, startMovingNode } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps, scheduleState, scheduleStartsAt, isScheduleRepeating } =
@@ -184,7 +185,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 className="text-[0.3rem] text-muted !bg-transparent !border-0 !shadow-none !p-0 !px-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden !rounded-sm"
                             />
                         </div>
-                    ) : (
+                    ) : isZoomedOutFar ? null : (
                         <Tooltip title={scheduleDescription ?? action.description ?? ''}>
                             <div
                                 className={`text-[0.3rem]/1.5 text-muted line-clamp-2 !rounded-sm px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 min-h-[0.45rem] overflow-hidden ${isSelected && !isScheduleTrigger(action) ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}

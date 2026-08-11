@@ -1,6 +1,6 @@
 import re
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +15,7 @@ from rest_framework import exceptions
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
     from types_boto3_sesv2.client import SESV2Client
+    from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
 logger = logging.getLogger(__name__)
 
@@ -82,34 +83,70 @@ class SESProvider:
             sending_status = entity.get("SendingStatusAggregate", sending_status)
 
             # RESOURCE_ARN is the only filter key AWS documents as usable on its own with this
-            # scoping; STATUS is filtered locally because the documented two-key combinations
-            # (STATUS+IMPACT, STATUS+TYPE) don't include RESOURCE_ARN.
-            finding_filter: dict[Any, str] = {"RESOURCE_ARN": tenant_arn}
-            next_token: str | None = None
-            while True:
-                if next_token:
-                    page = self.ses_v2_client.list_recommendations(Filter=finding_filter, NextToken=next_token)
-                else:
-                    page = self.ses_v2_client.list_recommendations(Filter=finding_filter)
-                findings.extend(
-                    {
-                        "finding_type": recommendation.get("Type", ""),
-                        "impact": recommendation.get("Impact", "LOW"),
-                        "description": recommendation.get("Description", ""),
-                        "last_updated_at": recommendation.get("LastUpdatedTimestamp"),
-                    }
-                    for recommendation in page.get("Recommendations", [])
-                    if recommendation.get("Status") == "OPEN"
-                )
-                next_token = page.get("NextToken")
-                if not next_token:
-                    break
+            # scoping (see _iter_open_recommendations for why STATUS is filtered locally).
+            findings.extend(
+                {
+                    "finding_type": recommendation.get("Type", ""),
+                    "impact": recommendation.get("Impact", "LOW"),
+                    "description": recommendation.get("Description", ""),
+                    "last_updated_at": recommendation.get("LastUpdatedTimestamp"),
+                }
+                for recommendation in self._iter_open_recommendations({"RESOURCE_ARN": tenant_arn})
+            )
 
         return {
             "sending_status": sending_status,
             "reputation_impact": reputation_impact,
             "findings": findings,
         }
+
+    def _iter_open_recommendations(self, finding_filter: dict[Any, str] | None) -> Iterator["RecommendationTypeDef"]:
+        """
+        Walk every page of ListRecommendations, yielding only OPEN recommendations. The local
+        STATUS check exists for RESOURCE_ARN-filtered calls: AWS documents STATUS as combinable
+        only with IMPACT or TYPE, so tenant-scoped listings must drop FIXED entries client-side.
+        """
+        kwargs: dict[str, Any] = {"Filter": finding_filter} if finding_filter else {}
+        while True:
+            page = self.ses_v2_client.list_recommendations(**kwargs)
+            for recommendation in page.get("Recommendations", []):
+                if recommendation.get("Status") == "OPEN":
+                    yield recommendation
+            next_token = page.get("NextToken")
+            if not next_token:
+                return
+            kwargs["NextToken"] = next_token
+
+    def get_account_reputation(self) -> dict[str, Any]:
+        """
+        Account-level SES verdict: enforcement status plus every open reputation finding,
+        classified by the resource it references. AWS opens findings well before it enforces,
+        so this is the earliest account-scoped warning available.
+        """
+        # Strict access on purpose: a response without EnforcementStatus must fail the poll
+        # (surfacing via the staleness alert) rather than be reported as healthy.
+        enforcement_status: str = self.ses_v2_client.get_account()["EnforcementStatus"]
+        findings = [
+            {
+                "finding_type": recommendation.get("Type", ""),
+                "impact": recommendation.get("Impact", "LOW"),
+                "scope": self._finding_scope(recommendation.get("ResourceArn", "")),
+                "description": recommendation.get("Description", ""),
+            }
+            for recommendation in self._iter_open_recommendations({"STATUS": "OPEN"})
+        ]
+        return {"enforcement_status": enforcement_status, "findings": findings}
+
+    @staticmethod
+    def _finding_scope(resource_arn: str) -> str:
+        # Tenant and identity findings are a customer's sender health; anything else
+        # (configuration sets, the account itself, an unrecognized or missing ARN) is
+        # treated as shared infrastructure so classification errs toward alerting us.
+        if ":tenant/" in resource_arn:
+            return "tenant"
+        if ":identity/" in resource_arn:
+            return "identity"
+        return "account"
 
     @cached_property
     def _aws_account_id(self) -> str:

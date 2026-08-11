@@ -12,8 +12,9 @@ import {
     HogFunctionType,
 } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { dualWrite } from '../utils/dual-store'
 import { createInvocation } from '../utils/invocation-utils'
-import { HogExecutorService } from './hog-executor.service'
+import { HogExecutorAsyncService } from './hog-executor-async.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { GroupsManagerService } from './managers/groups-manager.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
@@ -44,9 +45,10 @@ export class BatchExportHogFunctionService {
         private teamManager: TeamManager,
         private groupsManager: GroupsManagerService,
         private hogFunctionManager: HogFunctionManagerService,
-        private hogExecutor: HogExecutorService,
+        private hogExecutorAsync: HogExecutorAsyncService,
         private hogWatcher: HogWatcherService,
-        private invocationResultsService: InvocationResultsService
+        private invocationResultsService: InvocationResultsService,
+        private hogWatcherMirror: HogWatcherService
     ) {
         this.promiseScheduler = new PromiseScheduler()
     }
@@ -84,11 +86,11 @@ export class BatchExportHogFunctionService {
         const globals = this.buildRequestGlobals(clickhouse_event as RawClickHouseEvent, hogFunction, team)
         await this.groupsManager.addGroupsToGlobals(globals)
 
-        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        const globalsWithInputs = await this.hogExecutorAsync.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
         invocation.id = invocationId.toString()
 
-        const result = await this.hogExecutor.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 }) // Retries are handled by the batch export service
+        const result = await this.hogExecutorAsync.executeWithAsyncFunctions(invocation, { maxFetchRetries: 0 }) // Retries are handled by the batch export service
 
         // TODO: Follow up - we might want to more accuratelt link an execution to the fact it came from a batch export
         // We have the parent_id but that overrides the function id which is not always what we want
@@ -97,7 +99,11 @@ export class BatchExportHogFunctionService {
         void this.promiseScheduler.schedule(
             Promise.all([
                 this.invocationResultsService.queueInvocationResultsAndFlush([result]),
-                this.hogWatcher.observeResultsBuffered(result),
+                dualWrite(
+                    'hog-watcher.observeResultsBuffered',
+                    () => this.hogWatcher.observeResultsBuffered(result),
+                    () => this.hogWatcherMirror.observeResultsBuffered(result)
+                ),
             ])
         )
 

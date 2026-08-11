@@ -910,6 +910,42 @@ describe("AuthService", () => {
     });
   });
 
+  it("restores the saved project and its organization after an external organization switch", async () => {
+    seedStoredSession({ selectedProjectId: 11 });
+    oauthFlow.refreshToken.mockResolvedValue(
+      mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+    );
+    stubAuthFetch({
+      currentOrgId: "org-2",
+      orgs: {
+        "org-1": {
+          name: "Org 1",
+          projects: [{ id: 11, name: "Project 11" }],
+        },
+        "org-2": {
+          name: "Org 2",
+          projects: [{ id: 22, name: "Project 22" }],
+        },
+      },
+    });
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    await service.initialize();
+
+    expect(service.getState()).toMatchObject({
+      status: "authenticated",
+      currentOrgId: "org-1",
+      currentProjectId: 11,
+    });
+    expect(sessionPort.getCurrent()?.selectedProjectId).toBe(11);
+
+    const patchCall = fetchSpy.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "PATCH",
+    );
+    expect(patchCall).toBeUndefined();
+  });
+
   describe("lifecycle: connectivity recovery", () => {
     it("recovers session when connectivity changes to online", async () => {
       seedStoredSession({ selectedProjectId: 42 });

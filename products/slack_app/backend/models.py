@@ -47,6 +47,17 @@ class SlackThreadTaskMapping(UUIDModel):
                 name="uniq_slack_thread_task_mapping",
             )
         ]
+        indexes = [
+            # Serves the workspace-wide activity aggregates on the App Home tab, which scan a
+            # whole workspace over a date window rather than a single thread. `team_id` rides
+            # along as an INCLUDE column so the accessible-projects filter is evaluated off the
+            # index instead of a heap fetch per candidate row.
+            models.Index(
+                fields=["slack_workspace_id", "created_at"],
+                include=["team_id"],
+                name="slack_thr_map_ws_created_idx",
+            ),
+        ]
 
 
 class SlackUserProfileCache(UUIDModel):

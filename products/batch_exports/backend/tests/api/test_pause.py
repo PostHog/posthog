@@ -25,11 +25,12 @@ pytestmark = [
 ]
 
 
-def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organization, team, user):
+def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
     """Test pausing and unpausing a BatchExport."""
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -75,10 +76,11 @@ def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organizati
 
 
 def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
-    client: HttpClient, temporal, organization, team, user
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
 ):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -139,9 +141,12 @@ def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
     assert schedule_desc.schedule.state.paused is True
 
 
-def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user):
+def test_pause_and_unpause_are_partitioned_by_team_id(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -194,11 +199,14 @@ def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient, tempor
     assert schedule_desc.schedule.state.paused is True
 
 
-def test_pause_batch_export_that_is_already_paused(client: HttpClient, temporal, organization, team, user):
+def test_pause_batch_export_that_is_already_paused(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     """Test pausing a BatchExport that is already paused doesn't actually do anything."""
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -243,11 +251,14 @@ def test_pause_batch_export_that_is_already_paused(client: HttpClient, temporal,
     assert last_updated_at == data["last_updated_at"]
 
 
-def test_unpause_batch_export_that_is_already_unpaused(client: HttpClient, temporal, organization, team, user):
+def test_unpause_batch_export_that_is_already_unpaused(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+):
     """Test unpausing a BatchExport that is already unpaused doesn't actually do anything."""
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -283,11 +294,12 @@ def test_unpause_batch_export_that_is_already_unpaused(client: HttpClient, tempo
     assert last_updated_at == data["last_updated_at"]
 
 
-def test_pause_non_existent_batch_export(client: HttpClient, temporal, organization, team, user):
+def test_pause_non_existent_batch_export(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
     """Test pausing a BatchExport that doesn't exist."""
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -321,11 +333,12 @@ def test_pause_non_existent_batch_export(client: HttpClient, temporal, organizat
     assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organization, team, user):
+def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
     """Test unpausing a BatchExport can trigger a backfill."""
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

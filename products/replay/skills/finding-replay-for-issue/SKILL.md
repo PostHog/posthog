@@ -172,3 +172,9 @@ If the user wants a narrative summary without watching, use Replay Vision —
   comes from its own prompt. For error-focused summaries, prefer (or create) a
   summarizer scanner whose prompt targets error/exception context rather than the
   whole session.
+
+## Related skills
+
+- **`investigating-error-issue`** — the quantitative side: volume, breakdowns, and stack traces for the same issue
+- **`investigating-replay`** — deep-dive one of the linked sessions
+- **`diagnosing-missing-recordings`** — when exception events have no $session_id or the linked recordings are gone

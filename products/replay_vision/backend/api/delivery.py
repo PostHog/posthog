@@ -1,9 +1,13 @@
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 from typing import Any
 
 from django.db.models import QuerySet
 
 import structlog
-from rest_framework.request import Request
 
 from posthog.models import Team
 
@@ -116,7 +120,7 @@ def _destination_payload(action: VisionAction, target: dict[str, Any]) -> dict[s
     return _slack_destination_payload(action, target)
 
 
-def provision_delivery(action: VisionAction, *, request: Request, team: Team) -> None:
+def provision_delivery(action: VisionAction, *, user: "User", team: Team) -> None:
     """Reconcile this action's `internal_destination` HogFunctions to its `delivery_config`.
 
     Archive-and-recreate: drop the action's managed destinations, then create one per delivery target
@@ -127,8 +131,9 @@ def provision_delivery(action: VisionAction, *, request: Request, team: Team) ->
     if not action.enabled or not action.delivery_config:
         return
 
-    # HogFunctionSerializer.create() reads context["request"].user, so provisioning stays in the viewset.
-    context = {"request": request, "team_id": team.id, "get_team": lambda: team, "is_create": True}
+    # `HogFunctionSerializer.create()` reads only `context["request"].user`, so a user is all this needs.
+    # Taking one rather than a Request lets callers outside a viewset (the Max tools) provision too.
+    context = {"request": SimpleNamespace(user=user), "team_id": team.id, "get_team": lambda: team, "is_create": True}
     for target in action.delivery_config:
         serializer = HogFunctionSerializer(data=_destination_payload(action, target), context=context)
         serializer.is_valid(raise_exception=True)

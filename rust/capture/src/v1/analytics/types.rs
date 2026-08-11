@@ -23,6 +23,7 @@ impl io::Write for StringWriter<'_> {
     }
 }
 
+use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::Destination;
@@ -217,6 +218,15 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub force_disable_person_processing: bool,
+    /// Set when the overflow limiter decided this key is bursting and should
+    /// be spread across the overflow topic's partitions. Deliberately separate
+    /// from `force_disable_person_processing`: spreading a hot key is a
+    /// partitioning decision, while disabling person processing is a
+    /// customer-visible instruction to skip identity resolution, and the
+    /// overflow limiter only means the former. Consumed by `ordering()`,
+    /// which realizes it only on lanes whose consumers do not write persons —
+    /// elsewhere the key holds until person processing is off.
+    pub spread_partitions: bool,
     /// Set by the gateway-provenance step when a valid signature was verified;
     /// read by the quota shim to exempt the event from the llm_events limiter.
     pub is_gateway_verified: bool,
@@ -248,10 +258,10 @@ impl SinkEvent for WrappedEvent {
     // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
     // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
-        // v0 compat: downstream consumers key on "force_disable_person_processing".
-        // v1 decouples overflow routing from person-processing (unlike v0 where
-        // overflow ForceLimited unconditionally sets this); operators configure
-        // this flag alongside ForceOverflow when needed.
+        // Downstream treats this header as absolute: `decideProcessPerson` in
+        // nodejs/src/common/persons/person-utils.ts skips person processing
+        // outright when it is set. So it carries only the person-processing
+        // decision, never the partitioning one, which travels as `ordering()`.
         let force_disable_person_processing = if self.force_disable_person_processing {
             Some(true)
         } else {
@@ -317,6 +327,26 @@ impl SinkEvent for WrappedEvent {
             }
         }
         buf
+    }
+
+    /// Computed here rather than stamped during processing because it depends
+    /// on the final destination: `apply_restrictions` can disable person
+    /// processing while an event is still `AnalyticsMain`, and
+    /// `apply_historical_rerouting` may afterwards move it to
+    /// `AnalyticsHistorical`, whose consumers need the key. Deciding late
+    /// keeps the rule correct no matter how the stages are ordered.
+    fn ordering(&self) -> OrderingGuarantee {
+        if !self.destination.absorbs_hot_keys() {
+            return OrderingGuarantee::PerDistinctId;
+        }
+        // A spread decision takes effect on its own only where the consumer
+        // does not write persons; on person-writing lanes the key holds until
+        // person processing is off, so the person flag alone decides there
+        // (see `Destination::writes_persons`).
+        if self.spread_partitions && !self.destination.writes_persons() {
+            return OrderingGuarantee::None;
+        }
+        person_ordering(self.force_disable_person_processing)
     }
 
     fn serialize(&self, ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
@@ -1024,6 +1054,100 @@ mod tests {
         test_utils::wrapped_event(event_name, distinct_id)
     }
 
+    /// One row of the ordering matrix: the lane, plus the two event stamps
+    /// `ordering()` consults — `person_off` mirrors
+    /// `force_disable_person_processing`, `spread` mirrors `spread_partitions`.
+    struct Stamps {
+        destination: Destination,
+        person_off: bool,
+        spread: bool,
+    }
+
+    impl Stamps {
+        fn on(destination: Destination) -> Self {
+            Self {
+                destination,
+                person_off: false,
+                spread: false,
+            }
+        }
+    }
+
+    /// The ordering rule, per lane and per reason for giving ordering up. The
+    /// `spread`-without-`person_off` rows are the ones that matter most:
+    /// on the person-writing analytics lanes a bursting key must keep its
+    /// partition key while person processing is on (spreading one distinct id
+    /// across partitions contends the consumer's person updates), while the
+    /// read-only AI overflow lane spreads it immediately.
+    #[rstest::rstest]
+    #[case::main_untouched(
+        Stamps::on(Destination::AnalyticsMain),
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::main_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsMain) },
+        OrderingGuarantee::None
+    )]
+    #[case::main_spread(
+        Stamps { spread: true, ..Stamps::on(Destination::AnalyticsMain) },
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::overflow_untouched(Stamps::on(Destination::Overflow), OrderingGuarantee::PerDistinctId)]
+    #[case::overflow_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::Overflow) },
+        OrderingGuarantee::None
+    )]
+    #[case::overflow_spread(
+        Stamps { spread: true, ..Stamps::on(Destination::Overflow) },
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::overflow_spread_person_off(
+        Stamps { person_off: true, spread: true, ..Stamps::on(Destination::Overflow) },
+        OrderingGuarantee::None
+    )]
+    #[case::ai_overflow_spread(
+        Stamps { spread: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        OrderingGuarantee::None
+    )]
+    #[case::ai_overflow_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::AiEventsOverflow) },
+        OrderingGuarantee::None
+    )]
+    // Lanes whose consumers need the key regardless: person processing being
+    // off must not spread them, matching v0's route().
+    #[case::ai_main_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::AiEvents) },
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::historical_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::AnalyticsHistorical) },
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::dlq_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::Dlq) },
+        OrderingGuarantee::PerDistinctId
+    )]
+    #[case::custom_person_off(
+        Stamps { person_off: true, ..Stamps::on(Destination::Custom("t".into())) },
+        OrderingGuarantee::PerDistinctId
+    )]
+    fn ordering_per_lane(#[case] stamps: Stamps, #[case] expected: OrderingGuarantee) {
+        let ctx = test_utils::test_context();
+        let mut ev = ok_wrapped("$pageview", "user-1");
+        ev.destination = stamps.destination;
+        ev.force_disable_person_processing = stamps.person_off;
+        ev.spread_partitions = stamps.spread;
+
+        assert_eq!(ev.ordering(), expected);
+        // The header tracks the person-processing flag and nothing else, so
+        // spreading a key never asks downstream to skip identity resolution.
+        assert_eq!(
+            ev.headers(&ctx).force_disable_person_processing,
+            stamps.person_off.then_some(true),
+            "the header must follow the person flag alone"
+        );
+    }
+
     #[rstest::rstest]
     #[case::ok_main(EventResult::Ok, Destination::AnalyticsMain)]
     #[case::ok_historical(EventResult::Ok, Destination::AnalyticsHistorical)]
@@ -1329,6 +1453,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         }
     }
@@ -1511,6 +1636,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1553,6 +1679,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1594,6 +1721,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1632,6 +1760,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1673,6 +1802,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1792,6 +1922,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: true,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1835,6 +1966,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1876,6 +2008,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 
@@ -1913,6 +2046,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            spread_partitions: false,
             is_gateway_verified: false,
         };
 

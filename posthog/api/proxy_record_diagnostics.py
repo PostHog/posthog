@@ -27,7 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
-    CustomHostnameInfo,
+    CustomHostname,
     CustomHostnameSSLStatus,
     get_custom_hostname_by_domain,
 )
@@ -327,7 +327,7 @@ def _check_cname(record: ProxyRecord) -> CheckResult:
         )
 
 
-def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[CustomHostnameInfo]]:
+def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[CustomHostname]]:
     try:
         info = get_custom_hostname_by_domain(record.domain)
     except CloudflareAPIError as e:
@@ -436,7 +436,7 @@ def _check_cloudflare(record: ProxyRecord) -> tuple[CheckResult, Optional[Custom
     )
 
 
-def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostnameInfo], *, is_cloudflare: bool) -> CheckResult:
+def _check_caa(record: ProxyRecord, hostname_info: Optional[CustomHostname], *, is_cloudflare: bool) -> CheckResult:
     """
     Walk up the DNS tree from `record.domain` to apex, looking for the first non-empty
     set of CAA records. Per RFC 8659, the first non-empty CAA result wins — climbing
@@ -515,7 +515,7 @@ def _extract_caa_issuers(answer: dns.resolver.Answer) -> list[str]:
     return issuers
 
 
-def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostnameInfo) -> CheckResult:
+def _check_http_challenge(record: ProxyRecord, hostname_info: CustomHostname) -> CheckResult:
     challenge_url = hostname_info.ssl.http_url
     expected_body = hostname_info.ssl.http_body
     if not challenge_url or not expected_body:

@@ -90,7 +90,7 @@ function SurveyResultsWidgetTileStory({
 }
 
 const meta: Meta<typeof SurveyResultsWidgetTileStory> = {
-    title: 'Dashboards/Dashboard Widgets/Widget types/Surveys/Survey results',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Surveys/Survey results',
     component: SurveyResultsWidgetTileStory,
     parameters: {
         layout: 'padded',

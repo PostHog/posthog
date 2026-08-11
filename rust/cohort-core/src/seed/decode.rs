@@ -7,7 +7,9 @@
 use serde::Deserialize;
 
 use super::person::{PersonSeed, PERSON_KIND, PERSON_SCHEMA_VERSION};
-use super::reconcile::{ReconcileTile, RECONCILE_KIND, RECONCILE_SCHEMA_VERSION};
+use super::reconcile::{
+    ReconcileTile, RECONCILE_KIND, RECONCILE_PERSON_KIND, RECONCILE_SCHEMA_VERSION,
+};
 use super::tile::{SeedTile, SCHEMA_VERSION, TILE_KIND};
 
 /// The probe outcome for a supported-or-not payload. `UnknownKind` covers kinds this consumer does
@@ -33,16 +35,20 @@ pub fn decode_seed(payload: &[u8]) -> Result<DecodedSeed, serde_json::Error> {
         TILE_KIND if probe.schema_version == SCHEMA_VERSION => {
             Ok(DecodedSeed::Tile(serde_json::from_slice(payload)?))
         }
-        RECONCILE_KIND if probe.schema_version == RECONCILE_SCHEMA_VERSION => {
+        RECONCILE_KIND | RECONCILE_PERSON_KIND
+            if probe.schema_version == RECONCILE_SCHEMA_VERSION =>
+        {
             Ok(DecodedSeed::Reconcile(serde_json::from_slice(payload)?))
         }
         PERSON_KIND if probe.schema_version == PERSON_SCHEMA_VERSION => {
             Ok(DecodedSeed::Person(serde_json::from_slice(payload)?))
         }
-        TILE_KIND | RECONCILE_KIND | PERSON_KIND => Ok(DecodedSeed::UnsupportedSchema {
-            kind: probe.kind,
-            schema_version: probe.schema_version,
-        }),
+        TILE_KIND | RECONCILE_KIND | RECONCILE_PERSON_KIND | PERSON_KIND => {
+            Ok(DecodedSeed::UnsupportedSchema {
+                kind: probe.kind,
+                schema_version: probe.schema_version,
+            })
+        }
         _ => Ok(DecodedSeed::UnknownKind {
             kind: probe.kind,
             schema_version: probe.schema_version,
@@ -58,8 +64,8 @@ mod tests {
 
     use crate::filters::TeamId;
     use crate::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileTile, RunId, SChunkMs,
-        ScannedAtMs,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, PersonShapeHash,
+        ReconcileScope, ReconcileTile, RunId, SChunkMs, ScannedAtMs,
     };
 
     use super::*;
@@ -82,10 +88,12 @@ mod tests {
         serde_json::to_value(ReconcileTile::new(
             TeamId(2),
             crate::filters::CohortId(42),
-            BehavioralShapeHash::parse(
-                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-            )
-            .unwrap(),
+            ReconcileScope::Behavioral(
+                BehavioralShapeHash::parse(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                )
+                .unwrap(),
+            ),
             RunId(Uuid::nil()),
         ))
         .unwrap()
@@ -118,6 +126,29 @@ mod tests {
         assert_eq!(
             decode(&reconcile).unwrap(),
             DecodedSeed::Reconcile(serde_json::from_value(reconcile.clone()).unwrap()),
+        );
+
+        // A person-scoped reconcile rides its own kind, which this probe must admit — a consumer
+        // without this arm routes it to `UnknownKind` instead.
+        let person_reconcile = serde_json::to_value(ReconcileTile::new(
+            TeamId(2),
+            crate::filters::CohortId(42),
+            ReconcileScope::PersonProperty(
+                PersonShapeHash::parse(
+                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                )
+                .unwrap(),
+            ),
+            RunId(Uuid::nil()),
+        ))
+        .unwrap();
+        assert_eq!(
+            person_reconcile["kind"],
+            serde_json::json!("reconcile_person")
+        );
+        assert_eq!(
+            decode(&person_reconcile).unwrap(),
+            DecodedSeed::Reconcile(serde_json::from_value(person_reconcile.clone()).unwrap()),
         );
 
         let person = person_json();
@@ -161,16 +192,22 @@ mod tests {
             }
         );
 
-        let mut newer_reconcile = reconcile.clone();
-        newer_reconcile["schema_version"] = serde_json::json!(2);
-        newer_reconcile["filters_hash"] = serde_json::json!("");
-        assert_eq!(
-            decode(&newer_reconcile).unwrap(),
-            DecodedSeed::UnsupportedSchema {
-                kind: "reconcile".to_string(),
-                schema_version: 2,
-            },
-        );
+        // Both reconcile kinds have to reach the unsupported-schema arm. A person tile at a future
+        // schema that missed it would count as `unknown_kind` instead, reading as "some other
+        // producer's message" rather than "this message is ours and we are too old for it".
+        for base in [&reconcile, &person_reconcile] {
+            let mut newer_reconcile = base.clone();
+            let kind = newer_reconcile["kind"].as_str().unwrap().to_string();
+            newer_reconcile["schema_version"] = serde_json::json!(2);
+            newer_reconcile["filters_hash"] = serde_json::json!("");
+            assert_eq!(
+                decode(&newer_reconcile).unwrap(),
+                DecodedSeed::UnsupportedSchema {
+                    kind,
+                    schema_version: 2,
+                },
+            );
+        }
 
         // A supported kind/schema with a malformed body is a decode error, not a skip: the probe
         // admits it, the full parse rejects it (zero count here).

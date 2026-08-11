@@ -19,7 +19,7 @@ pytestmark = [
 ]
 
 
-def test_list_batch_exports(client: HttpClient, organization, team, user):
+def test_list_batch_exports(client: HttpClient, organization, team, user, aws_s3_integration):
     """
     Should be able to list batch exports.
     """
@@ -27,6 +27,7 @@ def test_list_batch_exports(client: HttpClient, organization, team, user):
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -58,7 +59,9 @@ def test_list_batch_exports(client: HttpClient, organization, team, user):
     assert len(response["results"]) == 0
 
 
-def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient, organization, team, user):
+def test_cannot_list_batch_exports_for_other_organizations(
+    client: HttpClient, organization, team, user, aws_s3_integration
+):
     """
     Should not be able to list batch exports for other teams.
     """
@@ -68,6 +71,7 @@ def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient, o
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -96,7 +100,7 @@ def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient, o
     assert len(response["results"]) == 0
 
 
-def test_list_is_partitioned_by_team(client: HttpClient, organization, team, user):
+def test_list_is_partitioned_by_team(client: HttpClient, organization, team, user, aws_s3_integration):
     """
     Should be able to list batch exports for a specific team.
     """
@@ -104,6 +108,7 @@ def test_list_is_partitioned_by_team(client: HttpClient, organization, team, use
 
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -153,7 +158,9 @@ def enable_backfilling_workflows(team):
         )
 
 
-def test_list_filters_workflows_destination(client: HttpClient, organization, team, user, enable_backfilling_workflows):
+def test_list_filters_workflows_destination(
+    client: HttpClient, organization, team, user, aws_s3_integration, enable_backfilling_workflows
+):
     """
     Workflows should be filtered out from the list.
     """
@@ -161,6 +168,7 @@ def test_list_filters_workflows_destination(client: HttpClient, organization, te
 
     s3_destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

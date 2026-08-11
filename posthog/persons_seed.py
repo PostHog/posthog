@@ -177,7 +177,7 @@ def update_seed_person(
 
 
 @dataclasses.dataclass
-class PersonData:
+class SeedPerson:
     """A person fetched from the persons database for dev/seed event generation."""
 
     distinct_id: str
@@ -186,7 +186,7 @@ class PersonData:
     created_at: Any
 
 
-def fetch_recent_persons_with_distinct_id(team_id: int, *, limit: int = 50) -> list[PersonData]:
+def fetch_recent_persons_with_distinct_id(team_id: int, *, limit: int = 50) -> list[SeedPerson]:
     """Return up to ``limit`` most-recently-created persons that have a distinct ID.
 
     Each person is paired with one of its distinct IDs; the inner lateral join drops
@@ -203,6 +203,6 @@ def fetch_recent_persons_with_distinct_id(team_id: int, *, limit: int = 50) -> l
         cursor.execute(query, {"team_id": team_id, "limit": limit})
         rows = cursor.fetchall()
     return [
-        PersonData(person_uuid=str(row[0]), properties=row[1] or {}, created_at=row[2], distinct_id=row[3])
+        SeedPerson(person_uuid=str(row[0]), properties=row[1] or {}, created_at=row[2], distinct_id=row[3])
         for row in rows
     ]

@@ -36,6 +36,9 @@ services:
         extends:
             file: docker-compose.base.yml
             service: db
+        # Throwaway smoke database: durability off makes the full-migrate
+        # fallback several times faster.
+        command: postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off
         ports:
             - '5432:5432'
 

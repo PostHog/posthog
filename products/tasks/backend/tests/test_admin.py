@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from django.urls import reverse
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun
 
 
 class TestTaskRunAdminDownloadLogs(BaseTest):
@@ -71,6 +71,28 @@ class TestTaskRunAdminDownloadLogs(BaseTest):
 
         self.assertEqual(resp.status_code, 404)
         mock_head.assert_not_called()
+
+    def test_other_users_private_space_run_returns_404(self):
+        other_user = self._create_user("other@example.com")
+        private_channel = Channel.objects.unscoped().create(
+            team=self.team,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=other_user,
+        )
+        private_task = Task.objects.create(
+            team=self.team,
+            channel=private_channel,
+            title="private",
+            description="private",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=other_user,
+        )
+        private_run = TaskRun.objects.create(task=private_task, team=self.team)
+
+        response = self.client.get(reverse("admin:tasks_taskrun_download_logs", args=[private_run.id]))
+
+        self.assertEqual(response.status_code, 404)
 
     def test_non_staff_cannot_access(self):
         self.user.is_staff = False

@@ -22,6 +22,11 @@ describe('early data derivations', () => {
             { totalCalls: 42, distinctClients: 3, errorCalls: 4, topTool: 'search_docs' },
             /^42 tool calls from 3 clients so far — search_docs is the favorite, 4 failures worth a look$/,
         ],
+        // Big client and failure counts get thousands separators, unlike the abbreviated call count.
+        [
+            { totalCalls: 21_700_000, distinctClients: 1051, errorCalls: 533_638, topTool: 'execute-sql' },
+            /^21\.7M tool calls from 1,051 clients so far — execute-sql is the favorite, 533,638 failures worth a look$/,
+        ],
         // Failures read grammatically even without a favorite tool.
         [
             { totalCalls: 42, distinctClients: 0, errorCalls: 1, topTool: null },

@@ -95,6 +95,18 @@ if (typeof Element.prototype.getAnimations !== "function") {
   Element.prototype.getAnimations = () => [];
 }
 
+// jsdom implements no scrolling at all. Panes that reveal a row — a comment
+// thread, a timeline's newest message — usually do it from an animation frame
+// or a timer, so the missing method surfaces as an uncaught exception *after*
+// the test that scheduled it has passed, failing the whole run on an unrelated
+// file. No-ops here; a test that cares about the scroll spies on these.
+if (typeof Element.prototype.scrollIntoView !== "function") {
+  Element.prototype.scrollIntoView = () => {};
+}
+if (typeof Element.prototype.scrollTo !== "function") {
+  Element.prototype.scrollTo = () => {};
+}
+
 // jsdom does not implement matchMedia; UI stores (e.g. themeStore) read it at
 // module load to resolve the system color scheme.
 Object.defineProperty(window, "matchMedia", {

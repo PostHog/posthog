@@ -53,7 +53,7 @@ describe("isCanvasGenerationRunning", () => {
     ).toBe(true);
   });
 
-  it.each<[string, Run, Session | undefined, boolean]>([
+  it.each<[string, Run, GenSession | undefined, boolean]>([
     ["in_progress, no session", run("cloud", "in_progress"), undefined, true],
     [
       "session cloudStatus terminal overrides run record",
@@ -62,6 +62,26 @@ describe("isCanvasGenerationRunning", () => {
       false,
     ],
     ["run record terminal", run("cloud", "failed"), undefined, false],
+    // The lingering sandbox: the run stays in_progress until the inactivity
+    // timeout, so once a session mirror exists its turn-level signal decides.
+    [
+      "turn active on the lingering sandbox",
+      run("cloud", "in_progress"),
+      genSession("connected", { isPromptPending: true }),
+      true,
+    ],
+    [
+      "turn settled on the lingering sandbox",
+      run("cloud", "in_progress"),
+      genSession("connected", { isPromptPending: false }),
+      false,
+    ],
+    [
+      "session still attaching/replaying",
+      run("cloud", "in_progress"),
+      genSession("connecting"),
+      true,
+    ],
   ])("cloud: %s", (_label, latestRun, sess, expected) => {
     expect(
       isCanvasGenerationRunning({
@@ -160,6 +180,28 @@ describe("isCanvasGenerating", () => {
       run("cloud", "in_progress"),
       genSession("connected", { cloudStatus: "completed" }),
       false,
+    ],
+    // Cloud mirrors local here: the sandbox lingers for follow-ups (the run
+    // record completes only on the inactivity timeout), so the session's
+    // turn-level prompt-pending — not the run status — says whether the agent
+    // is still producing.
+    [
+      "cloud turn active while the sandbox lingers",
+      run("cloud", "in_progress"),
+      genSession("connected", { isPromptPending: true }),
+      true,
+    ],
+    [
+      "cloud turn settled while the sandbox lingers",
+      run("cloud", "in_progress"),
+      genSession("connected", { isPromptPending: false }),
+      false,
+    ],
+    [
+      "cloud session still attaching",
+      run("cloud", "in_progress"),
+      genSession("connecting"),
+      true,
     ],
     // Local: keys off the pending prompt, NOT the connection — a session that
     // lingers connected after the prompt finishes is no longer generating.

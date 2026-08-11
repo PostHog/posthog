@@ -42,6 +42,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
+import { EmailFieldErrors } from '../../../scenes/hog-functions/email-templater/types'
 import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
 import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
@@ -114,6 +115,9 @@ export type CyclotronJobInputsProps = {
     configuration: CyclotronJobInputConfiguration
     errors?: Record<string, string>
     warnings?: Record<string, string>
+    // Per-field messages for an email input, rendered next to its sender/recipient/subject/body
+    // fields. Only the email input type reads this; other input types ignore it.
+    emailFieldErrors?: EmailFieldErrors
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
@@ -127,6 +131,7 @@ export function CyclotronJobInputs({
     onInputChange,
     errors,
     warnings,
+    emailFieldErrors,
     showSource,
     sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
@@ -166,6 +171,7 @@ export function CyclotronJobInputs({
                                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                     errors={errors}
                                     warnings={warnings}
+                                    emailFieldErrors={emailFieldErrors}
                                 />
                             )
                         })}
@@ -262,11 +268,13 @@ function EmailTemplateField({
     value,
     onChange,
     sampleGlobalsWithInputs,
+    fieldErrors,
 }: {
     schema: CyclotronJobInputSchemaType
     value: any
     onChange: (value: any) => void
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    fieldErrors?: EmailFieldErrors
 }): JSX.Element {
     return (
         <EmailTemplater
@@ -276,6 +284,7 @@ function EmailTemplateField({
             value={value}
             onChange={onChange}
             templating={schema.templating}
+            fieldErrors={fieldErrors}
         />
     )
 }
@@ -536,6 +545,7 @@ type CyclotronJobInputProps = {
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    emailFieldErrors?: EmailFieldErrors
 }
 
 function NonFailureStatusCodesField({
@@ -587,6 +597,7 @@ function CyclotronJobInputRenderer({
     configuration,
     parentConfiguration,
     sampleGlobalsWithInputs,
+    emailFieldErrors,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -699,6 +710,7 @@ function CyclotronJobInputRenderer({
                     value={input.value}
                     onChange={onValueChange}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                    fieldErrors={emailFieldErrors}
                 />
             )
         case 'non_failure_status_codes':
@@ -884,6 +896,7 @@ function CyclotronJobInputWithSchema({
     sampleGlobalsWithInputs,
     errors,
     warnings,
+    emailFieldErrors,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -1032,6 +1045,7 @@ function CyclotronJobInputWithSchema({
                                 configuration={configuration}
                                 parentConfiguration={parentConfiguration}
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                                emailFieldErrors={emailFieldErrors}
                             />
                         )}
                         {warning && !value?.secret ? (

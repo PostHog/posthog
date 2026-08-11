@@ -33,25 +33,36 @@ export function ApprovalRequiredBanner({
         >
             <div>
                 <strong>Approval required</strong>
-                <div className="text-sm mt-1">
-                    {actionDescription
-                        ? `Your request to ${actionDescription} has been submitted for approval.`
-                        : 'Your change request has been submitted for approval.'}
-                </div>
+                <div className="text-sm mt-1">{approvalRequiredMessage(actionDescription)}</div>
             </div>
         </LemonBanner>
     )
 }
 
-export function showApprovalRequiredToast(changeRequestId: string, actionDescription?: string): void {
+/** Backend `code` on an approvals 409 when a matching change request already exists (see products/approvals/backend/decorators.py). */
+export const CHANGE_REQUEST_PENDING_CODE = 'change_request_pending'
+
+function approvalRequiredMessage(actionDescription?: string, code?: string): string {
+    if (code === CHANGE_REQUEST_PENDING_CODE) {
+        return actionDescription
+            ? `A request to ${actionDescription} is already pending approval.`
+            : 'This change is already pending approval.'
+    }
+    return actionDescription
+        ? `Your request to ${actionDescription} has been submitted for approval.`
+        : 'Your change request has been submitted for approval.'
+}
+
+export function showApprovalRequiredToast(
+    changeRequestId: string,
+    actionDescription?: string,
+    /** `code` from the approval 409 body. `change_request_pending` means a request already existed and nothing new was submitted. */
+    code?: string
+): void {
     lemonToast.info(
         <div>
             <strong>Approval required</strong>
-            <div className="text-sm mt-1">
-                {actionDescription
-                    ? `Your request to ${actionDescription} has been submitted for approval.`
-                    : 'Your change request has been submitted for approval.'}
-            </div>
+            <div className="text-sm mt-1">{approvalRequiredMessage(actionDescription, code)}</div>
             <LemonButton
                 type="secondary"
                 size="small"
@@ -62,7 +73,8 @@ export function showApprovalRequiredToast(changeRequestId: string, actionDescrip
             >
                 View approval
             </LemonButton>
-        </div>
+        </div>,
+        { toastId: `approval-required-${changeRequestId}` }
     )
 }
 

@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The ticket's UUID or its numeric ticket number.",
+            "type": "string"
+        },
+        "message": {
+            "description": "Updated note content in markdown.",
+            "maxLength": 5000,
+            "type": "string"
+        },
+        "message_id": {
+            "description": "The UUID of the private note (comment) to edit or delete.",
+            "type": "string"
+        },
+        "rich_content": {
+            "description": "Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message."
+        }
+    },
+    "required": ["id", "message_id"],
+    "type": "object"
+}

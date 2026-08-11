@@ -1,7 +1,10 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type { AuthService } from "@posthog/core/auth/auth";
 import type { TaskService } from "@posthog/core/task-detail/taskService";
-import type { AgentConversationEvent } from "@posthog/shared";
+import type {
+  AgentConversationEvent,
+  McpToolPermissionRequest,
+} from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
   PiOperationError,
@@ -79,6 +82,40 @@ function createSession(): PiSession {
 }
 
 describe("PiSessionController", () => {
+  it("queues concurrent MCP permission requests", async () => {
+    const session = createSession();
+    let onRequest: ((request: McpToolPermissionRequest) => void) | undefined;
+    session.onMcpToolPermissionRequest = vi.fn((callback) => {
+      onRequest = callback;
+      return () => {};
+    });
+    session.respondMcpToolPermission = vi.fn(async () => {});
+    const controller = createController(session);
+    await controller.ensureConnected("task-1");
+    const first = {
+      requestId: "call-1",
+      serverName: "Cloudflare",
+      toolName: "search",
+      installationId: "installation-1",
+      arguments: {},
+    };
+    const second = { ...first, requestId: "call-2" };
+
+    onRequest?.(first);
+    onRequest?.(second);
+
+    expect(
+      controller.store.getState().sessions["task-1"]?.mcpToolPermissionRequests
+        .size,
+    ).toBe(2);
+    await controller.respondMcpToolPermission("task-1", first, "reject");
+    expect(
+      controller.store
+        .getState()
+        .sessions["task-1"]?.mcpToolPermissionRequests.has("call-2"),
+    ).toBe(true);
+  });
+
   it.each([
     {
       text: "hello",
@@ -145,6 +182,109 @@ describe("PiSessionController", () => {
     );
     expect(client.getConversation).not.toHaveBeenCalled();
   });
+
+  it("loads repository trust and reconnects after changing it", async () => {
+    let trusted = false;
+    const session = createSession();
+    session.getProjectTrust = vi.fn(async () => ({
+      trusted,
+      hasProjectResources: true,
+    }));
+    session.setProjectTrusted = vi.fn(async (nextTrusted) => {
+      trusted = nextTrusted;
+    });
+    const controller = createController(session);
+
+    await controller.connect("task-1");
+    expect(controller.store.getState().sessions["task-1"].projectTrust).toEqual(
+      {
+        trusted: false,
+        hasProjectResources: true,
+      },
+    );
+    controller.store.setState((state) => ({
+      sessions: {
+        ...state.sessions,
+        "task-1": {
+          ...state.sessions["task-1"],
+          queue: { steering: ["queued"], followUp: [] },
+        },
+      },
+    }));
+
+    await controller.setProjectTrusted("task-1", true);
+
+    expect(session.setProjectTrusted).toHaveBeenCalledWith(true);
+    expect(session.client.prompt).toHaveBeenCalledWith("queued");
+    expect(controller.store.getState().sessions["task-1"].projectTrust).toEqual(
+      {
+        trusted: true,
+        hasProjectResources: true,
+      },
+    );
+  });
+
+  it("shares an in-flight repository trust change and rejects an opposite toggle", async () => {
+    let finishTransition: (() => void) | undefined;
+    const session = createSession();
+    session.setProjectTrusted = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishTransition = resolve;
+        }),
+    );
+    const controller = createController(session);
+    await controller.connect("task-1");
+
+    const first = controller.setProjectTrusted("task-1", true);
+    const duplicate = controller.setProjectTrusted("task-1", true);
+    await expect(controller.setProjectTrusted("task-1", false)).rejects.toThrow(
+      "already in progress",
+    );
+    expect(session.setProjectTrusted).toHaveBeenCalledOnce();
+
+    finishTransition?.();
+    await expect(Promise.all([first, duplicate])).resolves.toEqual([
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it.each([
+    { streaming: true, bashRunning: false },
+    { streaming: false, bashRunning: true },
+  ])(
+    "rejects repository trust changes while Pi is busy",
+    async ({ streaming, bashRunning }) => {
+      const session = createSession();
+      session.setProjectTrusted = vi.fn(async () => {});
+      const controller = createController(session);
+      await controller.connect("task-1");
+      const current = controller.store.getState().sessions["task-1"];
+      const status = current.status;
+      if (!status) {
+        throw new Error("Expected connected Pi status");
+      }
+      controller.store.setState((state) => ({
+        sessions: {
+          ...state.sessions,
+          "task-1": {
+            ...state.sessions["task-1"],
+            status: {
+              ...status,
+              isStreaming: streaming,
+            },
+            isBashRunning: bashRunning,
+          },
+        },
+      }));
+
+      await expect(
+        controller.setProjectTrusted("task-1", true),
+      ).rejects.toBeInstanceOf(PiOperationError);
+      expect(session.setProjectTrusted).not.toHaveBeenCalled();
+    },
+  );
 
   it("uploads cloud follow-up attachments before sending the native message", async () => {
     const session = createSession();

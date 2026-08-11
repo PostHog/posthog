@@ -31,7 +31,7 @@ const COMPLETE_MASK: u64 = if COHORT_PARTITION_COUNT == 64 {
 
 /// The JSONB schema tag for the `marker_watch` column. Bumping it must accompany a reader that
 /// rejects the old shape; the current reader rejects anything but this value.
-pub(crate) const MARKER_WATCH_SCHEMA: u32 = 1;
+pub(crate) const MARKER_WATCH_SCHEMA: u32 = 2;
 
 /// A partition index proven `< COHORT_PARTITION_COUNT` at construction, so `1 << index` into the
 /// bitmap is always in range.
@@ -262,11 +262,11 @@ pub enum ReconcileHwmsError {
     UnexpectedPartitions { got: usize, expected: usize },
 }
 
-/// A membership-topic partition the marker watcher reads.
+/// A marker-topic partition the marker watcher reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct MembershipPartition(i32);
+pub struct WatchPartition(i32);
 
-impl MembershipPartition {
+impl WatchPartition {
     pub const fn new(partition: i32) -> Self {
         Self(partition)
     }
@@ -276,7 +276,7 @@ impl MembershipPartition {
     }
 }
 
-/// The next offset the watcher must read on a membership partition. It is minted from a high
+/// The next offset the watcher must read on a marker partition. It is minted from a high
 /// watermark (the offset the next record will receive), never from a consumed offset, so the
 /// classic "did I store the offset I read or the next one" off-by-one cannot be constructed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -292,20 +292,20 @@ impl NextOffset {
     }
 }
 
-/// Per-membership-partition resume positions for the marker watcher.
+/// Per-partition resume positions for the marker watcher.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct WatchPositions(BTreeMap<MembershipPartition, NextOffset>);
+pub struct WatchPositions(BTreeMap<WatchPartition, NextOffset>);
 
 impl WatchPositions {
     pub fn new() -> Self {
         Self(BTreeMap::new())
     }
 
-    pub fn insert(&mut self, partition: MembershipPartition, offset: NextOffset) {
+    pub fn insert(&mut self, partition: WatchPartition, offset: NextOffset) {
         self.0.insert(partition, offset);
     }
 
-    pub fn get(&self, partition: MembershipPartition) -> Option<NextOffset> {
+    pub fn get(&self, partition: WatchPartition) -> Option<NextOffset> {
         self.0.get(&partition).copied()
     }
 
@@ -313,7 +313,7 @@ impl WatchPositions {
         self.0.is_empty()
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (MembershipPartition, NextOffset)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (WatchPartition, NextOffset)> + '_ {
         self.0
             .iter()
             .map(|(&partition, &offset)| (partition, offset))
@@ -328,7 +328,7 @@ impl WatchPositions {
     /// from the beginning; inserting it would claim coverage of everything below `offset`. Leaving
     /// it absent keeps [`ObservationEnds::caught_up`] fail-closed — the run holds until a
     /// re-dispatch recaptures a start position for it.
-    pub fn advance(&mut self, partition: MembershipPartition, offset: NextOffset) {
+    pub fn advance(&mut self, partition: WatchPartition, offset: NextOffset) {
         if let Some(current) = self.0.get_mut(&partition) {
             if offset > *current {
                 *current = offset;
@@ -349,23 +349,23 @@ impl<'de> Deserialize<'de> for WatchPositions {
     }
 }
 
-/// The membership-topic end watermarks captured at the moment liveness passed. Because markers are
+/// The marker-topic end watermarks captured at the moment liveness passed. Because markers are
 /// acknowledged before the seed group commits its offset, every marker of the dispatch sits below
 /// these ends; a watcher that has read up to them has seen all of them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ObservationEnds(BTreeMap<MembershipPartition, NextOffset>);
+pub struct ObservationEnds(BTreeMap<WatchPartition, NextOffset>);
 
 impl ObservationEnds {
     pub fn new() -> Self {
         Self(BTreeMap::new())
     }
 
-    pub fn insert(&mut self, partition: MembershipPartition, offset: NextOffset) {
+    pub fn insert(&mut self, partition: WatchPartition, offset: NextOffset) {
         self.0.insert(partition, offset);
     }
 
-    /// The membership end-watermarks captured at the liveness pass have the same shape as the
-    /// watcher's start positions — both are next-to-read offsets keyed by membership partition.
+    /// The end-watermarks captured at the liveness pass have the same shape as the watcher's start
+    /// positions — both are next-to-read offsets keyed by marker-topic partition.
     pub fn from_positions(positions: &WatchPositions) -> Self {
         Self(positions.0.clone())
     }
@@ -381,6 +381,19 @@ impl ObservationEnds {
                     .is_none_or(|position| position.get() < end.get())
             })
             .count()
+    }
+
+    /// Captured-end partitions this dispatch never recorded a start position for. The watcher is
+    /// assigned from those start positions alone, so it can never read these, and the run holds at
+    /// [`Self::caught_up`] until a re-dispatch recaptures the full partition set. Non-empty only
+    /// when the marker topic gained partitions between the dispatch and the liveness pass, which is
+    /// worth separating out because that hold is permanent and an ordinary lag is not.
+    pub fn uncovered(&self, positions: &WatchPositions) -> Vec<WatchPartition> {
+        self.0
+            .keys()
+            .copied()
+            .filter(|partition| positions.get(*partition).is_none())
+            .collect()
     }
 
     /// A [`SettleProof`] is minted only when the watcher has read to or past every captured end. A
@@ -419,9 +432,12 @@ impl<'de> Deserialize<'de> for ObservationEnds {
 pub struct SettleProof(());
 
 /// The resumable watcher state persisted as `marker_watch` JSONB:
-/// `{"schema":1,"positions":{...},"ends":{...}|null}`. `ends` is `Some` iff liveness has passed.
+/// `{"schema":2,"topic":"…","positions":{...},"ends":{...}|null}`. `ends` is `Some` iff liveness has
+/// passed. `topic` anchors the offsets to the log they were read from — they are meaningless against
+/// any other.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkerWatch {
+    pub topic: String,
     pub positions: WatchPositions,
     pub ends: Option<ObservationEnds>,
 }
@@ -430,6 +446,7 @@ pub struct MarkerWatch {
 struct MarkerWatchRepr {
     #[serde(deserialize_with = "deserialize_marker_watch_schema")]
     schema: u32,
+    topic: String,
     positions: WatchPositions,
     ends: Option<ObservationEnds>,
 }
@@ -438,6 +455,7 @@ impl Serialize for MarkerWatch {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         MarkerWatchRepr {
             schema: MARKER_WATCH_SCHEMA,
+            topic: self.topic.clone(),
             positions: self.positions.clone(),
             ends: self.ends.clone(),
         }
@@ -449,6 +467,7 @@ impl<'de> Deserialize<'de> for MarkerWatch {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let repr = MarkerWatchRepr::deserialize(deserializer)?;
         Ok(Self {
+            topic: repr.topic,
             positions: repr.positions,
             ends: repr.ends,
         })
@@ -519,6 +538,22 @@ pub enum UndispatchedReason {
     MissingRecord,
     /// The dispatch record is present but does not parse under the current schema.
     UnparseableRecord,
+    /// The persisted watch is anchored to a different topic than the one configured, so its offsets
+    /// name positions in a log this run no longer reads.
+    TopicChanged,
+}
+
+impl UndispatchedReason {
+    /// Metric label. A topic rename re-dispatches every in-flight run at once, which is expected;
+    /// without the label that spike is indistinguishable from a genuinely corrupt dispatch record.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NeverDispatched => "never_dispatched",
+            Self::MissingRecord => "missing_record",
+            Self::UnparseableRecord => "unparseable_record",
+            Self::TopicChanged => "topic_changed",
+        }
+    }
 }
 
 /// The classification of one discovered completion row. Parse-don't-validate: the app matches this
@@ -541,17 +576,19 @@ pub enum CompletionPhase {
 
 /// The raw column values of one discovered completion row.
 #[derive(Debug, Clone)]
-pub struct CompletionParts {
+pub struct CompletionParts<'a> {
     pub status: CompletionStatus,
     pub chunks_planned_at: Option<DateTime<Utc>>,
     pub reconcile_dispatched_at: Option<DateTime<Utc>>,
     pub reconcile_observed_at: Option<DateTime<Utc>>,
     pub reconcile_hwms: Option<Value>,
     pub marker_watch: Option<Value>,
+    /// The marker topic this process reads. A persisted watch anchored elsewhere is stale.
+    pub expected_marker_topic: &'a str,
 }
 
 impl CompletionPhase {
-    pub fn from_parts(parts: CompletionParts) -> Self {
+    pub fn from_parts(parts: CompletionParts<'_>) -> Self {
         match parts.status {
             CompletionStatus::Seeding => {
                 if parts.reconcile_dispatched_at.is_some()
@@ -575,6 +612,7 @@ impl CompletionPhase {
                     parts.reconcile_dispatched_at,
                     parts.reconcile_hwms,
                     parts.marker_watch,
+                    parts.expected_marker_topic,
                 ) {
                     Ok(dispatched) => Self::Reconciling(dispatched),
                     Err(reason) => Self::ReconcilingUndispatched(reason),
@@ -588,6 +626,7 @@ fn parse_dispatched(
     dispatched_at: Option<DateTime<Utc>>,
     hwms: Option<Value>,
     watch: Option<Value>,
+    expected_marker_topic: &str,
 ) -> Result<DispatchedReconcile, UndispatchedReason> {
     let dispatched_at = dispatched_at.ok_or(UndispatchedReason::NeverDispatched)?;
     let hwms = hwms.ok_or(UndispatchedReason::MissingRecord)?;
@@ -596,6 +635,9 @@ fn parse_dispatched(
         .map_err(|_| UndispatchedReason::UnparseableRecord)?;
     let watch = serde_json::from_value::<MarkerWatch>(watch)
         .map_err(|_| UndispatchedReason::UnparseableRecord)?;
+    if watch.topic != expected_marker_topic {
+        return Err(UndispatchedReason::TopicChanged);
+    }
     Ok(DispatchedReconcile {
         epoch: DispatchEpoch::from_dispatched_at(dispatched_at),
         hwms,
@@ -609,7 +651,7 @@ fn canonical_partitions() -> impl Iterator<Item = SeedPartition> {
 }
 
 fn serialize_offset_map<S: Serializer>(
-    map: &BTreeMap<MembershipPartition, NextOffset>,
+    map: &BTreeMap<WatchPartition, NextOffset>,
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
     let mut serialized = serializer.serialize_map(Some(map.len()))?;
@@ -621,13 +663,13 @@ fn serialize_offset_map<S: Serializer>(
 
 fn deserialize_offset_map<'de, D: Deserializer<'de>>(
     deserializer: D,
-) -> Result<BTreeMap<MembershipPartition, NextOffset>, D::Error> {
+) -> Result<BTreeMap<WatchPartition, NextOffset>, D::Error> {
     let raw = BTreeMap::<i32, i64>::deserialize(deserializer)?;
     Ok(raw
         .into_iter()
         .map(|(partition, offset)| {
             (
-                MembershipPartition::new(partition),
+                WatchPartition::new(partition),
                 NextOffset::from_high_watermark(offset),
             )
         })
@@ -639,6 +681,8 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
     use uuid::Uuid;
+
+    const TOPIC: &str = "cohort_reconcile_markers";
 
     fn full_hwms(base: i64) -> ReconcileHwms {
         let offsets = canonical_partitions()
@@ -774,8 +818,8 @@ mod tests {
     fn advance_is_monotone_and_ignores_partitions_it_does_not_track() {
         // Both guards feed `caught_up`. Regressing a position would rewind persisted coverage;
         // inserting an untracked partition would claim coverage of everything below `offset`.
-        let tracked = MembershipPartition::new(0);
-        let untracked = MembershipPartition::new(1);
+        let tracked = WatchPartition::new(0);
+        let untracked = WatchPartition::new(1);
         let mut positions = WatchPositions::new();
         positions.insert(tracked, NextOffset::from_high_watermark(10));
 
@@ -803,27 +847,24 @@ mod tests {
     #[test]
     fn caught_up_passes_at_the_end_and_fails_one_short() {
         let mut ends = ObservationEnds::new();
-        ends.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(10),
-        );
+        ends.insert(WatchPartition::new(0), NextOffset::from_high_watermark(10));
 
         let mut at_end = WatchPositions::new();
-        at_end.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(10),
-        );
+        at_end.insert(WatchPartition::new(0), NextOffset::from_high_watermark(10));
         assert!(ends.caught_up(&at_end).is_some());
 
         let mut short = WatchPositions::new();
-        short.insert(
-            MembershipPartition::new(0),
-            NextOffset::from_high_watermark(9),
-        );
+        short.insert(WatchPartition::new(0), NextOffset::from_high_watermark(9));
         assert!(ends.caught_up(&short).is_none());
 
-        // A partition with no recorded position is never caught up.
+        // A partition with no recorded position is never caught up, and is reported as uncovered so
+        // a permanent hold (the topic gained partitions) is distinguishable from a lagging watcher.
         assert!(ends.caught_up(&WatchPositions::new()).is_none());
+        assert_eq!(
+            ends.uncovered(&WatchPositions::new()),
+            vec![WatchPartition::new(0)],
+        );
+        assert!(ends.uncovered(&short).is_empty());
 
         // An empty end set proves nothing rather than everything vacuously.
         assert!(ObservationEnds::new().caught_up(&at_end).is_none());
@@ -835,27 +876,24 @@ mod tests {
     #[test]
     fn marker_watch_round_trips_and_rejects_an_unknown_schema() {
         let mut positions = WatchPositions::new();
-        positions.insert(
-            MembershipPartition::new(3),
-            NextOffset::from_high_watermark(42),
-        );
+        positions.insert(WatchPartition::new(3), NextOffset::from_high_watermark(42));
         let mut ends = ObservationEnds::new();
-        ends.insert(
-            MembershipPartition::new(3),
-            NextOffset::from_high_watermark(99),
-        );
+        ends.insert(WatchPartition::new(3), NextOffset::from_high_watermark(99));
 
         let watch = MarkerWatch {
+            topic: TOPIC.to_string(),
             positions: positions.clone(),
             ends: Some(ends),
         };
         let value = serde_json::to_value(&watch).unwrap();
-        assert_eq!(value["schema"], serde_json::json!(1));
+        assert_eq!(value["schema"], serde_json::json!(2));
+        assert_eq!(value["topic"], serde_json::json!(TOPIC));
         assert_eq!(value["positions"]["3"], serde_json::json!(42));
         assert_eq!(value["ends"]["3"], serde_json::json!(99));
         assert_eq!(serde_json::from_value::<MarkerWatch>(value).unwrap(), watch);
 
         let undispatched = MarkerWatch {
+            topic: TOPIC.to_string(),
             positions,
             ends: None,
         };
@@ -867,7 +905,7 @@ mod tests {
         );
 
         assert!(serde_json::from_value::<MarkerWatch>(serde_json::json!({
-            "schema": 2, "positions": {}, "ends": null
+            "schema": 3, "topic": TOPIC, "positions": {}, "ends": null
         }))
         .is_err());
     }
@@ -877,6 +915,7 @@ mod tests {
         let at = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
         let hwms_value = serde_json::to_value(full_hwms(1_000)).unwrap();
         let watch_value = serde_json::to_value(MarkerWatch {
+            topic: TOPIC.to_string(),
             positions: WatchPositions::new(),
             ends: None,
         })
@@ -890,6 +929,7 @@ mod tests {
                 reconcile_observed_at: observed,
                 reconcile_hwms: hwms,
                 marker_watch: watch,
+                expected_marker_topic: TOPIC,
             })
         };
         assert_eq!(
@@ -913,6 +953,7 @@ mod tests {
                 reconcile_observed_at: observed,
                 reconcile_hwms: hwms,
                 marker_watch: watch,
+                expected_marker_topic: TOPIC,
             })
         };
         assert_eq!(
@@ -949,6 +990,38 @@ mod tests {
                 Some(watch_value)
             ),
             CompletionPhase::ReconcilingUndispatched(UndispatchedReason::UnparseableRecord)
+        );
+    }
+
+    #[test]
+    fn a_watch_anchored_to_another_topic_re_dispatches_instead_of_resuming() {
+        // Offsets are only meaningful against the log they were captured from, so a run carrying a
+        // watch from a different topic — or from before the topic key existed — must never resume on
+        // them.
+        let at = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let hwms_value = serde_json::to_value(full_hwms(1_000)).unwrap();
+        let classify = |watch: Value| {
+            CompletionPhase::from_parts(CompletionParts {
+                status: CompletionStatus::Reconciling,
+                chunks_planned_at: Some(at),
+                reconcile_dispatched_at: Some(at),
+                reconcile_observed_at: None,
+                reconcile_hwms: Some(hwms_value.clone()),
+                marker_watch: Some(watch),
+                expected_marker_topic: TOPIC,
+            })
+        };
+
+        assert_eq!(
+            classify(serde_json::json!({
+                "schema": 2, "topic": "cohort_membership_changed_shadow",
+                "positions": {}, "ends": null
+            })),
+            CompletionPhase::ReconcilingUndispatched(UndispatchedReason::TopicChanged),
+        );
+        assert_eq!(
+            classify(serde_json::json!({"schema": 1, "positions": {}, "ends": null})),
+            CompletionPhase::ReconcilingUndispatched(UndispatchedReason::UnparseableRecord),
         );
     }
 

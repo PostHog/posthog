@@ -183,6 +183,10 @@ const config: Config = {
         // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
         // so mock them to the styleMock string instead of executing them.
         '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
+        // devHmrStreamAbort subscribes to Vite HMR events via import.meta, which Sucrase passes
+        // through into CJS and Jest then cannot compile ("Cannot use 'import.meta' outside a module").
+        // It is dev-server-only behavior, so stub it out rather than transform it.
+        devHmrStreamAbort$: '<rootDir>/src/test/mocks/emptyMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',

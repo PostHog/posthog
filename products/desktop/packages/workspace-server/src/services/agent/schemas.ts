@@ -109,6 +109,7 @@ export const piModelCatalogEntrySchema = z.object({
   provider: z.literal("posthog"),
   id: z.string(),
   name: z.string(),
+  isDefault: z.boolean(),
   contextWindow: z.number(),
   thinkingLevels: z.array(
     z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]),

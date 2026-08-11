@@ -461,8 +461,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         else:
             _date_from = date_range.date_from()
 
-        formatted_date_from = (_date_from.strftime("%Y-%m-%d %H:%M:%S"),)
-        formatted_date_to = (date_range.date_to().strftime("%Y-%m-%d %H:%M:%S"),)
+        formatted_date_from = _date_from.strftime("%Y-%m-%d %H:%M:%S")
+        formatted_date_to = date_range.date_to().strftime("%Y-%m-%d %H:%M:%S")
         date_from_as_hogql = ast.Call(
             name="assumeNotNull",
             args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=formatted_date_from))])],

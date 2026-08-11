@@ -152,6 +152,19 @@ def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
     return persisted_repo_selection_impl(report_id)
 
 
+def autostart_base_branch_for_repository(team_id: int, repository: str | None) -> str | None:
+    """Team's configured base branch for ``repository``, for callers outside the signals product."""
+    if not repository:
+        return None
+
+    from products.signals.backend.models import (
+        SignalTeamConfig,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    config = SignalTeamConfig.objects.filter(team_id=team_id).only("autostart_base_branches").first()
+    return config.base_branch_for(repository) if config is not None else None
+
+
 def get_default_slack_notification_channel(team_id: int) -> str | None:
     """Team-default Slack channel for signal notifications, stored as "<channel_id>|#name"."""
     from products.signals.backend.models import (

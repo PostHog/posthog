@@ -1,8 +1,51 @@
+import posthog from 'posthog-js'
+
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { urls } from 'scenes/urls'
+
+type SupportActivationButtonProps = {
+    source: 'support_empty_state' | 'dashboard_widget'
+    className?: string
+    widgetType?: string
+    widgetId?: string
+    dashboardId?: number | null
+    onClick?: () => void
+}
+
+export function SupportActivationButton({
+    source,
+    className,
+    widgetType,
+    widgetId,
+    dashboardId,
+    onClick,
+}: SupportActivationButtonProps): JSX.Element {
+    return (
+        <LemonButton
+            className={className ?? 'hidden @md:flex'}
+            type="primary"
+            to={urls.supportSettings()}
+            onClick={() => {
+                sessionStorage.setItem(
+                    'support_activation_source',
+                    JSON.stringify({ source, widget_type: widgetType, widget_id: widgetId, dashboard_id: dashboardId })
+                )
+                posthog.capture('support activation started', {
+                    source,
+                    widget_type: widgetType,
+                    widget_id: widgetId,
+                    dashboard_id: dashboardId,
+                })
+                onClick?.()
+            }}
+        >
+            Enable
+        </LemonButton>
+    )
+}
 
 export function ConversationsDisabledBanner(): JSX.Element {
     return (
@@ -36,9 +79,7 @@ export function ConversationsDisabledBanner(): JSX.Element {
                         </li>
                     </ul>
                     <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-                        <LemonButton className="hidden @md:flex" type="primary" to={urls.supportSettings()}>
-                            Enable
-                        </LemonButton>
+                        <SupportActivationButton source="support_empty_state" />
                         <LemonButton
                             type="tertiary"
                             sideIcon={<IconOpenSidebar className="w-4 h-4" />}

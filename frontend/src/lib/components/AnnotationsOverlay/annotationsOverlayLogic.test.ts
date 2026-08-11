@@ -710,8 +710,8 @@ describe('annotationsOverlayLogic', () => {
             }
         }
 
-        it(`does not merge day groups even when Chart.js renders only one tick per N days (UTC)`, async () => {
-            // On a daily chart where Chart.js decides to render sparse ticks (e.g. one tick every 2 days),
+        it(`does not merge day groups even when the chart renders only one tick per N days (UTC)`, async () => {
+            // On a daily chart where the chart decides to render sparse ticks (e.g. one tick every 2 days),
             // annotation grouping should still be per-day — not bucketed by tick spacing.
             useInsightMocks()
 
@@ -746,7 +746,7 @@ describe('annotationsOverlayLogic', () => {
             })
         })
 
-        it(`does not merge hour groups even when Chart.js renders only one tick per N hours (UTC)`, async () => {
+        it(`does not merge hour groups even when the chart renders only one tick per N hours (UTC)`, async () => {
             useInsightMocks('hour')
 
             logic = annotationsOverlayLogic({

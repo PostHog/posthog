@@ -9,6 +9,10 @@ import type { ResolvedSeries } from '../../core/types'
  * lines, goal lines) are never candidates: in percent-stack mode their raw values ring far off-plot,
  * and they aren't the line the user is pointing at. `yPixelFor` returns a series' y-pixel at the
  * hovered index; a non-finite y skips that series. Returns null when no series qualifies.
+ *
+ * Ties go to the last tied series: equal values put lines exactly on top of each other, and series
+ * paint in array order, so the last tied series is the line actually visible and the dot must take
+ * its color.
  */
 export function closestHoverSeriesKey(
     series: readonly ResolvedSeries[],
@@ -24,7 +28,7 @@ export function closestHoverSeriesKey(
         const y = yPixelFor(s)
         if (Number.isFinite(y)) {
             const dist = Math.abs(y - cursorY)
-            if (dist < minDist) {
+            if (dist <= minDist) {
                 minDist = dist
                 closestKey = s.key
             }

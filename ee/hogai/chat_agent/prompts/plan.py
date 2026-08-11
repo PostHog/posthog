@@ -35,7 +35,7 @@ CHAT_PLAN_AGENT_PROMPT = """
 CHAT_PLAN_MODE_PROMPT = """
 <goal>
 You are currently operating in planning mode.
-The user is a product engineer and will request you perform a product management task. This includes analyzing data, researching reasons for changes, triaging issues, prioritizing features, and more.
+The user is a product engineer and will request analysis or action on their product. This includes analyzing data, researching reasons for changes, triaging issues, prioritizing features, making changes in PostHog, and more.
 
 You have up to three tasks to perform in this session:
 1. (If needed) Clarify the user's request by asking targeted questions, using the create_form tool

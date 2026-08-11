@@ -220,3 +220,112 @@ class TestFetchResponses(ClickhouseTestMixin, APIBaseTest):
         # Only the valid response should be returned
         assert len(responses) == 1
         assert responses[0] == "Valid response"
+
+    def test_merges_answer_from_earlier_event_in_submission(self):
+        """A question answered on an earlier event should survive even when the latest event
+        in the submission doesn't repeat it (non-cumulative multi-event capture)."""
+        survey_id = str(uuid.uuid4())
+        submission_id = str(uuid.uuid4())
+        q_rating = str(uuid.uuid4())
+        q_text = str(uuid.uuid4())
+
+        # Event 1 (not completed): answers the rating question only.
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="user1",
+            timestamp=datetime.now() - timedelta(hours=2),
+            properties={
+                "$survey_id": survey_id,
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{q_rating}": "8",
+                "$survey_completed": "false",
+            },
+        )
+        # Event 2 (completed): answers the free-text question only — the rating is NOT repeated.
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="user1",
+            timestamp=datetime.now() - timedelta(hours=1),
+            properties={
+                "$survey_id": survey_id,
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{q_text}": "Great product",
+                "$survey_completed": "true",
+            },
+        )
+
+        flush_persons_and_events()
+
+        # The rating lives only on the earlier event, but must still be returned.
+        rating_responses = fetch_responses(
+            survey_id=survey_id,
+            question_index=0,
+            question_id=q_rating,
+            start_date=datetime.now() - timedelta(days=1),
+            end_date=datetime.now(),
+            team=self.team,
+        )
+        assert rating_responses == ["8"]
+
+        # The free-text answer lives only on the later event.
+        text_responses = fetch_responses(
+            survey_id=survey_id,
+            question_index=1,
+            question_id=q_text,
+            start_date=datetime.now() - timedelta(days=1),
+            end_date=datetime.now(),
+            team=self.team,
+        )
+        assert text_responses == ["Great product"]
+
+    def test_latest_non_null_wins_for_same_question(self):
+        """When the same question is answered on multiple events, the latest non-null value wins,
+        and a later null does not blank out an earlier answer."""
+        survey_id = str(uuid.uuid4())
+        submission_id = str(uuid.uuid4())
+        q_id = str(uuid.uuid4())
+
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="user1",
+            timestamp=datetime.now() - timedelta(hours=3),
+            properties={
+                "$survey_id": survey_id,
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{q_id}": "first",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="user1",
+            timestamp=datetime.now() - timedelta(hours=2),
+            properties={
+                "$survey_id": survey_id,
+                "$survey_submission_id": submission_id,
+                f"$survey_response_{q_id}": "second",
+            },
+        )
+        # Latest event answers a *different* question, leaving this one null — must not blank "second".
+        _create_event(
+            team=self.team,
+            event="survey sent",
+            distinct_id="user1",
+            timestamp=datetime.now() - timedelta(hours=1),
+            properties={"$survey_id": survey_id, "$survey_submission_id": submission_id, "$survey_response_other": "x"},
+        )
+
+        flush_persons_and_events()
+
+        responses = fetch_responses(
+            survey_id=survey_id,
+            question_index=0,
+            question_id=q_id,
+            start_date=datetime.now() - timedelta(days=1),
+            end_date=datetime.now(),
+            team=self.team,
+        )
+        assert responses == ["second"]

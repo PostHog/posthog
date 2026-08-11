@@ -83,7 +83,7 @@ def get_default_query_runner(query: MarketingAnalyticsTableQuery, team: Team) ->
 
 
 @dataclass
-class TableInfo:
+class WarehouseTableFixture:
     table: DataWarehouseTable
     source: ExternalDataSource
     credential: DataWarehouseCredential
@@ -169,7 +169,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
 
     def setUp(self):
         super().setUp()
-        self.test_tables: dict[str, TableInfo] = {}
+        self.test_tables: dict[str, WarehouseTableFixture] = {}
         self._cleanup_functions: list[Callable[[], None]] = []
 
         config = self.team.marketing_analytics_config
@@ -184,7 +184,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
         self.test_tables.clear()
         super().tearDown()
 
-    def _setup_csv_table(self, table_key: str) -> TableInfo:
+    def _setup_csv_table(self, table_key: str) -> WarehouseTableFixture:
         """Set up a single CSV-backed table for testing."""
         if table_key not in self.test_data_configs:
             raise ValueError(f"Invalid table key: {table_key}")
@@ -208,7 +208,7 @@ class TestMarketingAnalyticsTableQueryRunnerBusiness(ClickhouseTestMixin, BaseTe
             self.team,
         )
 
-        table_info = TableInfo(
+        table_info = WarehouseTableFixture(
             table=table,
             source=source,
             credential=credential,

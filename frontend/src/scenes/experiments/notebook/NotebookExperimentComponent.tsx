@@ -1,8 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconFlask } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
@@ -16,9 +15,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ResultsTag } from '~/scenes/experiments/components/ResultsTag'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
-import { getExperimentStatus } from '~/scenes/experiments/experimentsLogic'
 import { MicroChart } from '~/scenes/experiments/ExperimentView/Exposures'
-import { StatusTag } from '~/scenes/experiments/ExperimentView/StatusTag'
 import { getChanceToWin, isBayesianResult } from '~/scenes/experiments/MetricsView/shared/utils'
 import { isLegacyExperiment } from '~/scenes/experiments/utils'
 
@@ -130,7 +127,6 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
     }
 
     const isLegacy = experiment && isLegacyExperiment(experiment)
-    const status = experiment ? getExperimentStatus(experiment) : null
     const hasResults = primaryMetricsResults?.length > 0 && primaryMetricsResults[0]
 
     // Find the most significant primary metric to display
@@ -143,27 +139,36 @@ export function NotebookExperimentComponent({ id, expanded }: NotebookExperiment
     return (
         <div>
             <BindLogic logic={experimentLogic} props={{ experimentId: id }}>
-                {/* Header */}
-                <div className="flex items-center gap-2 p-3">
-                    <IconFlask className="text-lg shrink-0" />
-                    {experimentLoading ? (
-                        <LemonSkeleton className="h-6 flex-1" />
-                    ) : (
-                        <>
-                            <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            {status && <StatusTag status={status} />}
-                            {isExperimentLaunched && hasResults && !isLegacy && bestMetric && (
-                                <ResultsTag isSignificant={bestMetric.isSignificant} />
-                            )}
-                        </>
-                    )}
-                </div>
+                {!expanded ? (
+                    <div className="flex flex-wrap items-center gap-2 p-3">
+                        {experimentLoading ? (
+                            <LemonSkeleton className="h-6 flex-1" />
+                        ) : (
+                            <>
+                                <span className="min-w-48 flex-1 truncate text-xs text-secondary">
+                                    {experiment.description || 'No description'}
+                                </span>
+                                {isExperimentDraft && !isLegacy ? (
+                                    <>
+                                        <span className="text-xs text-secondary">
+                                            {variants.length} {variants.length === 1 ? 'variant' : 'variants'}
+                                        </span>
+                                        <span className="text-xs text-secondary">
+                                            {totalPrimaryMetrics} {totalPrimaryMetrics === 1 ? 'metric' : 'metrics'}
+                                        </span>
+                                    </>
+                                ) : null}
+                                {isExperimentLaunched && hasResults && !isLegacy && bestMetric && (
+                                    <ResultsTag isSignificant={bestMetric.isSignificant} />
+                                )}
+                            </>
+                        )}
+                    </div>
+                ) : null}
 
                 {/* Expanded Content */}
                 {expanded && !experimentLoading && (
                     <>
-                        <LemonDivider className="my-0" />
-
                         {/* Description */}
                         {experiment.description && (
                             <div className="px-3 pt-3 pb-1 text-sm">{experiment.description}</div>

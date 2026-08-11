@@ -172,7 +172,7 @@ impl SeederOrchestrator {
                         &self.pool,
                         &self.store,
                         &self.allowlist,
-                        self.settings.discovery_kinds(),
+                        self.settings.seed_kinds(),
                         self.settings.plan_caps,
                         &mut reported_runs,
                     )

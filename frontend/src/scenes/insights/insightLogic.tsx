@@ -21,7 +21,6 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -130,8 +129,6 @@ export interface insightLogicValues {
     isInExperimentContext: boolean
     isInViewMode: boolean
     isSavingTags: boolean
-    isUsingPathsV1: boolean
-    isUsingPathsV2: boolean | string | undefined
     previousQuery: Node | null
     query: Node | null
     savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
@@ -503,8 +500,6 @@ export interface insightLogicMeta {
             insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
             activeSceneId: string | null
         ) => boolean | null
-        isUsingPathsV1: (featureFlags: FeatureFlagsSet) => boolean
-        isUsingPathsV2: (featureFlags: FeatureFlagsSet) => boolean | string | undefined
         hasOverrides: (arg: any, arg2: any, arg3: any) => boolean
         editingDisabledReason: (hasOverrides: boolean) => 'Discard overrides to edit the insight.' | null
     }
@@ -1004,16 +999,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.ExperimentsSharedMetric,
                     Scene.ExperimentsSharedMetrics,
                 ].includes(activeSceneId),
-        ],
-        isUsingPathsV1: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
-                !featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2],
-        ],
-        isUsingPathsV2: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2],
         ],
         hasOverrides: [
             () => [

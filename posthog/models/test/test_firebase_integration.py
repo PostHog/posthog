@@ -5,9 +5,21 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.integration import FirebaseIntegration, Integration
+
+
+def _ec_public_pem(curve: ec.EllipticCurve | None = None) -> str:
+    return (
+        ec.generate_private_key(curve or ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        .decode()
+    )
+
 
 FAKE_KEY_INFO = {
     "type": "service_account",
@@ -37,7 +49,11 @@ class TestFirebaseIntegration(BaseTest):
         team_id = overrides.pop("team_id", self.team.id)
         created_by = overrides.pop("created_by", None)
         return FirebaseIntegration.integration_from_key(
-            key_info, team_id, created_by, push_identity_verification=overrides.pop("push_identity_verification", None)
+            key_info,
+            team_id,
+            created_by,
+            push_identity_verification=overrides.pop("push_identity_verification", None),
+            push_identity_public_keys=overrides.pop("push_identity_public_keys", None),
         )
 
     def test_creates_integration(self):
@@ -68,6 +84,25 @@ class TestFirebaseIntegration(BaseTest):
     def test_rejects_an_unknown_identity_verification_mode(self):
         with self.assertRaises(ValidationError):
             self._create_firebase_integration(push_identity_verification="enabled")
+
+    def test_reconnecting_preserves_identity_public_keys(self):
+        # Same rotation guard as the mode: re-upserting on a credential rotation must keep the
+        # registered public keys, or ES256 verification would start rejecting every real token.
+        public_pem = _ec_public_pem()
+        self._create_firebase_integration(push_identity_public_keys=[public_pem])
+        reconnected = self._create_firebase_integration()
+
+        assert reconnected.config["push_identity_public_keys"] == [public_pem]
+
+    def test_rejects_an_invalid_public_key(self):
+        with self.assertRaises(ValidationError):
+            self._create_firebase_integration(push_identity_public_keys=["not-a-pem"])
+
+    def test_rejects_a_non_p256_public_key(self):
+        # ES256 is defined over P-256 only; a valid PEM on another curve would be stored but unusable
+        # by the verifier, so it must be rejected at registration.
+        with self.assertRaises(ValidationError):
+            self._create_firebase_integration(push_identity_public_keys=[_ec_public_pem(ec.SECP384R1())])
 
     def test_separate_integrations_for_different_projects(self):
         first = self._create_firebase_integration()

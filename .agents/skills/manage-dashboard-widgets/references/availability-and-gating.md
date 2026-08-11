@@ -2,6 +2,8 @@
 
 Project setup prerequisites (exception autocapture, session recording ingestion, etc.) — **not** RBAC. Product access (`productAccess`) is separate: it gates who can see widget data via `run_widgets` and locked tiles; availability gates whether the project is configured to produce data.
 
+Also separate: **release gating**. The picker renders the hand-written FE catalog (`widget_types/catalog.ts`), so an unreleased widget group stays out of the picker by landing its catalog entries with the release; the backend creation gate is **`creation_flag`** on the `WidgetSpec` (resolved generically in `widget_create.py` via `widget_flag_enabled`), which also protects against direct API/MCP creation. That is a rollout kill-switch, not availability: already-placed tiles keep rendering when the flag turns off. There is no FE flag map for picker entries — if a family needs the picker card itself flag-gated (entry shipped but hidden), that mechanism doesn't exist yet and the catalog response would need to expose the resolved gate. The render-time rules below apply to availability only.
+
 ## Product rule: gate at render, never at add
 
 Users **always** pick and add widgets in `AddWidgetModal` — no filtering, disabling, or hiding catalog entries based on availability.

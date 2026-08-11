@@ -115,6 +115,7 @@ class TestAppfiguresSource:
         [
             "401 Client Error: Unauthorized for url: https://api.appfigures.com/v2/reviews?count=1",
             "403 Client Error: Forbidden for url: https://api.appfigures.com/v2/reports/sales",
+            "403 Client Error: This request requires 3 credit(s). Reason: Some given products are not owned by your account. (the first one is: 338244644767 for url: https://api.appfigures.com/v2/reviews?count=500&page=1&sort=date&start=2026-08-05",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

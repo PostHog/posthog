@@ -210,6 +210,48 @@ class TestSyncSavedQueryToDag(BaseTest):
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
 
+    def test_sync_references_parent_in_managed_dag(self):
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        upstream_query = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream_query, dag=managed_dag, allow_managed=True)
+
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        downstream_node = sync_saved_query_to_dag(downstream_query)
+
+        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        reference = Node.objects.get(team=self.team, dag=default_dag, name="upstream_view")
+        self.assertEqual(reference.type, NodeType.TABLE)
+        self.assertIsNone(reference.saved_query)
+        self.assertTrue(Edge.objects.filter(source=reference, target=downstream_node).exists())
+
+    def test_sync_does_not_reference_parent_in_non_managed_dag(self):
+        other_dag = DAG.objects.create(team=self.team, name="user_made_dag")
+        upstream_query = DataWarehouseSavedQuery.objects.create(
+            name="upstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(upstream_query, dag=other_dag)
+
+        downstream_query = DataWarehouseSavedQuery.objects.create(
+            name="downstream_view",
+            team=self.team,
+            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+        )
+        with self.assertRaises(Node.DoesNotExist):
+            sync_saved_query_to_dag(downstream_query)
+
+        default_dag = DAG.objects.get(team=self.team, name=DEFAULT_DAG_NAME)
+        self.assertFalse(Node.objects.filter(team=self.team, dag=default_dag, name="upstream_view").exists())
+
     def test_sync_raises_on_cycle(self):
         query_a = DataWarehouseSavedQuery.objects.create(
             name="view_a",

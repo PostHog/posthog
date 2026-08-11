@@ -127,6 +127,20 @@ class GenerateEvaluationLabelsInputs:
     # ClickHouse for partition pruning.
     window_start: str
     window_end: str
+    trace_id: str = ""
+    session_id: str = ""
+    clustering_run_id: str = ""
+    clustering_job_id: str = ""
+
+    @property
+    def properties_to_log(self) -> dict[str, Any]:
+        return {
+            "team_id": self.team_id,
+            "trace_id": self.trace_id,
+            "session_id": self.session_id,
+            "clustering_run_id": self.clustering_run_id,
+            "clustering_job_id": self.clustering_job_id,
+        }
 
 
 @dataclass
@@ -350,6 +364,10 @@ def _label_sync(inputs: GenerateEvaluationLabelsInputs) -> GenerateEvaluationLab
         eval_metadata=inputs.eval_metadata,
         window_start=inputs.window_start,
         window_end=inputs.window_end,
+        trace_id=inputs.trace_id,
+        session_id=inputs.session_id,
+        clustering_run_id=inputs.clustering_run_id,
+        clustering_job_id=inputs.clustering_job_id,
     )
     return GenerateEvaluationLabelsOutputs(cluster_labels=labels)
 

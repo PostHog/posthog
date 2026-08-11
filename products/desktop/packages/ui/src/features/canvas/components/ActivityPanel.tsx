@@ -9,23 +9,27 @@ import type { Task } from "@posthog/shared/domain-types";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
 import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
+import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import {
   AgentStatusLine,
   ThreadLoadingState,
   ThreadReplyComposer,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
+import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type ActivityTab = "timeline" | "artifacts";
+type ActivityTab = "timeline" | "artifacts" | "comments";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
   { key: "artifacts", label: "Artifacts" },
+  { key: "comments", label: "Comments" },
 ] as const;
 
 /** The 32px row this panel leads with: the tabs are the header, so the strip
@@ -33,12 +37,14 @@ const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
  *  review toolbar, which are the same fixed height and border. */
 function ActivityHeader({
   tab,
+  commentsEnabled,
   onTabChange,
   onClose,
   onToggleCollapsed,
   onOpenFull,
 }: {
   tab: ActivityTab;
+  commentsEnabled: boolean;
   onTabChange: (tab: ActivityTab) => void;
   onClose?: () => void;
   onToggleCollapsed?: () => void;
@@ -59,7 +65,9 @@ function ActivityHeader({
           aria-label="Activity"
           className="h-[31px] gap-0.5 p-0"
         >
-          {ACTIVITY_TABS.map((t) => (
+          {ACTIVITY_TABS.filter(
+            (candidate) => commentsEnabled || candidate.key !== "comments",
+          ).map((t) => (
             <TabsTrigger key={t.key} value={t.key} className="px-2.5">
               <span className="font-medium text-[13px]">{t.label}</span>
             </TabsTrigger>
@@ -120,6 +128,7 @@ function ActivityConversation({
   canOpenInPlace?: boolean;
 }) {
   const taskId = task.id;
+  const commentsEnabled = useCommentsEnabled();
   const {
     timeline,
     agentStatus,
@@ -161,15 +170,58 @@ function ActivityConversation({
     [tab, events, isPromptPending],
   );
 
+  // A thread picked on the artifact itself lives in the Comments tab, so the
+  // pick has to bring the tab with it. Only a fresh request switches tabs: a
+  // focus left over from an earlier visit must not hijack the panel on mount.
+  const focusByTask = useCommentNavigationStore((state) => state.focusByTask);
+  const commentFocus = focusByTask[taskId];
+  const acknowledgeCommentsTabOpen = useCommentNavigationStore(
+    (state) => state.acknowledgeCommentsTabOpen,
+  );
+  // Seed requests that predate this panel, but leave later requests for other
+  // tasks pending until the reused panel switches to that task.
+  const seenFocus = useRef(
+    new Map(
+      Object.entries(focusByTask).map(([focusTaskId, focus]) => [
+        focusTaskId,
+        focus?.nonce ?? null,
+      ]),
+    ),
+  );
+  useEffect(() => {
+    if (
+      commentsEnabled &&
+      commentFocus?.openCommentsTab &&
+      commentFocus.nonce !== seenFocus.current.get(taskId)
+    ) {
+      seenFocus.current.set(taskId, commentFocus.nonce);
+      // Not handleTabChange: a programmatic switch isn't a user tab change.
+      setTab("comments");
+    }
+  }, [commentFocus, commentsEnabled, taskId]);
+  useEffect(() => {
+    if (!commentsEnabled && tab === "comments") setTab("timeline");
+  }, [commentsEnabled, tab]);
+  useEffect(() => {
+    if (tab === "comments" && commentFocus?.openCommentsTab) {
+      acknowledgeCommentsTabOpen(taskId, commentFocus.nonce);
+    }
+  }, [acknowledgeCommentsTabOpen, commentFocus, tab, taskId]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when rendered thread content changes
   useEffect(() => {
+    // Only the timeline reads bottom-up; the other tabs put what matters on top.
+    if (tab !== "timeline") return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [timeline, events.length, agentStatus?.phase, tab]);
 
   const showComposer = tab === "timeline";
 
   const body = () => {
+    if (tab === "comments") {
+      return <TaskCommentsList task={task} timeline={timeline} />;
+    }
     if (tab === "artifacts") {
       return (
         <TaskArtifactsList
@@ -200,6 +252,7 @@ function ActivityConversation({
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
       <ActivityHeader
         tab={tab}
+        commentsEnabled={commentsEnabled}
         onTabChange={handleTabChange}
         onOpenFull={onOpenFull}
         onToggleCollapsed={onToggleCollapsed}

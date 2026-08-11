@@ -18,16 +18,25 @@ UNHEALTHY_STATUSES = ("FLAKY", "BROKEN")
 FAILING_TESTS_WINDOW_DAYS = 7
 FAILING_TESTS_DEFAULT_LOOKBACK_DAYS = 30
 
+# The Merge Queue API is a separate surface from Flaky Tests: `/listPullRequests` paginates with
+# top-level `cursor`/`take` body params rather than the nested `page_query` object, and it is
+# scoped to one merge queue, i.e. one target branch.
+MERGE_QUEUE_PAGE_SIZE = 100
+
+MERGE_QUEUE_PULL_REQUESTS = "MergeQueuePullRequests"
+
 ENDPOINTS = (
     "UnhealthyTests",
     "QuarantinedTests",
     "FailingTests",
+    MERGE_QUEUE_PULL_REQUESTS,
 )
 
 DESCRIPTIONS: dict[str, str] = {
     "UnhealthyTests": "Tests Trunk currently considers flaky or broken, combining both status filters.",
     "QuarantinedTests": "Tests currently quarantined (failures suppressed) in this repository.",
     "FailingTests": "Distinct tests that failed at least once within a given time window.",
+    MERGE_QUEUE_PULL_REQUESTS: "Pull requests submitted to the merge queue for one target branch, with queue state and priority.",
 }
 
 PRIMARY_KEYS: dict[str, list[str]] = {
@@ -36,12 +45,27 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     # unstable), so the natural key is the tuple that identifies the test case itself.
     "QuarantinedTests": ["name", "parent", "file", "classname", "variant"],
     "FailingTests": ["id"],
+    MERGE_QUEUE_PULL_REQUESTS: ["id"],
 }
 
-# `FailingTests` is the only endpoint with a real server-side time filter (start_time/end_time).
-# `synced_through` is a synthetic per-row field (not part of the API response) stamped with the
-# end of the window each row was fetched in, so the pipeline's incremental watermark advances as
-# we walk forward through time.
+# `synced_through` is a synthetic per-row field (not part of any API response) carrying the point
+# in time the row's endpoint is covered up to, so the pipeline's incremental watermark advances
+# without depending on the order rows arrive in:
+#
+# - `FailingTests` has a server-side `start_time`/`end_time` filter capped at 7 days, so each row
+#   is stamped with the end of the window it was fetched in as the sync walks forward.
+# - `MergeQueuePullRequests` has a server-side `since` filter on conclusion time but no documented
+#   ordering, so every row in a run is stamped with the run's start time. The next run re-reads
+#   from there, which overlaps by one run's duration rather than risking a gap; the overlap is
+#   deduped by the merge on `id`.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "FailingTests": [incremental_field("synced_through", IncrementalFieldType.DateTime)],
+    MERGE_QUEUE_PULL_REQUESTS: [incremental_field("synced_through", IncrementalFieldType.DateTime)],
+}
+
+# Merge Queue is a separate Trunk product from Flaky Tests and needs a target branch the other
+# endpoints don't, so the table is offered but left unselected rather than failing every sync for
+# the Flaky-Tests-only majority.
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    MERGE_QUEUE_PULL_REQUESTS: False,
 }

@@ -42,11 +42,21 @@ class SessionStore(DBStore):
 
         return Session
 
+    # Row this store loaded for the current request, or None when it never loaded one. Risk scoring
+    # reads the baseline columns off it instead of issuing a second SELECT for a row already fetched.
+    loaded_row: "Session | None" = None
+
     def create_model_instance(self, data: dict[str, Any]) -> "Session":
         obj = cast("Session", super().create_model_instance(data))
         obj.user_id = _auth_user_id(data)
         # Only persisted on INSERT (see `save`); for existing rows the middleware owns last_activity.
         obj.last_activity = timezone.now()
+        return obj
+
+    def _get_session_from_db(self) -> "Session | None":
+        # Private DBStore method, not declared in django-stubs — same gap as `save` works around below.
+        obj = cast("Session | None", super()._get_session_from_db())  # type: ignore[misc]
+        self.loaded_row = obj
         return obj
 
     def save(self, must_create: bool = False) -> None:

@@ -85,6 +85,39 @@ describe('sourceSettingsLogic', () => {
         ])
     })
 
+    it('updates a large schema group optimistically with one batch save', async () => {
+        const schemas = Array.from({ length: 300 }, (_, index) =>
+            makeSchema({ id: `schema-${index}`, name: `public.table_${index}` })
+        )
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource(schemas))
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation(async (_id, updates) =>
+                updates.map((update) => ({ ...schemas.find((schema) => schema.id === update.id)!, ...update }))
+            )
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.updateSchemas(schemas.map((schema) => ({ ...schema, should_sync: true })))
+
+        expect(logic.values.source?.schemas.every((schema) => schema.should_sync)).toBe(true)
+        expect(bulkUpdateSchemasSpy).not.toHaveBeenCalled()
+
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
+        expect(bulkUpdateSchemasSpy.mock.calls[0][1]).toHaveLength(300)
+        expect(bulkUpdateSchemasSpy.mock.calls[0][1]).toEqual(
+            expect.arrayContaining([
+                { id: 'schema-0', should_sync: true },
+                { id: 'schema-299', should_sync: true },
+            ])
+        )
+    })
+
     it('keeps newer queued changes when an older save resolves later', async () => {
         let resolveFirstRequest: ((schema: ExternalDataSourceSchema) => void) | null = null
         const bulkUpdateSchemasSpy = jest.spyOn(api.externalDataSources, 'bulkUpdateSchemas').mockImplementation(

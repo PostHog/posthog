@@ -51,14 +51,19 @@ def first_difference(data: np.ndarray) -> np.ndarray:
 def moving_average(data: np.ndarray, window: int) -> np.ndarray:
     """
     Simple moving average smoothing.
-    Uses 'same' mode to preserve array length.
+
+    Trailing (causal) window: index i averages data[i - window + 1 : i + 1], padding
+    only on the left. A centered window would average the most recent point against
+    padding replicated from itself, then need `window - 1` more real points to arrive
+    before that point's smoothed value stabilizes - each new point silently changes
+    the smoothed value of points already reported, and shifts an anomaly's peak score
+    onto a later, unrelated point instead of the one where the deviation happened.
     """
     if len(data) < window:
         return data
 
     kernel = np.ones(window) / window
-    # Use 'same' mode but handle edges by padding
-    padded = np.pad(data, (window // 2, window - 1 - window // 2), mode="edge")
+    padded = np.pad(data, (window - 1, 0), mode="edge")
     smoothed = np.convolve(padded, kernel, mode="valid")
     return smoothed
 

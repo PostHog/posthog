@@ -3,7 +3,8 @@ import { router } from 'kea-router'
 
 import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { IconPlus } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
+import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/components/DashboardLoadingState/DashboardLoadingState'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -192,11 +193,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
 
 export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
     if (loading) {
-        return (
-            <div className="flex justify-center items-center min-h-[24rem] py-8">
-                <Spinner />
-            </div>
-        )
+        return <DashboardLoadingState />
     }
 
     return <EmptyDashboardContent canEdit={canEdit} />

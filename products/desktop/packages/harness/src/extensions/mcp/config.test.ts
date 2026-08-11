@@ -2,7 +2,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadConfig, mergeRawConfigs, parseConfig } from "./config";
+import {
+  loadConfig,
+  mergeRawConfigs,
+  mergeRuntimeServers,
+  parseConfig,
+} from "./config";
 import { McpError } from "./errors";
 
 describe("parseConfig", () => {
@@ -103,6 +108,25 @@ describe("mergeRawConfigs", () => {
       "projectOnly",
       "shared",
     ]);
+  });
+});
+
+describe("mergeRuntimeServers", () => {
+  it("replaces file servers with runtime servers of the same name", () => {
+    const merged = mergeRuntimeServers(
+      parseConfig({ mcpServers: { shared: { command: "file" } } }, "file"),
+      {
+        shared: {
+          args: [],
+          command: "runtime",
+          directTools: false,
+          lifecycle: "lazy",
+          transport: "stdio",
+        },
+      },
+    );
+
+    expect(merged.mcpServers.shared?.command).toBe("runtime");
   });
 });
 

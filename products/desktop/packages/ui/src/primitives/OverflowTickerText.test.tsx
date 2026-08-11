@@ -68,6 +68,14 @@ describe("OverflowTickerText", () => {
       reveal: true,
       fades: [FADE_IN, FADE_OUT],
     },
+    // A sliver of overflow keeps the resting mask: the text holds still, so
+    // there is no head to fade in.
+    {
+      name: "overflow below the ticking threshold",
+      overflowPx: 8,
+      reveal: true,
+      fades: [FADE_OUT],
+    },
   ])("masks $name", ({ overflowPx, reveal, fades }) => {
     const { tickerContainer } = renderTicker(reveal, overflowPx);
     const mask = tickerContainer.style.maskImage ?? "";

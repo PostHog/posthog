@@ -2,12 +2,29 @@ import { describe, expect, it, vi } from 'vitest'
 
 import updatePathCleaning, {
     applyOperations,
+    expandAlias,
     normalizePathCleaningFilters,
     type PathCleaningRule,
     renumber,
     updatePathCleaningHandler,
 } from '@/tools/projects/updatePathCleaning'
 import type { Context } from '@/tools/types'
+
+describe('expandAlias', () => {
+    // The sample preview has to agree with ClickHouse, whose re2 replacement rules differ from
+    // JavaScript's: `$` is literal, `\10` is group 1 then `0` rather than group 10, and a group the
+    // pattern never filled substitutes as empty.
+    it.each<[string, string, (string | undefined)[], string]>([
+        ['substitutes a group', '/u/\\1', ['/users/42', '42'], '/u/42'],
+        ['substitutes the whole match', '[\\0]', ['/users/42', '42'], '[/users/42]'],
+        ['keeps a dollar literal', '/u/$1', ['/users/42', '42'], '/u/$1'],
+        ['reads \\10 as group 1 then a literal', '\\10', ['ab', 'a', 'b'], 'a0'],
+        ['substitutes an unfilled group as empty', '/u/\\2', ['/users/42', '42', undefined], '/u/'],
+        ['keeps an escaped backslash literal', '\\\\1', ['/users/42', '42'], '\\1'],
+    ])('%s', (_name, alias, groups, expected) => {
+        expect(expandAlias(alias, groups)).toBe(expected)
+    })
+})
 
 describe('normalizePathCleaningFilters', () => {
     it('preserves stored array order (not the order field) and drops only entries with no regex', () => {

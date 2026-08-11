@@ -1,5 +1,12 @@
+import json
+from collections.abc import Iterable
+from typing import Any, cast
+from urllib.parse import urlparse
+
 import pytest
 from unittest import mock
+
+from requests import Response
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
@@ -11,9 +18,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.r
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    RIPPLING_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source import RipplingSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# The REST framework builds its session via make_tracked_session in the rest_client module.
+CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
 
 
 class TestRipplingSource:
@@ -133,6 +144,52 @@ class TestRipplingSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-10-01T00:00:00"
         assert kwargs["incremental_field"] == "updated_at"
+
+    def test_version_declaration_defaults_to_v2_with_v1_supported(self):
+        # Rippling's REST API version is bound to the token account-side, so both labels issue the
+        # same requests; the default tracks the newest label without repinning existing v1 sources.
+        assert self.source.supported_versions == ("v1", "v2")
+        assert self.source.default_version == "v2"
+        assert self.source.deprecated_versions == ()
+
+    @pytest.mark.parametrize("pinned_version", [None, "v1", "v2"])
+    @pytest.mark.parametrize("endpoint", ["workers", "work_locations"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_path_is_identical_for_every_version(self, mock_session, endpoint, pinned_version):
+        # The pin only records which Rippling tier a source targets; it must never change the wire.
+        # A future v2 branch that switched paths or injected a `Rippling-Api-Version` header would
+        # break existing v1 syncs and silently override the customer's token-bound version.
+        session = mock_session.return_value
+        session.headers = {}
+        captured: list[Any] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            captured.append(request)
+            prepared = mock.MagicMock()
+            prepared.url = request.url
+            return prepared
+
+        session.prepare_request.side_effect = _prepare
+        page = Response()
+        page.status_code = 200
+        page._content = json.dumps({"results": [], "next_link": None}).encode()
+        session.send.return_value = page
+
+        inputs = mock.MagicMock()
+        inputs.schema_name = endpoint
+        inputs.api_version = pinned_version
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = None
+        inputs.incremental_field = None
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+
+        response = self.source.source_for_pipeline(self.config, manager, inputs)
+        list(cast(Iterable[Any], response.items()))
+
+        assert captured, "expected at least one request"
+        assert urlparse(captured[0].url).path == RIPPLING_ENDPOINTS[endpoint].path
+        assert "Rippling-Api-Version" not in (captured[0].headers or {})
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rippling.source.rippling_source")
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self, mock_rippling_source):

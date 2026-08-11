@@ -78,9 +78,29 @@ describe('gatewayAuditLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setQuickFilter('blocked')
-        })
+        }).toFinishAllListeners()
+
+        expect(logic.values.counts).toEqual(refreshedCounts)
+    })
+
+    it('filters by service account and resets pagination', async () => {
+        await expectLogic(logic, () => logic.actions.setPage(3)).toFinishAllListeners()
+        mockAuditList.mockClear()
+        mockAuditCountsRetrieve.mockClear()
+
+        await expectLogic(logic, () => logic.actions.setCallerFilter('support-agent'))
             .toFinishAllListeners()
-            .toMatchValues({ counts: refreshedCounts })
+            .toMatchValues({ callerFilter: 'support-agent', page: 1, hasActiveFilters: true })
+
+        expect(mockAuditList).toHaveBeenLastCalledWith(expect.any(String), {
+            quick_filter: 'all',
+            actor_service_account_id: 'support-agent',
+            limit: 10,
+            offset: 0,
+        })
+        expect(mockAuditCountsRetrieve).toHaveBeenLastCalledWith(expect.any(String), {
+            actor_service_account_id: 'support-agent',
+        })
     })
 
     it('discards an earlier count response that resolves after the latest one', async () => {

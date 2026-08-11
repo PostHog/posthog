@@ -1258,6 +1258,10 @@ mod tests {
             cohorts[0].last_backfill_person_properties_at.is_some(),
             "last_backfill_person_properties_at should deserialize from ISO 8601 timestamp"
         );
+        assert!(
+            cohorts[0].last_realtime_cohort_calculation_at.is_some(),
+            "last_realtime_cohort_calculation_at should deserialize from ISO 8601 timestamp"
+        );
 
         // Verify cohort filters can parse into the expected CohortProperty structure
         let filters_value = cohorts[0]

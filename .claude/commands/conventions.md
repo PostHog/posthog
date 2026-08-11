@@ -81,6 +81,15 @@ Hence the explicit separation between the data and view layers.
 
 - Always place imports at the top of the file (module level), never inside functions or methods (local imports)
 
+### Dataclasses
+
+- Prefer a small dataclass over a tuple when returning or passing multiple values: always when two or more elements share a type (callers can silently swap them, e.g. `(start, end)`), and when there are roughly 3+ elements, where positional access hurts readability
+- Use `@frozen` from `posthog.dataclasses` (applies `frozen=True`, `kw_only=True`, `slots=True`; every flag overridable, e.g. `@frozen(slots=False)` for `functools.cached_property`)
+- Consume results with dot notation (`result.field`), never by unpacking into positional locals
+- Name dataclasses after the domain concept (`BillingPeriod`), never `*Info`/`*Data`/`*Tuple`
+- Mark secret fields with `field(repr=False)`
+- A bare `@dataclass` without an explicit `frozen=` choice fails the `posthog/test/test_dataclass_defaults.py` ratchet and is flagged by the `prefer-frozen-dataclasses` semgrep rule
+
 ### Logging
 
 As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate _log level_.

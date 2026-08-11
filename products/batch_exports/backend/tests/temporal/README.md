@@ -71,9 +71,9 @@ DEBUG=1 AWS_ACCESS_KEY_ID="AAAA" AWS_SECRET_ACCESS_KEY="BBBB" AWS_REGION="region
 
 ## Testing S3 batch exports
 
-S3 batch exports are tested against a MinIO bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`), tests that target a Google Cloud Storage (GCS) bucket, and tests that run against a playground AWS account.
+S3 batch exports are tested against a local object storage (SeaweedFS) bucket available in the local development stack. However there are also unit tests that specifically target an S3 bucket (like `test_s3_export_workflow_with_s3_bucket`), tests that target a Google Cloud Storage (GCS) bucket, and tests that run against a playground AWS account.
 
-If no environment variables are defined and no AWS credentials are present, then just the tests targeting MinIO will be run (the tests targeting S3/GCS will be skipped).
+If no environment variables are defined and no AWS credentials are present, then just the tests targeting local object storage will be run (the tests targeting S3/GCS will be skipped).
 
 ### Using an S3 bucket
 

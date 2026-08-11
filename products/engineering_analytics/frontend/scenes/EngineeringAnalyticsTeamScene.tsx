@@ -81,7 +81,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             <SceneTitleSection name="Team CI health" resourceType={{ type: 'health' }} />
             <div className="flex items-start justify-between gap-3">
                 <EntityHeader

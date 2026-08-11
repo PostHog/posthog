@@ -41,6 +41,7 @@ import { ActivityScope } from '~/types'
 import { promptActivityDescriber } from 'products/ai_observability/frontend/prompts/promptActivityDescriber'
 import { promptLabelActivityDescriber } from 'products/ai_observability/frontend/prompts/promptLabelActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/components/activityDescriptions'
+import { canvasActivityDescriber } from 'products/canvas/frontend/activityDescriber'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
@@ -61,6 +62,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return batchImportActivityDescriber
         case ActivityScope.BILLING:
             return billingActivityDescriber
+        case ActivityScope.CANVAS:
+            return canvasActivityDescriber
         case ActivityScope.EXPORTED_ASSET:
             return exportedAssetActivityDescriber
         case ActivityScope.DASHBOARD:

@@ -2,7 +2,10 @@ import type {
   LlmSkillListItem,
   PostHogAPIClient,
 } from "@posthog/api-client/posthog-client";
-import type { ExportedSkill } from "@posthog/shared";
+import {
+  DISABLE_MODEL_INVOCATION_METADATA_KEY,
+  type ExportedSkill,
+} from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { SKILLS_WORKSPACE_CLIENT } from "./identifiers";
 
@@ -127,6 +130,10 @@ export class TeamSkillsService {
           body: exported.body,
           description: exported.description,
           files: exported.files,
+          metadata: withDisableModelInvocation(
+            existing.metadata,
+            exported.disableModelInvocation,
+          ),
           base_version: existing.latest_version ?? existing.version,
         })
       : await client.createLlmSkill({
@@ -134,6 +141,9 @@ export class TeamSkillsService {
           description: exported.description,
           body: exported.body,
           files: exported.files,
+          ...(exported.disableModelInvocation
+            ? { metadata: { [DISABLE_MODEL_INVOCATION_METADATA_KEY]: true } }
+            : {}),
         });
 
     return { version: published.version };
@@ -158,9 +168,24 @@ export class TeamSkillsService {
       name: detail.name,
       description: detail.description,
       body: detail.body,
+      ...(detail.metadata?.[DISABLE_MODEL_INVOCATION_METADATA_KEY] === true
+        ? { disableModelInvocation: true }
+        : {}),
       files,
     };
   }
+}
+
+// Clearing the key keeps a republish that dropped the frontmatter from staying manual-only.
+function withDisableModelInvocation(
+  metadata: Record<string, unknown> | undefined,
+  disableModelInvocation: boolean | undefined,
+): Record<string, unknown> {
+  const { [DISABLE_MODEL_INVOCATION_METADATA_KEY]: _removed, ...rest } =
+    metadata ?? {};
+  return disableModelInvocation
+    ? { ...rest, [DISABLE_MODEL_INVOCATION_METADATA_KEY]: true }
+    : rest;
 }
 
 function toTeamSkillInfo(item: LlmSkillListItem): TeamSkillInfo {

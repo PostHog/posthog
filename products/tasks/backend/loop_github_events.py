@@ -246,6 +246,10 @@ def _filters_match(filters: dict[str, Any], action: str | None, payload: dict[st
     if allowed_labels and not _labels_match(allowed_labels, payload):
         return False
 
+    payload_conditions = filters.get("payload")
+    if payload_conditions and not _payload_matches(payload_conditions, payload):
+        return False
+
     return True
 
 
@@ -280,6 +284,42 @@ def _labels_match(allowed_labels: list[Any], payload: dict[str, Any]) -> bool:
     return bool(_event_labels(payload).intersection(allowed_labels))
 
 
+def _resolve_payload_path(payload: dict[str, Any], path: str) -> Any:
+    """Walk a dot-path through nested objects. Objects only: a segment landing on a list or a
+    scalar resolves to nothing, so `pull_request.labels.0.name` never matches — that is what the
+    `labels` filter is for."""
+    current: Any = payload
+    for segment in path.split("."):
+        if not isinstance(current, dict) or segment not in current:
+            return None
+        current = current[segment]
+    return current
+
+
+def _payload_leaf_as_string(value: Any) -> str | None:
+    # bool before int: `isinstance(True, int)` is True, and "true" is what an author writes.
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int | float):
+        return str(value)
+    return None
+
+
+def _payload_matches(conditions: list[Any], payload: dict[str, Any]) -> bool:
+    """Every condition's dot-path must resolve to a scalar whose string form is one of its
+    expected values (AND across conditions, OR within one), matching how `actions`/`branches`/
+    `labels` combine. Values arrive normalized to lists of strings from the trigger serializer."""
+    for condition in conditions:
+        if not isinstance(condition, dict):
+            return False
+        leaf = _payload_leaf_as_string(_resolve_payload_path(payload, str(condition.get("path", ""))))
+        if leaf is None or leaf not in (condition.get("equals") or []):
+            return False
+    return True
+
+
 def _excerpt(text: Any, limit: int = _EXCERPT_LIMIT) -> str | None:
     if not isinstance(text, str):
         return None
@@ -311,6 +351,17 @@ def _build_event_summary(event_type: str, payload: dict[str, Any]) -> dict[str, 
             "head_ref": (pull_request.get("head") or {}).get("ref"),
             "base_ref": (pull_request.get("base") or {}).get("ref"),
         }
+
+    # A loop can gate on "my team was asked to review", so the run needs to know which team.
+    # Unlike the commit messages dropped below, a team slug and a reviewer login are
+    # org-controlled identifiers rather than text an external contributor can author.
+    requested_team = payload.get("requested_team")
+    if isinstance(requested_team, dict):
+        summary["requested_team"] = {"slug": requested_team.get("slug"), "name": requested_team.get("name")}
+
+    requested_reviewer = payload.get("requested_reviewer")
+    if isinstance(requested_reviewer, dict):
+        summary["requested_reviewer"] = {"login": requested_reviewer.get("login")}
 
     issue = payload.get("issue")
     if isinstance(issue, dict):

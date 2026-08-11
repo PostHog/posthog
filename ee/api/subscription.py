@@ -67,7 +67,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
-from ee.tasks.subscriptions.subscription_utils import MAX_DASHBOARD_INSIGHTS
+from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -234,7 +234,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     dashboard_export_insights = DashboardExportInsightsField(
         required=False,
-        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 10.",
     )
     ai_prompt_config = AIPromptConfigSerializer(
         required=False,
@@ -322,7 +322,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 ),
             },
             "byweekday": {
-                "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
+                "help_text": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
             },
             "bysetpos": {
                 "help_text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last)."
@@ -671,9 +671,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insights:
             selected_ids = set(dashboard_export_insights)
 
-            if len(selected_ids) > MAX_DASHBOARD_INSIGHTS:
+            if len(selected_ids) > MAX_INSIGHTS:
                 raise ValidationError(
-                    {"dashboard_export_insights": [f"Cannot select more than {MAX_DASHBOARD_INSIGHTS} insights."]}
+                    {"dashboard_export_insights": [f"Cannot select more than {MAX_INSIGHTS} insights."]}
                 )
 
             # Ensure all selected insights belong to the team
@@ -1014,6 +1014,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         "insight__name",
         "insight__derived_name",
         "dashboard__name",
+        # An AI report's subject lives only in its prompt, so without this the only way to find the
+        # reports about a given thing is to fetch every ai_prompt row and sift them client-side.
+        # Scoped to one team by the viewset, so the ILIKE never widens past that team's rows.
+        "prompt",
     ]
     ordering_fields = [
         "created_at",
@@ -1285,6 +1289,11 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
     # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
     # subscription, so it is intentionally not scrubbed.
+    # recipient_results is also intentionally not scrubbed: its human_readable_error values are
+    # audience-independent delivery failure reasons (auto-disable causes, prompt rejections, Slack
+    # thread-failure counts) that carry no query-derived data. New producers of
+    # recipient_results[].human_readable_error must keep that invariant — never route a
+    # query/executor-derived message through it, since query-restricted viewers can read it.
     AI_REPORT_SCRUBBED: ClassVar[dict[str, object | None]] = {
         "content_snapshot": {},
         "change_summary": None,

@@ -1,9 +1,13 @@
+from datetime import date
+
 import pytest
 from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
+    ADOBE_ANALYTICS_API_VERSION_2_0,
+    ADOBE_ANALYTICS_API_VERSION_V1,
     AdobeAnalyticsResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.settings import (
@@ -92,6 +96,19 @@ class TestAdobeAnalyticsSource:
     )
     def test_non_retryable_errors_do_not_swallow_transient_or_unrelated_failures(self, other_error: str) -> None:
         assert not any(key in other_error for key in self.source.get_non_retryable_errors())
+
+    def test_version_metadata_declares_v1_deprecation(self) -> None:
+        # The client only ever spoke Adobe's 2.0 wire, so both pins are request-identical; the
+        # metadata is what drives the deprecation banner and the source-level repin migration.
+        assert self.source.supported_versions == (ADOBE_ANALYTICS_API_VERSION_V1, ADOBE_ANALYTICS_API_VERSION_2_0)
+        assert self.source.default_version == ADOBE_ANALYTICS_API_VERSION_2_0
+
+        deprecation = self.source.get_version_deprecation(ADOBE_ANALYTICS_API_VERSION_V1)
+        assert deprecation is not None
+        # Adobe's announced 1.4 API end-of-life; the migration and the banner both depend on it.
+        assert deprecation.sunset_at == date(2026, 8, 12)
+        # The current default must never be flagged deprecated.
+        assert self.source.get_version_deprecation(ADOBE_ANALYTICS_API_VERSION_2_0) is None
 
     def test_get_schemas_lists_the_endpoint_catalog(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

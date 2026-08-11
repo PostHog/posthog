@@ -1,5 +1,6 @@
 from datetime import timedelta
 from typing import Literal
+from uuid import UUID
 
 from django.conf import settings
 from django.utils import timezone
@@ -18,6 +19,8 @@ from posthog.utils import get_instance_region
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
 ARRAY_APP_CLIENT_ID_EU = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9"
 ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
+POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US = "a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm"
+POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU = "1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU"
 POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
 POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
 POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
@@ -27,14 +30,23 @@ POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
 ARRAY_APP_ID_DEV = "019ebb47-c750-0000-e1ea-723a6ff112d3"
 POSTHOG_AI_APP_ID_DEV = "019edb1a-cce4-0000-1f6d-682061862da9"
 
-# Every OAuth application sandbox agent tokens are minted under. Tokens for these apps
-# are only ever created server-side (never via the consent flow or personal API keys),
-# so a request bearing one provably originates from a sandbox run.
-SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
+POSTHOG_DESKTOP_OAUTH_CLIENT_IDS = frozenset(
     {
         ARRAY_APP_CLIENT_ID_US,
         ARRAY_APP_CLIENT_ID_EU,
         ARRAY_APP_CLIENT_ID_DEV,
+        POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+        POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_EU,
+    }
+)
+
+# OAuth applications used to mint sandbox agent tokens. The Array applications also
+# issue interactive Desktop grants, so membership in this set does not prove sandbox origin.
+POSTHOG_CODE_OAUTH_APP_CLIENT_IDS = frozenset({ARRAY_APP_CLIENT_ID_US, ARRAY_APP_CLIENT_ID_EU, ARRAY_APP_CLIENT_ID_DEV})
+
+SANDBOX_OAUTH_APP_CLIENT_IDS = frozenset(
+    {
+        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
         POSTHOG_AI_APP_CLIENT_ID_US,
         POSTHOG_AI_APP_CLIENT_ID_EU,
         POSTHOG_AI_APP_CLIENT_ID_DEV,
@@ -215,7 +227,9 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
     return get_array_app()
 
 
-def _mint_oauth_access_token(user, team_id: int, *, app: OAuthApplication, scopes: list[str]) -> str:
+def _mint_oauth_access_token(
+    user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
+) -> str:
     token_value = generate_random_oauth_access_token(None)
 
     OAuthAccessToken.objects.create(
@@ -225,6 +239,7 @@ def _mint_oauth_access_token(user, team_id: int, *, app: OAuthApplication, scope
         expires=timezone.now() + timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
         scope=" ".join(dict.fromkeys(scopes)),
         scoped_teams=[team_id],
+        sandbox_task_id=sandbox_task_id,
     )
 
     return token_value
@@ -238,6 +253,7 @@ def create_oauth_access_token_for_user(
     include_internal_scopes: bool = True,
     include_mcp_builtin_agent_scope: bool = False,
     application: SandboxOAuthApplication = "array",
+    sandbox_task_id: UUID | None = None,
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     if include_mcp_builtin_agent_scope:
@@ -246,7 +262,7 @@ def create_oauth_access_token_for_user(
         # does not narrow the token's other scopes.
         resolved.append(MCP_BUILT_IN_AGENT_SCOPE)
     app = get_sandbox_oauth_app(application)
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
 
 def get_wizard_app() -> OAuthApplication:

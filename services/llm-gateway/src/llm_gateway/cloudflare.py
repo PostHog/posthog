@@ -11,6 +11,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive
 from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings
 from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
@@ -96,6 +97,7 @@ def make_cloudflare_anthropic_call(api_base: str, api_key: str) -> Callable[...,
     """
 
     async def llm_call(**kwargs: Any) -> Any:
+        kwargs = convert_enabled_thinking_to_adaptive(kwargs)
         _inject_cloudflare_params(kwargs, api_base, api_key)
         response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
         if isinstance(response, AsyncIterator):

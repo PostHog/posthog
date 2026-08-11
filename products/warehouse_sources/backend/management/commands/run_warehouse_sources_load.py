@@ -7,6 +7,9 @@ import structlog
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.logger import configure_logger
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
+    configure_process_concurrency,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
     HealthState,
     start_health_server,
@@ -216,6 +219,11 @@ class Command(BaseCommand):
         health_timeout = options["health_timeout"]
 
         config = build_consumer_config(options)
+
+        # Size deltalite's per-upsert memory slices against this loader's real concurrency (its own
+        # max_concurrency), since it is a Kafka consumer, not a Temporal worker, so the governor's
+        # MAX_CONCURRENT_ACTIVITIES source of truth is unset here.
+        configure_process_concurrency(config.max_concurrency)
 
         if options.get("claim_path") == "legacy":
             logger.warning(

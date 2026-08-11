@@ -20,9 +20,16 @@ from .schemas import (
 
 logger = structlog.get_logger(__name__)
 
+# Inverse of LINKEDIN_ADS_PIVOTS — each analytics resource maps to exactly one pivot.
+RESOURCE_BY_PIVOT = {pivot: resource for resource, pivot in LINKEDIN_ADS_PIVOTS.items()}
+
 LINKEDIN_SPONSORED_URN_PREFIX = "urn:li:sponsored"
 MAX_PAGE_SIZE = 1000
 CREATIVES_PAGE_SIZE = 100  # creatives backend returns transient 500s on heavier requests
+INDEX_PAGE_SIZE = 100
+# LinkedIn caps an ad account at 1000 conversion rules, so 100 pages is far past any real account
+# and only exists to stop a finder that ignores `start` from looping forever.
+MAX_INDEX_PAGES = 100
 # Default LinkedIn Marketing API version header. Callers pass a resolved version through the
 # source's version dispatch; this default backs the legacy `v1` pin and credential-probe paths.
 API_VERSION = "202508"
@@ -178,6 +185,18 @@ class LinkedinAdsClient:
             page_size=CREATIVES_PAGE_SIZE,
         )
 
+    def get_conversions(self, account_id: str) -> Generator[tuple[list[dict[str, Any]], None]]:
+        """Conversion rules defined on the ad account. `q=account` paginates with Rest.li index
+        parameters (`start`/`count`) rather than the pageToken envelope the ad entity finders use,
+        so there is no token to resume from."""
+        account_urn = f"{LINKEDIN_SPONSORED_URN_PREFIX}Account:{account_id}"
+        yield from self._make_index_paginated_request(
+            endpoint=LinkedinAdsResource.Conversions,
+            path=f"/{LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Conversions]}",
+            finder="account",
+            extra_params={"account": account_urn},
+        )
+
     def get_analytics(
         self,
         account_id: str,
@@ -191,12 +210,7 @@ class LinkedinAdsClient:
         capped by LinkedIn — we can't tell which rows were dropped — so we discard it and re-fetch
         the same start with a smaller window rather than yielding partial data. Only a single-day
         window that still caps is surfaced (with a warning), since it can't be split further."""
-        resource_by_pivot = {
-            LinkedinAdsPivot.CAMPAIGN: LinkedinAdsResource.CampaignStats,
-            LinkedinAdsPivot.CAMPAIGN_GROUP: LinkedinAdsResource.CampaignGroupStats,
-            LinkedinAdsPivot.CREATIVE: LinkedinAdsResource.CreativeStats,
-        }
-        resource = resource_by_pivot.get(pivot, LinkedinAdsResource.CampaignStats)
+        resource = RESOURCE_BY_PIVOT.get(pivot, LinkedinAdsResource.CampaignStats)
         fields = ",".join(self._get_fields_for_resource(resource))
         accounts = [f"{LINKEDIN_SPONSORED_URN_PREFIX}Account:{account_id}"]
 
@@ -266,8 +280,8 @@ class LinkedinAdsClient:
         """Get data by resource, yielding each page and its nextPageToken (if any).
 
         `starting_page_token` applies to the paginated entity endpoints (campaigns,
-        campaign_groups, creatives) and is ignored for single-shot endpoints
-        (accounts, analytics — analytics paginates by date-range chunking instead).
+        campaign_groups, creatives) and is ignored for endpoints that don't paginate by token
+        (accounts, conversions — index paginated; analytics — date-range chunked).
         """
         if resource == LinkedinAdsResource.Accounts:
             yield self.get_accounts(), None
@@ -277,6 +291,8 @@ class LinkedinAdsClient:
             yield from self.get_campaign_groups(account_id, starting_page_token=starting_page_token)
         elif resource == LinkedinAdsResource.Creatives:
             yield from self.get_creatives(account_id, starting_page_token=starting_page_token)
+        elif resource == LinkedinAdsResource.Conversions:
+            yield from self.get_conversions(account_id)
         elif resource in LINKEDIN_ADS_PIVOTS:
             yield from self.get_analytics(account_id, LINKEDIN_ADS_PIVOTS[resource], date_start, date_end)
         else:
@@ -394,6 +410,50 @@ class LinkedinAdsClient:
                 break
 
             page_token = next_page_token
+
+    def _make_index_paginated_request(
+        self,
+        endpoint: LinkedinAdsResource,
+        path: str,
+        finder: str,
+        extra_params: Optional[dict[str, Any]] = None,
+        page_size: int = INDEX_PAGE_SIZE,
+    ) -> Generator[tuple[list[dict[str, Any]], None]]:
+        """Yield each page of a Rest.li index-paginated finder (`start` / `count`).
+
+        Yields `(elements, None)` to match the token-paginated signature; index offsets aren't
+        resumable across runs, so nothing is persisted. A short page means the last page — the
+        `total` in the paging envelope is optional, so we don't rely on it.
+        """
+        start = 0
+
+        for _ in range(MAX_INDEX_PAGES):
+            params: dict[str, Any] = {
+                "fields": ",".join(self._get_fields_for_resource(endpoint)),
+                "start": start,
+                "count": page_size,
+            }
+            if extra_params:
+                params.update(extra_params)
+
+            response = self._call_finder(resource_path=path, finder=finder, params=params)
+            elements = response.elements
+
+            if not elements:
+                return
+
+            yield elements, None
+
+            if len(elements) < page_size:
+                return
+
+            start += page_size
+
+        logger.warning(
+            "linkedin_ads.index_pagination_cap_reached",
+            endpoint=endpoint.value,
+            pages=MAX_INDEX_PAGES,
+        )
 
     def _format_date_range(self, date_start: str, date_end: str) -> dict:
         """Format date range for LinkedIn API as structured object."""

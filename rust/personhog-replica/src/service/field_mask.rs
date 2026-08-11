@@ -220,6 +220,7 @@ mod tests {
             is_identified: true,
             is_user_id: Some(false),
             last_seen_at: Some(9999),
+            is_deleted: false,
         }
     }
 

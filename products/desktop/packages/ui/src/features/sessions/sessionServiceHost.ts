@@ -157,6 +157,15 @@ function buildSessionServiceDeps(): SessionServiceDeps {
       getCloudPromptTransport,
       resolveLocalSkillCommandPrompt: (prompt) =>
         resolveLocalSkillPrompt(prompt, () => trpc.skills.list.query()),
+      uploadRunOutput: (client, taskId, runId, name, content, contentType) =>
+        cloudArtifactService.uploadRunOutput(
+          client,
+          taskId,
+          runId,
+          name,
+          content,
+          contentType,
+        ),
       uploadRunAttachments: (client, taskId, runId, filePaths, skillBundles) =>
         cloudArtifactService.uploadRunAttachments(
           client,

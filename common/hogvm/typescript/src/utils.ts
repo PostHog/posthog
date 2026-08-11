@@ -1,5 +1,5 @@
 import { isHogDate, isHogDateTime } from './objects'
-import { toHogDate, toHogDateTime } from './stl/date'
+import { dateStringToSeconds, toHogDate, toHogDateTime } from './stl/date'
 
 /** Epoch seconds for a Hog datetime/date value, else null. A bare HogDate is UTC midnight. */
 function temporalSeconds(value: any): number | null {
@@ -223,6 +223,22 @@ export function unifyComparisonTypes(left: any, right: any): [any, any] {
     const rightSeconds = temporalSeconds(right)
     if (leftSeconds !== null && rightSeconds !== null) {
         return [leftSeconds, rightSeconds]
+    }
+    // A bare-field SQL comparison like `timestamp > toDateTime(...)` puts a plain date-like string
+    // (e.g. the filter globals' ISO `timestamp`) against a HogDateTime/HogDate object. Parse the
+    // string the same way `toDateTime` would rather than falling through to the generic branches
+    // below, where `object > string` stays unordered and silently evaluates to false.
+    if (leftSeconds !== null && typeof right === 'string') {
+        const rightSecondsFromString = dateStringToSeconds(right)
+        if (rightSecondsFromString !== null) {
+            return [leftSeconds, rightSecondsFromString]
+        }
+    }
+    if (rightSeconds !== null && typeof left === 'string') {
+        const leftSecondsFromString = dateStringToSeconds(left)
+        if (leftSecondsFromString !== null) {
+            return [leftSecondsFromString, rightSeconds]
+        }
     }
     if (typeof left === 'number' && typeof right === 'string') {
         return [left, Number(right)]

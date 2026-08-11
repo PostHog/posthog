@@ -99,11 +99,20 @@ impl PersonhogStore {
         Ok(self.inner.put(&key, pod, Some(lease_id)).await?)
     }
 
+    /// The exact key `register_pod` writes for a pod, for watchers that
+    /// must match their own registration and nothing else under the
+    /// prefix.
+    pub fn pod_registration_key(&self, pod_name: &str) -> String {
+        self.key(StoreKey::Pod(pod_name))
+    }
+
     pub async fn get_pod(&self, pod_name: &str) -> Result<Option<RegisteredPod>> {
         let key = self.key(StoreKey::Pod(pod_name));
         Ok(self.inner.get(&key).await?)
     }
 
+    /// Bypasses the protocol: see the crate's `test-support` feature.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn delete_pod(&self, pod_name: &str) -> Result<()> {
         let key = self.key(StoreKey::Pod(pod_name));
         Ok(self.inner.delete(&key).await?)
@@ -206,6 +215,8 @@ impl PersonhogStore {
         Ok(self.inner.list_with_mod_revisions(&key).await?)
     }
 
+    /// Bypasses the protocol: see the crate's `test-support` feature.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn put_assignments(&self, assignments: &[PartitionAssignment]) -> Result<()> {
         if assignments.is_empty() {
             return Ok(());
@@ -251,6 +262,8 @@ impl PersonhogStore {
         Ok(self.inner.list_with_mod_revisions(&key).await?)
     }
 
+    /// Bypasses the protocol: see the crate's `test-support` feature.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn put_handoff(&self, handoff: &HandoffState) -> Result<()> {
         let key = self.key(StoreKey::Handoff(handoff.partition));
         Ok(self.inner.put(&key, handoff, None).await?)
@@ -267,9 +280,16 @@ impl PersonhogStore {
     /// Used by `check_phase_advance` to avoid duplicate phase writes when
     /// multiple watch loops fire `check_phase_advance` concurrently for the
     /// same partition.
+    /// `expected_id` names the handoff attempt the caller validated. The
+    /// key can be replaced between that validation and this write —
+    /// cancellation swaps in a successor and deletes the old acks in one
+    /// transaction — and a `mod_revision` guard taken on a re-read here
+    /// would not notice, because it only proves nothing changed since
+    /// *this* function looked.
     pub async fn cas_handoff_phase(
         &self,
         partition: u32,
+        expected_id: &str,
         expected: crate::types::HandoffPhase,
         new_phase: crate::types::HandoffPhase,
     ) -> Result<bool> {
@@ -281,7 +301,7 @@ impl PersonhogStore {
         else {
             return Ok(false);
         };
-        if handoff.phase != expected {
+        if handoff.phase != expected || handoff.handoff_id != expected_id {
             return Ok(false);
         }
         handoff.phase = new_phase;
@@ -352,6 +372,8 @@ impl PersonhogStore {
         Ok(resp.succeeded())
     }
 
+    /// Bypasses the protocol: see the crate's `test-support` feature.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn delete_handoff(&self, partition: u32) -> Result<()> {
         let key = self.key(StoreKey::Handoff(partition));
         Ok(self.inner.delete(&key).await?)
@@ -588,7 +610,18 @@ impl PersonhogStore {
     /// writes (e.g. if another actor already completed or deleted the handoff
     /// between our read and write).
     ///
-    /// Returns `Ok(false)` if the handoff was modified concurrently (CAS failed).
+    /// Returns `Ok(false)` if the handoff was modified concurrently (CAS failed),
+    /// or if the record at the key is no longer the attempt the caller
+    /// validated.
+    ///
+    /// The `expected_*` arguments are what make the second case
+    /// detectable, and they are not optional rigour. Completion is the
+    /// step that writes the assignment, so completing the wrong record
+    /// hands the partition to a pod that never froze, drained, or warmed
+    /// — while the old owner is still admitting writes — and routers cut
+    /// over to it. A `mod_revision` guard alone cannot catch that: it
+    /// proves nothing changed since this function's own re-read, not that
+    /// the record is the one whose warm was verified.
     ///
     /// **Invariant:** this is the only code path that ever *changes* an
     /// assignment's `owner`. Routers rely on observing handoff Complete
@@ -597,7 +630,12 @@ impl PersonhogStore {
     /// of this method will be invisible to routers. If we ever need a
     /// force-reassignment ops tool, it should create a handoff record and
     /// let the protocol advance it, not write to the assignment key.
-    pub async fn complete_handoff(&self, partition: u32) -> Result<bool> {
+    pub async fn complete_handoff(
+        &self,
+        partition: u32,
+        expected_id: &str,
+        expected_phase: crate::types::HandoffPhase,
+    ) -> Result<bool> {
         let handoff_key = self.key(StoreKey::Handoff(partition));
 
         let (mut handoff, mod_revision) = self
@@ -605,6 +643,10 @@ impl PersonhogStore {
             .get_with_mod_revision::<HandoffState>(&handoff_key)
             .await?
             .ok_or_else(|| Error::NotFound(format!("handoff for partition {partition}")))?;
+
+        if handoff.handoff_id != expected_id || handoff.phase != expected_phase {
+            return Ok(false);
+        }
 
         handoff.phase = crate::types::HandoffPhase::Complete;
         handoff.phase_entered_at_ms = assignment_coordination::util::now_millis();

@@ -1,0 +1,16 @@
+{
+    "name": "@posthog/canvas-builder",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@posthog/quill": "0.3.0-beta.18",
+        "@tailwindcss/oxide": "4.3.1",
+        "dayjs": "1.11.13",
+        "esbuild": "0.25.0",
+        "lucide-react": "1.21.0",
+        "react": "19.0.0",
+        "react-dom": "19.0.0",
+        "recharts": "2.15.0",
+        "tailwindcss": "4.3.1"
+    }
+}

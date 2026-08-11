@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { TooltipContext } from '../core/types'
-import { TooltipSurface, TooltipSwatch } from './TooltipSurface'
+import { TooltipFooter, TooltipSurface, TooltipSwatch } from './TooltipSurface'
 import { findClosestSeriesKey } from './tooltipUtils'
 
 type SeriesDatum<Meta> = TooltipContext<Meta>['seriesData'][number]
@@ -200,9 +200,7 @@ export function DefaultTooltip<Meta = unknown>({
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
-            {footer && (
-                <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60 text-center">{footer}</div>
-            )}
+            {footer && <TooltipFooter>{footer}</TooltipFooter>}
         </TooltipSurface>
     )
 }

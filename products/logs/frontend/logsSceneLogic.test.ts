@@ -145,6 +145,7 @@ describe('logsSceneLogic', () => {
 
         it.each([
             ['viewer', 'viewer'],
+            ['anomalies', 'anomalies'],
             ['configuration', 'configuration'],
         ])('parses valid activeTab "%s" from URL', async (urlValue, expected) => {
             await expectLogic(logic, () => {

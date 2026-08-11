@@ -10,7 +10,7 @@ import {
     ConversionGoalFilter,
     DatabaseSchemaDataWarehouseTable,
     HogQLQueryResponse,
-    MARKETING_CAMPAIGN_TABLE_PATTERNS,
+    MARKETING_INTEGRATION_CONFIGS,
     MARKETING_INTEGRATION_FIELD_MAP,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsConfig,
@@ -29,7 +29,7 @@ import type { PaginatedResponse } from '../../../../../../lib/api'
 import type { ProductIntentProperties } from '../../../../../../lib/utils/product-intents'
 import type { TeamPublicType, TeamType } from '../../../../../../types'
 import { IntegrationSettingsTab } from '../components/settings/IntegrationSettingsModal'
-import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, generateUniqueName } from './utils'
+import { DEFAULT_ATTRIBUTION_WINDOW_DAYS, extractSchemaName, generateUniqueName } from './utils'
 
 export interface IntegrationSettingsModalState {
     isOpen: boolean
@@ -496,8 +496,8 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                     if (!isNativeMarketingSource(sourceType)) {
                         continue
                     }
-                    const patterns = MARKETING_CAMPAIGN_TABLE_PATTERNS[sourceType]
-                    if (!patterns) {
+                    const campaignTableName = MARKETING_INTEGRATION_CONFIGS[sourceType]?.campaignTableName
+                    if (!campaignTableName) {
                         continue
                     }
 
@@ -506,14 +506,12 @@ export const marketingAnalyticsSettingsLogic = kea<marketingAnalyticsSettingsLog
                         (table) => table.source?.source_type === sourceType
                     )
 
-                    // Find the campaign table using the same pattern matching as the backend
+                    // Match the declared schema name exactly, like the backend factory does.
+                    // Keyword matching also claimed unrelated schemas that merely contain the
+                    // keyword — Google Ads `campaign_budget` — and then every query against
+                    // the resolved table failed on the missing campaign columns.
                     for (const table of sourceTables) {
-                        const tableSuffix = table.name.split('.').pop()?.toLowerCase() || ''
-
-                        const matchesKeyword = patterns.keywords.some((kw: string) => tableSuffix.includes(kw))
-                        const matchesExclusion = patterns.exclusions.some((ex: string) => tableSuffix.includes(ex))
-
-                        if (matchesKeyword && !matchesExclusion) {
+                        if (extractSchemaName(table.name, sourceType) === campaignTableName) {
                             result[sourceType] = table.name
                             break
                         }

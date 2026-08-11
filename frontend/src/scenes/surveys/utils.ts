@@ -992,8 +992,12 @@ export function getExpressionCommentForQuestion(
     q: BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion,
     questionIndex: number
 ): string {
-    if (q.question.trim().length > 0) {
-        return q.question
+    const question = q.question.trim()
+    if (question.length > 0) {
+        // This is appended after `--` in the generated HogQL, and HogQL `--` comments are
+        // single-line. Collapse any newlines so multi-line question text can't leak past the
+        // comment and break the query (e.g. a stray non-ASCII char -> "Unexpected character").
+        return question.replace(/\s*[\r\n]+\s*/g, ' ')
     }
     return `Question ${questionIndex + 1}`
 }

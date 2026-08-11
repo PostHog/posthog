@@ -46,9 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     record_person_property_sync_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-    delta_storage_options,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import delta_storage_options
 
 logger = structlog.get_logger(__name__)
 
@@ -57,6 +55,13 @@ EVENT_SOURCE = "customer_analytics_person_property_sync"
 # target_type value for group sources (kept as a literal so this module doesn't import the
 # customer_analytics config models, matching the isolation the hooks already preserve).
 _GROUP_TARGET = "group"
+
+# Identifiers per existence-lookup call. Both personhog helpers return whole Person/Group models,
+# properties included, and accumulate every model before returning. This activity only needs the
+# identifier back, so chunking here caps peak memory at one chunk's models instead of the entire
+# changed set — an organization group carries tens of KB of properties, so a six-figure changed set
+# would otherwise materialize gigabytes and get the worker OOM-killed.
+_EXISTENCE_LOOKUP_CHUNK_SIZE = 1_000
 
 
 @dataclasses.dataclass
@@ -288,14 +293,26 @@ def _get_schema(team_id: int, schema_id: str) -> ExternalDataSchema | None:
 
 def _filter_existing_ids(team_id: int, source: PersonPropertySyncSource, ids: list[str]) -> set[str]:
     """The subset of ``ids`` that resolve to an existing person (or group, for group targets). We only
-    enrich entities that already exist — the same rule for both, just a different lookup."""
+    enrich entities that already exist — the same rule for both, just a different lookup.
+
+    Chunked so only one chunk's models are alive at a time (see ``_EXISTENCE_LOOKUP_CHUNK_SIZE``);
+    each chunk's identifiers are kept and its models dropped before the next call."""
     if not ids:
         return set()
-    if source.target == _GROUP_TARGET:
-        if source.group_type_index is None:
-            return set()
-        return {group.group_key for group in get_groups_by_identifiers(team_id, source.group_type_index, ids)}
-    return set(get_persons_mapped_by_distinct_id(team_id, ids).keys())
+    # Stays None for person targets, so the loop below picks its lookup off this alone.
+    is_group = source.target == _GROUP_TARGET
+    group_type_index = source.group_type_index if is_group else None
+    if is_group and group_type_index is None:
+        return set()
+
+    existing: set[str] = set()
+    for start in range(0, len(ids), _EXISTENCE_LOOKUP_CHUNK_SIZE):
+        chunk = ids[start : start + _EXISTENCE_LOOKUP_CHUNK_SIZE]
+        if group_type_index is not None:
+            existing.update(group.group_key for group in get_groups_by_identifiers(team_id, group_type_index, chunk))
+        else:
+            existing.update(get_persons_mapped_by_distinct_id(team_id, chunk).keys())
+    return existing
 
 
 def _group_type_name(team_id: int, group_type_index: int) -> str | None:
@@ -672,6 +689,39 @@ def _record(
             error=error,
         )
     )
+
+
+async def record_started_runs(
+    *, team_id: int, schema_id: str, job_id: str | None, trigger: str, started_at: str
+) -> None:
+    """Open a 'running' run row per source the schema feeds, so a sync in flight shows up in the UI
+    instead of appearing only once it finishes. The terminal record reconciles the same row (see
+    record_sync_run). Never raises — bookkeeping must not fail the sync it describes."""
+    try:
+        sources = await database_sync_to_async(person_property_sync_sources_for, thread_sensitive=False)(
+            team_id, schema_id
+        )
+        for source in sources or []:
+            await database_sync_to_async(_record, thread_sensitive=False)(
+                team_id=team_id,
+                schema_id=schema_id,
+                job_id=job_id,
+                trigger=trigger,
+                status="running",
+                started_at=started_at,
+                finished_at="",
+                ps=PerSourceResult(source_id=str(source.source_id)),
+                error=None,
+            )
+    except Exception as e:
+        logger.exception(
+            "person-property run: failed to record started runs",
+            team_id=team_id,
+            schema_id=schema_id,
+            job_id=job_id,
+            trigger=trigger,
+        )
+        capture_exception(e, {"team_id": team_id, "schema_id": schema_id, "trigger": trigger})
 
 
 async def record_completed_runs(

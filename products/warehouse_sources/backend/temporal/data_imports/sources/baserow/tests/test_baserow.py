@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.baserow.ba
     _read_capped,
     baserow_rows_source,
     check_table_read_permission,
+    list_tables,
     normalize_base_url,
     resolve_table_id,
 )
@@ -179,6 +180,26 @@ class TestCheckTableReadPermission:
             reason = check_table_read_permission(None, "tok", 42)
 
         assert (reason is not None) is expects_reason
+
+
+class TestListTables:
+    @pytest.mark.parametrize(
+        ("status_code", "body"),
+        [
+            (302, b""),  # a redirect the no-redirect session leaves unfollowed: empty body
+            (200, b"<html>not the API</html>"),  # wrong URL / proxy returns an HTML page
+        ],
+    )
+    def test_non_json_response_raises_clear_error(self, status_code: int, body: bytes) -> None:
+        response = Response()
+        response.status_code = status_code
+        response._content = body
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.baserow.baserow._get_session"
+        ) as mock_session:
+            mock_session.return_value.get.return_value = response
+            with pytest.raises(ValueError, match="unexpected response"):
+                list_tables(None, "tok")
 
 
 def _streamed_response(chunks: list[bytes], status_code: int = 200) -> Response:

@@ -439,7 +439,13 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                         >
                                                             {columnGroup.title}
                                                         </th>
-                                                        <th colSpan={columnGroup.children.length - 1} />
+                                                        {/* The DOM clamps colSpan 0 up to 1, so a single-child
+                                                            group must not render the filler at all: the phantom
+                                                            column shifts every group title after it one column
+                                                            to the right. */}
+                                                        {columnGroup.children.length > 1 && (
+                                                            <th colSpan={columnGroup.children.length - 1} />
+                                                        )}
                                                     </React.Fragment>
                                                 ) : (
                                                     <th

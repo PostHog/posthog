@@ -491,7 +491,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         scaleDisplay: [
             (s) => [s.scale],
             (scale: number) => {
-                return `${percentage(scale, 1, true)}`
+                // Whole-percent precision: the decimal added no useful information and flickered
+                // as the fit-scale settled between near-identical values.
+                return `${percentage(scale, 0, true)}`
             },
         ],
         startTime: [

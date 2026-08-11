@@ -12,9 +12,19 @@ from rest_framework.test import APIClient
 from posthog.models.comment import Comment
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
+
+
+def _verification_counter(outcome: str, source: str) -> float:
+    # Process-global, so callers compare deltas rather than absolute values.
+    from prometheus_client import REGISTRY
+
+    return (
+        REGISTRY.get_sample_value("conversations_identity_verification_total", {"outcome": outcome, "source": source})
+        or 0.0
+    )
 
 
 class TestWidgetAPI(BaseTest):
@@ -661,6 +671,95 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+
+    @parameterized.expand(
+        [
+            # Post-cutover state: with the legacy column gone, the signing secret alone has
+            # to verify. Not reachable in production yet, so this locks in the end state.
+            ("signing_secret_only", True, False),
+            # A stale row (rotation sync missed) must fall back to the legacy token rather
+            # than locking the team out.
+            ("stale_signing_secret_falls_back_to_legacy", False, True),
+        ]
+    )
+    def test_list_tickets_verifies_against_signing_secret(self, _name, row_matches_hash, has_legacy_token):
+        SigningSecret.objects.for_team(self.team.id).create(
+            team=self.team,
+            secret=self.secret if row_matches_hash else "a_stale_secret",
+        )
+        self.team.secret_api_token = self.secret if has_legacy_token else None
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
+    def test_list_tickets_post_backfill_reports_the_signing_secret_as_the_source(self):
+        # After the backfill both stores hold the same value, so the response is 200 either
+        # way and only the counter shows which one matched. Without this, reordering the
+        # candidates to put legacy first keeps the suite green while the drift metric —
+        # what gates dropping the plaintext column — silently reports legacy forever.
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self._create_ticket()
+        before_signing = _verification_counter("verified", "signing_secret")
+        before_legacy = _verification_counter("verified", "legacy_token")
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(_verification_counter("verified", "signing_secret") - before_signing, 1.0)
+        self.assertEqual(_verification_counter("verified", "legacy_token") - before_legacy, 0.0)
+
+    def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
+        # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex
+        # hash used to reach it and surface as a 500 on a publicly reachable endpoint.
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": "é" * 64,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_tickets_stale_signing_secret_cannot_resurrect_revoked_key(self):
+        # Rotating and then deleting the backup revokes the old key. If a rotation sync
+        # didn't land, the signing secret row still holds that key — accepting it would
+        # keep a revoked key signing identities indefinitely.
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self.team.secret_api_token = "rotated_new_secret"
+        self.team.secret_api_token_backup = None
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_list_tickets_invalid_hash_returns_forbidden(self):
         self._create_ticket()

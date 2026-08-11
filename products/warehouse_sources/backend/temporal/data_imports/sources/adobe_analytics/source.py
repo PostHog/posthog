@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 import structlog
@@ -12,6 +13,8 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
+    ADOBE_ANALYTICS_API_VERSION_2_0,
+    ADOBE_ANALYTICS_API_VERSION_V1,
     AdobeAnalyticsResumeConfig,
     adobe_analytics_source,
     validate_credentials as validate_adobe_analytics_credentials,
@@ -21,7 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -45,6 +52,13 @@ class AdobeAnalyticsSource(ResumableSource[AdobeAnalyticsSourceConfig, AdobeAnal
     api_docs_url = "https://developer.adobe.com/analytics-apis/docs/2.0/"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    supported_versions = (ADOBE_ANALYTICS_API_VERSION_V1, ADOBE_ANALYTICS_API_VERSION_2_0)
+    default_version = ADOBE_ANALYTICS_API_VERSION_2_0
+    # Adobe sunsets the legacy 1.4 API (the "v1" label) on 2026-08-12; the client already talks
+    # 2.0, so this only lights up the generic deprecation warning and repins pins to the label
+    # that matches the wire.
+    deprecated_versions = (VersionDeprecation(version=ADOBE_ANALYTICS_API_VERSION_V1, sunset_at=date(2026, 8, 12)),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -89,4 +89,4 @@ class QueryCache:
         else:
             remove_last_refresh(team_id=self.team_id, insight_id=self.insight_id, dashboard_id=self.dashboard_id)
 
-        count_cache_write_data(self.team_id, data_size)
+        count_cache_write_data(data_size)

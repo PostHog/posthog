@@ -237,6 +237,8 @@ class TestValidateCredentials:
         [
             ("valid", 200, None, True),
             ("bad_key", 401, None, False),
+            # A 400 (the status users actually hit) is a deterministic client error, not transient.
+            ("bad_request_at_create", 400, None, False),
             ("missing_scope_at_create", 403, None, True),
             ("missing_scope_at_schema", 403, "history", False),
             # An unverified key (transient 429/5xx) must not be saved as valid at create time.
@@ -249,6 +251,15 @@ class TestValidateCredentials:
         mts.return_value.get.return_value = mock.MagicMock(status_code=status)
         ok, _msg = validate_credentials("k", schema_name)
         assert ok is expected_ok
+
+    @mock.patch(SESSION_PATCH)
+    def test_client_error_reads_as_invalid_key_not_retry(self, mts) -> None:
+        # A 400 must not tell the user to "try again" — that only resolves for transient 429/5xx.
+        mts.return_value.get.return_value = mock.MagicMock(status_code=400)
+        ok, msg = validate_credentials("k")
+        assert ok is False
+        assert msg is not None
+        assert "try again" not in msg.lower()
 
     @mock.patch(SESSION_PATCH)
     def test_network_error_is_not_valid(self, mts) -> None:

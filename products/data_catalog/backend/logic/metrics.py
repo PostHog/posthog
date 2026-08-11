@@ -34,7 +34,7 @@ from .analytics import (
 )
 from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
 from .exceptions import MetricDrifted, SourceInsightUnavailable
-from .validation import validate_metric_definition
+from .validation import validate_description, validate_metric_definition
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -211,6 +211,7 @@ def upsert_metric(
         raise ValidationError(
             {"name": "Name must start with a letter and contain only letters, numbers, and underscores."}
         )
+    validate_description(description)
 
     fields: dict[str, object] = {"description": description}
     for key, value in (
@@ -266,6 +267,8 @@ def update_metric(
     """Partially update a metric. Name is write-once; editing an approved definition resets approval."""
     if "name" in fields:
         raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
+    if "description" in fields:
+        validate_description(fields["description"])
 
     # Route definition / insight-link through the same resolver as create, so a PATCH honors the
     # definition-XOR-insight rule, snapshots (and validates) on relink, and drops the hash on unlink.

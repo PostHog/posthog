@@ -1,14 +1,15 @@
 #!/usr/bin/env node
-// Renders the "Downloads" section appended to GitHub release notes: one
+// Renders the "Downloads" section appended to the release notes: one
 // markdown table per OS with a direct download link, blockmap link, and
 // SHA-256 per installer. Input is a directory of sha256sum/shasum output
-// files collected from the publish jobs in code-release.yml — the asset
+// files collected from the publish jobs in desktop-release.yml — the asset
 // patterns below must cover every file those jobs checksum.
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DOWNLOAD_BASE = "https://github.com/PostHog/code/releases/download";
+// The S3 update feed is flat; filenames carry the version.
+const DOWNLOAD_BASE = "https://desktop-releases.posthog.com/stable";
 
 const ASSET_KINDS = [
   { pattern: /-mac\.dmg$/, os: "macos", pkg: "DMG", pkgOrder: 0 },
@@ -69,8 +70,8 @@ function detectArch(name) {
   return "unknown";
 }
 
-export function buildDownloadTables(version, checksums) {
-  const base = `${DOWNLOAD_BASE}/v${version.replace(/^v/, "")}`;
+export function buildDownloadTables(checksums) {
+  const base = DOWNLOAD_BASE;
   const rows = { macos: [], windows: [], linux: [] };
 
   for (const [name, sha] of checksums) {
@@ -131,11 +132,11 @@ export function buildDownloadTables(version, checksums) {
 }
 
 function main() {
-  const [, , version, checksumsDir] = process.argv;
+  const [, , checksumsDir] = process.argv;
 
-  if (!version || !checksumsDir) {
+  if (!checksumsDir) {
     console.error(
-      "Usage: generate-release-download-tables.mjs <version> <checksums-dir>",
+      "Usage: generate-release-download-tables.mjs <checksums-dir>",
     );
     process.exit(1);
   }
@@ -157,7 +158,7 @@ function main() {
     }
   }
 
-  const markdown = buildDownloadTables(version, checksums);
+  const markdown = buildDownloadTables(checksums);
   if (!markdown) {
     console.error(`No release artifacts found in ${checksumsDir}`);
     process.exit(1);

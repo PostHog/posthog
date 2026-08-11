@@ -48,7 +48,8 @@ export const manifest: ProductManifest = {
         supportTickets: (): string => '/support/tickets',
         supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
         supportSettings: (): string => '/support/settings',
-        myTickets: (): string => '/my-tickets',
+        myTickets: (ticketId?: string): string =>
+            ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',
     },
     fileSystemTypes: {},
     treeItemsNew: [],

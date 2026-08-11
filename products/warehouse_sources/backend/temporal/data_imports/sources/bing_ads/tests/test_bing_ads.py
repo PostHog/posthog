@@ -10,7 +10,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.b
     BING_ADS_REPORT_RETENTION,
     bing_ads_source,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.schemas import BingAdsResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.schemas import (
+    REPORT_CONFIG,
+    RESOURCE_SCHEMAS,
+    BingAdsResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.utils import (
     BingAdsResumeConfig,
     download_and_extract_report_csv,
@@ -260,6 +264,58 @@ class TestBingAdsHelperFunctions:
             start_date=dt.datetime.combine(dt.date(2025, 1, 1), dt.time.min),
             end_date=dt.datetime.combine(dt.date(2025, 6, 30), dt.time.max),
         )
+
+
+class TestKeywordPerformanceReport:
+    """The keyword performance report rides the generic report path, so these guard the two
+    ways it can be mis-wired without any live call catching it."""
+
+    def test_keyword_report_wired_through_report_path(self):
+        # get_data_by_resource routes a resource through the report path only if it's in REPORT_CONFIG;
+        # adding the enum member but forgetting the config would raise "Unsupported resource" at sync time.
+        assert BingAdsResource.KEYWORD_PERFORMANCE_REPORT in REPORT_CONFIG
+        assert BingAdsResource.KEYWORD_PERFORMANCE_REPORT in RESOURCE_SCHEMAS
+
+    def test_keyword_report_grain_is_keyword_per_day(self):
+        # KeywordId + TimePeriod is the intended one-row-per-keyword-per-day grain. DeliveredMatchType
+        # would split a keyword-day into one row per served match type; if it slips into the column list
+        # the merge dedup on this primary key silently drops rows, so lock both facts down together.
+        schema = RESOURCE_SCHEMAS[BingAdsResource.KEYWORD_PERFORMANCE_REPORT]
+        assert schema["primary_key"] == ["KeywordId", "TimePeriod"]
+        assert "DeliveredMatchType" not in schema["field_names"]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.fetch_data_in_yearly_chunks"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    def test_keyword_report_source_is_incremental_stats(self, mock_integrations, mock_client_class, mock_fetch_chunks):
+        # The keyword report is a stats report: bing_ads_source must treat it as incremental (chunked over
+        # TimePeriod) rather than the one-shot campaigns path, and expose the keyword-per-day primary key.
+        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+        mock_client_class.return_value = Mock()
+        mock_fetch_chunks.return_value = iter([[{"KeywordId": "1", "TimePeriod": "2024-01-01"}]])
+
+        result = bing_ads_source(
+            account_id="12345",
+            resource_name="keyword_performance_report",
+            access_token="test_access_token",
+            refresh_token="test_refresh_token",
+            resumable_source_manager=_mock_resumable_manager(),
+            should_use_incremental_field=True,
+            incremental_field="TimePeriod",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=None,
+        )
+
+        assert result.name == "keyword_performance_report"
+        assert result.primary_keys == ["KeywordId", "TimePeriod"]
+        assert result.partition_mode == "datetime"
+
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
+        mock_fetch_chunks.assert_called_once()
 
 
 class TestBingAdsSource:

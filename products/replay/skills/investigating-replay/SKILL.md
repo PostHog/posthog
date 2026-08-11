@@ -234,3 +234,10 @@ with a throwaway scanner — but **ask the user's permission before creating any
   use this to frame the narrative.
 - If `person` is null on the recording, the user was anonymous.
   Person properties won't be available, but events still are.
+
+## Related skills
+
+- **`finding-sessions-to-watch`** — choose which sessions are worth investigating in the first place
+- **`finding-replay-for-issue`** — start from an error tracking issue and find its linked recordings
+- **`diagnosing-missing-recordings`** — when a recording that should exist doesn't
+- **`creating-replay-vision-scanners`** — automate this kind of watching as a scheduled scanner

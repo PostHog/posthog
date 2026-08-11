@@ -26,6 +26,7 @@ const config = (overrides: Partial<ScoutConfig> = {}): ScoutConfig => ({
   scout_origin: "canonical",
   run_interval_minutes: 180,
   last_run_at: "2026-07-09T06:30:00Z",
+  auto_pause_exempt: false,
   created_at: "2026-06-01T00:00:00Z",
   ...overrides,
 });
@@ -56,8 +57,45 @@ const CONFIGS: ScoutConfig[] = [
     skill_name: "signals-scout-weekly-digest",
     scout_origin: "custom",
     enabled: false,
+    status: "paused_by_user",
     run_interval_minutes: 10080,
     description: "Posts a weekly digest of notable product metrics.",
+  }),
+];
+
+/** The lifecycle states the platform drives, not the user. */
+const LIFECYCLE_CONFIGS: ScoutConfig[] = [
+  ...CONFIGS,
+  // Quiet, so flagged for a look — but silence alone never pauses a scout.
+  config({
+    id: "config-quiet-watchdog",
+    skill_name: "signals-scout-quiet-watchdog",
+    scout_origin: "custom",
+    status: "pending_pause",
+    pause_reason: "no_output",
+    status_changed_at: "2026-07-08T06:15:00Z",
+    description: "Watches for a failure mode that has not fired in a while.",
+  }),
+  // Findings nobody picked up: this is the warning that does advance to a pause.
+  config({
+    id: "config-ignored-digest",
+    skill_name: "signals-scout-ignored-digest",
+    scout_origin: "custom",
+    status: "pending_pause",
+    pause_reason: "ignored",
+    status_changed_at: "2026-07-08T06:15:00Z",
+    description: "Files a digest of product metrics nobody has acted on.",
+  }),
+  config({
+    id: "config-flaky-import",
+    skill_name: "signals-scout-flaky-import",
+    scout_origin: "custom",
+    enabled: false,
+    status: "paused_by_system",
+    pause_reason: "repeated_failures",
+    consecutive_failure_count: 6,
+    status_changed_at: "2026-07-07T00:45:00Z",
+    description: "Sweeps warehouse imports for stuck or failing syncs.",
   }),
 ];
 
@@ -155,4 +193,14 @@ export const NothingOfYours: Story = {
 /** Skills API gated for the org (creators = null) → no creator picker at all. */
 export const WithoutCreatorData: Story = {
   args: { creators: null },
+};
+
+/**
+ * The three system-driven states side by side: a quiet scout (flagged only), one
+ * whose ignored findings will pause it, and one the failure breaker already
+ * paused. Only the latter two are counted in the summary line, and the paused
+ * one stays out of the "hide disabled" filter so it remains recoverable.
+ */
+export const SystemPaused: Story = {
+  args: { configs: LIFECYCLE_CONFIGS },
 };

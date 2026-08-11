@@ -5,16 +5,13 @@ use axum::{body::Body, http::Request};
 use common_redis::MockRedisClient;
 use cymbal::{app_context::AppContext, modes::processing::ProcessingConfig, router::get_router};
 use httpmock::prelude::*;
-use mockall::predicate;
 use serde_json::json;
 use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
+mod common;
 mod utils;
-use utils::MockS3Client;
-
-const STORAGE_BUCKET: &str = "test-bucket";
 
 // One test per binary: common_posthog::init configures a process-wide global
 // client, so a second init with a different mock server would be ignored.
@@ -45,23 +42,15 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
         .await
         .expect("posthog init");
 
+    let (addr, _) = common::spawn_stub_server(common::ServerBehavior::Happy).await;
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
-    config.resolver.object_storage_bucket = STORAGE_BUCKET.to_string();
-
-    let mut s3_client = MockS3Client::new();
-    s3_client
-        .expect_ping_bucket()
-        .with(predicate::eq(STORAGE_BUCKET.to_string()))
-        .returning(|_| Ok(()));
-
-    let app_ctx = AppContext::new(
-        &config,
-        Arc::new(s3_client),
-        db.clone(),
-        Arc::new(MockRedisClient::new()),
-    )
-    .await
-    .unwrap();
+    config.remote_resolution_host = "127.0.0.1".to_string();
+    config.remote_resolution_port = addr.port();
+    config.resolver.internal_api_secret = "test-secret".to_string();
+    config.remote_resolution_subscribe_tick_hint_ms = 25;
+    let app_ctx = AppContext::new(&config, db.clone(), Arc::new(MockRedisClient::new()))
+        .await
+        .unwrap();
     let router = get_router(Arc::new(app_ctx));
 
     // With the pool closed, the pipeline's first database access fails with

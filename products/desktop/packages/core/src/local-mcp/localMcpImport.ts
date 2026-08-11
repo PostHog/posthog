@@ -1,8 +1,8 @@
 import type {
   Adapter,
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
+  McpServerConnection,
 } from "@posthog/shared";
 import { isPrivateIpv4Octets, isPrivateIpv6Literal } from "@posthog/shared";
 import { inject, injectable } from "inversify";
@@ -43,7 +43,7 @@ export interface LocalMcpCloudClassification {
   availability: LocalMcpCloudAvailability;
   reason: LocalMcpCloudReason;
   /** Sandbox-shaped config; present only when availability is "importable". */
-  remote?: CloudMcpServerImport;
+  remote?: McpServerConnection;
 }
 
 function parseIpv4(host: string): [number, number, number, number] | null {
@@ -147,7 +147,7 @@ export function classifyLocalMcpServer(
 const MAX_RELAYED_MCP_SERVERS = 20;
 
 export interface LocalMcpServersForRun {
-  imported: CloudMcpServerImport[];
+  imported: McpServerConnection[];
   relayed: CloudMcpServerRelayDesignation[];
 }
 

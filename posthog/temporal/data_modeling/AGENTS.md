@@ -6,7 +6,7 @@ Two implementations live here side by side during the v1 → v2 migration.
 ## v1 — FROZEN
 
 - `run_workflow.py` (1814-line monolith).
-- Dispatched from `products/data_modeling/backend/api/node.py` when
+- Dispatched from `products/data_modeling/backend/presentation/views/node.py` when
   `_is_v2_backend_enabled(...)` is false.
 - Almost all US teams are still on v1; almost all EU teams are on v2.
 

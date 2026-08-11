@@ -25,7 +25,7 @@ def matches_action(node: ast.Expr, args: list[ast.Expr], context: HogQLContext, 
                 fix=escape_clickhouse_string(actions[0].name),
             )
             return action_to_expr(actions[0], events_alias=events_alias)
-        raise QueryError(f"Could not find cohort with ID {arg.value}", node=arg)
+        raise QueryError(f"Could not find an action with ID {arg.value}", node=arg)
 
     if isinstance(arg.value, str):
         actions = Action.objects.filter(name=arg.value, team__project_id=context.project_id).all()

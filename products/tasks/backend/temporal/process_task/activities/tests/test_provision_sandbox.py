@@ -1,13 +1,26 @@
+import os
+import sys
+import socket
+import asyncio
+
 import pytest
+
+from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
+from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CloneRepositoryInSandboxInput,
+    CreateSandboxForRepositoryInput,
+    CreateSandboxForRepositoryOutput,
+    PrepareSandboxForRepositoryOutput,
     _sandbox_image_kind,
     clone_repository_in_sandbox,
+    create_sandbox_for_repository,
 )
 
 
@@ -23,6 +36,72 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
 )
 def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, expected: str) -> None:
     assert _sandbox_image_kind(image_source, custom_image_name) == expected
+
+
+@pytest.mark.asyncio
+@override_settings(SANDBOX_PROVIDER="docker")
+async def test_create_sandbox_cancellation_stops_docker_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(provision_sandbox_module.activity, "heartbeat", lambda: None)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        server.settimeout(5)
+        port = server.getsockname()[1]
+        command = [
+            sys.executable,
+            "-c",
+            (
+                "import os, socket, threading; "
+                f"client = socket.create_connection(('127.0.0.1', {port})); "
+                "client.sendall(f'{os.getpid()}\\n'.encode()); "
+                "threading.Event().wait()"
+            ),
+        ]
+
+        async def run_docker_subprocess(_input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
+            await asyncio.to_thread(DockerSandbox._run, command)
+            raise AssertionError("cancelled Docker subprocess returned")
+
+        monkeypatch.setattr(provision_sandbox_module, "_create_sandbox_for_repository", run_docker_subprocess)
+        input = CreateSandboxForRepositoryInput(
+            context=TaskProcessingContext(
+                task_id="task-id",
+                run_id="run-id",
+                team_id=1,
+                team_uuid="team-uuid",
+                organization_id="organization-id",
+                github_integration_id=None,
+                repository=None,
+                distinct_id="distinct-id",
+                state={},
+            ),
+            prepared=PrepareSandboxForRepositoryOutput(
+                sandbox_name="task-sandbox-task-id",
+                repository=None,
+                github_token="",
+                branch=None,
+                environment_variables={},
+                snapshot_id=None,
+                snapshot_external_id=None,
+                used_snapshot=False,
+                should_create_snapshot=True,
+                shallow_clone=True,
+                image_source="docker_base_image",
+                image_source_label="local Docker sandbox image",
+            ),
+        )
+
+        activity_task = asyncio.create_task(create_sandbox_for_repository(input))
+        connection, _ = await asyncio.to_thread(server.accept)
+        with connection, connection.makefile("r") as stream:
+            child_pid = int(await asyncio.to_thread(stream.readline))
+
+        activity_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await activity_task
+
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)
 
 
 @pytest.mark.parametrize(

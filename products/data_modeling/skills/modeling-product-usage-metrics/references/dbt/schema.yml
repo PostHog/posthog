@@ -1,0 +1,18 @@
+version: 2
+
+models:
+    - name: fct_retention
+      description: Weekly recurring retention matrix (cohort_week × weeks_later).
+      columns:
+          - name: retention_rate
+            data_tests: [not_null]
+    - name: fct_stickiness
+      description: Distribution of users by active days in the trailing window.
+      columns:
+          - name: active_days_in_period
+            data_tests: [unique, not_null]
+    - name: fct_lifecycle
+      description: New / returning / resurrecting counts per week.
+      columns:
+          - name: week
+            data_tests: [unique, not_null]

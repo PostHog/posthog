@@ -3,7 +3,7 @@ use std::sync::{
     Arc,
 };
 
-use crate::stages::resolution::ResolutionStage;
+use crate::stages::resolution::LocalResolutionContext;
 use crate::symbolication::symbol::SymbolResolver;
 use std::pin::Pin;
 
@@ -61,14 +61,10 @@ impl CymbalResolutionService {
         }
     }
 
-    fn resolution_stage(&self) -> ResolutionStage {
-        ResolutionStage {
+    fn resolution_stage(&self) -> LocalResolutionContext {
+        LocalResolutionContext {
             symbol_resolver: self.symbol_resolver.clone(),
             symbol_resolution_limiter: self.symbol_resolution_limiter.clone(),
-            // The cymbal-resolution server never enables remote mode itself;
-            // it is the server side that cymbal talks to. Local resolution is
-            // the only valid path here.
-            remote: None,
         }
     }
 }

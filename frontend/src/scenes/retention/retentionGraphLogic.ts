@@ -19,6 +19,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { LabelGroupType } from '../../types'
 import { dateOptionToTimeIntervalMap } from './constants'
 import { MeanRetentionValue, retentionLogic } from './retentionLogic'
@@ -34,6 +35,7 @@ export interface retentionGraphLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -83,6 +85,7 @@ export interface retentionGraphLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery

@@ -33,7 +33,7 @@ export interface LocalMcpServerDescriptor {
  * Included in the task-run creation payload for servers classified as
  * importable.
  */
-export interface CloudMcpServerImport {
+export interface McpServerConnection {
   type: "http" | "sse";
   name: string;
   url: string;

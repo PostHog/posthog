@@ -320,9 +320,9 @@ export function Playlist({
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
                         {selectedRecordingOutsideFilters && (
-                            <LemonBanner type="info" className="m-2 text-xs">
-                                The selected recording doesn't match the current filters. It's shown because it was
-                                opened from a direct link.
+                            <LemonBanner type="warning" className="m-2">
+                                The recording you have open doesn't match the current filters. It stays in the list
+                                until you close it.
                             </LemonBanner>
                         )}
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={contentRef}>

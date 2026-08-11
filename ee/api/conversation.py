@@ -6,6 +6,7 @@ from typing import cast
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from django.utils import timezone
 
 import pydantic
@@ -324,6 +325,14 @@ class ConversationViewSet(
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
+        else:
+            queryset = queryset.filter(
+                Q(task_id__isnull=True)
+                | (
+                    Q(task__team_id=self.team_id, task__deleted=False)
+                    & tasks_facade.visible_tasks_q(self.request.user.id, relation="task")
+                )
+            )
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
@@ -430,7 +439,9 @@ class ConversationViewSet(
         task_ids = list({conversation.task_id for conversation in conversations if conversation.task_id is not None})
         return {
             str(task_id): task
-            for task_id, task in tasks_facade.get_conversation_task_dtos(task_ids, self.team_id).items()
+            for task_id, task in tasks_facade.get_conversation_task_dtos(
+                task_ids, self.team_id, cast(User, self.request.user).id
+            ).items()
         }
 
     def get_serializer_context(self):

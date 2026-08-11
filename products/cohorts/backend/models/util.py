@@ -24,6 +24,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.resolver_utils import extract_select_queries
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -353,6 +354,64 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
     return query_dict
 
 
+def _select_list_positions_are_known(select_list: list[ast.Expr]) -> bool:
+    """Whether ordinal N reliably maps to `select_list[N - 1]`.
+
+    `*`, `table.*` and `COLUMNS(...)` are each a single node here and only fan out into one node per
+    real column later, in the resolver. ClickHouse numbers positional arguments against that expanded
+    list, so mapping an ordinal onto the unexpanded list would point at the wrong expression and
+    silently change who ends up in the cohort. Leave those queries alone so they keep failing loudly
+    instead.
+    """
+    for expr in select_list:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if isinstance(expr, ast.ColumnsExpr):
+            return False
+        if isinstance(expr, ast.Field) and expr.chain and str(expr.chain[-1]) == "*":
+            return False
+    return True
+
+
+def _inline_positional_references(select_query: ast.SelectQuery) -> None:
+    """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
+
+    In ClickHouse a bare integer in GROUP BY/ORDER BY/LIMIT BY (`GROUP BY 2`) is a 1-based reference
+    into the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
+    any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
+    SELECT list up front keeps the grouping/ordering semantics intact once the list shrinks.
+
+    Ordinals nested inside GROUP BY GROUPING SETS are not resolved, because those entries are tuples
+    of expressions rather than bare ordinals. Such a query keeps failing the way it does today.
+    """
+    if not _select_list_positions_are_known(select_query.select):
+        return
+
+    select_list = select_query.select
+
+    def resolve(expr: ast.Expr) -> ast.Expr:
+        if (
+            isinstance(expr, ast.Constant)
+            and isinstance(expr.value, int)
+            and not isinstance(expr.value, bool)
+            and 1 <= expr.value <= len(select_list)
+        ):
+            target = select_list[expr.value - 1]
+            return clone_expr(target.expr if isinstance(target, ast.Alias) else target)
+        return expr
+
+    if select_query.group_by:
+        select_query.group_by = [resolve(expr) for expr in select_query.group_by]
+
+    if select_query.order_by:
+        for order_expr in select_query.order_by:
+            order_expr.expr = resolve(order_expr.expr)
+
+    # Only the LIMIT BY expressions are positional; `n` is the per-group row count, not an ordinal.
+    if select_query.limit_by:
+        select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -368,6 +427,13 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     uses_actor_id = False
 
     for select_query in extract_select_queries(query):
+        # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
+        # expression. We're about to collapse the SELECT list down to a single actor column,
+        # which leaves those ordinals pointing past the end of the new one-column list, so
+        # ClickHouse rejects the query with an out-of-bounds positional argument error. Inline
+        # the referenced expression now so the reference survives the collapse.
+        _inline_positional_references(select_query)
+
         # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
         # computed select alias (e.g. `ai_active_days`) would dangle once we collapse the
         # SELECT to just the actor column below, breaking HogQL resolution. Drop it — but only

@@ -8,6 +8,7 @@ from parameterized import parameterized
 from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
+from posthog.tasks.alerts.detectors.preprocessing import moving_average
 from posthog.tasks.alerts.detectors.pyod_detectors.copod import COPODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.ecod import ECODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.hbos import HBOSDetector
@@ -288,6 +289,40 @@ class TestStatisticalDetectors:
         data = np.array([10.0] * (_compute_min_samples_for_detector(config) - 1) + [500.0])
         result = detector_cls({"threshold": 0.9, "window": window, "preprocessing": {"diffs_n": diffs_n}}).detect(data)
         assert result.score is not None
+
+
+class TestMovingAverageSmoothing:
+    def test_smoothed_value_is_stable_once_computed(self) -> None:
+        # moving_average recomputes over the whole series on every call, since each
+        # detector check re-preprocesses the full historical window it fetches. A
+        # centered window pads the newest point with a replica of itself, so its
+        # smoothed value is provisional and silently changes once real future points
+        # arrive - a look-ahead bug for anything scored incrementally. Causal
+        # (trailing) smoothing must give a point the same smoothed value regardless
+        # of how much data arrives after it.
+        data = np.array([20.0, 19.0, 21.0, 2.0, 21.0, 20.0, 19.0, 21.0])
+        first_look = moving_average(data[:4], window=3)[-1]
+        later_look = moving_average(data, window=3)[3]
+        assert first_look == later_look
+
+    def test_anomaly_attributed_to_the_drop_not_the_rebound(self) -> None:
+        # Regression for a live gateway-volume alert: with the old centered,
+        # edge-padded moving_average, a single-point cliff scored as non-anomalous
+        # at the bucket where it happened (score 0.0) and only crossed the threshold
+        # two buckets later, once the cliff was fully interior to the window and the
+        # recovery had entered it too - attributing the anomaly to a normal-looking
+        # rebound point instead of the actual drop.
+        baseline = [20, 19, 21] * 11
+        data = np.array(baseline, dtype=float)
+        cliff_index = len(data) - 6
+        data[cliff_index] = 2.0
+        data[cliff_index + 1] = 21.0
+
+        detector = ZScoreDetector({"threshold": 0.9, "window": 10, "preprocessing": {"smooth_n": 3, "diffs_n": 1}})
+        result = detector.detect_batch(data)
+
+        assert cliff_index in result.triggered_indices
+        assert cliff_index + 2 not in result.triggered_indices
 
 
 class TestPyODDetectors:

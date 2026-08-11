@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 pub use error::{StorageError, StorageResult};
-pub use types::{Person, PersonStub, StubOutcome};
+pub use types::{DistinctIdMapping, Person, PersonStub, StubOutcome};
 
 pub const DB_QUERY_DURATION: &str = "personhog_identity_db_query_duration_ms";
 
@@ -22,6 +22,17 @@ pub trait IdentityStorage: Send + Sync {
         &self,
         keys: &[(i64, String)],
     ) -> StorageResult<HashMap<(i64, String), Person>>;
+
+    /// Expand person ids to their live distinct id rows on the primary.
+    /// With a per-person limit, identified ids survive the cut and the
+    /// scan is capped for pathological persons — the same ordering
+    /// contract as the replica's expansion.
+    async fn get_distinct_ids_for_persons(
+        &self,
+        team_id: i64,
+        person_ids: &[i64],
+        limit_per_person: Option<i64>,
+    ) -> StorageResult<Vec<DistinctIdMapping>>;
 
     /// Create person stubs (uuidv5 from team_id:distinct_id, version 0, empty
     /// properties) plus their distinct id rows in one multi-row transaction.

@@ -11,6 +11,23 @@ def process_custom_property_sync(team_id: int, saved_query_id: str) -> None:
     run_custom_property_sync(team_id=team_id, saved_query_id=saved_query_id)
 
 
+@shared_task(
+    name="customer_analytics.rematch_account_meetings",
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    max_retries=3,
+    retry_backoff=True,
+    retry_jitter=True,
+)
+@with_team_scope()
+def rematch_account_meetings(team_id: int, account_id: str) -> None:
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415 - defers calendar sync
+        rematch_account_meetings as run_meeting_rematch,
+    )
+
+    run_meeting_rematch(team_id=team_id, account_id=account_id)
+
+
 # autoretry_for is load-bearing: bare max_retries kwargs without it are silently inert.
 @shared_task(
     name="customer_analytics.send_announcement",

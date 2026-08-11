@@ -1,8 +1,10 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.settings import MERGE_QUEUE_PULL_REQUESTS
 
 _FLAKY_TESTS_DOCS_URL = "https://docs.trunk.io/flaky-tests/api"
+_MERGE_QUEUE_DOCS_URL = "https://docs.trunk.io/merge-queue/reference/merge"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "UnhealthyTests": {
@@ -62,6 +64,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "quarantined": "Whether the test is currently quarantined.",
             "ticket": "The ticket linked to this test case, if any.",
             "synced_through": "PostHog-added: the end of the time window this row was synced in, used to track incremental progress.",
+        },
+    },
+    MERGE_QUEUE_PULL_REQUESTS: {
+        "description": "Pull requests submitted to the repository's merge queue for one target branch, with the state each one reached and how it was prioritized.",
+        "docs_url": _MERGE_QUEUE_DOCS_URL,
+        "columns": {
+            "id": "A unique identifier for this pull request's entry in the merge queue.",
+            "state": "The pull request's state in the queue: not_ready, pending, testing, tests_passed, merged, failed, cancelled or pending_failure.",
+            "stateChangedAt": "The time the pull request last changed state.",
+            "priorityValue": "The numeric priority the pull request was queued at.",
+            "priorityName": "The name of the priority the pull request was queued at.",
+            "usedDefaultPriorityName": "The default priority name applied when the pull request did not set one.",
+            "skipTheLine": "Whether the pull request jumped ahead of the rest of the queue.",
+            "noBatch": "Whether the pull request was tested on its own rather than batched with others.",
+            "prNumber": "The pull request number in the source control provider.",
+            "prTitle": "The title of the pull request.",
+            "prSha": "The commit SHA of the pull request.",
+            "prBaseBranch": "The base branch of the pull request.",
+            "prAuthor": "The author of the pull request.",
+            "synced_through": "PostHog-added: the start of the sync run this row was fetched in, used to track incremental progress.",
         },
     },
 }

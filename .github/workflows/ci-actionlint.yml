@@ -47,7 +47,14 @@ jobs:
                   SHELLCHECK_OPTS: --severity=error
               run: |
                   set -euo pipefail
-                  ./.bin/actionlint -format '{{json .}}' > actionlint.json
+                  mkdir -p /tmp/actionlint-workflows
+                  for workflow in .github/workflows/*.yml .github/workflows/*.yaml; do
+                      [ -e "$workflow" ] || continue
+                      awk -f .github/scripts/flatten-parallel-steps-for-actionlint.awk "$workflow" \
+                          > "/tmp/actionlint-workflows/$(basename "$workflow")"
+                  done
+                  ./.bin/actionlint -config-file .github/actionlint.yaml \
+                      -format '{{json .}}' /tmp/actionlint-workflows/* > actionlint.json
 
             - name: Summarize findings
               if: always()

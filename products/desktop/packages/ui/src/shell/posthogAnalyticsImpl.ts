@@ -375,6 +375,18 @@ export function onFeatureFlagsLoaded(callback: () => void): () => void {
 }
 
 /**
+ * Remote JSON payload for a matched flag; undefined when uninitialized or
+ * unmatched. posthog-js returns the decoded value, not the raw string.
+ */
+export function getFeatureFlagPayload(flagKey: string): unknown {
+  if (!isInitialized) {
+    return undefined;
+  }
+
+  return posthog.getFeatureFlagPayload(flagKey);
+}
+
+/**
  * Reload feature flags from the server.
  * Useful after a person property change (e.g., invite code redemption).
  */
@@ -405,6 +417,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
  */
 export const posthogFeatureFlags: FeatureFlags = {
   isEnabled: isFeatureFlagEnabled,
+  getPayload: getFeatureFlagPayload,
   onFlagsLoaded: onFeatureFlagsLoaded,
 };
 

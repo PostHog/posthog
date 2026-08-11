@@ -13,6 +13,7 @@ from products.ai_observability.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
+    EvaluationDirectoryViewSet,
     EvaluationReportViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
@@ -48,6 +49,12 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"datasets", DatasetViewSet, "project_datasets", ["team_id"])
     routers.projects.register(r"dataset_items", DatasetItemViewSet, "project_dataset_items", ["team_id"])
     routers.projects.register(r"evaluations", EvaluationViewSet, "project_evaluations", ["team_id"])
+    routers.projects.register(
+        r"evaluation_directories",
+        EvaluationDirectoryViewSet,
+        "project_evaluation_directories",
+        ["team_id"],
+    )
     routers.projects.register(r"taggers", TaggerViewSet, "project_taggers", ["team_id"])
     routers.projects.register(r"evaluation_runs", EvaluationRunViewSet, "project_evaluation_runs", ["team_id"])
     routers.projects.register(

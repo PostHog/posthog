@@ -150,13 +150,13 @@ def refresh_dev_stack_image_if_base_changed(publish_name: str = DEV_STACK_IMAGE_
         extra={"publish_name": publish_name, "base_reference": base_reference, "baked_reference": baked_reference},
     )
     try:
-        execute_bake_dev_stack_image_workflow(publish_name)
+        execute_bake_dev_stack_image_workflow(publish_name, trigger="base_changed")
     except Exception:
         # Release the claim so the next sweep tick retries this digest — otherwise a
         # transient Temporal error blocks the fast lane for the claim's whole TTL
         # (mirrors the rollback in custom_image_refresh).
         cache.delete(claim_key)
-        observe_dev_stack_image_bake("dispatch_failed")
+        observe_dev_stack_image_bake("dispatch_failed", trigger="base_changed")
         raise
     return True
 

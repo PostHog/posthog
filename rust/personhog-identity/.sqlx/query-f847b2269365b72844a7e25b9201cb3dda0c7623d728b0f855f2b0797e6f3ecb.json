@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE lifecycle_op_person lop\n        SET status = $2, sealed = jsonb_build_object('version', u.version, 'created_at', u.created_at)\n        FROM unnest($3::bigint[], $4::bigint[], $5::bigint[]) AS u(person_id, version, created_at)\n        WHERE lop.op_id = $1 AND lop.person_id = u.person_id\n          AND lop.status IN ('marked', 'sealed')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f847b2269365b72844a7e25b9201cb3dda0c7623d728b0f855f2b0797e6f3ecb"
+}

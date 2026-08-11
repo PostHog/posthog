@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.db import transaction
@@ -516,7 +516,9 @@ def resume_task_in_cloud_workflow(run_id: str, workflow_id: str) -> None:
     )
 
 
-def execute_bake_dev_stack_image_workflow(publish_name: str = DEV_STACK_IMAGE_NAME) -> None:
+def execute_bake_dev_stack_image_workflow(
+    publish_name: str = DEV_STACK_IMAGE_NAME, *, trigger: Literal["nightly", "base_changed", "manual"] = "manual"
+) -> None:
     """Start (or restart) the bake of the prebaked PostHog dev-stack VM image.
 
     TERMINATE_IF_RUNNING: a bake stuck from the previous night gets replaced by the
@@ -526,7 +528,7 @@ def execute_bake_dev_stack_image_workflow(publish_name: str = DEV_STACK_IMAGE_NA
     asyncio.run(
         client.start_workflow(
             "bake-dev-stack-image",
-            BakeDevStackImageInput(publish_name=publish_name),
+            BakeDevStackImageInput(publish_name=publish_name, trigger=trigger),
             id=f"bake-dev-stack-image-{publish_name}",
             id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
             task_queue=settings.TASKS_TASK_QUEUE,

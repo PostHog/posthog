@@ -131,6 +131,64 @@ describe('commentsLogic', () => {
         expect(lastCreateBody?.source_comment).toBeUndefined()
     })
 
+    // A background poller uses refreshComments so a reader keeps their place. loadComments always
+    // scrolls to the newest comment, which is right on arrival and wrong every 20 seconds after that.
+    it('refreshComments loads the thread without scrolling to the newest comment', async () => {
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
+
+        await expectLogic(logic, () => {
+            logic.actions.refreshComments()
+        })
+            .toDispatchActions(['refreshCommentsSuccess'])
+            .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+
+        expect(logic.values.commentsWithReplies.map((thread) => thread.id)).toEqual(['thread-1'])
+    })
+
+    it('loadComments still scrolls to the newest comment', async () => {
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess', sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
+    })
+
+    // Every loader here writes the same `comments` value and the last to resolve wins. A poll started
+    // before a send would otherwise land afterwards carrying a snapshot without the new comment, and
+    // the sender would watch their own message disappear for a poll interval.
+    it('a refresh in flight does not clobber a comment sent while it was running', async () => {
+        useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
+        await expectLogic(logic, () => {
+            logic.actions.loadComments()
+        }).toDispatchActions(['loadCommentsSuccess'])
+
+        // A poll that hangs until we let it answer, with the pre-send snapshot.
+        let answerPoll: () => void = () => {}
+        const pollReached = new Promise<void>((resolve) => {
+            answerPoll = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/comments': async () => {
+                    await pollReached
+                    return [200, { results: [makeComment('thread-1')] }]
+                },
+            },
+        })
+        logic.actions.refreshComments()
+
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        await expectLogic(logic, () => {
+            logic.actions.sendComposedContent(false)
+        }).toDispatchActions(['sendComposedContentSuccess'])
+        expect(logic.values.comments?.map((comment) => comment.id)).toContain('new-comment')
+
+        answerPoll()
+        await expectLogic(logic).toDispatchActions(['refreshCommentsSuccess'])
+
+        expect(logic.values.comments?.map((comment) => comment.id)).toContain('new-comment')
+    })
+
     it('clears reply mode when the reply target stops rendering after a reload', async () => {
         useMocks({ get: { '/api/projects/:team_id/comments': { results: [makeComment('thread-1')] } } })
         await expectLogic(logic, () => {
@@ -342,6 +400,26 @@ describe('commentsLogic', () => {
         // No reply to exit means no remount is coming - deregistering here would orphan the composer
         expect(logic.values.richContentEditor).toBe(footerEditor)
         expect(footerEditor.focus).toHaveBeenCalledWith('end')
+    })
+
+    // How "Discuss with team" opens the panel: start a fresh comment, then point it at Slack. The
+    // order matters - leaving reply mode resets the composer's Slack state, so arming it first would
+    // silently drop the toggle and open a plain comment box instead.
+    it('keeps the Slack toggle armed after exiting reply mode, and still focuses the composer', () => {
+        logic.actions.setRichContentEditor(createEditor(DRAFT_CONTENT))
+        logic.actions.setReplyingComment('thread-1')
+
+        logic.actions.startNewComment()
+        logic.actions.setComposerSendToSlack(true)
+        logic.actions.setComposerSlackIntegrationId(7)
+
+        expect(logic.values.composerSendToSlack).toBe(true)
+        expect(logic.values.composerSlackIntegrationId).toBe(7)
+
+        const footerEditor = createEditor(null)
+        logic.actions.setRichContentEditor(footerEditor)
+        expect(footerEditor.focus).toHaveBeenCalledWith('end')
+        expect(logic.values.composerSendToSlack).toBe(true)
     })
 
     it('a send that bails on empty content leaves stashed drafts untouched', async () => {

@@ -16,7 +16,6 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -25,7 +24,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
@@ -79,15 +77,13 @@ export function PromptViewDetails(): JSX.Element {
     const { prompt, isRenderingMarkdown, isDiffVisible, canCompareVersions, compareVersionOptions } =
         useValues(llmPromptLogic)
     const { toggleMarkdownRendering, setCompareVersion } = useActions(llmPromptLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const markdownContainerRef = useRef<HTMLDivElement>(null)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
     }
 
-    const configEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG]
-    const configJson = configEnabled && prompt.config != null ? formatPromptConfig(prompt.config) : null
+    const configJson = prompt.config != null ? formatPromptConfig(prompt.config) : null
 
     const promptText = prompt.prompt
     const variableMatches = promptText.match(/\{\{([^}]+)\}\}/g)
@@ -176,8 +172,6 @@ export function PromptViewDetails(): JSX.Element {
 // version, freshness, and provenance.
 export function PromptHeaderMeta(): JSX.Element | null {
     const { prompt, promptLabels } = useValues(llmPromptLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     if (!isPrompt(prompt)) {
         return null
@@ -200,15 +194,13 @@ export function PromptHeaderMeta(): JSX.Element | null {
                     Historical
                 </LemonTag>
             )}
-            {labelsEnabled
-                ? promptLabels.map((label) => (
-                      <PromptLabelChip
-                          key={label.name}
-                          label={`${label.name} → v${label.version}`}
-                          data-attr={`llma-prompt-header-label-${label.name}`}
-                      />
-                  ))
-                : null}
+            {promptLabels.map((label) => (
+                <PromptLabelChip
+                    key={label.name}
+                    label={`${label.name} → v${label.version}`}
+                    data-attr={`llma-prompt-header-label-${label.name}`}
+                />
+            ))}
             {prompt.version_description ? (
                 <span className="italic" data-attr="llma-prompt-version-description">
                     “{prompt.version_description}”
@@ -238,9 +230,6 @@ export function PublishReviewModal(): JSX.Element | null {
     } = useValues(llmPromptLogic)
     const { promptLabels } = useValues(llmPromptLogic)
     const { closePublishReview, submitPromptForm, setVersionDescription } = useActions(llmPromptLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
-    const showConfigChange = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG] && isConfigChanged
 
     if (!isPrompt(prompt)) {
         return null
@@ -249,7 +238,7 @@ export function PublishReviewModal(): JSX.Element | null {
     const publishLabel = nextVersion ? `Publish v${nextVersion}` : 'Publish version'
     // Publishing no longer means shipping once labels are in use; say so at the moment it matters.
     const labelsNote =
-        labelsEnabled && promptLabels.length > 0
+        promptLabels.length > 0
             ? ` Publishing does not move labels: ${promptLabels
                   .map((label) => `${label.name} stays on v${label.version}`)
                   .join(', ')}.`
@@ -313,7 +302,7 @@ export function PublishReviewModal(): JSX.Element | null {
                         />
                     </Suspense>
                 </div>
-                {showConfigChange ? (
+                {isConfigChanged ? (
                     <div data-attr="llma-prompt-publish-review-config-diff">
                         <div className="mb-1 flex items-center gap-2">
                             <span className="text-sm font-semibold">Configuration</span>
@@ -367,7 +356,6 @@ function PromptDiffView(): JSX.Element {
     const { prompt, comparePrompt, comparePromptLoading, compareVersion, compareVersionOptions } =
         useValues(llmPromptLogic)
     const { setCompareVersion } = useActions(llmPromptLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -378,7 +366,7 @@ function PromptDiffView(): JSX.Element {
     const modified = prompt.prompt
     const originalConfig = formatPromptConfig(comparePrompt?.config)
     const modifiedConfig = formatPromptConfig(prompt.config)
-    const showConfigDiff = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG] && !!(originalConfig || modifiedConfig)
+    const showConfigDiff = !!(originalConfig || modifiedConfig)
 
     return (
         <div className="mt-2 space-y-3" data-attr="llma-prompt-diff-view">
@@ -586,18 +574,14 @@ export function PromptCodeSnippets({ prompt }: { prompt: LLMPrompt }): JSX.Eleme
     const { snippetLanguage, promptLabels } = useValues(llmPromptLogic)
     const { setSnippetLanguage } = useActions(llmPromptLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     const host = window.location.origin
     const projectApiKey = currentTeam?.api_token ?? '<project_api_key>'
     const variables = extractPromptVariables(prompt.prompt)
     // Teach the recommended pattern the moment it applies: once a label exists, fetch by it.
-    const snippetLabel = labelsEnabled
-        ? (promptLabels.find((label) => label.name === 'production') ?? promptLabels[0])?.name
-        : undefined
+    const snippetLabel = (promptLabels.find((label) => label.name === 'production') ?? promptLabels[0])?.name
     // Same principle for config: only show the usage line once this prompt has one.
-    const showConfig = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG] && prompt.config != null
+    const showConfig = prompt.config != null
 
     return (
         <div className="mb-6" data-attr="llma-prompt-code-snippets">
@@ -669,7 +653,7 @@ export function PromptCode({ prompt }: { prompt: LLMPrompt }): JSX.Element {
             <PromptCodeSnippets prompt={prompt} />
 
             <LemonBanner type="info">
-                During the beta period, each prompt fetch is currently charged as a Product analytics event. See the{' '}
+                Each prompt fetch is charged as a Product analytics event. See the{' '}
                 <Link to="https://posthog.com/pricing" target="_blank">
                     pricing page
                 </Link>
@@ -849,11 +833,6 @@ export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Elemen
 function PromptConfigEditField(): JSX.Element | null {
     const { promptForm, isConfigEditorVisible } = useValues(llmPromptLogic)
     const { showConfigEditor, removeConfig } = useActions(llmPromptLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.LLM_PROMPT_CONFIG]) {
-        return null
-    }
 
     if (!isConfigEditorVisible && !promptForm.config.trim()) {
         return (
@@ -1035,8 +1014,6 @@ export function PromptVersionSidebar({
 }): JSX.Element {
     const { compareVersion, labelsByVersion, labelPickerVersion } = useValues(llmPromptLogic)
     const { setCompareVersion, openLabelPicker, requestRemoveLabel } = useActions(llmPromptLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
 
     return (
         <aside className="w-full shrink-0 xl:sticky xl:top-4 xl:mt-3 xl:w-80">
@@ -1055,7 +1032,13 @@ export function PromptVersionSidebar({
                         const selected = prompt?.id === versionPrompt.id
                         const isCompareTarget = compareVersion === versionPrompt.version
                         const canCompare = !readOnly && prompt?.version !== versionPrompt.version
-                        const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
+                        // The latest version's canonical URL has no ?version param, so landing on
+                        // it matches the state the scene starts in.
+                        const versionUrl = buildPromptUrl(
+                            promptName,
+                            searchParams,
+                            versionPrompt.is_latest ? null : versionPrompt.version
+                        )
 
                         const cardContent = (
                             <>
@@ -1106,52 +1089,48 @@ export function PromptVersionSidebar({
                                 {versionPrompt.created_by?.email ? (
                                     <div className="mt-1 text-xs text-secondary">{versionPrompt.created_by.email}</div>
                                 ) : null}
-                                {labelsEnabled ? (
-                                    <div
-                                        className="mt-1.5 flex flex-wrap items-center gap-1"
-                                        // The card is a Link; label actions must not navigate. Capture-phase
-                                        // preventDefault runs before child handlers that stopPropagation
-                                        // (e.g. LemonTag's close button), which would otherwise let the
-                                        // anchor's native navigation through.
-                                        onClickCapture={(e) => e.preventDefault()}
-                                        onClick={(e) => e.stopPropagation()}
-                                    >
-                                        {(labelsByVersion[versionPrompt.version] ?? []).map((label) => (
+                                <div
+                                    className="mt-1.5 flex flex-wrap items-center gap-1"
+                                    // The card is a Link; label actions must not navigate. Capture-phase
+                                    // preventDefault runs before child handlers that stopPropagation
+                                    // (e.g. LemonTag's close button), which would otherwise let the
+                                    // anchor's native navigation through.
+                                    onClickCapture={(e) => e.preventDefault()}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    {(labelsByVersion[versionPrompt.version] ?? []).map((label) => (
+                                        <AccessControlAction
+                                            key={label.name}
+                                            resourceType={AccessControlResourceType.LlmAnalytics}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            <PromptLabelChip
+                                                label={label.name}
+                                                onRemove={readOnly ? undefined : () => requestRemoveLabel(label.name)}
+                                                data-attr={`llma-prompt-label-${label.name}`}
+                                            />
+                                        </AccessControlAction>
+                                    ))}
+                                    {!readOnly &&
+                                        (labelPickerVersion === versionPrompt.version ? (
+                                            <PromptLabelPicker version={versionPrompt.version} />
+                                        ) : (
                                             <AccessControlAction
-                                                key={label.name}
                                                 resourceType={AccessControlResourceType.LlmAnalytics}
                                                 minAccessLevel={AccessControlLevel.Editor}
                                             >
-                                                <PromptLabelChip
-                                                    label={label.name}
-                                                    onRemove={
-                                                        readOnly ? undefined : () => requestRemoveLabel(label.name)
-                                                    }
-                                                    data-attr={`llma-prompt-label-${label.name}`}
-                                                />
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    icon={<IconPlusSmall />}
+                                                    onClick={() => openLabelPicker(versionPrompt.version)}
+                                                    tooltip="Point a label at this version"
+                                                    data-attr={`llma-prompt-add-label-${versionPrompt.version}`}
+                                                >
+                                                    Add label
+                                                </LemonButton>
                                             </AccessControlAction>
                                         ))}
-                                        {!readOnly &&
-                                            (labelPickerVersion === versionPrompt.version ? (
-                                                <PromptLabelPicker version={versionPrompt.version} />
-                                            ) : (
-                                                <AccessControlAction
-                                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                                    minAccessLevel={AccessControlLevel.Editor}
-                                                >
-                                                    <LemonButton
-                                                        size="xsmall"
-                                                        icon={<IconPlusSmall />}
-                                                        onClick={() => openLabelPicker(versionPrompt.version)}
-                                                        tooltip="Point a label at this version"
-                                                        data-attr={`llma-prompt-add-label-${versionPrompt.version}`}
-                                                    >
-                                                        Add label
-                                                    </LemonButton>
-                                                </AccessControlAction>
-                                            ))}
-                                    </div>
-                                ) : null}
+                                </div>
                             </>
                         )
 
@@ -1165,7 +1144,9 @@ export function PromptVersionSidebar({
                                     : 'border-primary/10 hover:bg-fill-secondary'
                         }`
 
-                        if (readOnly) {
+                        // The selected version is not a link: navigating to the version already
+                        // shown would only trigger a pointless reload.
+                        if (readOnly || selected) {
                             return (
                                 <div key={versionPrompt.id} className={cardClassName}>
                                     {cardContent}

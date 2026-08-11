@@ -8,11 +8,13 @@ from unittest.mock import MagicMock, patch
 
 from requests import Request, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import TrackedHTTPAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.settings import (
     ENDPOINT_PATHS,
     INCREMENTAL_FIELDS,
+    WEBHOOK_TOPICS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce import (
     DEFAULT_PER_PAGE,
@@ -23,9 +25,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
     _HostGuardedAdapter,
     _make_guarded_session,
     _to_woocommerce_datetime,
+    create_webhook,
+    delete_webhook,
+    get_external_webhook_info,
     get_resource,
     normalize_store_url,
     validate_credentials,
+    webhook_table_transformer,
     woocommerce_source,
 )
 
@@ -394,3 +400,235 @@ class TestSourceHostGuard:
                     resumable_source_manager=manager,
                     db_incremental_field_last_value=None,
                 )
+
+
+def _json_response(status_code: int, payload: Any) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.ok = 200 <= status_code < 300
+    response.json.return_value = payload
+    return response
+
+
+class TestWebhookManagement:
+    """`_make_guarded_session` is the network boundary; everything below it is mocked."""
+
+    def _session(self, list_pages: list[Any], write_response: Any = None) -> MagicMock:
+        session = MagicMock()
+        session.get.side_effect = [_json_response(200, page) for page in list_pages]
+        session.post.return_value = write_response or _json_response(201, {"id": 1})
+        session.delete.return_value = _json_response(200, {"id": 1})
+        return session
+
+    def _patch(self, session: MagicMock) -> Any:
+        return patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session",
+            return_value=session,
+        )
+
+    def test_create_registers_every_topic_with_one_shared_secret(self) -> None:
+        # Every WooCommerce webhook subscribes to exactly one topic, and they must all carry the
+        # same secret — a per-topic secret would make the hog function reject seven of eight.
+        session = self._session([[]])
+
+        with self._patch(session):
+            result = create_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert result.success is True
+        secret = result.extra_inputs["signing_secret"]
+        assert secret
+
+        posted = [call.kwargs["json"] for call in session.post.call_args_list]
+        assert [payload["topic"] for payload in posted] == list(WEBHOOK_TOPICS)
+        assert {payload["secret"] for payload in posted} == {secret}
+        assert {payload["delivery_url"] for payload in posted} == {"https://ph.test/hook"}
+        assert {payload["status"] for payload in posted} == {"active"}
+
+    def test_create_updates_an_existing_webhook_instead_of_duplicating_it(self) -> None:
+        # A retried setup (or one WooCommerce auto-disabled after five failed deliveries) must
+        # re-pin the new secret on the existing hook, not leave the store with two per topic.
+        existing = [{"id": 7, "topic": "order.created", "delivery_url": "https://ph.test/hook", "status": "disabled"}]
+        session = self._session([existing])
+
+        with self._patch(session):
+            result = create_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert result.success is True
+        targets = [call.args[0] for call in session.post.call_args_list]
+        assert "https://example.com/wp-json/wc/v3/webhooks/7" in targets
+        update = next(
+            call.kwargs["json"] for call in session.post.call_args_list if call.args[0].endswith("/webhooks/7")
+        )
+        assert update["status"] == "active"
+        assert "topic" not in update
+
+    def test_create_rolls_back_when_one_topic_fails(self) -> None:
+        # Partial registration is worse than none: setup flips every webhook-capable table to
+        # webhook sync, so a table whose topic never registered would stop being polled.
+        session = MagicMock()
+        session.get.side_effect = [
+            _json_response(200, []),
+            _json_response(200, [{"id": 9, "topic": "product.created", "delivery_url": "https://ph.test/hook"}]),
+        ]
+        session.post.side_effect = [_json_response(201, {"id": 9}), _json_response(500, {})]
+        session.delete.return_value = _json_response(200, {})
+
+        with self._patch(session):
+            result = create_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert result.success is False
+        assert result.extra_inputs == {}
+        session.delete.assert_called_once()
+        assert session.delete.call_args.args[0].endswith("/webhooks/9")
+
+    @pytest.mark.parametrize("status_code", [401, 403])
+    def test_create_reports_a_read_only_key_as_a_permission_problem(self, status_code: int) -> None:
+        # Webhook management needs Read/Write; the source itself only asks for Read, so this is
+        # the expected failure and the message has to say how to fix it.
+        session = self._session([[]], write_response=_json_response(status_code, {}))
+        session.get.side_effect = [_json_response(200, []), _json_response(200, [])]
+
+        with self._patch(session):
+            result = create_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert result.success is False
+        assert result.error is not None
+        assert "Read/Write" in result.error
+
+    def test_list_pages_until_a_short_page(self) -> None:
+        first_page = [
+            {"id": index, "topic": "order.created", "delivery_url": "https://other.test/hook"}
+            for index in range(DEFAULT_PER_PAGE)
+        ]
+        session = self._session(
+            [first_page, [{"id": 999, "topic": "order.updated", "delivery_url": "https://ph.test/hook"}]]
+        )
+
+        with self._patch(session):
+            info = get_external_webhook_info("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert session.get.call_count == 2
+        # `status=all` matters: the default list hides the paused and auto-disabled hooks we
+        # need to find rather than duplicate.
+        assert session.get.call_args.kwargs["params"]["status"] == "all"
+        assert info.exists is True
+        assert info.enabled_events == ["order.updated"]
+
+    def test_delete_only_removes_our_delivery_url_and_forces(self) -> None:
+        # `force=true` is required — WooCommerce 501s on a soft delete — and a store's own
+        # webhooks must survive.
+        session = self._session(
+            [
+                [
+                    {"id": 1, "topic": "order.created", "delivery_url": "https://ph.test/hook"},
+                    {"id": 2, "topic": "order.created", "delivery_url": "https://someone-else.test/hook"},
+                ]
+            ]
+        )
+
+        with self._patch(session):
+            result = delete_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert result.success is True
+        assert session.delete.call_count == 1
+        assert session.delete.call_args.args[0].endswith("/webhooks/1")
+        assert session.delete.call_args.kwargs["params"] == {"force": "true"}
+
+    def test_delete_succeeds_when_nothing_is_registered(self) -> None:
+        session = self._session([[]])
+
+        with self._patch(session):
+            result = delete_webhook("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert result.success is True
+        session.delete.assert_not_called()
+
+    def test_info_reports_the_unhealthy_topic_not_the_first_one(self) -> None:
+        # WooCommerce disables one webhook at a time after five failures, so an "active" first
+        # row would hide a topic that has stopped delivering.
+        session = self._session(
+            [
+                [
+                    {"id": 1, "topic": "order.created", "delivery_url": "https://ph.test/hook", "status": "active"},
+                    {"id": 2, "topic": "order.updated", "delivery_url": "https://ph.test/hook", "status": "disabled"},
+                ]
+            ]
+        )
+
+        with self._patch(session):
+            info = get_external_webhook_info("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert info.exists is True
+        assert info.status == "disabled"
+        assert info.enabled_events == ["order.created", "order.updated"]
+
+    def test_info_reports_absence_when_no_webhook_targets_us(self) -> None:
+        session = self._session([[{"id": 1, "topic": "order.created", "delivery_url": "https://someone-else.test"}]])
+
+        with self._patch(session):
+            info = get_external_webhook_info("https://example.com", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert info.exists is False
+
+    @pytest.mark.parametrize(
+        "operation",
+        [create_webhook, delete_webhook, get_external_webhook_info],
+    )
+    def test_unsafe_host_never_reaches_the_network(self, operation: Any) -> None:
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._is_host_safe",
+                return_value=(False, "blocked"),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"
+            ) as MockSession,
+        ):
+            result = operation("https://169.254.169.254", "ck", "cs", 123, "https://ph.test/hook")
+
+        assert getattr(result, "success", None) is not True
+        MockSession.assert_not_called()
+
+
+class TestWebhookTableTransformer:
+    def _row(self, row_id: int, modified: str | None, status: str) -> dict[str, Any]:
+        return {"id": row_id, "date_modified_gmt": modified, "status": status}
+
+    def test_keeps_only_the_latest_delivery_per_id(self) -> None:
+        # Delta merge dedupes across syncs but not within one batch, so a `created` followed by
+        # an `updated` for the same order would otherwise both reach the merge.
+        table = table_from_py_list(
+            [
+                self._row(1, "2026-05-01T10:00:00", "pending"),
+                self._row(1, "2026-05-01T12:00:00", "completed"),
+                self._row(2, "2026-05-01T09:00:00", "processing"),
+            ]
+        )
+
+        result = webhook_table_transformer(table).to_pylist()
+
+        assert sorted(row["id"] for row in result) == [1, 2]
+        assert next(row for row in result if row["id"] == 1)["status"] == "completed"
+
+    def test_out_of_order_delivery_still_keeps_the_newest(self) -> None:
+        table = table_from_py_list(
+            [
+                self._row(1, "2026-05-01T12:00:00", "completed"),
+                self._row(1, "2026-05-01T10:00:00", "pending"),
+            ]
+        )
+
+        result = webhook_table_transformer(table).to_pylist()
+
+        assert [row["status"] for row in result] == ["completed"]
+
+    def test_rows_without_a_modified_timestamp_fall_back_to_delivery_order(self) -> None:
+        table = table_from_py_list([self._row(1, None, "first"), self._row(1, None, "second")])
+
+        result = webhook_table_transformer(table).to_pylist()
+
+        assert [row["status"] for row in result] == ["second"]
+
+    def test_empty_batch_passes_through(self) -> None:
+        table = table_from_py_list([])
+        assert webhook_table_transformer(table).num_rows == 0

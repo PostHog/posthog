@@ -1,0 +1,503 @@
+{
+    "newVerdicts": [
+        {
+            "id": "Z1",
+            "is_real": false,
+            "severity": "not_an_issue",
+            "confidence": "high",
+            "evidence": "tasks.py:113,118 \u2014 regex is unanchored (`.search()` on `github\\.com/([^/\\s]+/[^/\\s]+)/pull/(\\d+)`), so the observation is factually true. But tasks.py:1130-1159 shows the parsed (owner/repo, number) is used only for a team-scoped lookup (`StamphogRepoConfig.objects.for_team(team_id)...filter(repository__iexact=..., enabled=True, connected_by_user_id__isnull=False).exclude(installation_id=\"\")`) and the GitHub fetch uses `repo_config.repository` + `repo_config.installation_id` from the DB \u2014 the URL's scheme/host is never used for any request. receivers.py:126-139 shows pr_url originates from the team's own TaskRun output; an actor who controls it can supply a clean github.com URL, so hostname anchoring blocks nothing. Target space is bounded to the team's own enabled Stamphog repos; no SSRF, no cross-tenant reach, no correctness bug for legitimate GitHub html_urls.",
+            "notes": "The claimed attack (spoofed-host URL redirecting the review target) produces the exact same downstream behavior as a well-formed URL from the same actor, so the proposed strict parsing is a security no-op. The genuine gap on this receiver leg (no bot-author/repo-native check on the fetched PR) is finding Z8's territory, not fixable by URL anchoring. Stricter urlparse validation would be harmless polish at most (consider-level style), but as stated the finding's defect and threat are wrong-premise.",
+            "set": "Z"
+        },
+        {
+            "id": "Z2",
+            "is_real": false,
+            "severity": "not_an_issue",
+            "confidence": "high",
+            "evidence": "pr75215_tree/tools/pr-approval-agent/review_local.py:321 does use bool(context.get(\"self_driving_review\")), but the flag's only producer is products/stamphog/backend/temporal/activities.py:451 (self_driving_review=bool(output.get(\"inbox_review\")) \u2014 a real Python bool) feeding products/stamphog/backend/logic/reviewer.py:101,131,137 (parameter typed bool = False, placed in the context dict, serialized via json.dumps), so the context file always contains JSON true/false or omits the key (Action path never sets it, reviewer.py:113-117). bool(True/False/None) is behaviorally identical to `is True` for every reachable input; no path can deliver a truthy string/number/object.",
+            "notes": "Speculative defensive-hardening finding: the \"malformed context\" premise is unreachable given the single typed producer, and the context is a server-written sandbox artifact \u2014 anyone able to tamper with it could just write the boolean true, so strict parsing adds no security. The must_fix framing is unjustified.",
+            "set": "Z"
+        },
+        {
+            "id": "Z3",
+            "is_real": true,
+            "severity": "should_fix",
+            "confidence": "high",
+            "evidence": "receivers.py:206 selects one acting reviewer (`next((u for u in resolved if u.id == task_created_by_id), resolved[0])`); lines 114+126 gate the stamphog dispatch on only that user's `stamphog_review_inbox_prs`; lines 151-156 (`resolve_stamphog_acting_reviewer`, registered as stamphog's webhook re-check hook at line 69) return None when that single user's toggle is off. No code path scans the resolved assignee set for any opted-in user. PR 75215 body (fetched) states the gate as any-opted-in three times: \"at least one of the assigned users has stamphog_review_inbox_prs enabled\", \"checks whether any assigned reviewer opted in\", \"nobody is opted in, so no review runs\". Docstring lines 12-15 confirm auto-start tasks are created by the GitHub-integration user (not in the resolved set), so resolved[0] alone gates \u2014 an opted-out first assignee suppresses the review despite a later opted-in assignee, and their mid-PR opt-out halts webhook re-reviews.",
+            "notes": "Implementation diverges from the PR's own thrice-stated any-opted-in requirement. Not must_fix: failure mode is fail-safe (skipped review, never a wrong approval), and the module docstring deliberately documents single-acting-reviewer gating for both toggles, giving a defensible intentional-design reading \u2014 but the PR body is the spec and contradicts it.",
+            "set": "Z"
+        },
+        {
+            "id": "Z4",
+            "is_real": false,
+            "severity": "consider",
+            "confidence": "high",
+            "evidence": "facade/api.py:504-509 does apply team_id/signal_report_id/internal filters after find_task_run selects one run, and webhooks.py:29-57 selects globally without a team filter \u2014 the structural observation is correct. But the claimed failure (a qualifying self-driving run masked by a non-qualifying one) requires two TaskRuns sharing the same output__pr_url (webhooks.py:41), and a GitHub PR URL belongs to exactly one PR opened by one run lineage; the documented multi-run case (resume, webhooks.py:37-40) is same-team/same-task, so both pass the post-filters and the terminal_rank/-created_at ordering picks the live run. Internal tasks never populate pr_url or a PR head branch, so task.internal has no colliding candidate. If masking did occur, the path fails closed: carve-out stays empty (tasks.py:191-200), the skip path still retracts stale approvals on head-changing deliveries (tasks.py:881-898), so the worst residual is a missed re-review, never a wrong approval or cross-tenant bind (double team check at api.py:505 and tasks.py:199). The unordered branch-leg .first() (webhooks.py:68-76) is pre-existing code untouched by this diff, and the carve-out always passes pr.html_url so the ordered pr_url leg is the resolving path.",
+            "notes": "Valid design-robustness suggestion (push predicates into the selection queryset), but the concrete defect scenario needs a duplicate agent-reported pr_url with no legitimate producer, and every failure mode is fail-closed with the stale-approval retraction intact. Improvement, not a defect.",
+            "set": "Z"
+        },
+        {
+            "id": "Z5",
+            "is_real": false,
+            "severity": "not_an_issue",
+            "confidence": "high",
+            "evidence": "activities.py:237-238 skips get_author_merged_pr_numbers when is_inbox_review (from run.output[\"inbox_review\"]), yielding author_pr_numbers=[]. review_local.py:301-303 _attach_familiarity early-returns on empty author_pr_numbers, leaving cl[\"familiarity\"] unset. reviewer.py:644-646 _format_familiarity returns \"\" when familiarity is None, so familiarity_block is empty at reviewer.py:568 whenever self_driving_block renders. Both self_driving_review (activities.py:451) and the fetch gate (activities.py:237) derive from the same run.output[\"inbox_review\"], stamped at trigger time, so they cannot diverge.",
+            "notes": "The finding's premise (\"the server fetches merged PR numbers for the bot author\") is directly contradicted by the PR's own companion change in activities.py, which gates the fetch on not is_inbox_review with a comment explaining exactly this design. The bot-familiarity-plus-provenance prompt is unreachable; the suggested guard would be dead code.",
+            "set": "Z"
+        },
+        {
+            "id": "Z6",
+            "is_real": true,
+            "severity": "consider",
+            "confidence": "high",
+            "evidence": "reviewer.py:692-702 \u2014 _format_self_driving gates only on cl[\"self_driving\"] and hardcodes \"It is a draft on purpose ... draft state is not a caution signal for this PR\"; pr.draft never consulted. review_local.py:321 \u2014 flag set from context provenance only. products/stamphog/backend/tasks/tasks.py:144-215 \u2014 _inbox_rereview_carve_out has no draft check (gates: head-changing action, bot author, repo-native head, config, facade run, toggle); tasks.py:226-231 \u2014 non-draft bot PR yields skip_reason \"bot_author\"; tasks.py:880-881 \u2014 carve-out provenance overrides the skip, so a ready-for-review self-driving PR receiving synchronize is re-reviewed with the false draft assertion. tasks.py:160-165 docstring explicitly keeps re-reviewing after the ready flip; review_pr.py:587-591 waives the draft prerequisite for self-driving, so nothing downstream blocks the non-draft path.",
+            "notes": "Reachable (draft flipped ready + later push) and factually confirmed, but purely a prompt-accuracy inaccuracy: the false sentence's actionable part (\"draft state is not a caution signal\") is inert on a non-draft PR and \"judge the diff strictly on its own merits\" governs \u2014 no concrete wrong-verdict mechanism. Cheap conditional fix worth making; not a production defect.",
+            "set": "Z"
+        },
+        {
+            "id": "Z7",
+            "is_real": false,
+            "severity": "not_an_issue",
+            "confidence": "high",
+            "evidence": "receivers.py:224-234 \u2014 catch is `except Exception: logger.exception(\"review_hog_stamphog_inbox_review_queue_failed\")`, running in a transaction.on_commit callback (line 131) where raising would propagate into the tasks save path the module contract (lines 75-77, docstring line 213) explicitly forbids; identical to the pre-existing accepted `_start_review` leg (lines 261-273, context in diff). facade/api.py:128-155 \u2014 the dispatch is a single Celery `.delay()` broker publish. receivers.py:77-79 \u2014 repeat output-saves deliberately re-fire the receiver and re-dispatch; receivers.py:144-156 \u2014 later pushes re-review via stamphog's webhook path with a fresh toggle check. Loss requires broker-down at the exact on-commit instant with no later save and no later push; consequence is a missed best-effort review, never a wrong approval.",
+            "notes": "Mechanics accurately described but the \"permanently drops\" defect claim is refuted by the documented re-fire and webhook recovery paths; swallow-and-log is a deliberate, structurally required convention for this on_commit save-path callback. The proposed durable outbox is disproportionate for a fail-safe best-effort dispatch and would equally apply to the long-standing sibling leg.",
+            "set": "Z"
+        },
+        {
+            "id": "Z8",
+            "is_real": true,
+            "severity": "must_fix",
+            "confidence": "high",
+            "evidence": "tasks.py:1166-1181 \u2014 process_inbox_pr_review checks only pr.state==\"open\" and non-empty head_sha before stamping inbox_review provenance from Celery args; no _is_bot_authored, no head.repo-vs-base-repo (fork) check, no find_signal_implementation_run binding. Contrast tasks.py:169-200 where the webhook carve-out requires all three before granting the same provenance. Downstream: activities.py:451 sets self_driving_review from that provenance; review_pr.py:225 (bot-author refusal) and :590 (draft prereq) are bypassed when self_driving is true, and grep confirms the engine has no fork/author-association gate; _author_lacks_write_permission and _review_skip_reason run only in process_pull_request_event, never on the initial leg. Source of pr_url: receivers.py:93,126-139 reads TaskRun.output[\"pr_url\"], writable via set_output (task:write, presentation/views/api.py:1107-1121) with validate_set_output (facade/api.py:2123) checking only task.json_schema \u2014 no PR-to-run binding. tasks.py:84-108 documents the invariant this bypasses (fork/under-privileged authors must never get an auto-approval satisfying required reviews). process_inbox_pr_review is new in this diff (pr75215.diff +1040).",
+            "notes": "Real security gate gap introduced by this PR: the receiver leg is the only route into self-driving review mode with fork-safety, bot-authorship, and run-linkage enforced nowhere, and pr_url is agent/API-reported data. Bounded to the team's own enabled Stamphog repos and gated on the acting reviewer's toggle, but a redirected URL (agent mistake, prompt injection, or any task:write caller) gets a fork or human PR privileged-reviewed and potentially approved, with retraction only on a later push. The finding's suggestion overstates two points (Celery args aren't externally injectable; webhook re-reviews do verify provenance) \u2014 the fix that matters is bot-author + repo-native + facade run-binding checks on the fetched PR in process_inbox_pr_review.",
+            "set": "Z"
+        },
+        {
+            "id": "Z9",
+            "is_real": false,
+            "severity": "not_an_issue",
+            "confidence": "high",
+            "evidence": "tasks.py:1185-1186 \u2014 _upsert_pull_request runs first inside the same transaction.atomic as the dedupe/create. tasks.py:349-354 \u2014 its conditional UPDATE on the PR row takes a write lock held to commit; for identical concurrent snapshots (equal updated_at, lte matches) the second fire blocks here until the first commits its ReviewRun, then its existing-run SELECT (tasks.py:1202-1210, READ COMMITTED) sees the committed QUEUED run and no-ops or idempotently restarts (tasks.py:1211-1221; _start_review_workflow swallows WorkflowAlreadyStartedError, tasks.py:366-380). First-ever fire: get_or_create INSERTs contend on UniqueConstraint(team_id, repo_config, pr_number) \"unique_stamphog_pull_request\" (models.py:120-122), so the loser waits for the winner's commit, IntegrityError-retries the get, and again sees the committed run. Stale-loser path covered by refresh_from_db (tasks.py:360-362) + locked recheck (tasks.py:1191-1197). Only unserialized branch is incoming_updated_at is None (tasks.py:346-348), unreachable for GitHub PR payloads which always carry updated_at. Webhook path documents this exact PR-row-lock serialization design (tasks.py:1037-1044).",
+            "notes": "The finding assumes dedup relies solely on select_for_update over matching ReviewRun rows; it overlooks that _upsert_pull_request's conditional UPDATE (or the PullRequest unique-constraint insert wait) serializes the whole check-and-create before the existing-run SELECT. Racing fires with different heads legitimately create a new run with supersession \u2014 intended re-review, not duplication. Suggested PullRequest-row locking is effectively already what the code does.",
+            "set": "Z"
+        },
+        {
+            "id": "Z10",
+            "is_real": false,
+            "severity": "consider",
+            "confidence": "high",
+            "evidence": "receivers.py:126-139 checks stamphog_review_inbox_prs immediately before on_commit dispatch; tasks.py:1109-1245 (process_inbox_pr_review) confirmed to never re-resolve the toggle (max_retries=3, default_retry_delay=5, rate-limit retry max(retry_after,60) \u2014 window is seconds to ~minutes); tasks.py:159-165 docstring states initial-leg scope and \"safety is never preference-gated\" as deliberate design; tasks.py:887-898 dismisses any standing approval with _INBOX_OPT_OUT_DISMISS_MESSAGE on the next head-changing delivery when carve_out.opted_out; carve-out (tasks.py:144-215) + resolve_stamphog_acting_reviewer (receivers.py:144-157) confirm only the webhook leg rechecks.",
+            "notes": "Code asymmetry is factually accurate, but it is a documented deliberate design with a tiny race window, a benign target (the user's own linked self-driving draft PR they were opted into seconds earlier), and a safety backstop that retracts any post-opt-out approval on the next head change. Re-checking inside the task wouldn't fully close the race either. Not a must_fix defect; at most a cheap consistency hardening.",
+            "set": "Z"
+        },
+        {
+            "id": "E1",
+            "is_real": true,
+            "severity": "must_fix",
+            "confidence": "high",
+            "evidence": "tasks.py:124-127 `_is_bot_authored` = `user.type==\"Bot\"` OR `\"[bot]\" in login`; tasks.py:169-172 carve-out gates only on that plus a comment asserting unenforced App-machine-user authorship; webhooks.py:64-77 branch leg matches branch+repo with NO terminal-run exclusion (wizard leg below does exclude) and no author identity; facade/api.py:510-516 SignalImplementationRunDTO carries no PR-author/bot identity; tasks.py:881/944/967-968 provenance bypasses pre-filter, review-mode, and write-permission gates; tasks.py:1062-1064 provenance keys the engine's self-driving behavior, so engine-side bot/draft refusals are bypassed too; github_client.py:53-69 + AGENTS.md:33-34 document that approval-adjacent decisions must use exact `<slug>[bot]` (allow_any_bot=False), which this path violates.",
+            "notes": "Verified exploit chain: any other installed bot with repo write access can reuse a signal-run branch name (terminal runs match forever), open a repo-native PR, push a synchronize, and inherit the full draft/bot/review-mode/write-permission bypass \u2014 StampHog then reviews and can mint a standing approval satisfying branch protection on a non-self-driving PR. Preconditions (compromised/malicious bot with write access, opted-in acting reviewer, branch collision) are within the product's own threat model; the fix (require expected_app_bot_login() on pr.user and fail closed) matches the existing allow_any_bot=False pattern. Minor citation slip in the finding: invariant text lives in AGENTS.md, not CLAUDE.md.",
+            "set": "E"
+        },
+        {
+            "id": "E2",
+            "is_real": true,
+            "severity": "must_fix",
+            "confidence": "high",
+            "evidence": "PR worktree pr75215_tree/products/review_hog/backend/migrations/ contains 0019_reviewusersettings_stamphog_review_inbox_prs.py (generated 2026-07-21) depending on (\"review_hog\", \"0018_backfill_urgency_threshold_to_consider\"), and its max_migration.txt reads \"0019_reviewusersettings_stamphog_review_inbox_prs\". origin/master already has 0019_reviewreport_author_login_and_more.py (generated 2026-07-22) which also depends on 0018, plus a chain through 0024_reviewreport_published_head_shas, with master's max_migration.txt = \"0024_reviewreport_published_head_shas\". So 0018 gains two children on merge, producing two leaf nodes (0024 and the new 0019) \u2014 Django's migration loader raises \"Conflicting migrations detected\" on migrate/makemigrations. django_linear_migrations is installed (posthog/settings/web.py:207 in the current repo), so the single-leaf/max_migration.txt consistency check also fails in CI, and max_migration.txt itself is a guaranteed textual merge conflict (PR says new 0019, master says 0024).",
+            "notes": "All three \"Found\" bullets verified against ground truth. The PR branch predates master's 0019\u20130024 chain; the fix (rebase_migration to 0025 + update max_migration.txt) is standard and correct. must_fix: the migration cannot apply once merged with master and CI blocks on it.",
+            "set": "E"
+        },
+        {
+            "id": "E3",
+            "is_real": false,
+            "severity": "not_an_issue",
+            "confidence": "high",
+            "evidence": "models.py:309-313 load() has no .using(); products/db_routing.yaml omits review_hog so ProductDBRouter.db_for_read returns None (product_db_router.py:27-35); ReplicaRouter.db_for_read (posthog/dbrouter.py:22-31) returns \"default\" unless the model name is in READ_REPLICA_OPT_IN, which is env-driven and empty by default (posthog/settings/data_stores.py:271-272) with no opt-in for ReviewUserSettings \u2014 reads already hit the primary.",
+            "notes": "The stale-replica scenario is unreachable: ReviewUserSettings is a main-DB model whose reads route to \"default\" (the writer). The suggested .using(db_for_write(...)) resolves to \"default\" too \u2014 a no-op. Stamphog's writer-pinning convention applies only to its registered product DB with a lagged reader alias and was misapplied here.",
+            "set": "E"
+        },
+        {
+            "id": "E4",
+            "is_real": true,
+            "severity": "should_fix",
+            "confidence": "high",
+            "evidence": "tasks.py:1206-1207 \u2014 inbox dedup filters on (pull_request, head_sha) and excludes FAILED, so a FAILED run at the same head never satisfies `existing` and a new ReviewRun is created each fire; no attempt cap or cooldown exists. receivers.py:85-96,126-139 \u2014 receiver fires on every TaskRun save touching `output` with pr_url, gated only by the TaskRun's status; docstrings (receivers.py:5-7,77-79; tasks.py:1124-1128) confirm repeat saves with an unchanged head are expected and rely on the head-keyed dedupe to no-op, which FAILED runs escape. temporal/client.py:43 \u2014 workflow id `stamphog-review-{review_run_id}` is per-row, so each new row launches a fresh full sandbox+LLM+GitHub workflow. activities.py:820-847 \u2014 mark_review_failed runs after an unrecoverable (post-retry) workflow error, so deterministic failures recur on every relaunch. test_tasks.py:979 \u2014 `(FAILED, \"sha-1\", \"new\", 2)` codifies retry-after-FAILED as intended, but with no transient/deterministic distinction or budget.",
+            "notes": "Mechanism fully verified in this PR's new code. Mitigating nuance: relaunches are bounded by TaskRun output-save frequency (per agent turn), toggle- and assignee-gated, and transient failures self-heal \u2014 so it's uncapped resource amplification under a deterministic-failure precondition, not an infinite loop. The retry-after-FAILED is deliberately tested design for transient recovery; the missing piece is a per-(PR, head) attempt cap or cooldown. should_fix is the right severity.",
+            "set": "E"
+        }
+    ],
+    "clusters": [
+        {
+            "issue": "find_signal_implementation_run rejects internal=True tasks but production self-driving implementation tasks are always internal=True, so the webhook carve-out leg is dead",
+            "members": ["Y5", "P12", "Q5", "T10", "O6", "W11"]
+        },
+        {
+            "issue": "Receiver leg (process_inbox_pr_review) stamps inbox_review/self_driving with no positive PR-to-run linkage or bot-author verification, unlike the webhook leg",
+            "members": [
+                "X20",
+                "P10",
+                "Q18",
+                "R3",
+                "T7",
+                "U2",
+                "V3",
+                "M9",
+                "J2",
+                "K11",
+                "L4",
+                "L6",
+                "N10",
+                "O9",
+                "S4",
+                "W6",
+                "Z8"
+            ]
+        },
+        {
+            "issue": "self_driving_review read from context JSON with truthy bool() coercion instead of a strict `is True` check",
+            "members": ["X10", "Y12", "P3", "Q9", "R6", "T2", "U11", "V5", "M3", "K12", "N1", "O2", "S1", "W5", "Z2"]
+        },
+        {
+            "issue": "Engine does not gate familiarity computation/rendering on self_driving, relying on the server omitting author_pr_numbers",
+            "members": [
+                "X14",
+                "Y17",
+                "P5",
+                "P14",
+                "Q2",
+                "R7",
+                "T9",
+                "U6",
+                "V10",
+                "M4",
+                "J3",
+                "K5",
+                "L2",
+                "O16",
+                "S3",
+                "W2",
+                "W9",
+                "Z5"
+            ]
+        },
+        {
+            "issue": "_format_self_driving renders TRUSTED provenance claims (machine author / verified-by-task-linkage) solely off the self_driving flag with no engine-side verification",
+            "members": ["X3", "Y3", "O11"]
+        },
+        {
+            "issue": "Draft/bot gate relaxations in Pipeline are keyed only on self_driving, not coupled to pr.author_is_bot",
+            "members": ["X9", "P15", "T6", "U12", "V8", "K1", "N12", "O10"]
+        },
+        {
+            "issue": "stamphog_connected SerializerMethodField does an uncached cross-product-DB read on every settings serialization (GET and PATCH)",
+            "members": ["X15", "Y6", "P6", "Q13", "U7", "V11", "N4", "O3"]
+        },
+        {
+            "issue": "stamphog_connected is a project-wide any-repo check, so the toggle can appear active for inbox PRs whose specific repo has no Stamphog config",
+            "members": ["X12", "Q10", "V9"]
+        },
+        {
+            "issue": "process_inbox_pr_review performs a live GitHub get_pr on every receiver refire before any dedupe",
+            "members": ["X16", "P19", "Q16", "U8", "U9", "V6", "V7", "M12", "K13", "L10", "N19", "O20"]
+        },
+        {
+            "issue": "Carve-out path resolves the same StamphogRepoConfig twice (or thrice) per delivery",
+            "members": ["Y14", "P7", "Q11", "U13", "V13", "N18", "O21"]
+        },
+        {
+            "issue": "Webhook-leg resolver re-runs the full acting-reviewer resolution (latest suggested_reviewers artefact + org-login mapping) on every push, so the gating identity can drift from the leg-1 reviewer",
+            "members": ["X11", "Q8", "T3"]
+        },
+        {
+            "issue": "Webhook-leg toggle re-check repeats the multi-query reviewer-resolution chain on every synchronize/reopen push (performance)",
+            "members": ["P18", "Q17", "N15", "O17"]
+        },
+        {
+            "issue": "_parse_pr_url regex is not host-anchored, so lookalike domains/embedded github.com substrings parse as valid GitHub PR URLs",
+            "members": ["Y10", "P1", "M2", "O1", "Z1"]
+        },
+        {
+            "issue": "inbox_review provenance is an implicit, untyped ad-hoc dict contract (bare truthiness read, hand-built shape duplicated across both trigger legs)",
+            "members": ["Y2", "P2"]
+        },
+        {
+            "issue": "find_signal_implementation_run's underlying find_task_run read is not pinned to the writer DB despite gating the carve-out side effect",
+            "members": ["X4", "P23", "W10"]
+        },
+        {
+            "issue": "Exception-safety of _start_stamphog_review's deferred facade import relative to its try/except (import-failure handling of the stamphog on_commit leg)",
+            "members": ["X13", "Q3"]
+        },
+        {
+            "issue": "queue_inbox_pr_review facade trusts caller-supplied acting_user_id with no team-membership ownership check",
+            "members": ["X1"]
+        },
+        {
+            "issue": "has_reviewable_repo_config omits the provider=\"github\" filter used by sibling repo-config lookups",
+            "members": ["X2", "U3", "V1", "M7"]
+        },
+        {
+            "issue": "AGENTS.md Engine parity section lacks a cross-reference to the new self_driving runtime divergence",
+            "members": ["X5"]
+        },
+        {
+            "issue": "signal_report_id typed loosely (str vs Any/UUID) across the cross-product resolver hook boundary",
+            "members": ["X6"]
+        },
+        {
+            "issue": "find_signal_implementation_run still matches cancelled/failed runs and soft-deleted tasks, extending the carve-out past the automation's lifetime",
+            "members": ["X7", "V4", "M14", "O5"]
+        },
+        {
+            "issue": "Self-driving identification relies solely on the deprecated Task.signal_report field without origin_product corroboration",
+            "members": ["X8"]
+        },
+        {
+            "issue": "Unindexed TaskRun.branch fallback leg causes sequential scans for non-matching bot PR webhooks",
+            "members": ["X17", "S9"]
+        },
+        {
+            "issue": "Relaxed gates leave no trace in logs/gate messages/posted review comment that the self-driving carve-out fired",
+            "members": ["X18", "V16", "N13"]
+        },
+        {
+            "issue": "Two on_commit hooks registered with robust=False, so an exception in the first silently cancels the stamphog hook",
+            "members": ["X19", "T4", "M13", "S7"]
+        },
+        {
+            "issue": "stamphog_review_inbox_prs is PATCH-writable without a server-side stamphog_connected precondition validator",
+            "members": ["Y1", "U1"]
+        },
+        {
+            "issue": "Fail-soft stamphog_connected=False is indistinguishable from genuinely-disconnected, producing misleading disabled-state copy in the UI",
+            "members": ["Y4"]
+        },
+        {
+            "issue": "Second synchronous Celery broker publish on the on_commit path with no bounded publish timeout against a hung broker",
+            "members": ["Y7"]
+        },
+        {
+            "issue": "Carve-out exception retry path can block the stale-approval safety dismissal for head-changing bot PRs",
+            "members": ["Y8", "U14", "V14"]
+        },
+        {
+            "issue": "AGENTS.md carve-out section conflicts with the file's 'every invariant earned through a real review finding' preamble framing",
+            "members": ["Y9"]
+        },
+        {
+            "issue": "Receiver leg does not re-validate the acting reviewer's toggle at task execution time (queue-time trust)",
+            "members": ["Y11", "L7", "N11", "O14", "S11", "W12", "Z10"]
+        },
+        {
+            "issue": "Claimed stranding of QUEUED runs because on_commit workflow restart supposedly runs after the Celery task returns (disproven Django semantics)",
+            "members": ["Y13"]
+        },
+        {
+            "issue": "Claimed per-event cost of running the tasks-facade lookup plus review_hog resolver on every bot-authored head-changing webhook",
+            "members": ["Y15", "N17", "O19"]
+        },
+        {
+            "issue": "Alleged \\s character-class typo in _parse_pr_url making repos containing 's' unparseable (fabricated/misquoted regex)",
+            "members": ["Y16"]
+        },
+        {
+            "issue": "Hard-coded 'It is a draft on purpose' provenance sentence renders even when the self-driving PR is no longer a draft",
+            "members": ["P4", "N3", "O24", "Z6"]
+        },
+        {
+            "issue": "Webhook leg's supersede+create path has no head-based dedupe against receiver-leg runs, double-reviewing the same head",
+            "members": ["P8"]
+        },
+        {
+            "issue": "AGENTS.md carve-out bypass enumeration omits the untrusted_author_association branch of _review_skip_reason",
+            "members": ["P9"]
+        },
+        {
+            "issue": "Redundant stamphog_pr_url local alias before the on_commit lambda",
+            "members": ["P11"]
+        },
+        {
+            "issue": "find_task_run queries TaskRun unscoped and enforces the tenant boundary only via post-hoc run.team_id recheck",
+            "members": ["P13", "R4", "T8", "U4", "M11", "J6", "K4", "S5", "W8", "Z4"]
+        },
+        {
+            "issue": "resolve_stamphog_acting_reviewer has no try/except guard despite being invoked from another product's webhook path",
+            "members": ["P16", "U10", "V2", "N22"]
+        },
+        {
+            "issue": "Receiver-leg dedupe excludes FAILED runs, so a persistently failing head is retried on every refire with no cooldown",
+            "members": ["P17", "E4"]
+        },
+        {
+            "issue": "Alleged check-then-act race in process_inbox_pr_review's dedupe allowing duplicate runs under concurrent refires (serialized by PR row lock)",
+            "members": ["P20", "K14", "L8", "O13", "O15", "S8", "Z9"]
+        },
+        {
+            "issue": "repository__iexact lookup cannot use StamphogRepoConfig's case-sensitive indexes",
+            "members": ["P21", "N20"]
+        },
+        {
+            "issue": "stamphog_inbox_pr_create_run_failed log omits the error=str(e) structured field its siblings include",
+            "members": ["P22", "N21", "O22"]
+        },
+        {
+            "issue": "Meta-finding: PR diff absent from the checked-out tree, declaring the review context untrustworthy",
+            "members": ["P24"]
+        },
+        {
+            "issue": "Claim that max_migration.txt was not bumped to the new 0019 migration (false against PR head)",
+            "members": ["Q1", "R2"]
+        },
+        {
+            "issue": "Engine's stamphog_review_completed analytics event lacks a self-driving marker property",
+            "members": ["Q4", "R1"]
+        },
+        {
+            "issue": "AGENTS.md provenance key name (inbox_review vs trigger/stamphog_self_driving_review) suspected of not matching the implementation",
+            "members": ["Q6", "K8"]
+        },
+        {
+            "issue": "AGENTS.md carve-out section placement splits the egress-to-trust-boundaries document flow",
+            "members": ["Q7"]
+        },
+        {
+            "issue": "Opt-out dismissal copy/log mismatch on a base-retarget delivery (retarget message posted while log says inbox_opt_out)",
+            "members": ["Q12"]
+        },
+        {
+            "issue": "Broad except in get_stamphog_connected collapses transient circuit-breaker failures and real bugs into one error-level log",
+            "members": ["Q14", "T5", "V12"]
+        },
+        {
+            "issue": "Carve-out pays repo-config and tasks-DB lookups before the cheap resolver-is-None short-circuit",
+            "members": ["Q15"]
+        },
+        {
+            "issue": "Opt-out dismissal message claims 'New commits were pushed' on a reopened PR where no commits were pushed",
+            "members": ["Q19"]
+        },
+        {
+            "issue": "queue_inbox_pr_review facade does not guard the Celery .delay publish, so broker/serialization errors can raise into the caller's save path",
+            "members": ["R5", "W1"]
+        },
+        {
+            "issue": "Claim that tach.toml does not declare the new review_hog -> stamphog dependency (false against PR head, which adds it)",
+            "members": ["T1"]
+        },
+        {
+            "issue": "Relaxing the draft gate leaves mergeable_state == \"dirty\" as the only conflict check, which GitHub never reports for drafts, so the merge-conflict gate is inert for self-driving draft PRs",
+            "members": ["U5", "V15"]
+        },
+        {
+            "issue": "Stamphog gate keys on a single canonical acting reviewer's toggle, so an opted-in non-canonical assigned reviewer is ignored, contradicting the PR's 'any assigned reviewer opted in' contract",
+            "members": ["M1", "M10", "J4", "K2", "K10", "L1", "N14", "O12", "S6", "W7", "Z3"]
+        },
+        {
+            "issue": "Initial inbox review dispatch is fire-and-forget with no durable pending record or reconciliation, so a broker enqueue failure or exhaustion of the task's three retries silently drops the review",
+            "members": ["M5", "M6", "K3", "L9", "W3", "Z7"]
+        },
+        {
+            "issue": "Claim that the documented carve-out contracts (queue_inbox_pr_review facade, inbox_hooks resolver, engine flag) do not exist in the code \u2014 stale-checkout false positive validating PR docs against a tree without the PR's changes",
+            "members": ["M8", "K9", "L5", "N7", "N8"]
+        },
+        {
+            "issue": "Em dash in the new README copy violates the repository's documentation writing style guidance",
+            "members": ["J1"]
+        },
+        {
+            "issue": "New review_hog migration numbered 0019 conflicts with master's existing 0019_reviewreport_author_login_and_more leaf (both depend on 0018), producing two migration leaves and a max_migration.txt conflict that break migration checks on merge",
+            "members": ["J5", "K6", "L3", "N9", "O7", "S2", "W4", "E2"]
+        },
+        {
+            "issue": "Claim that no inbox acting-reviewer resolver is ever registered so the webhook carve-out always fails closed (false \u2014 receivers.connect() registers resolve_stamphog_acting_reviewer at app ready)",
+            "members": ["K7"]
+        },
+        {
+            "issue": "find_signal_implementation_run facade leaves fork-safety (head-repo == base-repo) as a documentation-only caller precondition instead of enforcing it inside the facade",
+            "members": ["N2"]
+        },
+        {
+            "issue": "queue_inbox_pr_review dispatches its Celery task immediately instead of via transaction.on_commit, risking a phantom task if the caller's transaction rolls back",
+            "members": ["N5", "O4"]
+        },
+        {
+            "issue": "Frontend loads stamphog_connected once on mount and never revalidates, so connecting Stamphog elsewhere leaves the switch stuck showing not-connected until reload",
+            "members": ["N6"]
+        },
+        {
+            "issue": "Inbox-hook resolver registration in connect() has no duplicate-registration guard equivalent to the sibling post_save dispatch_uid",
+            "members": ["N16"]
+        },
+        {
+            "issue": "review_local.py never populates pipeline.provenance, so the self-driving path's commit-trailer audit/analytics fields are always empty",
+            "members": ["N23"]
+        },
+        {
+            "issue": "resolve_stamphog_acting_reviewer hook trusts caller-supplied team_id/signal_report_id with no verification tying them to the PR being re-reviewed",
+            "members": ["O8"]
+        },
+        {
+            "issue": "Receiver dispatches the Stamphog Celery task unconditionally even for teams with no Stamphog installation, paying a guaranteed no-op broker round trip",
+            "members": ["O18"]
+        },
+        {
+            "issue": "Self-driving TRUSTED prompt block contradicts the review-guidance.md system prompt's categorical 'bot author always needs human review' showstopper, which the PR never carves out",
+            "members": ["O23"]
+        },
+        {
+            "issue": "AGENTS.md's 'relaxes exactly two gates' claim reads as contradicted by the review-mode and author-write-permission bypasses documented two bullets later",
+            "members": ["O25"]
+        },
+        {
+            "issue": "AGENTS.md carve-out section never states whether StamphogRepoConfig.enabled (per-repo opt-in) still gates self-driving inbox reviews",
+            "members": ["O26"]
+        },
+        {
+            "issue": "find_task_run's branch fallback can bind an unrelated or stale run (whose output.pr_url names a different PR) to the incoming PR, authorizing it as self-driving",
+            "members": ["S10"]
+        },
+        {
+            "issue": "Ownership block still renders 'Author is NOT on the owning team' for self-driving machine authors, contradicting the adjacent provenance block's no-signal directive",
+            "members": ["W13"]
+        },
+        {
+            "issue": "Webhook carve-out accepts any GitHub bot as the self-driving author (_is_bot_authored any-Bot floor) instead of requiring the expected PostHog Code App bot login, so another installed bot with write access can inherit the gate bypass",
+            "members": ["E1"]
+        },
+        {
+            "issue": "Claim that ReviewUserSettings toggle gates read from a lagging replica and need writer-DB pinning (false \u2014 the model is main-DB and load() already reads the primary)",
+            "members": ["E3"]
+        }
+    ],
+    "metrics": {
+        "Z": {
+            "total": 10,
+            "real": ["Z3(should_fix)", "Z6(consider)", "Z8(must_fix)"]
+        },
+        "E": {
+            "total": 4,
+            "real": ["E1(must_fix)", "E2(must_fix)", "E4(should_fix)"]
+        },
+        "emissionDupZE": [],
+        "unionRealClusters": [
+            "Receiver leg (process_inbox_pr_review) stamps inbox_review/self_driving with no positive PR-to-run linkage or bot-author verification, unlike the webhook leg",
+            "Hard-coded 'It is a draft on purpose' provenance sentence renders even when the self-driving PR is no longer a draft",
+            "Receiver-leg dedupe excludes FAILED runs, so a persistently failing head is retried on every refire with no cooldown",
+            "Stamphog gate keys on a single canonical acting reviewer's toggle, so an opted-in non-canonical assigned reviewer is ignored, contradicting the PR's 'any assigned reviewer opted in' contract",
+            "New review_hog migration numbered 0019 conflicts with master's existing 0019_reviewreport_author_login_and_more leaf (both depend on 0018), producing two migration leaves and a max_migration.txt conflict that break migration checks on merge",
+            "Webhook carve-out accepts any GitHub bot as the self-driving author (_is_bot_authored any-Bot floor) instead of requiring the expected PostHog Code App bot login, so another installed bot with write access can inherit the gate bypass"
+        ],
+        "totalClusters": 76
+    },
+    "missingClusterIds": [],
+    "_meta": {
+        "round": 6,
+        "date": "2026-07-31",
+        "blinding": {
+            "Z": "J1-gpt56sol-seq-1 (blind turn)",
+            "E": "J2-gpt56sol-seq-2 (turn 2 with native prior-findings injection, run_index=2 findings only)"
+        },
+        "note": "Arm J sequential Sol: J1 blind, empty commit a7fb363 (head bump, identical tree), J2 with <already_covered_findings_for_chunk> injection."
+    }
+}

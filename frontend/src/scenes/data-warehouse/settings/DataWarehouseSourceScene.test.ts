@@ -1,6 +1,7 @@
 import {
     getDefaultDataWarehouseSourceSceneTab,
     isManagedSourceSceneId,
+    shouldShowManagedSourceMetricsTab,
     shouldShowManagedSourceSyncsTab,
 } from 'products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 
@@ -24,5 +25,14 @@ describe('DataWarehouseSourceScene', () => {
         expect(shouldShowManagedSourceSyncsTab(null)).toEqual(false)
         expect(shouldShowManagedSourceSyncsTab({ access_method: 'direct' })).toEqual(false)
         expect(shouldShowManagedSourceSyncsTab({ access_method: 'warehouse' })).toEqual(true)
+    })
+
+    it.each([
+        [null, true, false],
+        [{ access_method: 'direct' as const }, true, false],
+        [{ access_method: 'warehouse' as const }, true, true],
+        [{ access_method: 'warehouse' as const }, false, false],
+    ])('hides the metrics tab for direct query sources (source %p, flag %p)', (source, flagEnabled, expected) => {
+        expect(shouldShowManagedSourceMetricsTab(source, flagEnabled)).toEqual(expected)
     })
 })

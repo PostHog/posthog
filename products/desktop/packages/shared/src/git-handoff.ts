@@ -7,6 +7,7 @@ export interface HandoffLocalGitState {
 }
 
 export interface GitHandoffCheckpoint {
+  repository?: string;
   checkpointId: string;
   commit: string;
   checkpointRef: string;

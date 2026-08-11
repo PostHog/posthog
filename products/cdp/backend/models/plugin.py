@@ -358,7 +358,7 @@ class PluginSourceFileManager(models.Manager):
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
             archive = bytes(plugin.archive) if plugin.archive else None
-            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(archive, plugin_json_parsed)
+            code = extract_plugin_code(archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
 
@@ -370,7 +370,7 @@ class PluginSourceFileManager(models.Manager):
             plugin=plugin,
             filename="plugin.json",
             defaults={
-                "source": plugin_json,
+                "source": code.plugin_json,
                 "transpiled": None,
                 "status": None,
                 "error": None,
@@ -379,12 +379,12 @@ class PluginSourceFileManager(models.Manager):
 
         # Save frontend.tsx
         frontend_tsx_instance: Optional[PluginSourceFile] = None
-        if frontend_tsx is not None:
+        if code.frontend_tsx is not None:
             transpiled = None
             status = None
             error = None
             try:
-                transpiled = transpile(frontend_tsx, type="site")
+                transpiled = transpile(code.frontend_tsx, type="site")
                 status = PluginSourceFile.Status.TRANSPILED
             except Exception as e:
                 error = str(e)
@@ -393,7 +393,7 @@ class PluginSourceFileManager(models.Manager):
                 plugin=plugin,
                 filename="frontend.tsx",
                 defaults={
-                    "source": frontend_tsx,
+                    "source": code.frontend_tsx,
                     "transpiled": transpiled,
                     "status": status,
                     "error": error,
@@ -404,12 +404,12 @@ class PluginSourceFileManager(models.Manager):
 
         # Save site.ts
         site_ts_instance: Optional[PluginSourceFile] = None
-        if site_ts is not None:
+        if code.site_ts is not None:
             transpiled = None
             status = None
             error = None
             try:
-                transpiled = transpile(site_ts, type="site")
+                transpiled = transpile(code.site_ts, type="site")
                 status = PluginSourceFile.Status.TRANSPILED
             except Exception as e:
                 error = str(e)
@@ -419,7 +419,7 @@ class PluginSourceFileManager(models.Manager):
                 plugin=plugin,
                 filename="site.ts",
                 defaults={
-                    "source": site_ts,
+                    "source": code.site_ts,
                     "transpiled": transpiled,
                     "status": status,
                     "error": error,
@@ -430,14 +430,14 @@ class PluginSourceFileManager(models.Manager):
 
         # Save index.ts
         index_ts_instance: Optional[PluginSourceFile] = None
-        if index_ts is not None:
+        if code.index_ts is not None:
             # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
             # and we don't need to model the whole filesystem (at this point)
             index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="index.ts",
                 defaults={
-                    "source": index_ts,
+                    "source": code.index_ts,
                     "transpiled": None,
                     "status": None,
                     "error": None,

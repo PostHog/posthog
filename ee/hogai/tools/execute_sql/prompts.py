@@ -81,14 +81,18 @@ WHERE e.event IN (SELECT event FROM events WHERE ...)
 - You should not make formatting or casing changes if explicitly requested by the user.
 - You should not use double curly braces (`{{{{` or `}}}}`) for templating. The only templating syntax allowed is single curly braces with variables in the "variables" namespace (for example: `{{{{variables.org}}}}`).<%={{{{ }}}}=%>
 - SQL editor nodes can use `{filters}` placeholders. These placeholders are backed by `HogQLQuery.filters`, not by SQL text:
-  - If the current query contains `{filters}` and the user asks to change the date range or property filters, keep the placeholder in the SQL and pass updated `filters` to this tool.
-  - When keeping `{filters}` in the SQL, pass the complete desired `filters` object to this tool. Copy `current_query_node.source.filters` unchanged unless the user asked to change or remove filters.
-  - To remove all editor filters while preserving `{filters}`, pass an empty `filters` object (`{}`).
-  - Do not replace `{filters}` with explicit `timestamp` clauses when the user's request can be represented in `filters.dateRange`.
-  - Supported filter placeholders are `{filters}`, `{filters.dateRange.from}`, and `{filters.dateRange.to}`.
-  - `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, or `groups`. It is not valid for arbitrary data warehouse/source tables.
+  - If the current query contains `{filters}` or a column-bound `{filters(...)}` and the user asks to change the date range or property filters, keep the placeholder in the SQL and pass updated `filters` to this tool.
+  - When keeping the placeholder in the SQL, pass the complete desired `filters` object to this tool. Copy `current_query_node.source.filters` unchanged unless the user asked to change or remove filters.
+  - To remove all editor filters while preserving the placeholder, pass an empty `filters` object (`{}`).
+  - Do not replace the placeholder with explicit `timestamp` clauses when the user's request can be represented in `filters.dateRange`.
+  - Supported filter placeholders are `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`, and the column-bound form `{filters(expr AS key, ...)}`.
+  - Plain `{filters}` can be used only in SELECT queries that select from PostHog event-like tables: `events`, `ai_events`, `sessions`, `logs`, log attributes, traces, or `groups`.
   - Date filters map to `timestamp` for events/logs/traces, `$start_timestamp` for sessions, and `created_at` for groups.
   - `filters` can include `dateRange` (`date_from`, `date_to`), `filterTestAccounts`, and `properties`. Property filters apply to event scope on event/log/trace queries, group scope on `groups`, and session scope on `sessions` unless the query also includes `events`.
+  - For any other table, view, or join (including data warehouse/source tables), use the column-bound form, for example `{filters(created_at AS timestamp, account_id AS 'account_id')}`:
+    - The reserved key `timestamp` receives the date range. Any other key (a string alias like `'plan'` or `'$group_0'`) receives the property filters on that key, with full operator semantics.
+    - `null AS key` opts the query out of filtering on that key. An active filter with no binding raises an error, so bind or explicitly opt out of every filter key in use.
+    - Cohort filters and SQL-expression filters cannot be applied through bindings and raise an error if present.
 - If a filter is optional, ALWAYS implement via the variables namespace with guards:
   - ALWAYS use the "variables." prefix (e.g., variables.org, variables.browser) - never use bare variable names
   - Use coalesce() or IS NULL checks to handle optional values

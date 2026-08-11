@@ -33,7 +33,7 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         })
         this.hogFunctionPipeline = new HogFunctionInvocationPipeline(config, {
             hogFunctionManager: this.hogFunctionManager,
-            hogExecutor: this.hogExecutor,
+            hogInputsService: this.hogInputsService,
             hogWatcher: this.hogWatcher,
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,

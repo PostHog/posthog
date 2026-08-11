@@ -19,18 +19,20 @@ differently:
 
 A scout counts as **consumed** when a person acted on any report it wrote or edited inside the
 `TOUCHED_REPORT_LOOKBACK`: they left a log artefact on it (a note, a dismissal, a code
-reference…) inside the window, or the report recently reached a state only a deliberate action
-produces (`_ENGAGED_REPORT_STATUSES`). `resolved` is deliberately in that set even though the
-GitHub webhook sets it without an in-app action, because the webhook resolves on PR *merge*: a
-human merging the report's PR on GitHub is real consumption that leaves no other server-side
-trace. `suppressed` is deliberately NOT in the set, because the same webhook suppresses a report
-when its PR closes unmerged, which a stale-bot can do with no human anywhere in the loop; a
-human archiving a report leaves a `DISMISSAL` artefact and is counted there instead. Client-side
-opens aren't persisted server-side, so a report someone read but never acted on still counts as
-unconsumed; a rescue feed of richer evidence (frontend opens, indirect report attribution) is a
-planned follow-up, and its absence fails toward this rule's plain evidence, never toward extra
-pauses. Report status changes carry no actor today, so a status flipped by another agent can
-still read as consumption; tightening that needs actor attribution on status transitions.
+reference…) inside the window, left a `SignalReportAction` row on it (opened its detail view,
+rated it with the thumbs — the light interactions the inbox UI records server-side), or the
+report recently reached a state only a deliberate action produces (`_ENGAGED_REPORT_STATUSES`).
+`resolved` is deliberately in that set even though the GitHub webhook sets it without an in-app
+action, because the webhook resolves on PR *merge*: a human merging the report's PR on GitHub is
+real consumption that leaves no other server-side trace. `suppressed` is deliberately NOT in the
+set, because the same webhook suppresses a report when its PR closes unmerged, which a stale-bot
+can do with no human anywhere in the loop; a human archiving a report leaves a `DISMISSAL`
+artefact and is counted there instead. A view counts as consumption on purpose: reading is how
+digest-style reports are used, and pausing a scout someone reads every week is the costlier
+error. The action feed only accumulates from when it shipped, so a report last read before then
+still looks unconsumed until it is opened again. Report status changes carry no actor today, so
+a status flipped by another agent can still read as consumption; tightening that needs actor
+attribution on status transitions.
 
 The `ignored` verdict only applies when there is fair evidence to judge: the scout must hold at
 least one touched report older than `ESTABLISHED_REPORT_AGE` (a report nobody has seen yet is
@@ -63,7 +65,13 @@ import structlog
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
+)
 from products.signals.backend.scout_harness.slack_delivery import get_scout_slack_destination
 
 logger = structlog.get_logger(__name__)
@@ -395,6 +403,19 @@ def _engaged_report_ids(team_id: int, report_ids: set[str], window_start: dateti
             status__in=_ENGAGED_REPORT_STATUSES,
             updated_at__gte=window_start,
         ).values_list("id", flat=True)
+    }
+    # The light-interaction feed (`viewed` endpoint, thumbs rating): every row is a person by
+    # construction, and every action type counts — reading is how digest-style reports are
+    # consumed, so a recent open is as much a rescue as a note.
+    engaged |= {
+        str(report_id)
+        for report_id in SignalReportAction.objects.for_team(team_id)
+        .filter(
+            report_id__in=report_ids,
+            last_at__gte=window_start,
+        )
+        .values_list("report_id", flat=True)
+        .distinct()
     }
     return engaged
 

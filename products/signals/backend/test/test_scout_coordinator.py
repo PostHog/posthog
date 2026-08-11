@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
@@ -40,10 +41,13 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_github_read_access,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
+    _resolve_slot_aligned_dispatch,
     _resolve_withheld_skills,
     _team_configs,
 )
 from products.signals.backend.temporal.agentic.scout_coordinator import (
+    COORDINATOR_INTERVAL_MINUTES,
+    DUE_GRACE_SECONDS,
     MAX_RUNS_PER_TICK,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
@@ -54,8 +58,10 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     _allocate_tick_budget,
     _breaker_paused_configs_by_team,
     _collect_probe_runs,
+    _dispatch_slot,
     _DueRun,
     _overdue_seconds,
+    _slot_anchor,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
@@ -63,6 +69,23 @@ from products.skills.backend.models.skills import LLMSkill
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
 _IS_CLOUD_PATH = "products.signals.backend.scout_harness.team_limits.is_cloud"
+
+# A dispatch instant deliberately off the tick grid, so a stamp that reaches the wall clock is
+# distinguishable from one that snapped to a slot.
+_DISPATCHED_AT = datetime(2026, 8, 8, 16, 31, 12, tzinfo=UTC)
+
+# Config ids drawn once and pinned, so slot spread and stability are asserted against fixed input
+# rather than a fresh sample per run.
+_SLOT_TEST_PKS = [
+    "97599cd0-c5d8-457d-ac65-139f71a1eb41",
+    "cbbfeb14-54e5-4dc3-b5cc-5f6341e40e36",
+    "c01ddd7f-dffa-44f8-88fc-a99c7d8b8302",
+    "2d3aee44-2ea5-4e35-bd94-125664596ff4",
+    "f6011ab7-2cf9-4488-9bb8-81fbc47e94fb",
+    "fcb15539-9802-4a2d-99aa-09fd0103ac53",
+    "9fc3e630-5d1a-4836-b102-ca8e7a4633ee",
+    "53892108-7c13-4518-bc63-f3e82903ae05",
+]
 
 # Enrollment is driven by the `signals-scout` flag payload allowlist. These async tests commit
 # (no transaction rollback across the worker thread), so leftover teams from other modules can
@@ -565,6 +588,29 @@ class TestFailureStreakProbeCollection:
 
         assert [p.skill_name for p in probes] == (["signals-scout-general"] if expect_probe else [])
 
+    def test_a_lane_paused_after_a_backdated_stamp_still_serves_its_full_cooldown(self) -> None:
+        # The run that trips the breaker is dispatched while the lane is still enabled, so it is
+        # stamped with a slot anchor that can sit up to a full period before the trip. Reading the
+        # cooldown off `last_run_at` alone then makes a lane paused seconds ago look a day cold,
+        # and it probes on the very next tick instead of serving the cooldown.
+        now = timezone.now()
+        team = Team.objects.create(organization=Organization.objects.create(name="probe-org"), name="probe-team")
+        with team_scope(team.id, canonical=True):
+            _create_config(
+                team,
+                "signals-scout-general",
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                consecutive_failure_count=5,
+                last_run_at=now - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 3600),
+                status_changed_at=now - timedelta(minutes=5),
+            )
+
+        paused_by_team = _breaker_paused_configs_by_team()
+        probes = _collect_probe_runs(paused_by_team.get(team.id, []), {"signals-scout-general"}, now)
+
+        assert probes == []
+
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
@@ -751,6 +797,89 @@ async def test_due_check_grace_boundary(ateam, seconds_short, expected_skill_nam
     assert [p.skill_name for p in planned] == expected_skill_names
 
 
+def _ceil_to_tick(moment: datetime) -> datetime:
+    tick = timedelta(minutes=COORDINATOR_INTERVAL_MINUTES)
+    ticks = -(-int(moment.timestamp()) // int(tick.total_seconds()))
+    return datetime.fromtimestamp(ticks * tick.total_seconds(), tz=UTC)
+
+
+class TestSlotAlignedDispatchAnchors:
+    # Dispatch used to anchor on the post-fan-out wall clock, which made `last_run_at` absorb each
+    # tick's latency: once the creep passed `DUE_GRACE_SECONDS` a cohort missed its usual tick and
+    # re-anchored on the next one, merging into that tick's cohort, and the larger wave then made
+    # the next slip more likely. These pin the two properties that replace it — anchors land on the
+    # tick grid, and a cohort sharing a tick is spread over the interval rather than kept together.
+
+    @parameterized.expand([(1440,), (720,), (60,), (45,), (15,)])
+    def test_anchor_is_a_grid_point_no_more_than_one_interval_behind_the_tick(self, interval: int) -> None:
+        # The bound is what makes the next due time land in `(this tick, this tick + interval]`: an
+        # anchor in the future would stall the scout, one further back would re-dispatch it at once.
+        tick_start = datetime(2026, 8, 8, 16, 30, tzinfo=UTC)
+        for config_pk in _SLOT_TEST_PKS:
+            anchor = _slot_anchor(config_pk, interval, tick_start + timedelta(seconds=97))
+            assert anchor <= tick_start
+            assert tick_start - anchor < timedelta(minutes=interval)
+            assert int(anchor.timestamp()) % (COORDINATOR_INTERVAL_MINUTES * 60) == 0
+
+    @parameterized.expand(
+        [(30, 30), (31, 30), (45, 60), (60, 60), (61, 60), (75, 90), (100, 120), (720, 720), (1440, 1440)]
+    )
+    def test_steady_state_cadence_matches_the_tick_grid(self, interval: int, expected_gap: int) -> None:
+        # The slot period has to equal the gap the grid actually produces, or the anchor drags the
+        # scout onto a shorter schedule than its owner configured, every dispatch, forever. Two
+        # ways to get it wrong, both caught here: rounding the interval down (a 75-minute scout
+        # dispatches hourly) and ignoring DUE_GRACE_SECONDS (a 31-minute scout comes due at 30
+        # minutes exactly, so its period is one tick, not two).
+        config_pk = _SLOT_TEST_PKS[0]
+        dispatched_at = _slot_anchor(config_pk, interval, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
+        for _ in range(4):
+            due_at = dispatched_at + timedelta(minutes=interval, seconds=-DUE_GRACE_SECONDS)
+            next_tick = _ceil_to_tick(due_at)
+            assert next_tick - dispatched_at == timedelta(minutes=expected_gap)
+            dispatched_at = _slot_anchor(config_pk, interval, next_tick)
+
+    def test_slot_does_not_move_between_processes(self) -> None:
+        # Pinned rather than recomputed: a switch to the builtin `hash()` would still be stable
+        # within one worker and reshuffle the whole fleet on every restart.
+        assert _dispatch_slot("97599cd0-c5d8-457d-ac65-139f71a1eb41", 1440) == 28
+
+    def test_a_cohort_sharing_one_tick_is_spread_across_the_interval(self) -> None:
+        dispatched_at = datetime(2026, 8, 8, 16, 31, 12, tzinfo=UTC)
+        anchors = {_slot_anchor(config_pk, 1440, dispatched_at) for config_pk in _SLOT_TEST_PKS}
+        assert len(anchors) > len(_SLOT_TEST_PKS) / 2
+
+    def test_dispatch_at_its_own_slot_re_anchors_on_that_slot(self) -> None:
+        # The steady state, and the property the ratchet lacked: a scout dispatched at its slot
+        # anchors exactly there however long planning and fan-out took, so nothing accumulates.
+        config_pk = _SLOT_TEST_PKS[0]
+        slot_start = _slot_anchor(config_pk, 1440, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
+        assert _slot_anchor(config_pk, 1440, slot_start + timedelta(days=1, seconds=214)) == slot_start + timedelta(
+            days=1
+        )
+
+    def test_a_deferred_dispatch_anchors_back_on_the_slot_it_missed(self) -> None:
+        # A run held back by a per-team cap or a missed tick used to re-anchor wherever it landed,
+        # which is how cohorts merged; it now returns to its own slot.
+        config_pk = _SLOT_TEST_PKS[0]
+        slot_start = _slot_anchor(config_pk, 1440, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
+        assert _slot_anchor(config_pk, 1440, slot_start + timedelta(hours=3)) == slot_start
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        (None, True),
+        ({}, True),
+        ({"slot_aligned_dispatch": False}, False),
+        ({"slot_aligned_dispatch": True}, True),
+        ({"slot_aligned_dispatch": "false"}, True),  # not a literal bool → the default posture
+        ({"slot_aligned_dispatch": 0}, True),
+    ],
+)
+def test_resolve_slot_aligned_dispatch(payload, expected):
+    assert _resolve_slot_aligned_dispatch(payload) is expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_overdue_config_is_planned_without_stamping(ateam):
@@ -772,22 +901,79 @@ async def test_overdue_config_is_planned_without_stamping(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_stamp_activity_advances_dispatched_configs(ateam):
+async def test_stamp_activity_advances_dispatched_configs_to_their_slot_anchor(ateam):
+    # The stamp must advance the schedule, and must land on the config's slot rather than the wall
+    # clock: stamping `now()` let fan-out latency accumulate on `last_run_at` until whole cohorts
+    # slipped onto a later tick and merged there.
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
-    old = timezone.now() - timedelta(minutes=2000)
+    old = _DISPATCHED_AT - timedelta(minutes=2000)
     config = await database_sync_to_async(_create_config)(
         ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=old
     )
 
-    before = timezone.now()
-    env = ActivityEnvironment()
-    await env.run(
-        stamp_dispatched_signals_scout_runs_activity,
-        StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
-    )
+    with freeze_time(_DISPATCHED_AT):
+        env = ActivityEnvironment()
+        await env.run(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
+        )
 
     refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
-    assert refreshed.last_run_at is not None and refreshed.last_run_at >= before
+    assert refreshed.last_run_at == _slot_anchor(str(config.pk), 1440, _DISPATCHED_AT)
+    assert refreshed.last_run_at != _DISPATCHED_AT
+    assert refreshed.last_run_at > old
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "config_kwargs",
+    [
+        # A cron scout's `last_run_at` is the reference croniter picks the next slot from, so
+        # moving it back could re-select the slot this dispatch just fulfilled and double the run.
+        {"enabled": True, "run_cron_schedule": "30 16 * * *"},
+        # A disabled config here is a lane the failure breaker paused and the coordinator is
+        # probing; its `last_run_at` is the probe cooldown clock, which backdating would shorten.
+        {"enabled": False},
+    ],
+)
+async def test_stamp_activity_keeps_the_wall_clock_for_cron_and_probed_configs(ateam, config_kwargs):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", run_interval_minutes=1440, **config_kwargs
+    )
+
+    with freeze_time(_DISPATCHED_AT):
+        env = ActivityEnvironment()
+        await env.run(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
+        )
+
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at == _DISPATCHED_AT
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stamp_activity_falls_back_to_the_wall_clock_when_slot_alignment_is_off(ateam):
+    # `slot_aligned_dispatch: false` is the only way back to the previous stamping behaviour
+    # without a deploy, so it has to reach the write.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440
+    )
+    payload = {**_allowlist_payload(), "slot_aligned_dispatch": False}
+
+    with freeze_time(_DISPATCHED_AT), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
+        env = ActivityEnvironment()
+        await env.run(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
+        )
+
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at == _DISPATCHED_AT
 
 
 @pytest.mark.asyncio

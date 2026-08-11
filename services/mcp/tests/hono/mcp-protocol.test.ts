@@ -47,7 +47,7 @@ function createInMemoryRedis(): RedisLike & {
             const cur = String(cursor)
             return [cur === '0' ? 'next' : '0', cur === '0' ? Array.from(store.keys()) : []] as [string, string[]]
         },
-        ...makeRedisRateLimitStubs(),
+        ...makeRedisRateLimitStubs(store),
         ping: async () => 'PONG',
     }
 }

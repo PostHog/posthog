@@ -93,7 +93,6 @@ function NotSeeingIt(): JSX.Element {
                             onClick={() =>
                                 openSupportForm({
                                     kind: 'bug',
-                                    target_area: 'login',
                                 })
                             }
                         >
@@ -180,7 +179,6 @@ function VerifyEmail(): JSX.Element {
                                 onClick={() =>
                                     openSupportForm({
                                         kind: 'bug',
-                                        target_area: 'login',
                                     })
                                 }
                             >

@@ -12,6 +12,19 @@ describe("buildAppendedInstructions", () => {
     expect(instructions).not.toContain("Spoken Narration");
   });
 
+  it.each([
+    "# Branch Naming",
+    "# Pull Request Links",
+    "# Plan Mode",
+    "# MCP Tool Access",
+    "# Data Handling",
+    "# Shell Efficiency",
+  ])("always appends %s", (heading) => {
+    expect(buildAppendedInstructions({ spokenNarration: false })).toContain(
+      heading,
+    );
+  });
+
   it("keeps the base blocks in both modes", () => {
     const withNarration = buildAppendedInstructions({ spokenNarration: true });
     const withoutNarration = buildAppendedInstructions({

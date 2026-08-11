@@ -363,7 +363,7 @@ jobs:
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
-        # Let the initial task tell us to not run (currently very blunt)
+        # Let the initial task tell us to not run (very blunt)
         needs:
             - release
             - plan-release

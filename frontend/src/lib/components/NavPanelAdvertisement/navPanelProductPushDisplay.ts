@@ -111,7 +111,7 @@ export const PRODUCT_PUSH_DISPLAY: Partial<Record<ProductKey, ProductPushDisplay
     },
     [ProductKey.LLM_PROMPTS]: {
         Hoggie: HedgehogWizard,
-        accentColor: 'var(--color-product-llm-prompts-light)',
+        accentColor: 'var(--color-product-llm-analytics-light)',
         tagline: 'Version, test, and ship prompt changes without redeploying your app. A little magic, fully tracked.',
     },
     [ProductKey.LOGS]: {

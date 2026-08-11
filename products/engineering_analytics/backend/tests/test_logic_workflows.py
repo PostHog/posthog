@@ -236,22 +236,31 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [
                 _run_row(9500, "CI", "sha80", "completed", "success", _ago(2), _ago(2), pr_number=80),
                 _run_row(9501, "CI", "sha81", "completed", "success", _ago(3), _ago(3), pr_number=81, run_attempt=2),
+                # A merge-queue batch run: its job funds the queue slice, and only it.
+                _run_row(
+                    9502, "CI", "sha82q", "completed", "success", _ago(2), _ago(2), head_branch="trunk-merge/gr-1"
+                ),
             ],
         )
         self._create_table(
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
-            [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
+            [
+                _job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(95020, 9502, "build", "success", head_branch="trunk-merge/gr-1"),
+            ],
         )
 
         overview = api.get_repo_overview(team=self.team, include_series=False)
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
-        assert overview.run_count == 2
+        assert overview.run_count == 3
         assert overview.rerun_cycles == 1
-        assert overview.billable_minutes == pytest.approx(2.0)  # one 120s job on a billable tier
-        assert overview.estimated_cost_usd == pytest.approx(0.016)  # 2 min x $0.004 x 2 (4-core)
+        assert overview.billable_minutes == pytest.approx(4.0)  # two 120s jobs on a billable tier
+        assert overview.estimated_cost_usd == pytest.approx(0.032)  # 4 min x $0.004 x 2 (4-core)
+        assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
+        assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
         assert overview.cost_series == []
         assert overview.time_to_green_series == []
         assert overview.success_rate_series == []

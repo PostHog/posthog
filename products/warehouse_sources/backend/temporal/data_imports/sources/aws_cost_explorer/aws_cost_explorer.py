@@ -369,8 +369,11 @@ def get_rows(
     session = make_session(aws_secret_access_key, aws_session_token)
     credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
 
-    # `End` is exclusive, so tomorrow captures today's partial (flagged estimated) too.
-    end = dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1)
+    # `End` is exclusive. Cost-and-usage operations report today's partial figures (flagged
+    # estimated), so their window reaches into tomorrow; the utilization operations have no
+    # data for the current, still-in-progress day and reject a window that includes it.
+    today = dt.datetime.now(dt.UTC).date()
+    end = today + dt.timedelta(days=1) if endpoint_config.includes_current_day else today
     start = resolve_start_date(
         start_date, endpoint_config, should_use_incremental_field, db_incremental_field_last_value, end
     )

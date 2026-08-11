@@ -2,7 +2,7 @@ import { UsageMeter } from "@posthog/ui/features/billing/UsageMeter";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta<typeof UsageMeter> = {
-  title: "Billing/UsageMeter",
+  title: "Billing/Organization usage meter",
   component: UsageMeter,
   decorators: [
     (Story) => (
@@ -20,7 +20,7 @@ type Story = StoryObj<typeof UsageMeter>;
 // segments — the $20 included allowance (green) and the $50 default spend
 // limit (accent) — with a dot legend naming each amount. Usage still inside
 // the included allowance only fills the green segment.
-export const SubscribedWithBreakdown: Story = {
+export const SubscribedWithAllowanceAndLimit: Story = {
   args: {
     label: "Usage this period",
     percent: 18,

@@ -259,12 +259,14 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
             return cached_data
 
         query = RecordingsQuery(limit=ExpiringPlaylistSource.SCAN_LIMIT, order=RecordingOrder.RECORDING_TTL)
-        recordings, _, _, _ = list_recordings_from_query(query, user, team)
+        listing_result = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
         window_end = now + timedelta(days=ExpiringPlaylistSource.EXPIRY_WINDOW_DAYS)
 
-        session_ids = [r.session_id for r in recordings if r.expiry_time and now <= r.expiry_time <= window_end]
+        session_ids = [
+            r.session_id for r in listing_result.recordings if r.expiry_time and now <= r.expiry_time <= window_end
+        ]
         cache.set(cache_key, session_ids, ExpiringPlaylistSource.CACHE_TTL)
         return session_ids
 

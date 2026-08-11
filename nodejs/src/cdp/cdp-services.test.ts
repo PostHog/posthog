@@ -1,6 +1,6 @@
 import { RedisV2 } from '~/common/redis/redis-v2'
 
-import { createCdpReaderRedisPool } from './cdp-services'
+import { createCdpReaderRedisPool, createCdpValkeyShadowPools } from './cdp-services'
 
 const mockReaderPool: RedisV2 = {
     useClient: jest.fn((_opts, cb) => cb({ ping: () => Promise.resolve('PONG') } as any)),
@@ -105,5 +105,29 @@ describe('createCdpReaderRedisPool', () => {
         const logMessage = logSpy.mock.calls[0]?.[1] as string
         expect(logMessage).not.toContain('supersecret')
         expect(logMessage).toContain('prod-redis.internal')
+    })
+})
+
+describe('createCdpValkeyShadowPools', () => {
+    const valkeyConfig = {
+        CDP_VALKEY_HOST: 'cdp-valkey.internal',
+        CDP_VALKEY_PORT: 6379,
+        CDP_VALKEY_PASSWORD: 'secret',
+        CDP_VALKEY_READER_HOST: '',
+        CDP_VALKEY_READER_PORT: 6379,
+        CDP_VALKEY_TLS: false,
+        REDIS_POOL_MIN_SIZE: 1,
+        REDIS_POOL_MAX_SIZE: 4,
+    }
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+    })
+
+    it('throws when CDP_VALKEY_HOST is unset', () => {
+        expect(() => createCdpValkeyShadowPools({ ...valkeyConfig, CDP_VALKEY_HOST: '' }, 'test-valkey')).toThrow(
+            'CDP_VALKEY_HOST is required'
+        )
+        expect(createRedisV2PoolFromConfig).not.toHaveBeenCalled()
     })
 })

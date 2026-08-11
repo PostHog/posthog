@@ -92,24 +92,22 @@ describe("validateBranchName", () => {
 
 describe("suggestBranchName", () => {
   it("returns the base name when no collision exists", () => {
-    expect(suggestBranchName("Fix bug", "abc", [])).toBe(
-      "posthog-code/fix-bug",
-    );
+    expect(suggestBranchName("Fix bug", "abc", [])).toBe("posthog/fix-bug");
   });
 
   it("appends -2 on first collision", () => {
-    expect(suggestBranchName("Fix bug", "abc", ["posthog-code/fix-bug"])).toBe(
-      "posthog-code/fix-bug-2",
+    expect(suggestBranchName("Fix bug", "abc", ["posthog/fix-bug"])).toBe(
+      "posthog/fix-bug-2",
     );
   });
 
   it("increments past consecutive collisions", () => {
     expect(
       suggestBranchName("Fix bug", "abc", [
-        "posthog-code/fix-bug",
-        "posthog-code/fix-bug-2",
-        "posthog-code/fix-bug-3",
+        "posthog/fix-bug",
+        "posthog/fix-bug-2",
+        "posthog/fix-bug-3",
       ]),
-    ).toBe("posthog-code/fix-bug-4");
+    ).toBe("posthog/fix-bug-4");
   });
 });

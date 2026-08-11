@@ -63,6 +63,10 @@ def sync_feature_flags_from_api(
         return
 
     for project in Project.objects.all():
+        team = project.teams.first()
+        if team is None:
+            output_fn(f"\nSkipping project {project.id} - {project.name or ''}: it has no teams")
+            continue
         output_fn(f"\nProcessing project {project.id} - {project.name or ''}")
         output_fn("=" * 50)
 
@@ -95,7 +99,7 @@ def sync_feature_flags_from_api(
 
             elif flag_key not in existing_flags and is_enabled:
                 FeatureFlag.objects.create(
-                    team=project.teams.first(),
+                    team=team,
                     name=flag_key,
                     key=flag_key,
                     created_by=first_user,

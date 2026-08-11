@@ -14,8 +14,8 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 | `output_type`         | yes            | `"boolean"` for `hog`/`llm_judge`; `"sentiment"` for `sentiment`.                    |
 | `output_config`       | no             | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                             |
 | `model_configuration` | llm_judge only | Provider + model; key ID optional. Rejected on `hog`/`sentiment`.                     |
-| `target`              | no             | `"generation"` (default) or `"trace"`. Sentiment supports only `"generation"`.       |
-| `target_config`       | trace only     | Settle config discriminated on `strategy` (below); defaults to a 1800-second fixed window. |
+| `target`              | no             | `"generation"` (default), `"trace"`, or `"session"`. Sentiment supports only `"generation"`. |
+| `target_config`       | trace/session only | Settle config discriminated on `strategy` (below); defaults to a 30-minute fixed window for `trace`, and to a 1-hour inactivity window for `session`. |
 | `conditions`          | no             | Trigger condition sets (below). For traces, conditions match the triggering generation. |
 | `enabled`             | no             | Defaults to `false`. Create disabled, then flip with `llma-evaluation-update`.         |
 
@@ -31,9 +31,24 @@ Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boo
   - `{ "strategy": "inactivity", "quiet_period_seconds": 10..1800, "max_age_seconds": 60..7200 }`
     evaluates once no new activity arrived for the quiet period (defaults to 300), capped at
     `max_age_seconds` (defaults to 7200, must be at least the quiet period) from the first one.
-- Conditions always match generation properties. For a trace target, that matching generation schedules the
-  eventual whole-trace evaluation.
-- Sentiment evaluations cannot use the trace target.
+- `"target": "session"` runs once for the whole `$ai_session_id` session, after the session settles.
+  `target_config` picks the settle strategy with session-sized bounds:
+  - `{ "strategy": "inactivity", "quiet_period_seconds": 10..86400, "max_age_seconds": 60..604800 }`
+    evaluates once no new session activity arrived for the quiet period (defaults to 3600), capped at
+    `max_age_seconds` (defaults to 86400, must be at least the quiet period) from the first one. This
+    is the default strategy for a session target.
+  - `{ "strategy": "fixed_window", "window_seconds": 10..604800 }` waits a fixed delay after the first
+    matching generation (defaults to 1800).
+  - A session evaluation only fires for events that carry `$ai_session_id`. Producers set it on every
+    generation or on none, so an SDK that never sets it will never trigger a session evaluation.
+    `$ai_session_id` is not `$session_id`, PostHog's product-analytics session; the two are unrelated.
+  - A session is evaluated at most once per evaluation, for as long as the completed run stays inside
+    Temporal's retention window. A session that resumes long after being evaluated may be evaluated
+    again.
+
+- Conditions always match generation properties. For a trace or session target, that matching
+  generation schedules the eventual whole-unit evaluation.
+- Sentiment evaluations cannot use the trace or session target.
 
 ## `evaluation_config` by type
 
@@ -149,11 +164,21 @@ Or evaluate when the trace goes quiet instead of after a fixed delay:
 }
 ```
 
+The same Hog source also works for a whole session, once no new activity has arrived for the quiet period:
+
+```json
+{
+  "target": "session",
+  "target_config": { "strategy": "inactivity", "quiet_period_seconds": 3600, "max_age_seconds": 86400 }
+}
+```
+
 New Hog source should use the shared `evaluation_events` and `target` globals. Top-level generation globals
 such as `input`, `output`, `properties`, and `event`, plus the trace-only `events` and `trace` globals, remain
-available for compatibility with saved evaluators. `item.input_text` and `item.output_text` are best-effort
-readable projections of common provider payloads; use raw `item.input` and `item.output` when exact structure
-matters.
+available for compatibility with saved evaluators. Session evaluations do not carry the legacy `events` /
+`trace` globals: session Hog source only receives `evaluation_events` and `target`. `item.input_text` and
+`item.output_text` are best-effort readable projections of common provider payloads; use raw `item.input`
+and `item.output` when exact structure matters.
 
 ### LLM judge
 

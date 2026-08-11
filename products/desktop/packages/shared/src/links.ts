@@ -3,5 +3,5 @@ export const EXTERNAL_LINKS = {
   ghInstall: "https://cli.github.com/",
   gitInstall: "https://git-scm.com/downloads",
   privacy: "https://posthog.com/privacy",
-  website: "https://posthog.com/code",
+  website: "https://posthog.com/desktop",
 } as const;

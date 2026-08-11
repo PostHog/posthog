@@ -8,6 +8,7 @@ import { Hub } from '~/types'
 import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
+import { createCdpValkeyShadowPools } from '../../cdp-services'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../types'
 import { BASE_REDIS_KEY, HogMaskerService } from './hog-masker.service'
 
@@ -20,6 +21,7 @@ describe('HogMasker', () => {
         let hub: Hub
         let masker: HogMaskerService
         let redis: RedisV2
+        let valkey: RedisV2
 
         beforeEach(async () => {
             hub = await createHub()
@@ -36,9 +38,11 @@ describe('HogMasker', () => {
                 poolMinSize: hub.REDIS_POOL_MIN_SIZE,
                 poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
             })
+            valkey = createCdpValkeyShadowPools(hub, 'hog-masker-test').writer
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+            await deleteKeysWithPrefix(valkey, BASE_REDIS_KEY)
 
-            masker = new HogMaskerService(redis)
+            masker = new HogMaskerService(redis, valkey)
         })
 
         const advanceTime = (ms: number) => {

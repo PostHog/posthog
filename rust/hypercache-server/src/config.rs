@@ -43,6 +43,12 @@ pub struct Config {
     #[envconfig(from = "REDIS_TIMEOUT_MS", default = "100")]
     pub redis_timeout_ms: u64,
 
+    /// Write an S3 hit back into Redis so the next reader for that key is served by Redis
+    /// instead of paying another S3 read. Both readers here go straight through to Redis on
+    /// every request. 0 disables.
+    #[envconfig(from = "HYPERCACHE_READ_REPAIR_TTL_SECONDS", default = "600")]
+    pub read_repair_ttl_seconds: u64,
+
     #[envconfig(from = "OBJECT_STORAGE_REGION", default = "us-east-1")]
     pub object_storage_region: String,
 

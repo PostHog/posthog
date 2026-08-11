@@ -9,13 +9,21 @@ import structlog
 from fastapi import Depends, HTTPException, Request, status
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.auth.service import AuthService, get_auth_service
+from llm_gateway.auth.service import (
+    AuthService,
+    InvalidProjectScopeError,
+    UnauthorizedProjectScopeError,
+    get_auth_service,
+)
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
+from llm_gateway.config import get_settings
+from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
+    get_required_model_flag,
     resolve_product_alias,
 )
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
@@ -50,7 +58,12 @@ async def get_authenticated_user(
     db_pool: Annotated[asyncpg.Pool, Depends(get_db_pool)],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthenticatedUser:
-    user = await auth_service.authenticate_request(request, db_pool)
+    try:
+        user = await auth_service.authenticate_request(request, db_pool)
+    except InvalidProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid project scope") from exc
+    except UnauthorizedProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied") from exc
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
     return user
@@ -219,9 +232,11 @@ async def enforce_throttles(
         product=product,
     )
 
+    model = await get_model_from_request(request)
+
     model_allowed, model_error = check_free_tier_model_access(
         product=product,
-        model=await get_model_from_request(request),
+        model=model,
         provider=await get_provider_from_request(request),
         code_usage_billed=quota_status.code_usage_billing_active,
         usage_unlimited=is_usage_unlimited(user),
@@ -243,6 +258,30 @@ async def enforce_throttles(
                 }
             },
         )
+
+    # Entitlement gate for models not cleared for general use on this path (e.g. Kimi K3,
+    # Baseten-only DeepSeek). Each maps to its own access flag. Fails closed (a None eval outage
+    # blocks) since these decide spend / backend rollout.
+    access_flag = get_required_model_flag(model)
+    if access_flag is not None and not get_settings().debug:
+        if not await evaluate_flag(access_flag, user.distinct_id):
+            logger.warning(
+                "model_access_blocked",
+                user_id=user.user_id,
+                team_id=user.team_id,
+                product=product,
+                flag=access_flag,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": {
+                        "message": f"Model '{model}' is not available. Choose another model. (rate_limit)",
+                        "type": "permission_error",
+                        "code": "model_gate",
+                    }
+                },
+            )
 
     context = ThrottleContext(
         user=user,

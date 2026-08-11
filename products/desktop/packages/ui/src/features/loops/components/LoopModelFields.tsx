@@ -1,7 +1,6 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { GLM_MODEL_FLAG, KIMI_MODEL_FLAG } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { ReasoningLevelDropdown } from "@posthog/ui/features/sessions/components/ReasoningLevelDropdown";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex } from "@radix-ui/themes";
 import { useMemo } from "react";
@@ -39,8 +38,8 @@ interface LoopModelFieldsProps {
 /**
  * Static model configuration for a loop: model, adapter, and reasoning effort.
  * Loops have no live agent session, so the interactive
- * `UnifiedModelSelector`/`ReasoningLevelSelector` (which read a session's
- * `SessionConfigOption`) don't apply here; instead this presents the same
+ * `ReasoningLevelSelector` (which reads a session's `SessionConfigOption`)
+ * doesn't apply here; instead this presents the same
  * per-adapter choices as the main create-task picker (see `loopModels.ts`),
  * so every selectable combo passes the server's validation in
  * `process_task/utils.py`. Adapter and model switches clamp a now-unsupported
@@ -129,10 +128,10 @@ export function LoopModelFields({
         </Field>
 
         <Field label="Reasoning effort" className="min-w-[180px] flex-1">
-          <ReasoningLevelDropdown
+          <SettingsOptionSelect
             value={reasoningEffort ?? AUTO_REASONING_VALUE}
             options={reasoningOptions}
-            onChange={(value) =>
+            onValueChange={(value) =>
               onReasoningEffortChange(
                 value === AUTO_REASONING_VALUE
                   ? null
@@ -140,9 +139,8 @@ export function LoopModelFields({
               )
             }
             disabled={disabled}
-            side="bottom"
-            triggerVariant="outline"
-            triggerClassName="w-full justify-between text-[13px]"
+            size="lg"
+            ariaLabel="Reasoning effort"
           />
         </Field>
       </Flex>

@@ -149,6 +149,57 @@ class TestClientAssertion(BaseTest):
         with self.assertRaises(ClientAssertionError):
             self._verify(self._assertion(kid="rotated-out-key"))
 
+    def test_rotated_key_verifies_after_one_jwks_refresh(self):
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)):
+            load_jwks(JWKS_URI)
+
+        rotated = _jwks_for(self.private_key, kid="rotated-key")
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(rotated, None)
+        ) as fetch:
+            verify_client_assertion(self.app, self._assertion(kid="rotated-key"))
+            # The cached set doesn't hold the new kid, so exactly one forced re-fetch runs.
+            fetch.assert_called_once()
+
+    def test_failed_rotation_refresh_keeps_cached_keys(self):
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)):
+            load_jwks(JWKS_URI)
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            side_effect=CIMDFetchError("unreachable"),
+        ):
+            with self.assertRaises(ClientAssertionError):
+                verify_client_assertion(self.app, self._assertion(kid="bogus-kid"))
+
+        # The failed forced fetch must not evict the cached set: an assertion signed with the
+        # already-cached key still verifies, without another outbound fetch.
+        with patch("posthog.api.oauth.client_assertion.fetch_client_json_document") as fetch:
+            verify_client_assertion(self.app, self._assertion())
+            fetch.assert_not_called()
+
+    def test_unknown_kid_refresh_is_rate_limited(self):
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)
+        ) as fetch:
+            with self.assertRaises(ClientAssertionError):
+                verify_client_assertion(self.app, self._assertion(kid="bogus-1"))
+            with self.assertRaises(ClientAssertionError):
+                verify_client_assertion(self.app, self._assertion(kid="bogus-2"))
+            # Initial load plus the one allowed rotation refresh: the second bogus kid must
+            # not produce a third outbound fetch.
+            assert fetch.call_count == 2
+
+    @parameterized.expand([("iat",), ("exp",)])
+    def test_numeric_string_timestamp_is_rejected(self, field):
+        now = int(time.time())
+        values: dict = {"iat": now, "exp": now + 60}
+        values[field] = str(values[field])
+        # PyJWT coerces numeric strings during its own validation, so without the explicit
+        # type check this would raise TypeError instead of the wire-safe rejection.
+        with self.assertRaises(ClientAssertionError):
+            self._verify(self._assertion(**values))
+
     def test_kid_required_when_jwks_holds_several_keys(self):
         self.jwks = {"keys": [*self.jwks["keys"], *_jwks_for(OTHER_KEY, kid="partner-key-2")["keys"]]}
         with self.assertRaises(ClientAssertionError):

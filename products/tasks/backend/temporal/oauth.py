@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.db import transaction
 
@@ -80,6 +81,7 @@ def create_oauth_access_token(
     token_options: dict[str, Any] = {
         "scopes": effective_scopes,
         "application": _oauth_application_for_task(task),
+        "sandbox_task_id": task.id,
     }
     if task.origin_product in {
         Task.OriginProduct.SIGNALS_SCOUT,
@@ -169,10 +171,15 @@ def create_oauth_access_token_for_user(
     scopes: PosthogMcpScopes = "read_only",
     application: SandboxOAuthApplication = "array",
     include_mcp_builtin_agent_scope: bool = False,
+    sandbox_task_id: UUID | None = None,
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
     try:
-        token_options: dict[str, Any] = {"scopes": scopes, "application": application}
+        token_options: dict[str, Any] = {
+            "scopes": scopes,
+            "application": application,
+            "sandbox_task_id": sandbox_task_id,
+        }
         if include_mcp_builtin_agent_scope:
             token_options["include_mcp_builtin_agent_scope"] = True
         return _create_oauth_access_token_for_user(user, team_id, **token_options)

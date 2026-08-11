@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -216,6 +218,30 @@ export interface BulkUpdateTagsUUIDResponseApi {
     /** Objects whose tags were successfully updated. */
     updated: BulkUpdateTagsUUIDItemApi[]
     /** Objects that were skipped, with a reason each. */
+    skipped: BulkUpdateTagsUUIDErrorApi[]
+}
+
+export interface EventDefinitionBulkUpdateVerifiedRequestApi {
+    /**
+     * List of event definition UUIDs to update.
+     * @maxItems 500
+     */
+    ids: string[]
+    /** Target verified state to apply to every matched event. `true` marks the events as verified (and unhides them, since an event cannot be both hidden and verified); `false` unverifies them. */
+    verified: boolean
+}
+
+export interface EventDefinitionBulkUpdateVerifiedItemApi {
+    /** UUID of the event definition whose verified state changed. */
+    id: string
+    /** The event's verified state after the update. */
+    verified: boolean
+}
+
+export interface EventDefinitionBulkUpdateVerifiedResponseApi {
+    /** Events whose verified state was changed. Events already in the target state are omitted. */
+    updated: EventDefinitionBulkUpdateVerifiedItemApi[]
+    /** Events that were skipped (e.g. not found in this project), with a reason each. */
     skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 

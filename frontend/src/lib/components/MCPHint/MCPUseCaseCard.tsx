@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 
+import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
 
 import { AgentBadgeRotator } from './AgentBadgeRotator'
@@ -51,17 +52,17 @@ export function MCPUseCaseCard({
     useEffect(() => {
         // Only the SQL editor surface benefits from the team's real event names — keep the call narrow.
         // Fetch at most once per mount; a failed call returns [] and must not retry on re-render.
-        if (willRender && surfaceKey === 'sql.execute' && !triedLoadingEvents.current) {
+        if (willRender && surfaceKey === 'sql.execute' && topEvents.length === 0 && !triedLoadingEvents.current) {
             triedLoadingEvents.current = true
             loadTopEvents()
         }
-    }, [willRender, surfaceKey, loadTopEvents])
+    }, [willRender, surfaceKey, topEvents.length, loadTopEvents])
 
     if (!willRender) {
         return null
     }
 
-    const { examples } = getSurfacePrompts(surfaceKey, { role: userRole, topEvents })
+    const { display = 'list', examples } = getSurfacePrompts(surfaceKey, { role: userRole, topEvents })
 
     return (
         <div
@@ -77,11 +78,17 @@ export function MCPUseCaseCard({
             <div className="text-sm text-default">
                 Ask <AgentBadgeRotator />:
             </div>
-            <ul className="m-0 pl-5 list-disc text-xs text-muted leading-relaxed">
-                {examples.map((example) => (
-                    <li key={example}>{example}</li>
-                ))}
-            </ul>
+            {display === 'prompt' ? (
+                <CodeSnippet compact wrap thing="prompt" className="w-full">
+                    {examples[0]}
+                </CodeSnippet>
+            ) : (
+                <ul className="m-0 pl-5 list-disc text-xs text-muted leading-relaxed">
+                    {examples.map((example) => (
+                        <li key={example}>{example}</li>
+                    ))}
+                </ul>
+            )}
             <div className="pt-1">
                 <MCPInstallCommand size="sm" />
             </div>

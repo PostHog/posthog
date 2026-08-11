@@ -21,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     InflowinventorySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.inflowinventory import (
+    INFLOWINVENTORY_API_VERSION_2023_04_01,
+    INFLOWINVENTORY_API_VERSION_2026_07_10,
     InflowInventoryResumeConfig,
     inflowinventory_source,
     validate_credentials,
@@ -34,8 +36,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class InflowinventorySource(ResumableSource[InflowinventorySourceConfig, InflowInventoryResumeConfig]):
-    supported_versions = ("2023-04-01",)
-    default_version = "2023-04-01"
+    # Oldest → newest. inFlow's version is a request input (the Accept header), so each pin keeps
+    # sending its own label; new sources default to the current stable version.
+    supported_versions = (INFLOWINVENTORY_API_VERSION_2023_04_01, INFLOWINVENTORY_API_VERSION_2026_07_10)
+    default_version = INFLOWINVENTORY_API_VERSION_2026_07_10
     api_docs_url = "https://cloudapi.inflowinventory.com/docs"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -134,7 +138,7 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
-        return validate_credentials(config.api_key, config.company_id)
+        return validate_credentials(config.api_key, config.company_id, self.resolve_api_version(api_version))
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[InflowInventoryResumeConfig]:
         return ResumableSourceManager[InflowInventoryResumeConfig](inputs, InflowInventoryResumeConfig)
@@ -155,4 +159,5 @@ Find your company ID and create an API key on the **Integrations** page in [inFl
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

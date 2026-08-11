@@ -53,6 +53,7 @@ export function LoopRepositoryPicker({
       placeholder="Select repository…"
       size="2"
       disabled={disabled || !hasGithubIntegration}
+      triggerClassName="w-full max-w-[360px] justify-start"
     />
   );
 }

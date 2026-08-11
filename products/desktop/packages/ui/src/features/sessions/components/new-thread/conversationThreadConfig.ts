@@ -22,36 +22,6 @@ import { SUBAGENT_SPAWN_TOOL_NAMES } from "../session-update/collaborationTools"
  * live in the components or the grouping selector.
  */
 
-// ---------- Collapse modes ----------
-
-/** How aggressively completed turns collapse into a tool-call group chip. */
-export type CollapseMode = "all" | "partial" | "none";
-
-export const COLLAPSE_MODE_DEFAULT: CollapseMode = "all";
-
-export const COLLAPSE_MODE_OPTIONS: {
-  value: CollapseMode;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "all",
-    label: "All collapsed",
-    description: "Every turn's tool activity is collapsed into a summary chip.",
-  },
-  {
-    value: "partial",
-    label: "Collapse when finished turn",
-    description:
-      "The active turn streams expanded; completed turns collapse to a chip.",
-  },
-  {
-    value: "none",
-    label: "No collapsing",
-    description: "Everything stays expanded.",
-  },
-];
-
 // ---------- Grouping ----------
 
 export const grouping = {

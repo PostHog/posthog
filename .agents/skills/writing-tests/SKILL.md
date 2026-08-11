@@ -152,4 +152,5 @@ If you can't write that line, you've found a test that shouldn't be in the PR.
 ## Related skills
 
 - **Fixing an existing flaky test** → use `/fixing-flaky-tests` (reproduce, root-cause, validate). Use this skill too only if the fix adds or substantially changes coverage.
+  That skill applies the gate above retroactively: a flaky test has already proven its cost, so if you can't name the regression it catches, deleting it is a valid outcome there — not just a stabilization job.
 - **Authoring a non-flaky Playwright test** → first use this skill to decide whether a browser test earns its cost; if it does, use `/playwright-test` for the mechanics.

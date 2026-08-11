@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    MODEL_ACCESS_FLAGS,
     POSTHOG_AI_DEV_APP_ID,
     POSTHOG_AI_EU_APP_ID,
     POSTHOG_AI_US_APP_ID,
@@ -22,6 +23,7 @@ from llm_gateway.products.config import (
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
+    get_required_model_flag,
     resolve_product_alias,
     validate_product,
 )
@@ -46,6 +48,22 @@ class TestCheckProductAccess:
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
             ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
+            (
+                "llm_gateway",
+                "personal_api_key",
+                None,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                False,
+                "not allowed",
+            ),
+            (
+                "review_hog",
+                "personal_api_key",
+                None,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
             # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
             ("ci", "personal_api_key", None, "claude-3-opus", True, None),
             ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
@@ -54,6 +72,14 @@ class TestCheckProductAccess:
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
+            (
+                "posthog_code",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
             # wizard allows API keys and OAuth with valid app ID
             ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
@@ -111,6 +137,12 @@ class TestCheckProductAccess:
             ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-terra-pro", False, "not allowed"),
             ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-sol-pro", False, "not allowed"),
             ("changelog_bot", "oauth_access_token", "any-app-id", "openai/gpt-5.6-terra", False, "not authorized"),
+            # review_hog: shared-key auth, models pinned to the review pipeline's constants —
+            # the opus-5 outcome judge and the experiment's Codex arm must stay allowed, and
+            # anything off the pin list is rejected.
+            ("review_hog", "personal_api_key", None, "claude-opus-5", True, None),
+            ("review_hog", "personal_api_key", None, "gpt-5.6-sol", True, None),
+            ("review_hog", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -151,12 +183,21 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
     def test_posthog_code_allows_restricted_models_with_valid_app_id(self, model: str):
         allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    def test_slack_app_rejects_deepseek_despite_shared_allowlist(self):
+        allowed, error = check_product_access(
+            "slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "deepseek-ai/deepseek-v4-flash-0731"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     @pytest.mark.parametrize(
         "model",
@@ -285,6 +326,7 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "gpt-5.6-sol",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):
@@ -504,6 +546,8 @@ class TestCheckFreeTierModelAccess:
             # Unbilled org on the Code surface: premium blocked, open model allowed
             ("posthog_code", "claude-fable-5", False, False, False),
             ("posthog_code", "@cf/zai-org/glm-5.2", False, False, True),
+            ("posthog_code", "deepseek-ai/deepseek-v4-flash-0731", False, False, True),
+            ("posthog_code", "moonshotai/kimi-k3", False, False, True),
             # The alias routes are the same surface - a URL spelling must not bypass
             ("array", "claude-fable-5", False, False, False),
             ("twig", "gpt-5.5", False, False, False),
@@ -686,3 +730,26 @@ class TestServerCredentialConfigInvariant:
         # broken _CODE_APP_PRODUCTS derivation can't quietly hollow out this class.
         assert "posthog_code" in _CODE_APP_PRODUCTS
         assert PRODUCTS["posthog_code"].requires_server_credential is False
+
+
+class TestModelAccessFlag:
+    @pytest.mark.parametrize(
+        "model,gated",
+        [
+            ("moonshotai/kimi-k3", "moonshotai/kimi-k3"),
+            ("MoonshotAI/Kimi-K3", "moonshotai/kimi-k3"),
+            ("  moonshotai/kimi-k3  ", "moonshotai/kimi-k3"),
+            ("deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+            ("DeepSeek-AI/DeepSeek-V4-Flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+        ],
+    )
+    def test_gated_model_requires_its_own_flag(self, model: str, gated: str):
+        # each model resolves to its own dedicated access flag, not a shared one
+        assert get_required_model_flag(model) == MODEL_ACCESS_FLAGS[gated]
+
+    def test_kimi_and_deepseek_use_distinct_flags(self):
+        assert MODEL_ACCESS_FLAGS["moonshotai/kimi-k3"] != MODEL_ACCESS_FLAGS["deepseek-ai/deepseek-v4-flash-0731"]
+
+    @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
+    def test_ungated_models_need_no_flag(self, model: str | None):
+        assert get_required_model_flag(model) is None

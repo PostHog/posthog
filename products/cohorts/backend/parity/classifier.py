@@ -146,9 +146,10 @@ def classify_cohort(
         # R-FRESH / R-STALE: entries whose flip is newer than the old side's last recompute.
         if last_realtime_calculation_at is None:
             fresh = len(only_new)
-            # stale stays 0: a never-recomputed old side has no entered rows to be stale.
+            # stale stays 0: without a recompute clock nothing bounds which entered rows
+            # could be stale.
             if fresh:
-                comparison_notes.append("old side never recomputed this cohort; all only_new counted fresh")
+                comparison_notes.append("no recompute clock for the old side; all only_new counted fresh")
         else:
             fresh = sum(1 for p in only_new if new_state[p].last_updated > last_realtime_calculation_at)
             stale = sum(1 for p in only_old if new_state[p].last_updated > last_realtime_calculation_at)

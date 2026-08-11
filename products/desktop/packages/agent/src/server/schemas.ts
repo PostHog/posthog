@@ -1,3 +1,4 @@
+import type { McpServerConnection } from "@posthog/shared";
 import { z } from "zod/v4";
 
 export { posthogExecPermissionRegexSchema } from "../posthog-exec-permission";
@@ -20,7 +21,7 @@ export const handoffLocalGitStateSchema = z.object({
   upstreamMergeRef: nullishString,
 });
 
-const remoteMcpServerSchema = z.object({
+const remoteMcpServerSchema: z.ZodType<McpServerConnection> = z.object({
   type: z.enum(["http", "sse"]),
   name: z.string().min(1, "MCP server name is required"),
   url: z.url({ error: "MCP server url must be a valid URL" }),
@@ -28,8 +29,6 @@ const remoteMcpServerSchema = z.object({
 });
 
 export const mcpServersSchema = z.array(remoteMcpServerSchema);
-
-export type RemoteMcpServer = z.infer<typeof remoteMcpServerSchema>;
 
 export const claudeCodeConfigSchema = z.object({
   systemPrompt: z

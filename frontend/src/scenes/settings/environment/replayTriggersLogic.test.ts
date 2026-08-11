@@ -1,6 +1,7 @@
 import {
     hasOutdatedWebSdk,
     legacyConditionsAreInactive,
+    legacyUiShouldBeMinimized,
     outdatedWebTrafficShare,
     TRIGGER_GROUPS_MIN_SDK_VERSION,
     WebRelease,
@@ -102,6 +103,21 @@ describe('replayTriggersLogic', () => {
             ],
         ])('%s -> %s', (_description, releases, expected) => {
             expect(hasOutdatedWebSdk(releases)).toBe(expected)
+        })
+    })
+
+    describe('legacyUiShouldBeMinimized', () => {
+        const recentTraffic: WebRelease[] = [{ version: '1.400.0', count: 100 }]
+        const outdatedTraffic: WebRelease[] = [{ version: '1.300.0', count: 100 }]
+
+        it.each<[string, WebRelease[], boolean, boolean]>([
+            // Recent traffic but no v2 groups: the SDK falls back to legacy, so it must stay visible.
+            ['recent SDK, no v2 groups', recentTraffic, false, false],
+            ['recent SDK, has v2 groups', recentTraffic, true, true],
+            ['outdated SDK, has v2 groups', outdatedTraffic, true, false],
+            ['no web data, has v2 groups', [], true, false],
+        ])('%s -> %s', (_description, releases, hasV2Groups, expected) => {
+            expect(legacyUiShouldBeMinimized(releases, hasV2Groups)).toBe(expected)
         })
     })
 

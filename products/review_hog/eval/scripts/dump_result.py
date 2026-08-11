@@ -342,9 +342,12 @@ for a in arts:
             chunks = c
 chunk_count = len(chunks.chunks) if chunks else 0
 
-# Perspective results → raw issue count + per-(pass,chunk) breakdown.
+# Perspective results → raw issue count + per-(pass,chunk) breakdown (+ completion timestamps for
+# stage timing; pass >= 1000 is the blind-spot sweep's reserved pass number).
 perspective_rows: list[tuple[int, int, str, int]] = []  # (pass, chunk, source_perspective, n_issues)
 raw_issues = 0
+wave_done_ts: list[datetime] = []
+blind_done_ts: list[datetime] = []
 for a in arts:
     if a.type == ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT:
         c = parse_artefact_content(a.type, a.content)
@@ -353,6 +356,7 @@ for a in arts:
             raw_issues += n
             src = next((i.source_perspective for i in c.review.issues if i.source_perspective), "?")
             perspective_rows.append((c.pass_number, c.chunk_id, src, n))
+            (blind_done_ts if c.pass_number >= 1000 else wave_done_ts).append(a.created_at)
 perspective_rows.sort()
 review_units = len(perspective_rows)
 
@@ -370,6 +374,41 @@ for a in arts:
             verdicts[c.issue_key] = c
 dedup_count = len(findings)
 valid_count = sum(1 for k in findings if (v := verdicts.get(k)) and v.is_valid)
+
+
+# Stage timing — wall-clock derived from artefact `created_at` (each stage/unit persists on
+# completion). Valid for fresh, non-resumed runs; a resumed run reuses old artefacts and skews this.
+def _stage_secs(a: datetime | None, b: datetime | None) -> float | None:
+    return (b - a).total_seconds() if a and b and b > a else None
+
+
+def _fmt_dur(secs: float | None) -> str:
+    if secs is None:
+        return "—"
+    m, s = divmod(int(secs), 60)
+    return f"{m}m {s:02d}s" if m else f"{s}s"
+
+
+_ts: dict[str, list[datetime]] = {}
+for a in arts:
+    _ts.setdefault(str(a.type), []).append(a.created_at)
+_snapshot_ts = max(_ts.get("pr_snapshot", []), default=None)
+_chunk_ts = max(_ts.get("chunk_set", []), default=None)
+_select_ts = max(_ts.get("perspective_selection", []), default=None)
+_wave_end = max(wave_done_ts, default=None)
+_blind_end = max(blind_done_ts, default=None)
+_finding_first = min(_ts.get("issue_finding", []), default=None)  # dedup persists findings in one batch
+_verdict_end = max(_ts.get("validation_verdict", []), default=None)
+stage_timing_rows = [
+    ("fetch + snapshot", _stage_secs(report.created_at, _snapshot_ts)),
+    ("chunking", _stage_secs(_snapshot_ts, _chunk_ts)),
+    ("perspective selection", _stage_secs(_chunk_ts, _select_ts)),
+    ("review wave (perspectives)", _stage_secs(_select_ts, _wave_end)),
+    ("blind-spot sweep", _stage_secs(_wave_end, _blind_end)),
+    ("dedup (incl. combine/clean)", _stage_secs(_blind_end or _wave_end, _finding_first)),
+    ("validation", _stage_secs(_finding_first, _verdict_end)),
+]
+review_stage_secs = _stage_secs(_select_ts, _blind_end or _wave_end)
 
 # Spend (best-effort).
 start_dt = (
@@ -408,6 +447,18 @@ w(
 )
 for line in spend_lines:
     w(line)
+w("")
+
+w("## Stage timing (wall-clock)\n")
+w("| stage | duration |")
+w("| ----- | -------- |")
+for stage_name, stage_secs in stage_timing_rows:
+    w(f"| {stage_name} | {_fmt_dur(stage_secs)} |")
+w("")
+w(
+    f"- **Review stage total (selection → last finder unit, wave + blind-spot):** {_fmt_dur(review_stage_secs)} — the reviewer-model speed comparison number."
+)
+w("- Derived from artefact `created_at` (persisted on completion); only meaningful for fresh, non-resumed runs.")
 w("")
 
 w("## Chunking\n")
@@ -449,7 +500,7 @@ with open(path, "w") as fh:
     fh.write("\n".join(lines) + "\n")
 
 print(  # noqa: T201 — playground eval script, stdout is the intended output channel
-    f"DUMP_OK label={LABEL} chunks={chunk_count} units={review_units} raw={raw_issues} dedup={dedup_count} valid={valid_count} -> {path}"
+    f"DUMP_OK label={LABEL} chunks={chunk_count} units={review_units} raw={raw_issues} dedup={dedup_count} valid={valid_count} review_stage={_fmt_dur(review_stage_secs)} -> {path}"
 )
 if spend_headline:
     print(spend_headline)  # noqa: T201 — playground eval script, stdout is the intended output channel

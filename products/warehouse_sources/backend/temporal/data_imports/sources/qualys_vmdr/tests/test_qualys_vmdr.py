@@ -7,11 +7,13 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualys_vmdr.qualys_vmdr import (
+    MISSING_GATEWAY_ERROR,
     QualysVmdrResponseTooLargeError,
     QualysVmdrResumeConfig,
     QualysVmdrRetryableError,
     _build_initial_url,
     _extract_rows,
+    _fetch_jwt,
     _fetch_page,
     _next_batch_url,
     _parse_xml,
@@ -107,6 +109,18 @@ SIMPLE_RETURN_ERROR = """<?xml version="1.0" encoding="UTF-8" ?>
   </RESPONSE>
 </SIMPLE_RETURN>"""
 
+KNOWLEDGE_BASE_PAGE = """<?xml version="1.0" encoding="UTF-8" ?>
+<KNOWLEDGE_BASE_VULN_LIST_OUTPUT>
+  <RESPONSE>
+    <VULN_LIST>
+      <VULN>
+        <QID>38170</QID>
+        <TITLE>Example vulnerability</TITLE>
+      </VULN>
+    </VULN_LIST>
+  </RESPONSE>
+</KNOWLEDGE_BASE_VULN_LIST_OUTPUT>"""
+
 
 def _response(status_code: int = 200, text: str = "", headers: dict[str, str] | None = None) -> mock.MagicMock:
     response = mock.MagicMock()
@@ -160,18 +174,34 @@ class TestQualysVmdr:
         ],
     )
     def test_initial_url_includes_incremental_filter(self, value, expected_param):
-        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["hosts"], True, value)
+        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["hosts"], "2.0", True, value)
         assert expected_param in url
         assert "truncation_limit=1000" in url
 
     def test_initial_url_full_refresh_has_no_incremental_filter(self):
-        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["hosts"], False, None)
+        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["hosts"], "2.0", False, None)
         assert "vm_scan_since" not in url
 
     def test_initial_url_omits_truncation_limit_when_endpoint_does_not_support_it(self):
-        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["scans"], False, None)
+        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS["scans"], "2.0", False, None)
         assert "truncation_limit" not in url
         assert url.startswith("https://example.com/api/2.0/fo/scan/?")
+
+    @pytest.mark.parametrize(
+        "endpoint,api_version,expected_path",
+        [
+            # Only the KnowledgeBase endpoint moves to /api/4.0/ under the 4.0 pin.
+            ("knowledge_base", "2.0", "/api/2.0/fo/knowledge_base/vuln/"),
+            ("knowledge_base", "4.0", "/api/4.0/fo/knowledge_base/vuln/"),
+            # The FO endpoints stay on /api/2.0/ regardless of the source-level pin.
+            ("hosts", "2.0", "/api/2.0/fo/asset/host/"),
+            ("hosts", "4.0", "/api/2.0/fo/asset/host/"),
+            ("scans", "4.0", "/api/2.0/fo/scan/"),
+        ],
+    )
+    def test_initial_url_resolves_path_per_version(self, endpoint, api_version, expected_path):
+        url = _build_initial_url("https://example.com", QUALYS_VMDR_ENDPOINTS[endpoint], api_version, False, None)
+        assert url.startswith(f"https://example.com{expected_path}?")
 
     def test_extract_rows_lowercases_scalars_and_json_encodes_nested(self):
         root = _parse_xml(HOST_LIST_PAGE_1)
@@ -219,7 +249,7 @@ class TestQualysVmdr:
             mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
         ):
             generator = get_rows(
-                "qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager.as_manager()
+                "qualysapi.qualys.com", "user", "pass", "hosts", "2.0", mock.MagicMock(), manager.as_manager()
             )
 
             first_batch = next(generator)
@@ -249,7 +279,7 @@ class TestQualysVmdr:
             mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
         ):
             batches = list(
-                get_rows("qualysapi.qualys.com", "user", "pass", "hosts", mock.MagicMock(), manager.as_manager())
+                get_rows("qualysapi.qualys.com", "user", "pass", "hosts", "2.0", mock.MagicMock(), manager.as_manager())
             )
 
         assert session.get.call_args[0][0] == resume_url
@@ -264,7 +294,9 @@ class TestQualysVmdr:
         ):
             with pytest.raises(ValueError, match="Qualys API server URL is not allowed"):
                 list(
-                    get_rows("169.254.169.254", "user", "pass", "hosts", mock.MagicMock(), _FakeManager().as_manager())
+                    get_rows(
+                        "169.254.169.254", "user", "pass", "hosts", "2.0", mock.MagicMock(), _FakeManager().as_manager()
+                    )
                 )
 
         session.get.assert_not_called()
@@ -344,3 +376,166 @@ class TestQualysVmdr:
         assert ok is False
         assert error is not None and "not allowed" in error
         session.get.assert_not_called()
+
+    def test_get_rows_knowledge_base_4_0_mints_jwt_and_uses_bearer(self):
+        get_session = mock.MagicMock()
+        get_session.get.return_value = _response(text=KNOWLEDGE_BASE_PAGE)
+        gateway_session = mock.MagicMock()
+        gateway_session.post.return_value = _response(status_code=200, text="jwt-token")
+
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=get_session) as make_session,
+            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            batches = list(
+                get_rows(
+                    "qualysapi.qualys.com",
+                    "user",
+                    "pass",
+                    "knowledge_base",
+                    "4.0",
+                    mock.MagicMock(),
+                    _FakeManager().as_manager(),
+                    gateway_server="gateway.qg2.apps.qualys.com",
+                )
+            )
+
+        # The JWT is minted at the gateway host, then threaded into the request session as a Bearer token
+        assert gateway_session.post.call_args[0][0] == "https://gateway.qg2.apps.qualys.com/auth"
+        assert gateway_session.post.call_args.kwargs["data"]["token"] == "true"
+        assert make_session.call_args.kwargs["bearer_token"] == "jwt-token"
+        # KnowledgeBase 4.0 is served from the FO host on the /api/4.0/ path
+        assert get_session.get.call_args[0][0].startswith(
+            "https://qualysapi.qualys.com/api/4.0/fo/knowledge_base/vuln/"
+        )
+        assert [row["qid"] for row in batches[0]] == ["38170"]
+
+    def test_get_rows_knowledge_base_2_0_uses_basic_auth_and_2_0_path(self):
+        get_session = mock.MagicMock()
+        get_session.get.return_value = _response(text=KNOWLEDGE_BASE_PAGE)
+
+        with (
+            mock.patch(f"{_MODULE}._make_session", return_value=get_session) as make_session,
+            mock.patch(f"{_MODULE}.make_tracked_session") as gateway,
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            list(
+                get_rows(
+                    "qualysapi.qualys.com",
+                    "user",
+                    "pass",
+                    "knowledge_base",
+                    "2.0",
+                    mock.MagicMock(),
+                    _FakeManager().as_manager(),
+                )
+            )
+
+        # No JWT minting on 2.0 — the request session keeps basic auth
+        gateway.assert_not_called()
+        assert "bearer_token" not in make_session.call_args.kwargs
+        assert get_session.get.call_args[0][0].startswith(
+            "https://qualysapi.qualys.com/api/2.0/fo/knowledge_base/vuln/"
+        )
+
+    def test_get_rows_knowledge_base_4_0_without_gateway_raises_before_any_request(self):
+        with (
+            mock.patch(f"{_MODULE}._make_session") as make_session,
+            mock.patch(f"{_MODULE}.make_tracked_session") as gateway,
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            with pytest.raises(ValueError, match=MISSING_GATEWAY_ERROR):
+                list(
+                    get_rows(
+                        "qualysapi.qualys.com",
+                        "user",
+                        "pass",
+                        "knowledge_base",
+                        "4.0",
+                        mock.MagicMock(),
+                        _FakeManager().as_manager(),
+                        gateway_server=None,
+                    )
+                )
+
+        gateway.assert_not_called()
+        make_session.assert_not_called()
+
+    def test_fetch_jwt_posts_credentials_to_gateway_and_strips_token(self):
+        gateway_session = mock.MagicMock()
+        gateway_session.post.return_value = _response(status_code=200, text="  jwt-token\n")
+
+        with (
+            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            token = _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
+
+        assert token == "jwt-token"
+        assert gateway_session.post.call_args[0][0] == "https://gateway.qg2.apps.qualys.com/auth"
+        assert gateway_session.post.call_args.kwargs["data"] == {
+            "username": "user",
+            "password": "pass",
+            "token": "true",
+        }
+
+    def test_fetch_jwt_session_opts_out_of_sample_capture(self):
+        # The /auth response body is the raw minted JWT: the name-based sample scrubbers can't
+        # recognise it and it can't be listed in `redact_values` (it doesn't exist yet), so the
+        # exchange must be excluded from HTTP sample capture entirely.
+        gateway_session = mock.MagicMock()
+        gateway_session.post.return_value = _response(status_code=200, text="jwt-token")
+
+        with (
+            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session) as make_tracked,
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
+
+        assert make_tracked.call_args.kwargs["capture"] is False
+        # The password is still redacted from the metered request, and the body is streamed
+        # rather than buffered whole.
+        assert make_tracked.call_args.kwargs["redact_values"] == ("pass",)
+        assert gateway_session.post.call_args.kwargs["stream"] is True
+
+    def test_fetch_jwt_refuses_an_oversized_gateway_body(self):
+        # `gateway_server` is user-supplied, so a host that returns a huge (or slow-dripped) body
+        # must not be able to exhaust a shared worker's memory.
+        gateway_session = mock.MagicMock()
+        response = _response(status_code=200)
+        response.iter_content.return_value = iter([b"a" * 1024, b"b" * 1024])
+        gateway_session.post.return_value = response
+
+        with (
+            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+            mock.patch(f"{_MODULE}.MAX_JWT_RESPONSE_BYTES", 1500),
+        ):
+            with pytest.raises(QualysVmdrResponseTooLargeError):
+                _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
+
+        response.close.assert_called_once()
+
+    def test_fetch_jwt_raises_on_empty_token(self):
+        gateway_session = mock.MagicMock()
+        gateway_session.post.return_value = _response(status_code=200, text="   ")
+
+        with (
+            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(True, None)),
+        ):
+            with pytest.raises(ValueError, match="empty JWT"):
+                _fetch_jwt("gateway.qg2.apps.qualys.com", "user", "pass", mock.MagicMock())
+
+    def test_fetch_jwt_rejects_disallowed_gateway_before_any_request(self):
+        gateway_session = mock.MagicMock()
+
+        with (
+            mock.patch(f"{_MODULE}.make_tracked_session", return_value=gateway_session),
+            mock.patch(f"{_MODULE}.is_url_allowed", return_value=(False, "URL resolves to a private IP")),
+        ):
+            with pytest.raises(ValueError, match="not allowed"):
+                _fetch_jwt("169.254.169.254", "user", "pass", mock.MagicMock())
+
+        gateway_session.post.assert_not_called()

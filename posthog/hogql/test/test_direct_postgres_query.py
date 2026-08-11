@@ -9,6 +9,7 @@ from django.test import override_settings
 
 import psycopg
 from parameterized import parameterized
+from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -1767,6 +1768,54 @@ class TestDirectPostgresQuery(APIBaseTest):
         executor.execute()
 
         self.assertEqual(mock_connect.call_args.kwargs["sslmode"], expected_sslmode)
+
+    @override_settings(DEBUG=False, TEST=False)
+    @patch("products.warehouse_sources.backend.models.ssh_tunnel.SSHTunnelForwarder")
+    @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
+    def test_direct_postgres_ssh_tunnel_failure_raises_exposed_error(self, mock_connect, mock_tunnel_cls):
+        mock_tunnel_cls.return_value.__enter__.side_effect = BaseSSHTunnelForwarderError(
+            "Could not establish session to SSH gateway"
+        )
+
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "ph3",
+                **self._SSH_TUNNEL_CONFIG,
+            },
+        )
+
+        DataWarehouseTable.objects.create(
+            name="posthog_dashboard",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True}},
+        )
+
+        executor = HogQLQueryExecutor(
+            query="SELECT id FROM posthog_dashboard LIMIT 1",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            executor.execute()
+
+        self.assertEqual(str(error.exception), "Could not establish session to SSH gateway")
+        mock_connect.assert_not_called()
 
     @override_settings(DEBUG=False, TEST=False, E2E_TESTING=True)
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")

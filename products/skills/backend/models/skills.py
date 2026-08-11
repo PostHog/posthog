@@ -58,6 +58,7 @@ class LLMSkill(UUIDModel):
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
+    version_description = models.CharField(max_length=400, null=True, blank=True)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey(

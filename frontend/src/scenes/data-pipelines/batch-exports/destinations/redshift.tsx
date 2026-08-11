@@ -2,7 +2,7 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AWS_ONLY_REGION_OPTIONS, validateBucketName } from './common'
+import { AWS_ONLY_REGION_OPTIONS, PERSON_PROPERTIES_EVENT_FIELD, validateBucketName } from './common'
 import type { DestinationDefinition } from './types'
 
 // Redshift is the only destination with a non-trivial form ↔ payload mapping.
@@ -112,6 +112,7 @@ export const redshiftDefinition: DestinationDefinition = {
         return result
     },
     eventTableOverrides: { teamIdHogql: 'toInt32(team_id)' },
+    eventTableExtraFields: { ...PERSON_PROPERTIES_EVENT_FIELD },
     Fields: function RedshiftFields({ isNew, formValues }) {
         return (
             <>

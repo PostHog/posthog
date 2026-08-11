@@ -3,7 +3,6 @@ import time
 
 import pytest
 
-import modal
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
@@ -19,7 +18,7 @@ from products.tasks.backend.temporal.create_snapshot.activities.cleanup_sandbox 
 )
 class TestCleanupSandboxActivity:
     @pytest.mark.django_db
-    def test_cleanup_sandbox_success(self, activity_environment):
+    def test_cleanup_sandbox_success(self, activity_environment, assert_sandbox_shutdown):
         test_tag = f"test-snapshot-cleanup-{time.time()}"
         config = SandboxConfig(
             name=f"test-snapshot-cleanup-sandbox-{time.time()}",
@@ -30,15 +29,13 @@ class TestCleanupSandboxActivity:
         sandbox = Sandbox.create(config)
         sandbox_id = sandbox.id
 
-        sandboxes_before = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
-        assert len(sandboxes_before) > 0
+        assert Sandbox.get_by_id(sandbox_id).is_running()
 
         input_data = CleanupSandboxInput(sandbox_id=sandbox_id)
 
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
-        assert len(sandboxes_after) == 0
+        assert_sandbox_shutdown(sandbox_id)
 
     @pytest.mark.django_db
     def test_cleanup_sandbox_not_found_does_not_raise(self, activity_environment):
@@ -47,7 +44,7 @@ class TestCleanupSandboxActivity:
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
     @pytest.mark.django_db
-    def test_cleanup_sandbox_idempotency(self, activity_environment):
+    def test_cleanup_sandbox_idempotency(self, activity_environment, assert_sandbox_shutdown):
         test_tag = f"test-snapshot-cleanup-idempotent-{time.time()}"
         config = SandboxConfig(
             name=f"test-snapshot-cleanup-idempotent-{time.time()}",
@@ -62,7 +59,6 @@ class TestCleanupSandboxActivity:
 
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)
 
-        sandboxes_after = list(modal.Sandbox.list(tags={"test_tag": test_tag}))
-        assert len(sandboxes_after) == 0
+        assert_sandbox_shutdown(sandbox_id)
 
         async_to_sync(activity_environment.run)(cleanup_sandbox, input_data)

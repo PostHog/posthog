@@ -28,8 +28,14 @@ class FrameStoreError(Exception):
 
 
 def is_enabled() -> bool:
-    """The frame store is env-gated (rollout) and needs object storage to be configured."""
-    return bool(settings.NOTEBOOKS_FRAME_STORE_ENABLED and settings.OBJECT_STORAGE_ENABLED)
+    """Whether this deployment can serve frames from object storage at all.
+
+    Rollout is the `notebooks-frame-store` flag's job, not this function's. What stays here
+    is the configuration guard: without object storage the client is a silent no-op, so a
+    materialization would "succeed", fail its post-write HEAD, and burn the activity's whole
+    retry budget re-running the query. Failing this check serves the frame inline instead.
+    """
+    return bool(settings.OBJECT_STORAGE_ENABLED)
 
 
 def team_prefix(team_id: int) -> str:

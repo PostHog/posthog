@@ -1,11 +1,12 @@
 import dataclasses
 
 from structlog import get_logger
-from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
+from products.data_modeling.backend.facade.api import promote_view_nodes_to_matview
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import create_table_from_saved_query
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -45,6 +46,10 @@ def _update_saved_query_with_table(
     saved_query_table.row_count = inputs.row_count
     saved_query_table.save()
 
+    # The table is what makes the query a matview, so this is the one place that always knows the
+    # node type is stale — every other materialization entry point can leave it behind.
+    promote_view_nodes_to_matview(saved_query)
+
 
 @dataclasses.dataclass
 class PrepareQueryableTableResult:
@@ -58,7 +63,7 @@ async def prepare_queryable_table_activity(inputs: PrepareQueryableTableInputs) 
 
     Returns storage metrics (delta and total MiB) for the materialized table.
     """
-    bind_contextvars(team_id=inputs.team_id)
+    bind_data_modeling_log_context(inputs.team_id, inputs.saved_query_id)
     logger = LOGGER.bind()
 
     saved_query = await _get_saved_query_with_table(inputs)

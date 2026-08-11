@@ -109,7 +109,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
     # per-repo location metadata on newly created rows.
     is_github = source_type_enum == ExternalDataSourceType.GITHUB
-    schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
+    sync_result = sync_old_schemas_with_new_schemas(
         schemas_to_sync,
         source_id=inputs.source_id,
         team_id=inputs.team_id,
@@ -119,16 +119,16 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         else None,
     )
 
-    if len(schemas_created) > 0:
-        logger.info(f"Added new schemas: {', '.join(schemas_created)}")
+    if len(sync_result.created) > 0:
+        logger.info(f"Added new schemas: {', '.join(sync_result.created)}")
 
-        auto_enabled = auto_enable_new_schemas(source, schemas_created, {s.name: s for s in schemas})
+        auto_enabled = auto_enable_new_schemas(source, sync_result.created, {s.name: s for s in schemas})
         if auto_enabled:
             logger.info(f"Auto-enabled sync for new schemas: {', '.join(auto_enabled)}")
     else:
         logger.info("No new schemas to create")
 
-    if len(schemas_deleted) > 0:
-        logger.info(f"Deleted schemas: {', '.join(schemas_deleted)}")
+    if len(sync_result.deleted) > 0:
+        logger.info(f"Deleted schemas: {', '.join(sync_result.deleted)}")
     else:
         logger.info("No schemas to delete")

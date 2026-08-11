@@ -16,6 +16,7 @@ import {
 } from '@posthog/esbuilder'
 
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
+import { WORKER_ENTRIES } from './workers.config.mjs'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -55,34 +56,13 @@ await buildInParallel(
             heavy: true,
             ...common,
         },
-        {
-            name: 'Decompression Worker',
-            entryPoints: ['src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts'],
+        ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName }) => ({
+            name,
+            entryPoints: [entryPoint],
             format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', 'decompressionWorker.js'),
+            outfile: path.resolve(__dirname, 'dist', outfileName),
             ...common,
-        },
-        {
-            name: 'Monaco Editor Worker',
-            entryPoints: ['src/lib/monaco/workers/editor.worker.ts'],
-            format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', 'monacoEditorWorker.js'),
-            ...common,
-        },
-        {
-            name: 'Monaco JSON Worker',
-            entryPoints: ['src/lib/monaco/workers/json.worker.ts'],
-            format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', 'monacoJsonWorker.js'),
-            ...common,
-        },
-        {
-            name: 'Monaco TypeScript Worker',
-            entryPoints: ['src/lib/monaco/workers/ts.worker.ts'],
-            format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', 'monacoTsWorker.js'),
-            ...common,
-        },
+        })),
         {
             name: 'Exporter',
             entryPoints: {

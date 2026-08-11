@@ -77,6 +77,7 @@ interface Block {
   level?: number;
   items?: string[];
   ordered?: boolean;
+  start?: number;
   rows?: string[][];
   url?: string;
   alt?: string;
@@ -159,13 +160,20 @@ function parseBlocks(text: string): Block[] {
     }
 
     // Ordered list (consecutive 1. 2. lines)
-    if (/^\s*\d+[.)]\s/.test(line)) {
+    const orderedMatch = line.match(/^\s*(\d+)[.)]\s/);
+    if (orderedMatch) {
       const items: string[] = [];
       while (i < lines.length && /^\s*\d+[.)]\s/.test(lines[i])) {
         items.push(lines[i].replace(/^\s*\d+[.)]\s+/, ""));
         i++;
       }
-      blocks.push({ type: "list", content: "", items, ordered: true });
+      blocks.push({
+        type: "list",
+        content: "",
+        items,
+        ordered: true,
+        start: Number(orderedMatch[1]),
+      });
       continue;
     }
 
@@ -519,7 +527,7 @@ export function MarkdownText({
                         </Text>
                       ) : (
                         <Text className="mr-2 text-[13px] text-gray-9">
-                          {block.ordered ? `${idx + 1}.` : "•"}
+                          {block.ordered ? `${(block.start ?? 1) + idx}.` : "•"}
                         </Text>
                       )}
                       <Text

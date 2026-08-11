@@ -288,21 +288,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
-    describe('query-llm-traces-list', () => {
-        it('should execute a traces query and return formatted results', async () => {
-            const tool = getToolByName(GENERATED_TOOLS, 'query-llm-traces-list')
-            const result = (await tool.handler(context, {
-                dateRange: { date_from: '-7d' },
-                limit: 10,
-            })) as any
-
-            expect(result).toHaveProperty('results')
-            expect(result).toHaveProperty('_posthogUrl')
-            // TracesQuery may not have a formatter — result could be string or JSON fallback
-            expect(result.results !== undefined).toBe(true)
-        })
-    })
-
     describe('factory behavior', () => {
         it('should wrap query in InsightVizNode in the URL', async () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-trends')

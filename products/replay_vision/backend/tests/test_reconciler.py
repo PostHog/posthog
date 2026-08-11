@@ -20,12 +20,13 @@ from temporalio.testing import ActivityEnvironment
 from posthog.models import Organization, Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
+from products.replay_vision.backend.enqueue_claims import try_claim_enqueue_slot
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
@@ -36,11 +37,13 @@ from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
     list_scanner_schedules_activity,
+    reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     reap_stuck_vision_action_runs_activity,
     upsert_scanner_schedule_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
+    INLINE_SCANNER_REAP_GRACE,
     OBSERVATION_ORPHAN_CUTOFF,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
@@ -662,3 +665,70 @@ async def test_reap_stuck_vision_action_runs_activity(org_team) -> None:
     for key in ("running_open", "describe_error", "too_fresh", "already_completed"):
         assert statuses[key].status == rows[key].status, key
     assert set(temporal.described) == {"wf-gone-1", "wf-open", "wf-err"}
+
+
+def _make_inline_scanner(team: Team, *, key: str, age: dt.timedelta) -> ReplayScanner:
+    scanner = ReplayScanner.all_origins.create(
+        team=team,
+        name="",
+        origin=ScannerOrigin.INLINE,
+        inline_key=key,
+        scanner_type=ScannerType.MONITOR,
+        scanner_config={"prompt": f"p-{key}"},
+        model=ScannerModel.GEMINI_3_6_FLASH,
+        enabled=False,
+        sampling_rate=0.0,
+    )
+    ReplayScanner.all_origins.filter(pk=scanner.pk).update(created_at=timezone.now() - age)
+    return scanner
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reap_childless_inline_scanners_activity(org_team) -> None:
+    # An inline scan mints a scanner just before its scans start, so a scan that then fails to start
+    # leaves a permanent row nothing lists and nothing collects. Only childless rows go: one that
+    # produced an observation is somebody's answer.
+    _, team = org_team
+    grace = INLINE_SCANNER_REAP_GRACE + dt.timedelta(minutes=5)
+
+    def _setup() -> dict[str, ReplayScanner]:
+        rows = {
+            "childless_old": _make_inline_scanner(team, key="a", age=grace),
+            "childless_but_claimed": _make_inline_scanner(team, key="d", age=grace),
+            "childless_fresh": _make_inline_scanner(team, key="b", age=dt.timedelta(minutes=1)),
+            "has_observation": _make_inline_scanner(team, key="c", age=grace),
+            "configured": _make_scanner(team, name="kept-scanner"),
+        }
+        _make_observation(
+            rows["has_observation"],
+            session_id="s-1",
+            status=ObservationStatus.PENDING,
+            workflow_id="wf-inline",
+            age=dt.timedelta(0),
+        )
+        # A reused scanner whose scan has started but not yet persisted its row holds a claim, and
+        # nothing else distinguishes it from a dead one. Reaping it deletes the scanner out from under
+        # an accepted scan.
+        try_claim_enqueue_slot(
+            team_id=team.id,
+            scanner_id=rows["childless_but_claimed"].id,
+            workflow_id="wf-inflight",
+            team_in_flight_rows=0,
+            scanner_in_flight_rows=0,
+        )
+        # A configured scanner with no observations is not the reaper's business at any age.
+        ReplayScanner.all_origins.filter(pk=rows["configured"].pk).update(created_at=timezone.now() - grace)
+        return rows
+
+    rows = await sync_to_async(_setup)()
+
+    reaped = await ActivityEnvironment().run(reap_childless_inline_scanners_activity)
+
+    assert reaped == 1
+    surviving = await sync_to_async(
+        lambda: set(ReplayScanner.all_origins.values_list("id", flat=True)),
+    )()
+    assert rows["childless_old"].id not in surviving
+    for key in ("childless_fresh", "has_observation", "configured", "childless_but_claimed"):
+        assert rows[key].id in surviving, key

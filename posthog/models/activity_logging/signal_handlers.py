@@ -20,7 +20,6 @@ from prometheus_client import Counter
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
-from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
@@ -897,10 +896,6 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     # fresh password/2FA/SSO login satisfies TimeSensitiveActionPermission.
     request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
     request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
-    # Clear the risk-telemetry dedup markers so the first anomaly after this (re)login re-emits instead
-    # of being suppressed by the pre-login signature. Pairs with the baseline reset below.
-    request.session.pop(settings.SESSION_RISK_LAST_SIG_KEY, None)
-    request.session.pop(settings.SESSION_RISK_LAST_EMIT_AT_KEY, None)
 
     # Defensive risk-baseline reset: login() rotates the session key, so the new row's risk columns
     # are already NULL and this is normally a no-op. It guarantees a clean baseline after a high-tier
@@ -913,6 +908,11 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
 
     # Cache device info on signup to skip login notification for this device
     if user.last_login is None:
+        # Deferred: importing posthog.geoip loads the MaxMind DB into memory at import time,
+        # which lands on the django.setup() path via this app's ready() and blows the startup
+        # import budget. Keep it at call time so only the signup path pays for it.
+        from posthog.geoip import get_geoip_properties  # noqa: PLC0415
+
         short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
         country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")

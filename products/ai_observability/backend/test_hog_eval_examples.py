@@ -16,6 +16,7 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.cdp.validation import compile_hog
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_bytecode
 from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
+from posthog.temporal.ai_observability.run_session_evaluation import build_session_hog_globals
 from posthog.temporal.ai_observability.run_trace_evaluation import build_trace_hog_globals
 
 EXAMPLES_PATH = Path(__file__).resolve().parents[1] / "frontend" / "evaluations" / "hogEvalExamples.json"
@@ -109,6 +110,29 @@ def _make_clean_trace_globals(bytecode: list[Any]) -> dict[str, Any]:
     return build_trace_hog_globals(trace, "trace-123", bytecode=bytecode)
 
 
+def _make_clean_session_globals(bytecode: list[Any]) -> dict[str, Any]:
+    """Two traces, so an example that reasons over a whole conversation sees more than one turn."""
+    traces = [
+        LLMTrace(
+            id=f"trace-{index}",
+            createdAt=CLEAN_EVENT["timestamp"],
+            distinctId="test-user",
+            totalCost=0.01,
+            totalLatency=1.5,
+            events=[
+                LLMTraceEvent(
+                    id=f"{CLEAN_EVENT['uuid']}-{index}",
+                    event=CLEAN_EVENT["event"],
+                    createdAt=CLEAN_EVENT["timestamp"],
+                    properties=CLEAN_EVENT["properties"],
+                )
+            ],
+        )
+        for index in (1, 2)
+    ]
+    return build_session_hog_globals(traces, "session-123", bytecode=bytecode)
+
+
 class TestHogEvalExamplesCompile:
     @parameterized.expand(EXAMPLE_LABELS)
     def test_compiles(self, label):
@@ -134,6 +158,17 @@ class TestHogEvalExamplesRun:
 
         assert result["error"] is None, f"'{label}' errored for a trace: {result['error']}"
         assert isinstance(result["verdict"], bool), f"'{label}' returned non-bool for a trace: {result['verdict']}"
+
+    @parameterized.expand(EXAMPLE_LABELS)
+    def test_returns_bool_without_error_for_session(self, label):
+        """A session builds only `target` and `evaluation_events` — no `events` or `trace`. An
+        example reaching for a trace-only global would come back undefined here rather than error,
+        so assert on the verdict type as well: that is what catches it."""
+        bytecode = compile_hog(_get_source(label), "destination")
+        result = execute_hog_eval_bytecode(bytecode, _make_clean_session_globals(bytecode), allows_na=False)
+
+        assert result["error"] is None, f"'{label}' errored for a session: {result['error']}"
+        assert isinstance(result["verdict"], bool), f"'{label}' returned non-bool for a session: {result['verdict']}"
 
 
 class TestHogEvalExamplesBehavior:

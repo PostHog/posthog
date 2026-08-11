@@ -1,7 +1,14 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type {
+  ExtensionError,
   RpcClient,
+  RpcExtensionUIRequest,
   RpcSessionState,
+} from "@earendil-works/pi-coding-agent";
+
+export type {
+  RpcExtensionUIRequest,
+  RpcExtensionUIResponse,
 } from "@earendil-works/pi-coding-agent";
 
 function exhaustiveValues<T>() {
@@ -41,5 +48,11 @@ export interface PiQueueSnapshot {
   steering: string[];
   followUp: string[];
 }
+
+export type PiExtensionError = ExtensionError & {
+  type: "extension_error";
+};
+
+export type PiExtensionEvent = RpcExtensionUIRequest | PiExtensionError;
 
 export type PiSessionStats = Awaited<ReturnType<RpcClient["getSessionStats"]>>;

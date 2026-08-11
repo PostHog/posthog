@@ -36,9 +36,9 @@ SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
 
 # The queue awaits each child serially, so a child that never completes stalls every
 # later message in the conversation and the user sees nothing but an :eyes: reaction
-# that never resolves. The ceiling sits above any healthy run: the child's own waits
-# (15 minutes for the repo picker, 15 more for authorship confirmation) plus its
-# 10-minute activity timeouts stay well inside an hour.
+# that never resolves. The ceiling sits above any healthy run: the child's own wait
+# (15 minutes for the repo picker) plus its 10-minute activity timeouts stay well
+# inside an hour.
 SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
 # Bounding the child and telling the user when it dies both add workflow commands, so
 # executions started before this shipped keep replaying the unbounded, silent path.
@@ -71,8 +71,8 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
     up as ``new_message`` signals, and the loop runs each one as a child
     ``PostHogCodeSlackMentionWorkflow`` — under the same per-message workflow
     ID the flag-off dispatch would use — awaiting its completion before
-    starting the next. Interactive signals (repo picker, authorship
-    confirmation) never touch this workflow: the child bakes its own ID into
+    starting the next. Interactive signals (the repo picker) never touch this
+    workflow: the child bakes its own ID into
     the prompts it posts, so the interactivity webhook signals the child
     directly, exactly as in the standalone shape. After the idle timeout with
     an empty queue the workflow completes; the next message simply starts a

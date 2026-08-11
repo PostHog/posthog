@@ -43,7 +43,7 @@ mod tests {
     use uuid::Uuid;
 
     use cohort_core::filters::{CohortId, TeamId};
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileTile, RunId};
+    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
 
     use crate::filters::{CatalogHandle, FilterCatalog};
     use crate::partitions::{OffsetTracker, PartitionRouter};
@@ -97,7 +97,7 @@ mod tests {
             ReconcileTile::new(
                 TeamId(7),
                 CohortId(1),
-                BehavioralShapeHash::parse("shape-v1").unwrap(),
+                ReconcileScope::Behavioral(BehavioralShapeHash::parse("shape-v1").unwrap()),
                 RunId(Uuid::nil()),
             ),
             tracker.defer(0, 5),

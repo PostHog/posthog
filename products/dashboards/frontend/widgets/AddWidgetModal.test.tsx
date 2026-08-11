@@ -75,9 +75,24 @@ describe('AddWidgetModal', () => {
         expect(
             screen.getByText(/Bring context from your different PostHog products into one dashboard/i)
         ).toBeInTheDocument()
-        expect(screen.getByText('Error tracking')).toBeInTheDocument()
+        expect(screen.getByText('Error tracking', { selector: 'h5' })).toBeInTheDocument()
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
         expect(screen.getByText(/Ranked list of the most impactful error tracking issues/i)).toBeInTheDocument()
+    })
+
+    it('shows alphabetized badges for each widget product section', () => {
+        renderAddWidgetModal()
+
+        const badges = screen.getByTestId('dashboard-widget-product-badges')
+        expect(Array.from(badges.children).map((badge) => badge.textContent)).toEqual([
+            'Activity',
+            'Error tracking',
+            'Experiments',
+            'Logs',
+            'Session replay',
+            'Support',
+            'Surveys',
+        ])
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {
@@ -141,17 +156,17 @@ describe('AddWidgetModal', () => {
 
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
 
-        await userEvent.click(screen.getByText('Error tracking'))
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
         expect(screen.queryByLabelText('Top issues')).not.toBeInTheDocument()
 
-        await userEvent.click(screen.getByText('Error tracking'))
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
     })
 
     it('resets collapsed sections when the modal is reopened', async () => {
         const logic = renderAddWidgetModal()
 
-        await userEvent.click(screen.getByText('Error tracking'))
+        await userEvent.click(screen.getByText('Error tracking', { selector: 'h5' }))
         expect(logic.values.addWidgetCollapsedGroups).toContain('error_tracking')
 
         logic.actions.setAddWidgetModalOpen(true)

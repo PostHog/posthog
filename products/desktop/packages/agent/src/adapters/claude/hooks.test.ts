@@ -14,6 +14,7 @@ import {
   createReadEnrichmentHook,
   createReadImageGuardHook,
   createSignedCommitGuardHook,
+  createSubagentRewriteHook,
   createTaskHook,
   type EnrichedReadCache,
 } from "./hooks";
@@ -348,6 +349,87 @@ function buildSettingsManagerStub(
     checkPermission: () => result,
   } as unknown as SettingsManager;
 }
+
+describe("createSubagentRewriteHook", () => {
+  const logger = new Logger({ debug: false });
+
+  test("inherits the exact parent model when opus means Claude Opus 5", async () => {
+    const hook = createSubagentRewriteHook(
+      logger,
+      new Set(),
+      () => "claude-opus-5",
+    );
+
+    const result = await hook(
+      buildPreToolUseHookInput("Agent", {
+        subagent_type: "code-reviewer",
+        model: "opus",
+      }),
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toMatchObject({
+      continue: true,
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        updatedInput: {
+          subagent_type: "code-reviewer",
+          model: "inherit",
+        },
+      },
+    });
+  });
+
+  test.each([
+    ["claude-opus-4-8", "opus"],
+    ["claude-opus-5", "sonnet"],
+    [undefined, "opus"],
+  ])("leaves parent %s with model %s unchanged", async (parentModel, model) => {
+    const hook = createSubagentRewriteHook(
+      logger,
+      new Set(),
+      () => parentModel,
+    );
+
+    const result = await hook(
+      buildPreToolUseHookInput("Agent", {
+        subagent_type: "code-reviewer",
+        model,
+      }),
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toEqual({ continue: true });
+  });
+
+  test("combines model and subagent type rewrites", async () => {
+    const hook = createSubagentRewriteHook(
+      logger,
+      new Set(["ph-explore"]),
+      () => "claude-opus-5",
+    );
+
+    const result = await hook(
+      buildPreToolUseHookInput("Agent", {
+        subagent_type: "Explore",
+        model: "opus",
+      }),
+      undefined,
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toMatchObject({
+      hookSpecificOutput: {
+        updatedInput: {
+          subagent_type: "ph-explore",
+          model: "inherit",
+        },
+      },
+    });
+  });
+});
 
 describe("createPreToolUseHook", () => {
   const logger = new Logger({ debug: false });

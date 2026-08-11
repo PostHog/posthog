@@ -24,6 +24,20 @@ export function clearToolbarRefs(): void {
 }
 
 /**
+ * True when the toolbar is loaded AND its container is still attached to the page.
+ *
+ * `loadToolbar()` uses this to stay idempotent: posthog-js calls `ph_load_toolbar` more than
+ * once in a page's lifetime (notably on SPA client-side route changes), and re-running the mount
+ * path would `resetContext()` — tearing the Kea logics out from under the already-mounted React
+ * tree, so the visible toolbar vanishes and a duplicate shadow root is left behind. The
+ * `_container.isConnected` check means a stale flag (host page detached our node) still returns
+ * false so the caller can tear down and remount.
+ */
+export function isToolbarMounted(): boolean {
+    return _loaded && !!_container?.isConnected
+}
+
+/**
  * Public API for third-party code to programmatically control the toolbar.
  * Exposed on the host page as `window.posthogToolbarController`.
  */

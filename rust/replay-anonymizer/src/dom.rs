@@ -96,7 +96,9 @@ pub fn scrub_mutation_attributes(ctx: &Ctx<'_>, attributes: &mut Vec<Value<'_>>)
                 } else {
                     TagKind::Other
                 };
-                changed |= scrub_attrs(ctx, attrs, kind);
+                // A mutation carries attributes with no tag, so a `src` here could belong to an
+                // iframe or a script as easily as an image. Decline rather than guess.
+                changed |= scrub_attrs(ctx, attrs, kind, false);
             }
         }
     }
@@ -125,9 +127,14 @@ pub(crate) fn walk_node(ctx: &Ctx<'_>, node: &mut Value<'_>, parent: ParentKind)
 
     match obj.get("type").and_then(as_small_uint) {
         Some(NODE_ELEMENT) => {
-            let kind = classify_tag(obj.get("tagName").and_then(as_str).unwrap_or(""));
+            let tag = obj
+                .get("tagName")
+                .and_then(as_str)
+                .unwrap_or("")
+                .to_string();
+            let kind = classify_tag(&tag);
             if let Some(attrs) = obj.get_mut("attributes").and_then(as_object_mut) {
-                changed |= scrub_attrs(ctx, attrs, kind);
+                changed |= scrub_attrs(ctx, attrs, kind, crate::assets::tag_src_is_image(&tag));
             }
             let child_parent = match kind {
                 TagKind::Script => ParentKind::Script,
@@ -196,7 +203,12 @@ pub(crate) fn classify_tag(tag: &str) -> TagKind {
     }
 }
 
-fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
+fn scrub_attrs(
+    ctx: &Ctx<'_>,
+    attrs: &mut Object<'_>,
+    kind: TagKind,
+    tag_src_is_image: bool,
+) -> bool {
     let mut changed = false;
     // Plain string scrubs mutate values in place while iterating — no per-element key Vec. Only the
     // helpers that need `&mut Object` (blur inserts sibling keys, css re-reads by key) defer their
@@ -246,7 +258,7 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object<'_>, kind: TagKind) -> bool {
     }
 
     if kind == TagKind::Media {
-        changed |= apply_blur(ctx, attrs);
+        changed |= apply_blur(ctx, attrs, tag_src_is_image);
     }
 
     changed

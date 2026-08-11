@@ -243,6 +243,13 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                 actions.setLoading(sessionId, false)
             }, SUMMARIZATION_TIMEOUT_MS)
 
+            // Tracks whether this run's stream emitted a terminal event (a final
+            // summary or an error). If the SSE body drains via the reader's `done`
+            // signal without one, loading would otherwise stay true until the
+            // 10-minute timeout. A listener-local flag (not reducer state) so
+            // concurrent summarizations of other sessions can't interfere.
+            let receivedTerminalEvent = false
+
             try {
                 const response = await api.recordings.summarizeStream(sessionId, {
                     signal: controller.signal,
@@ -257,6 +264,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                     onEvent: ({ event, data }) => {
                         try {
                             if (event === 'session-summary-error') {
+                                receivedTerminalEvent = true
                                 lemonToast.error(data)
                                 actions.setError(sessionId, data)
                                 return
@@ -267,6 +275,7 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                             }
                             const parsedData = JSON.parse(data)
                             if (parsedData?.summary) {
+                                receivedTerminalEvent = true
                                 actions.setSummary(sessionId, parsedData.summary, parsedData.id ?? null)
                             }
                         } catch {
@@ -281,6 +290,13 @@ export const sessionSummaryProgressLogic = kea<sessionSummaryProgressLogicType>(
                         break
                     }
                     parser.feed(decoder.decode(value))
+                }
+                // A stream that drains without a terminal event (e.g. truncated by a
+                // proxy) must not leave the spinner stuck; skip on user cancellation.
+                if (!receivedTerminalEvent && !controller.signal.aborted) {
+                    const message = 'Summary stream ended unexpectedly. Please try again.'
+                    lemonToast.error(message)
+                    actions.setError(sessionId, message)
                 }
             } catch (err) {
                 // User-initiated cancellation: surface no error, keep state cleared by the cancel listener.

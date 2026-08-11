@@ -51,6 +51,7 @@ export interface messageTemplateLogicValues {
     templateHasErrors: boolean
     templateLoading: boolean
     templateManualErrors: Record<string, any>
+    templatePickerOpen: boolean
     templateTouched: boolean
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
@@ -156,6 +157,9 @@ export interface messageTemplateLogicActions {
     }
     setTemplateManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
+    }
+    setTemplatePickerOpen: (open: boolean) => {
+        open: boolean
     }
     setTemplateValue: (
         key: FieldName,
@@ -283,6 +287,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
         deleteTemplate: true,
+        setTemplatePickerOpen: (open: boolean) => ({ open }),
     }),
     selectors({
         logicProps: [
@@ -324,6 +329,12 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             },
         ],
+        templatePickerOpen: [
+            false,
+            {
+                setTemplatePickerOpen: (_, { open }) => open,
+            },
+        ],
     }),
     loaders(({ props }) => ({
         template: {
@@ -355,9 +366,25 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     listeners(({ actions, values }) => ({
         submitTemplateFailure: () => {
             const errors = values.templateAllErrors
-            if (errors?.content?.email?.subject) {
+            if (errors?.name) {
+                lemonToast.error('Name is required')
+            } else if (errors?.content?.email?.subject) {
                 lemonToast.error('Subject is required')
             }
+        },
+        saveTemplateFailure: ({ errorObject }) => {
+            // A 404 means the template no longer resolves for this environment - it was soft-deleted,
+            // or it belongs to a different environment than the one currently selected.
+            if (errorObject?.status === 404) {
+                lemonToast.error('This template no longer exists in this environment. It may have been deleted.', {
+                    button: {
+                        label: 'Back to library',
+                        action: () => router.actions.push(urls.workflows('library')),
+                    },
+                })
+                return
+            }
+            lemonToast.error('Failed to save template. Please try again.')
         },
         saveTemplateSuccess: async ({ template }) => {
             lemonToast.success('Template saved')
@@ -426,6 +453,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         } else {
             // If we've previously loaded a message, reset the template to the default
             actions.resetTemplate(NEW_TEMPLATE)
+        }
+
+        // A fresh template starts from the picker: blank, or one of the existing templates.
+        if (props.id === 'new' && !props.messageId) {
+            actions.setTemplatePickerOpen(true)
         }
     }),
     beforeUnload(({ values, actions }) => ({

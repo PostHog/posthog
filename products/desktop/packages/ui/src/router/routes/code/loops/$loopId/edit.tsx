@@ -1,5 +1,4 @@
-import { EditLoopView } from "@posthog/ui/features/loops/components/EditLoopView";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/code/loops/$loopId/edit")({
   component: EditLoopRoute,
@@ -7,5 +6,12 @@ export const Route = createFileRoute("/code/loops/$loopId/edit")({
 
 function EditLoopRoute() {
   const { loopId } = Route.useParams();
-  return <EditLoopView loopId={loopId} />;
+  return (
+    <Navigate
+      replace
+      to="/code/loops/$loopId"
+      params={{ loopId }}
+      search={{ edit: true }}
+    />
+  );
 }

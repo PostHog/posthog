@@ -1,3 +1,4 @@
+import math
 import typing
 import asyncio
 import dataclasses
@@ -13,7 +14,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.metrics import CumulativeTimer
 from products.batch_exports.backend.temporal.pipeline.internal_stage import get_base_s3_staging_folder, get_s3_client
-from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, slice_record_batch
+from products.batch_exports.backend.temporal.queue import RecordBatchQueue
 from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
 
 if typing.TYPE_CHECKING:
@@ -260,3 +261,59 @@ class Producer:
             for key in keys:
                 await semaphore.acquire()
                 tg.create_task(stream_with_semaphore(key))
+
+
+def slice_record_batch(
+    record_batch: pa.RecordBatch, max_record_batch_size_bytes: int = 0, min_records_per_batch: int = 100
+) -> typing.Iterator[pa.RecordBatch]:
+    """Slice a large Arrow record batch into one or more record batches.
+
+    The underlying call to `pa.RecordBatch.slice` is a zero-copy operation, so the
+    memory footprint of slicing is very low, beyond some additional metadata
+    required for the slice.
+
+    Arguments:
+        record_batch: The record batch to slice.
+        max_record_batch_size_bytes: The max size in bytes of a record batch to
+            yield. If the provided `record_batch` is larger than this, then it
+            will be sliced into multiple record batches.
+        min_records_batch_per_batch: Each slice yielded should contain at least
+            this number of records.
+    """
+    if max_record_batch_size_bytes <= 0 or max_record_batch_size_bytes > record_batch.nbytes:
+        yield record_batch
+        return
+
+    total_rows = record_batch.num_rows
+    yielded_rows = 0
+    offset = 0
+    estimated = _estimate_rows_to_fit_under_max(record_batch, max_record_batch_size_bytes, min_records_per_batch)
+    length = total_rows - estimated
+
+    while yielded_rows < total_rows:
+        sliced_record_batch = record_batch.slice(offset=offset, length=length)
+        current_rows = sliced_record_batch.num_rows
+
+        if sliced_record_batch.nbytes > max_record_batch_size_bytes and current_rows > min_records_per_batch:
+            estimated = _estimate_rows_to_fit_under_max(
+                sliced_record_batch, max_record_batch_size_bytes, min_records_per_batch
+            )
+            length -= estimated
+            continue
+
+        yield sliced_record_batch
+
+        yielded_rows += current_rows
+        offset = offset + length
+        length = total_rows - yielded_rows
+
+
+def _estimate_rows_to_fit_under_max(
+    slice: pa.RecordBatch, max_record_batch_size_bytes: int, min_records_per_batch: int
+) -> int:
+    if slice.nbytes <= max_record_batch_size_bytes or slice.num_rows <= min_records_per_batch:
+        return 0
+
+    avg_bytes_per_row = slice.nbytes / slice.num_rows
+    bytes_diff = slice.nbytes - max_record_batch_size_bytes
+    return max(math.floor(bytes_diff / avg_bytes_per_row), 1)

@@ -9,6 +9,7 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.user import PostHogSCIMUser
+from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
 from ee.models.rbac.role import Role
 
@@ -36,13 +37,51 @@ class TestSCIMAPI(APILicensedTest):
         # Generate SCIM token
         token = generate_scim_token()
         self.plain_token = token.plain
-        config = IdentityProviderConfig.objects.create(
+        self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = config
+        self.domain.identity_provider_config = self.config
         self.domain.save()
+        self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
+
+    def test_scim_base_url_uses_linked_config_slug(self):
+        assert get_scim_base_url(self.config).endswith(f"/scim/v2/{self.config.scim_slug}")
+
+    def test_scim_uses_config_slug(self):
+        self.config.scim_slug = "custom-scim-slug"
+        self.config.save(update_fields=["scim_slug"])
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.co.uk",
+            verified_at="2024-01-01T00:00:00Z",
+            identity_provider_config=self.config,
+        )
+        self.client.credentials(**self.scim_headers)
+
+        response = self.client.get("/scim/v2/custom-scim-slug/Users")
+        assert response.status_code == status.HTTP_200_OK
+
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_discovery_and_resource_urls_use_the_same_config_slug(self):
+        # The tenant an authenticated SCIM request resolves to is the config, so every URL a
+        # response hands back has to carry its slug. An IdP that follows ResourceTypes discovery
+        # gets a 403 the moment that endpoint advertises something else, such as a domain UUID.
+        self.config.scim_slug = "custom-scim-slug"
+        self.config.save(update_fields=["scim_slug"])
+        self.client.credentials(**self.scim_headers)
+
+        resource_types = self.client.get("/scim/v2/custom-scim-slug/ResourceTypes").json()
+        users = self.client.get("/scim/v2/custom-scim-slug/Users").json()
+
+        assert {resource["endpoint"] for resource in resource_types["Resources"]} == {
+            "/scim/v2/custom-scim-slug/Users",
+            "/scim/v2/custom-scim-slug/Groups",
+        }
+        assert users["Resources"][0]["meta"]["location"].startswith("/scim/v2/custom-scim-slug/Users/")
 
     def test_invalid_token(self):
         self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
@@ -55,8 +94,8 @@ class TestSCIMAPI(APILicensedTest):
         assert "detail" in data
 
     def test_domain_without_idp_config_is_rejected(self):
-        # A domain with no linked IdP config must be rejected by SCIM auth (the no-config case is
-        # handled explicitly, not by falling through to check_password against a null hash).
+        # A domain with no linked IdP config has no SCIM endpoint of its own: its id is not a config
+        # slug, so even a valid token from another config in the same organization is rejected.
         unconfigured = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="no-config.example.com",
@@ -67,9 +106,9 @@ class TestSCIMAPI(APILicensedTest):
         response = self.client.get(f"/scim/v2/{unconfigured.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_unverified_domain_is_rejected(self):
-        # SCIM can be enabled on a config independently of any domain, so an unverified domain with
-        # a SCIM-enabled config must still be rejected — provisioning stays gated behind verification.
+    def test_config_without_a_verified_domain_is_rejected(self):
+        # SCIM can be enabled on a config independently of any domain, so a config whose only domain
+        # is unverified must still be rejected — provisioning stays gated behind verification.
         token = generate_scim_token()
         plain_token = token.plain
         unverified = OrganizationDomain.objects.create(
@@ -276,11 +315,12 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         token = generate_scim_token()
         self.plain_token = token.plain
-        config = IdentityProviderConfig.objects.create(
+        self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = config
+        self.domain.identity_provider_config = self.config
         self.domain.save()
+        self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
 
@@ -301,7 +341,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         with self.assertRaises(ValueError, msg="does not match any verified domain"):
             PostHogSCIMUser.from_dict(
                 self._scim_user_data("alice@othercorp.com"),
-                self.domain,
+                self.config,
             )
 
         assert not OrganizationMembership.objects.filter(user=other_user, organization=self.organization).exists()
@@ -313,7 +353,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         scim_user = PostHogSCIMUser.from_dict(
             self._scim_user_data("bob@example.com"),
-            self.domain,
+            self.config,
         )
 
         assert scim_user.obj.email == "bob@example.com"
@@ -322,7 +362,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
     def test_from_dict_allows_creating_new_user_with_matching_domain(self):
         scim_user = PostHogSCIMUser.from_dict(
             self._scim_user_data("newuser@example.com"),
-            self.domain,
+            self.config,
         )
         assert scim_user.obj.email == "newuser@example.com"
 
@@ -335,7 +375,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         scim_user = PostHogSCIMUser.from_dict(
             self._scim_user_data("alice@partner.com"),
-            self.domain,
+            self.config,
         )
         assert scim_user.obj.email == "alice@partner.com"
 
@@ -349,7 +389,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         with self.assertRaises(ValueError, msg="does not match any verified domain"):
             PostHogSCIMUser.from_dict(
                 self._scim_user_data("alice@unverified.com"),
-                self.domain,
+                self.config,
             )
         assert not User.objects.filter(email="alice@unverified.com").exists()
 
@@ -357,7 +397,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         with self.assertRaises(ValueError, msg="does not match any verified domain"):
             PostHogSCIMUser.from_dict(
                 self._scim_user_data("newuser@evil.com"),
-                self.domain,
+                self.config,
             )
         assert not User.objects.filter(email="newuser@evil.com").exists()
 
@@ -445,7 +485,7 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
 
         SCIMProvisionedUser.objects.create(
             user=user,
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             username="victim@external.com",
             active=True,
         )
@@ -516,11 +556,12 @@ class TestSCIMAuditLogging(APILicensedTest):
 
         token = generate_scim_token()
         self.plain_token = token.plain
-        config = IdentityProviderConfig.objects.create(
+        self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = config
+        self.domain.identity_provider_config = self.config
         self.domain.save()
+        self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
 
@@ -591,7 +632,7 @@ class TestSCIMAuditLogging(APILicensedTest):
         assert log.user is None
         assert log.organization_id == self.organization.id
         assert log.detail is not None
-        assert log.detail.get("context", {}).get("organization_domain") == "example.com"
+        assert log.detail.get("context", {}).get("identity_provider_config_id") == str(self.config.id)
 
 
 class TestSCIMGroupAuditLogging(APILicensedTest):
@@ -613,11 +654,12 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
 
         token = generate_scim_token()
         self.plain_token = token.plain
-        config = IdentityProviderConfig.objects.create(
+        self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = config
+        self.domain.identity_provider_config = self.config
         self.domain.save()
+        self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
 
@@ -684,4 +726,4 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
         assert log.user is None
         assert log.organization_id == self.organization.id
         assert log.detail is not None
-        assert log.detail.get("context", {}).get("organization_domain") == "example.com"
+        assert log.detail.get("context", {}).get("identity_provider_config_id") == str(self.config.id)

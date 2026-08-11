@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRewindPlay } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -37,8 +37,9 @@ export const SummarizeSessionReplaysButton = ({
 
     const useSkill = featureFlags[FEATURE_FLAGS.EXPERIMENT_SESSION_REPLAYS_SKILL]
 
-    // When using MaxTool, openMax is null if the button shouldn't show
-    if (!useSkill && !openMax) {
+    // openMax is null when the tool isn't available (draft experiment or no results yet).
+    // Gate rendering on it for both click paths, so the skill path can't offer an unusable flow.
+    if (!openMax) {
         return null
     }
 
@@ -52,16 +53,16 @@ export const SummarizeSessionReplaysButton = ({
                 if (useSkill) {
                     // Open PostHog AI in a new tab with skill-based prompt
                     openPostHogAI(skillPrompt)
-                } else if (openMax) {
+                } else {
                     // Use legacy MaxTool approach
                     openMax()
                 }
             }}
             type="secondary"
-            icon={<IconRewindPlay />}
-            tooltip="Use AI to analyze session recordings and identify patterns in user behavior across experiment variants. Discover insights about how users interact with your variants."
+            icon={<IconSparkles />}
+            tooltip="Use AI to compare session recordings across variants and spot differences in user behavior."
         >
-            Summarize session recordings
+            Summarize recordings
             <LemonTag type="highlight" size="small" className="ml-1">
                 Beta
             </LemonTag>

@@ -9,6 +9,7 @@ import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { SessionPlayerState } from '~/types'
@@ -87,6 +88,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
+        const isUnauthorized = playerError === 'snapshotUnauthorized'
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
                 <IconWarning className="text-danger text-5xl" />
@@ -94,9 +96,16 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 <div className="text-secondary text-sm text-center">
                     {isMissingFullSnapshot
                         ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
-                        : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                        : isUnauthorized
+                          ? 'Your session has expired. Sign in again to keep watching this recording.'
+                          : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
-                {!isMissingFullSnapshot && (
+                {isUnauthorized && (
+                    <LemonButton to={urls.login()} type="primary" fullWidth center>
+                        Sign in
+                    </LemonButton>
+                )}
+                {!isMissingFullSnapshot && !isUnauthorized && (
                     <LemonButton
                         onClick={() => {
                             window.location.reload()

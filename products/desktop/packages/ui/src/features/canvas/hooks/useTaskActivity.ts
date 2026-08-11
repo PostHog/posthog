@@ -12,9 +12,9 @@ import { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 export { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 
 /**
- * Tasks the current user is involved in — created, @-mentioned in, or messaged
- * in — one row per task, newest activity first, from the backend task-activity
- * index. Mount once per surface (sidebar badge, Activity page) — results are
+ * Task lifecycle and comment activity for the current user, newest first. Task
+ * lifecycle rows collapse per task while comment notifications remain separate.
+ * Mount once per surface (sidebar badge, Activity page); results are
  * shared through the react-query cache.
  */
 export function useTaskActivity(options?: { enabled?: boolean }): {

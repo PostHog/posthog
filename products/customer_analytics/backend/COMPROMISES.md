@@ -47,32 +47,17 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 - **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
   teams get it after migrating to v2.
 
-## Account relationships — transitional JSON forward-sync
+## Account relationships — leftover JSON role keys in stored rows
 
-The relationship tables (`AccountRelationshipDefinition` + `AccountRelationship`) exist, but the
-legacy JSON role keys (`csm`, `account_executive`, `account_owner`) in `Account._properties` are
-still the **source of truth** for account roles. Every JSON role write forward-syncs into the
-table via `logic/relationships.sync_from_account_properties` (called from `create_account_for_view`,
-`update_account_for_view`, `_apply_external_role_assignments`, and the Max upsert tool), so the
-table shadows the JSON and accrues assignment history. Rules while the sync is alive:
-
-- **Nothing may write the relationship table directly** — the next JSON write reconciles direct
-  table writes away. That's why the facade deliberately exposes no assign/end functions yet.
-- The three seeded definitions are matched **by name** (`SEEDED_DEFINITIONS` maps JSON key →
-  definition name). Renaming a seeded definition silently unlinks it from its JSON key.
-- Definitions are not auto-created; on teams without them the sync is a silent no-op. They're
-  created ad-hoc (or by the future definitions UI).
-
-Cutover checklist — when done, the sync and this section are deleted:
-
-- [ ] Relationship read path in HogQL/query runner replaces the JSON `ExpressionField`s (PR 2)
-- [ ] Writers route through `logic/relationships.assign`/`end` instead of JSON keys, facade grows
-      assign/end functions (PR 3)
-- [ ] Ad-hoc backfill run per environment (create seeded definitions, sync existing accounts)
-- [ ] JSON readers migrated (Max context, usage-spike notifications, external API shape, CDP
-      "update account" template, Workflows result paths)
-- [ ] Delete `sync_from_account_properties` + call sites; strip the three role keys from
-      `AccountProperties`
+The relationship tables are the only source of truth for account roles; the JSON role keys
+(`csm`, `account_executive`, `account_owner`) are gone from `AccountProperties`.
+Stored `Account._properties` rows may still carry them until
+`manage.py backfill_account_relationships` has run in the environment
+(it assigns any not-yet-migrated JSON holders as relationships, then strips the keys).
+Until then `Account.properties` silently ignores unknown stored keys, and the raw keys remain
+visible through the HogQL `system.accounts.properties` JSON column.
+Delete this section (and the getter's key filter can revert to a plain `model_validate`)
+once the command has run everywhere.
 
 ## External account `custom_properties` payload
 
@@ -154,11 +139,10 @@ Cutover checklist — when done, the sync and this section are deleted:
 
 ## Tech debt
 
-- **Account property writes have no single choke point.** `Account._properties` is mutated from four
-  independent paths: `create_account_for_view` / `update_account_for_view` (via the manager),
-  `_apply_external_role_assignments` (raw `account.save`, bypassing the manager), and the Max tool's
-  `_create_account` / `_update_account`. Anything that must happen on every properties write — like the
-  transitional relationship forward-sync — has to be repeated per call site, and a new writer can
-  silently forget it. Funneling every properties write through `AccountManager` (and hooking
-  cross-cutting behavior there) is the fix if account properties grow more derived behavior; not done
-  now because the sync call sites are deleted at relationship cutover anyway.
+- **Account property writes have no single choke point.** `Account._properties` is mutated from
+  independent paths: `create_account_for_view` / `update_account_for_view` (via the manager)
+  and the Max tool's `_create_account` / `_update_account`.
+  Anything that must happen on every properties write has to be repeated per call site,
+  and a new writer can silently forget it.
+  Funneling every properties write through `AccountManager` (and hooking cross-cutting behavior
+  there) is the fix if account properties grow more derived behavior.

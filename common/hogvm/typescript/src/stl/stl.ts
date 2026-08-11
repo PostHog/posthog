@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { getNestedValue, like } from '../utils'
-import { md5, sha256, sha256HmacChain } from './crypto'
+import { md5, sha1, sha1HmacChain, sha256, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
     fromUnixTimestamp,
@@ -1120,6 +1120,20 @@ export const STL: Record<string, STLFunction> = {
         minArgs: 1,
         maxArgs: 2,
     },
+    sha1Hex: {
+        fn: ([str], _, options) => sha1(str, 'hex', options),
+        description: 'Computes SHA-1 hash of a string. Only for compatibility with vendors that use SHA-1',
+        example: 'sha1($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    sha1: {
+        fn: ([str, encoding], _, options) => sha1(str, encoding, options),
+        description: 'Computes SHA-1 hash of a string. Only for compatibility with vendors that use SHA-1',
+        example: 'sha1($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
+    },
     md5Hex: {
         fn: ([str], _, options) => md5(str, 'hex', options),
         description: 'Computes MD5 hash of a string',
@@ -1131,6 +1145,20 @@ export const STL: Record<string, STLFunction> = {
         fn: ([str, encoding], _, options) => md5(str, encoding, options),
         description: 'Computes MD5 hash of a string',
         example: 'md5($1, $2)',
+        minArgs: 1,
+        maxArgs: 2,
+    },
+    sha1HmacChainHex: {
+        fn: ([data], _, options) => sha1HmacChain(data, 'hex', options),
+        description: 'Computes SHA-1 HMAC chain hash. Two elements give a plain HMAC-SHA1 of key and message',
+        example: 'sha1HmacChainHex($1)',
+        minArgs: 1,
+        maxArgs: 1,
+    },
+    sha1HmacChain: {
+        fn: ([data, encoding], _, options) => sha1HmacChain(data, encoding, options),
+        description: 'Computes SHA-1 HMAC chain hash. Two elements give a plain HMAC-SHA1 of key and message',
+        example: 'sha1HmacChain($1, $2)',
         minArgs: 1,
         maxArgs: 2,
     },

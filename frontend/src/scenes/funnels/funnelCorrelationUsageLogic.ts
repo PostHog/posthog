@@ -33,6 +33,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { FunnelCorrelation, FunnelCorrelationType } from '../../types'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 import { funnelDataLogic } from './funnelDataLogic'
@@ -47,6 +48,7 @@ export interface funnelCorrelationUsageLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery

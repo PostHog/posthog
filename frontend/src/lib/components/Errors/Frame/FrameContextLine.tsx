@@ -16,21 +16,24 @@ export function FrameContextLine({
     highlight?: boolean
 }): JSX.Element {
     const sortedLines = useMemo(() => [...lines].sort((a, b) => a.number - b.number), [lines])
+    const backgroundClassName = highlight
+        ? 'bg-[var(--card)] shadow-[inset_0_0_0_9999px_color-mix(in_oklab,var(--destructive)_50%,transparent)]'
+        : 'bg-[var(--card)]'
+
     return (
-        <div
-            className={clsx(
-                'border-l-2',
-                highlight
-                    ? 'border-l-danger bg-[color-mix(in_oklab,var(--color-bg-fill-error-highlight)_50%,transparent)]'
-                    : 'border-l-transparent bg-surface-primary'
-            )}
-        >
+        <div className={backgroundClassName}>
             {sortedLines.map(({ number, line }) => (
                 <div key={number} className="flex">
-                    <div className="w-12 shrink-0 pr-3 text-right text-secondary tabular-nums select-none">
+                    <div
+                        className={clsx(
+                            'sticky left-0 z-10 w-16 shrink-0 border-l-2 pr-5 text-right text-muted-foreground tabular-nums select-none',
+                            highlight ? 'border-l-[var(--destructive-foreground)]' : 'border-l-[var(--card)]',
+                            backgroundClassName
+                        )}
+                    >
                         {number}
                     </div>
-                    <CodeLine text={line} wrapLines={true} language={language} />
+                    <CodeLine text={line} wrapLines={false} language={language} />
                 </div>
             ))}
         </div>

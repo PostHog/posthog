@@ -445,6 +445,10 @@ describe('getUsageLimitConsequence', () => {
         expect(getUsageLimitConsequence('PostHog AI')).toEqual('PostHog AI will be unavailable')
     })
 
+    it('should return specific message for Inbox', () => {
+        expect(getUsageLimitConsequence('Inbox')).toEqual('Inbox agents will be paused')
+    })
+
     it('should return generic message for other products', () => {
         expect(getUsageLimitConsequence('Session replay')).toEqual('data loss may occur')
         expect(getUsageLimitConsequence('Product analytics')).toEqual('data loss may occur')
@@ -486,6 +490,14 @@ describe('buildUsageLimitExceededMessage', () => {
         expect(result.title).toEqual('Usage limit exceeded')
         expect(result.message).toEqual(
             'You have exceeded the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
+        )
+    })
+
+    it('should build message for Inbox with specific consequence', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'Inbox', subscribed: true }])
+        expect(result.title).toEqual('Usage limit exceeded')
+        expect(result.message).toEqual(
+            'You have exceeded the usage limit for Inbox. Please increase your billing limit or Inbox agents will be paused.'
         )
     })
 

@@ -12,6 +12,7 @@ export const parseRepository = (
 
 export function getTaskRepository(task: {
   repository?: string | null;
+  repositories?: string[];
 }): string | null {
-  return task.repository ?? null;
+  return task.repositories?.[0] ?? task.repository ?? null;
 }

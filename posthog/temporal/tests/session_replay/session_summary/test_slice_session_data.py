@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -8,7 +9,11 @@ from temporalio.testing import ActivityEnvironment
 from posthog.temporal.session_replay.session_summary.activities.video_based.a3_slice_session_data_for_segments import (
     slice_session_data_for_segments_activity,
 )
-from posthog.temporal.session_replay.session_summary.state import StateActivitiesEnum, generate_state_key
+from posthog.temporal.session_replay.session_summary.state import (
+    RedisStateContext,
+    StateActivitiesEnum,
+    generate_state_key,
+)
 from posthog.temporal.session_replay.session_summary.types.video import (
     SegmentLlmContext,
     VideoSegmentSpec,
@@ -93,7 +98,9 @@ async def test_slice_writes_one_redis_key_per_segment_with_filtered_events():
         patch(
             "posthog.temporal.session_replay.session_summary.activities.video_based."
             "a3_slice_session_data_for_segments.get_redis_state_client",
-            return_value=(AsyncMock(), "test-base:session_db_data:sess-1", None),
+            return_value=RedisStateContext(
+                client=cast(Any, AsyncMock()), input_key="test-base:session_db_data:sess-1", output_key=None
+            ),
         ),
         patch(
             "posthog.temporal.session_replay.session_summary.activities.video_based."
@@ -150,7 +157,9 @@ async def test_slice_reduces_url_and_window_maps_to_keys_present_in_slice():
         patch(
             "posthog.temporal.session_replay.session_summary.activities.video_based."
             "a3_slice_session_data_for_segments.get_redis_state_client",
-            return_value=(AsyncMock(), "test-base:session_db_data:sess-1", None),
+            return_value=RedisStateContext(
+                client=cast(Any, AsyncMock()), input_key="test-base:session_db_data:sess-1", output_key=None
+            ),
         ),
         patch(
             "posthog.temporal.session_replay.session_summary.activities.video_based."

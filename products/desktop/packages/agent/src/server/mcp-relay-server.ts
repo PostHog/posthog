@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { type ServerType, serve } from "@hono/node-server";
+import type { McpServerConnection } from "@posthog/shared";
 import { Hono } from "hono";
 import type { Logger } from "../utils/logger";
-import type { RemoteMcpServer } from "./schemas";
 
 export const DEFAULT_RELAY_TIMEOUT_MS = 60_000;
 /** Request payloads above this are rejected before any event is emitted. */
@@ -103,7 +103,7 @@ export class McpRelayServer {
   }
 
   /** Session mcpServers entries for the relay endpoints. Call after start(). */
-  get mcpServers(): RemoteMcpServer[] {
+  get mcpServers(): McpServerConnection[] {
     if (this.port === null) return [];
     return [...this.serverNames].map((name) => ({
       type: "http" as const,

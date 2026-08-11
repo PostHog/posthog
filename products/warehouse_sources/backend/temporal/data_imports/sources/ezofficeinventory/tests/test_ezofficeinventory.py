@@ -1,16 +1,30 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
+    EndpointResource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    JSONResponsePaginator,
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.ezofficeinventory import (
     EZOfficeInventoryResumeConfig,
+    _rest_config,
     ezofficeinventory_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.ezofficeinventory.settings import (
+    EZOFFICEINVENTORY_API_VERSION_V1,
+    EZOFFICEINVENTORY_API_VERSION_V2,
+    endpoints_for_version,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -62,7 +76,7 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-def _source(endpoint: str, manager: mock.MagicMock):
+def _source(endpoint: str, manager: mock.MagicMock, api_version: str = EZOFFICEINVENTORY_API_VERSION_V1):
     return ezofficeinventory_source(
         api_key="tok",
         subdomain="acme",
@@ -70,6 +84,7 @@ def _source(endpoint: str, manager: mock.MagicMock):
         team_id=1,
         job_id="job",
         resumable_source_manager=manager,
+        api_version=api_version,
     )
 
 
@@ -226,7 +241,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize("bad_subdomain", ["", "has space", "bad/slash", "a.b", "http://x"])
     def test_rejects_unsafe_subdomain_without_network(self, bad_subdomain: str) -> None:
         with mock.patch(EZO_SESSION_PATCH) as mocked:
-            assert validate_credentials("tok", bad_subdomain) == (False, None)
+            assert validate_credentials("tok", bad_subdomain, EZOFFICEINVENTORY_API_VERSION_V1) == (False, None)
             mocked.assert_not_called()
 
     @pytest.mark.parametrize(
@@ -237,14 +252,43 @@ class TestValidateCredentials:
         session = mock.MagicMock()
         session.get.return_value = _response({}, status_code=status_code)
         with mock.patch(EZO_SESSION_PATCH, return_value=session):
-            is_valid, _ = validate_credentials("tok", "acme")
+            is_valid, _ = validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
             assert is_valid is expected
+
+    @pytest.mark.parametrize(
+        ("api_version", "expected_url", "expected_header"),
+        [
+            (
+                EZOFFICEINVENTORY_API_VERSION_V1,
+                "https://acme.ezofficeinventory.com/assets.api?page=1",
+                ("token", "tok"),
+            ),
+            (
+                EZOFFICEINVENTORY_API_VERSION_V2,
+                "https://acme.ezofficeinventory.com/api/v2/assets",
+                ("Authorization", "Bearer tok"),
+            ),
+        ],
+    )
+    def test_probes_versioned_path_and_auth(
+        self, api_version: str, expected_url: str, expected_header: tuple[str, str]
+    ) -> None:
+        # A passing probe must exercise the same base path and auth scheme the sync will use for
+        # that version — otherwise the probe validates a path the pinned sync never calls.
+        session = mock.MagicMock()
+        session.get.return_value = _response({}, status_code=200)
+        with mock.patch(EZO_SESSION_PATCH, return_value=session):
+            is_valid, _ = validate_credentials("tok", "acme", api_version)
+        assert is_valid is True
+        assert session.get.call_args.args[0] == expected_url
+        header_name, header_value = expected_header
+        assert session.get.call_args.kwargs["headers"][header_name] == header_value
 
     def test_rate_limit_returns_specific_message(self) -> None:
         session = mock.MagicMock()
         session.get.return_value = _response({}, status_code=429)
         with mock.patch(EZO_SESSION_PATCH, return_value=session):
-            is_valid, error = validate_credentials("tok", "acme")
+            is_valid, error = validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
             assert is_valid is False
             assert error is not None
             assert "rate limit" in error.lower()
@@ -253,7 +297,7 @@ class TestValidateCredentials:
         session = mock.MagicMock()
         session.get.return_value = _response({}, status_code=200)
         with mock.patch(EZO_SESSION_PATCH, return_value=session) as mocked:
-            validate_credentials("tok", "acme")
+            validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1)
             assert mocked.call_args.kwargs["allow_redirects"] is False
             # Single-shot validation handles status codes itself; urllib3 retries stay off.
             assert mocked.call_args.kwargs["retry"].total == 0
@@ -262,4 +306,84 @@ class TestValidateCredentials:
         session = mock.MagicMock()
         session.get.side_effect = Exception("boom")
         with mock.patch(EZO_SESSION_PATCH, return_value=session):
-            assert validate_credentials("tok", "acme") == (False, None)
+            assert validate_credentials("tok", "acme", EZOFFICEINVENTORY_API_VERSION_V1) == (False, None)
+
+
+class TestVersionedRequestConfig:
+    @pytest.mark.parametrize(
+        ("api_version", "expected_path", "expected_auth", "paginator_cls"),
+        [
+            (
+                EZOFFICEINVENTORY_API_VERSION_V1,
+                "assets.api",
+                {"type": "api_key", "api_key": "tok", "name": "token", "location": "header"},
+                PageNumberPaginator,
+            ),
+            (
+                EZOFFICEINVENTORY_API_VERSION_V2,
+                "api/v2/assets",
+                {"type": "bearer", "token": "tok"},
+                JSONResponsePaginator,
+            ),
+        ],
+    )
+    def test_builds_versioned_client(
+        self, api_version: str, expected_path: str, expected_auth: dict, paginator_cls: type
+    ) -> None:
+        config = endpoints_for_version(api_version)["assets"]
+        rest_config = _rest_config("acme", "tok", config, api_version)
+
+        resource = cast(EndpointResource, rest_config["resources"][0])
+        endpoint = cast(Endpoint, resource["endpoint"])
+        assert endpoint["path"] == expected_path
+        assert rest_config["client"]["auth"] == expected_auth
+        assert isinstance(endpoint["paginator"], paginator_cls)
+        # The host pin and redirect lock-down must hold on every version.
+        assert rest_config["client"]["allowed_hosts"] == []
+        assert rest_config["client"]["allow_redirects"] is False
+
+
+class TestV2Pagination:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_follows_metadata_next_page_and_saves_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_url = "https://acme.ezofficeinventory.com/api/v2/assets?page=2"
+        _wire(
+            session,
+            [
+                _response({"assets": [{"identifier": 1}], "metadata": {"next_page": next_url}}),
+                _response({"assets": [{"identifier": 2}], "metadata": {"next_page": None}}),
+            ],
+        )
+
+        manager = _make_manager()
+        rows = _rows(_source("assets", manager, api_version=EZOFFICEINVENTORY_API_VERSION_V2))
+
+        assert rows == [{"identifier": 1}, {"identifier": 2}]
+        assert session.send.call_count == 2
+        # Checkpoint carries the next-page URL, not a page number — the v2 resume shape.
+        manager.save_state.assert_called_once_with(EZOfficeInventoryResumeConfig(next_url=next_url))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_saved_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_url = "https://acme.ezofficeinventory.com/api/v2/assets?page=2"
+        _wire(session, [_response({"assets": [{"identifier": 2}], "metadata": {"next_page": None}})])
+
+        manager = _make_manager(EZOfficeInventoryResumeConfig(next_url=next_url))
+        rows = _rows(_source("assets", manager, api_version=EZOFFICEINVENTORY_API_VERSION_V2))
+
+        assert rows == [{"identifier": 2}]
+        # One request only: the saved cursor is the starting point, not page 1 followed by it.
+        assert session.send.call_count == 1
+        manager.save_state.assert_not_called()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_uses_renamed_v2_selector(self, MockSession) -> None:
+        # v2 renamed the inventory list key from `volatile_assets` to `inventory`; a wrong selector
+        # would silently yield zero rows.
+        session = MockSession.return_value
+        _wire(session, [_response({"inventory": [{"identifier": 7}], "metadata": {"next_page": None}})])
+
+        rows = _rows(_source("inventories", _make_manager(), api_version=EZOFFICEINVENTORY_API_VERSION_V2))
+        assert rows == [{"identifier": 7}]

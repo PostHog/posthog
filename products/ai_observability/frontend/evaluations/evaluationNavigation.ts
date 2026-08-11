@@ -10,7 +10,13 @@ export interface EvaluationBackTarget {
 }
 
 function searchParamsWithoutEvaluationSource(searchParams: Record<string, any>): Record<string, any> {
-    const { returnTo: _returnTo, template: _template, type: _type, ...remainingSearchParams } = searchParams
+    const {
+        evaluation_tab: _evaluationTab,
+        returnTo: _returnTo,
+        template: _template,
+        type: _type,
+        ...remainingSearchParams
+    } = searchParams
     return remainingSearchParams
 }
 

@@ -432,6 +432,11 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
             id="lockfile-present-hard-denies-instead",
         ),
         pytest.param(
+            ["pnpm-workspace.yaml"],
+            ["pnpm-workspace.yaml"],
+            id="pnpm-workspace-manifest-flagged",
+        ),
+        pytest.param(
             ["common/esbuilder/tsconfig.json"],
             ["common/esbuilder/tsconfig.json"],
             id="tsconfig-flagged",

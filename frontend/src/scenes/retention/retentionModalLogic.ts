@@ -34,6 +34,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
@@ -46,6 +47,7 @@ export interface retentionModalLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -102,6 +104,7 @@ export interface retentionModalLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -115,6 +118,7 @@ export interface retentionModalLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery

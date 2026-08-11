@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from unittest.mock import MagicMock
 
@@ -8,6 +10,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.session_summary.activities.video_based.a7c_store_video_session_summary import (
     store_video_session_summary_activity,
 )
+from posthog.temporal.session_replay.session_summary.state import RedisStateContext
 from posthog.temporal.session_replay.session_summary.types.video import (
     ConsolidatedVideoAnalysis,
     ConsolidatedVideoSegment,
@@ -113,7 +116,7 @@ async def test_store_video_session_summary_activity_emits_summary_ready_event(
 
     mocker.patch(
         "posthog.temporal.session_replay.session_summary.activities.video_based.a7c_store_video_session_summary.get_redis_state_client",
-        return_value=(None, "input-key", None),
+        return_value=RedisStateContext(client=cast(Any, None), input_key="input-key", output_key=None),
     )
     mocker.patch(
         "posthog.temporal.session_replay.session_summary.activities.video_based.a7c_store_video_session_summary.get_data_class_from_redis",

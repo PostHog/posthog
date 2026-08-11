@@ -61,7 +61,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         comments = Comment.objects.filter(item_id=str(self.ticket.id)).order_by("created_at")
         assert comments.count() == 2
@@ -81,7 +81,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         client.conversations_replies.assert_called_once_with(channel=CHANNEL, ts=PARENT_TS, limit=200)
 
@@ -102,7 +102,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         comments = Comment.objects.filter(item_id=str(self.ticket.id))
         assert comments.count() == 1
@@ -124,7 +124,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         comments = Comment.objects.filter(item_id=str(self.ticket.id))
         assert comments.count() == 1
@@ -141,7 +141,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         comments = Comment.objects.filter(item_id=str(self.ticket.id))
         assert comments.count() == 1
@@ -158,7 +158,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         comments = Comment.objects.filter(item_id=str(self.ticket.id))
         assert comments.count() == 1
@@ -178,7 +178,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         comments = Comment.objects.filter(item_id=str(self.ticket.id))
         assert comments.count() == 1
@@ -197,10 +197,12 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         assert mock_user.call_count == 2
-        mock_user.assert_has_calls([call(client, "U_SAME"), call(client, "U_OTHER")], any_order=True)
+        mock_user.assert_has_calls(
+            [call(client, "U_SAME", workspace="T123"), call(client, "U_OTHER", workspace="T123")], any_order=True
+        )
 
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.resolve_slack_user", return_value={"name": "Alice", "email": None, "avatar": None})
@@ -214,7 +216,9 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, after_ts="1700000000.000300")
+        _backfill_thread_replies(
+            client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123", after_ts="1700000000.000300"
+        )
 
         comments = Comment.objects.filter(item_id=str(self.ticket.id)).order_by("created_at")
         assert comments.count() == 1
@@ -224,7 +228,7 @@ class TestBackfillThreadReplies(BaseTest):
         replies = [_make_slack_reply(PARENT_TS, text="parent")]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         assert Comment.objects.filter(item_id=str(self.ticket.id)).count() == 0
         self.ticket.refresh_from_db()
@@ -233,7 +237,7 @@ class TestBackfillThreadReplies(BaseTest):
     def test_no_op_when_api_returns_empty_messages(self):
         client = self._mock_client([])
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         assert Comment.objects.filter(item_id=str(self.ticket.id)).count() == 0
         self.ticket.refresh_from_db()
@@ -243,7 +247,7 @@ class TestBackfillThreadReplies(BaseTest):
         client = MagicMock()
         client.conversations_replies.side_effect = Exception("Slack API error")
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         assert Comment.objects.filter(item_id=str(self.ticket.id)).count() == 0
         self.ticket.refresh_from_db()
@@ -259,7 +263,7 @@ class TestBackfillThreadReplies(BaseTest):
         ]
         client = self._mock_client(replies)
 
-        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS)
+        _backfill_thread_replies(client, self.team, self.ticket, CHANNEL, PARENT_TS, slack_team_id="T123")
 
         comment = Comment.objects.get(item_id=str(self.ticket.id))
         assert comment.item_context == {
@@ -307,7 +311,13 @@ class TestHandleSupportReactionBackfill(BaseTest):
         assert mock_create.call_args.kwargs["is_thread_reply"] is False
         assert mock_create.call_args.kwargs["thread_ts"] == PARENT_TS
         mock_backfill.assert_called_once_with(
-            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=PARENT_TS
+            client,
+            self.team,
+            mock_create.return_value,
+            CHANNEL,
+            PARENT_TS,
+            slack_team_id=SLACK_TEAM,
+            after_ts=PARENT_TS,
         )
 
     @patch(f"{MODULE}._backfill_thread_replies")
@@ -334,7 +344,7 @@ class TestHandleSupportReactionBackfill(BaseTest):
         assert mock_create.call_args.kwargs["slack_user_id"] == "U_CUSTOMER"
         # Backfill only replies posted after the reacted message.
         mock_backfill.assert_called_once_with(
-            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=reply_ts
+            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, slack_team_id=SLACK_TEAM, after_ts=reply_ts
         )
         # We must never fetch via conversations.history (it can't see thread replies).
         client.conversations_history.assert_not_called()
@@ -362,7 +372,7 @@ class TestHandleSupportReactionBackfill(BaseTest):
         assert mock_create.call_args.kwargs["thread_ts"] == PARENT_TS
         assert mock_create.call_args.kwargs["text"] == "screenshots"
         mock_backfill.assert_called_once_with(
-            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=reply_ts
+            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, slack_team_id=SLACK_TEAM, after_ts=reply_ts
         )
 
     @patch(f"{MODULE}._backfill_thread_replies")
@@ -382,7 +392,13 @@ class TestHandleSupportReactionBackfill(BaseTest):
         )
         assert mock_create.call_args.kwargs["thread_ts"] == PARENT_TS
         mock_backfill.assert_called_once_with(
-            client, self.team, mock_create.return_value, CHANNEL, PARENT_TS, after_ts=PARENT_TS
+            client,
+            self.team,
+            mock_create.return_value,
+            CHANNEL,
+            PARENT_TS,
+            slack_team_id=SLACK_TEAM,
+            after_ts=PARENT_TS,
         )
 
     @patch(f"{MODULE}._backfill_thread_replies")
@@ -556,7 +572,9 @@ class TestSlackTicketCreateLockDedup(BaseTest):
         for _ in range(2):
             ticket = create_or_update_slack_ticket(**kwargs)
             if ticket:
-                _backfill_thread_replies(client, self.team, ticket, CHANNEL, PARENT_TS, after_ts=PARENT_TS)
+                _backfill_thread_replies(
+                    client, self.team, ticket, CHANNEL, PARENT_TS, slack_team_id="T123", after_ts=PARENT_TS
+                )
 
         tickets = Ticket.objects.filter(team=self.team, slack_channel_id=CHANNEL, slack_thread_ts=PARENT_TS)
         assert tickets.count() == 1

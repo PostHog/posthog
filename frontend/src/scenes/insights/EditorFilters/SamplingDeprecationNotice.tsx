@@ -11,10 +11,10 @@ interface SamplingDeprecationNoticeProps {
 }
 
 export function SamplingDeprecationNotice({ insightProps }: SamplingDeprecationNoticeProps): JSX.Element | null {
-    const { querySource } = useValues(insightVizDataLogic(insightProps))
+    const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
-    const hasSampling = querySource?.samplingFactor != null && querySource.samplingFactor < 1
+    const hasSampling = samplingFactor != null && samplingFactor < 1
 
     if (!hasSampling) {
         return null
@@ -23,8 +23,8 @@ export function SamplingDeprecationNotice({ insightProps }: SamplingDeprecationN
     return (
         <LemonBanner type="warning">
             <span>
-                This insight currently uses {(querySource.samplingFactor! * 100).toFixed(0)}% sampling. Sampling is
-                being deprecated and will be removed in a future release.{' '}
+                This insight currently uses {(samplingFactor * 100).toFixed(0)}% sampling. Sampling is being deprecated
+                and will be removed in a future release.{' '}
                 <button
                     className="text-link font-semibold"
                     onClick={() => {

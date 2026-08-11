@@ -176,7 +176,7 @@ class TestBakeDevStackImage:
                 patch("products.tasks.backend.temporal.client.execute_bake_dev_stack_image_workflow") as dispatch_mock,
             ):
                 assert refresh_dev_stack_image_if_base_changed(publish_name) is True
-            dispatch_mock.assert_called_once_with(publish_name)
+            dispatch_mock.assert_called_once_with(publish_name, trigger="base_changed")
 
     def test_publish_gives_up_after_exhausting_snapshot_attempts(self):
         fake_cls = _make_fake_sandbox_cls(exit_code=0, publish_failures=PUBLISH_SNAPSHOT_MAX_ATTEMPTS)
@@ -212,7 +212,7 @@ class TestRefreshDevStackImageIfBaseChanged:
 
         dispatched, dispatch_mock = self._refresh(publish_name)
         assert dispatched is True
-        dispatch_mock.assert_called_once_with(publish_name)
+        dispatch_mock.assert_called_once_with(publish_name, trigger="base_changed")
 
         dispatched, dispatch_mock = self._refresh(publish_name)
         assert dispatched is False
@@ -248,10 +248,10 @@ class TestRefreshDevStackImageIfBaseChanged:
             with pytest.raises(RuntimeError):
                 refresh_dev_stack_image_if_base_changed(publish_name)
 
-        observe_mock.assert_called_once_with("dispatch_failed")
+        observe_mock.assert_called_once_with("dispatch_failed", trigger="base_changed")
         dispatched, dispatch_mock = self._refresh(publish_name)
         assert dispatched is True
-        dispatch_mock.assert_called_once_with(publish_name)
+        dispatch_mock.assert_called_once_with(publish_name, trigger="base_changed")
 
 
 class TestBakeDevStackImageTask:
@@ -271,4 +271,4 @@ class TestBakeDevStackImageTask:
             with pytest.raises(RuntimeError):
                 bake_dev_stack_image_task()
 
-        observe_mock.assert_called_once_with("dispatch_failed")
+        observe_mock.assert_called_once_with("dispatch_failed", trigger="nightly")

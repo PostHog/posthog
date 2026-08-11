@@ -1644,7 +1644,7 @@ Background calculation can be tracked using the `query_status` response field.""
             ),
             OpenApiParameter(
                 name="insight",
-                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
+                enum=["TRENDS", "FUNNELS", "RETENTION", "PATHS", "JOURNEYS", "STICKINESS", "LIFECYCLE", "JSON", "SQL"],
                 description="Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries.",
             ),
             OpenApiParameter(
@@ -2079,6 +2079,7 @@ class InsightViewSet(
                     "FUNNELS": schema.NodeKind.FUNNELS_QUERY,
                     "RETENTION": schema.NodeKind.RETENTION_QUERY,
                     "PATHS": schema.NodeKind.PATHS_QUERY,
+                    "JOURNEYS": schema.NodeKind.PATHS_V2_QUERY,
                     "STICKINESS": schema.NodeKind.STICKINESS_QUERY,
                     "LIFECYCLE": schema.NodeKind.LIFECYCLE_QUERY,
                 }

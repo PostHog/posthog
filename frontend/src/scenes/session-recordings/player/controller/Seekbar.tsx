@@ -11,6 +11,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { ObservationSeekbarMarks } from 'products/replay_vision/frontend/components/ObservationSeekbarMarks'
+
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { playerSettingsLogic } from '../playerSettingsLogic'
@@ -136,6 +138,7 @@ export function Seekbar(): JSX.Element {
                         endTimeMs={endTimeMs}
                         onSeekToSegment={seekToTime}
                     />
+                    <ObservationSeekbarMarks endTimeMs={endTimeMs} onSeek={seekToTime} />
                     {hasLateFullSnapshot && endTimeMs > 0 ? (
                         <Tooltip
                             title={`The first ${humanFriendlyDuration(leadingUnplayableMs / 1000, {

@@ -14,7 +14,7 @@ import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
 import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
-import { isValidOrderBy, issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
+import { isValidOrderBy, isValidStatus, issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
 
 // Static instruction rendered into the trusted context block — never interpolate user or ingested data.
 const ISSUES_QUERY_TOOL_CONTEXT_ITEM: AttachedContextItem = {
@@ -100,7 +100,7 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
         if (update.orderDirection) {
             setOrderDirection(update.orderDirection)
         }
-        if (update.status) {
+        if (update.status && isValidStatus(update.status)) {
             setStatus(update.status)
         }
         if (update.searchQuery) {
@@ -129,7 +129,7 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
     const applyIssuesListQuery = (input: Record<string, any>): void => {
         setOrderBy(input.orderBy || 'occurrences')
         setOrderDirection(input.orderDirection === 'ASC' ? 'ASC' : 'DESC')
-        setStatus(input.status || 'active')
+        setStatus(isValidStatus(input.status) ? input.status : 'active')
         setAssignee(input.assignee ?? null)
         setDateRange(input.dateRange ?? { date_from: '-7d', date_to: null })
         setFilterTestAccounts(input.filterTestAccounts === undefined ? true : !!input.filterTestAccounts)

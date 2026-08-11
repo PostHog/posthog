@@ -7,13 +7,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import botocore.exceptions
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import NonReportableError
+
 from products.warehouse_sources.backend.temporal.data_imports import util as util_module
 from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
     _is_transient_s3_connection_error,
     prepare_s3_files_for_querying,
 )
 
 _UTIL_MODULE = "products.warehouse_sources.backend.temporal.data_imports.util"
+
+
+def test_non_retryable_exception_is_non_reportable_error():
+    # Every NonRetryableException raise site (handle_non_retryable_error, custom-source config
+    # errors, CDC failure classification) already vetted the error as a known customer/upstream
+    # condition before raising it. Subclassing NonReportableError is what keeps that already-known
+    # condition out of error tracking; without it, the activity interceptor reports a fresh
+    # "bug" for every occurrence of an error a source already classified as non-retryable.
+    assert issubclass(NonRetryableException, NonReportableError)
 
 
 def _fake_s3(**kwargs):
@@ -150,6 +162,24 @@ class TestPrepareS3FilesForQuerying:
                     file_uris=["s3://bucket/job/my_table/part-0.parquet"],
                     delete_existing=False,
                 )
+
+    async def test_tolerates_job_folder_missing_on_first_materialization(self):
+        # A brand new table/model has no prior content in S3, so listing the job folder to
+        # find old timestamped query folders to clean up raises FileNotFoundError (s3fs's
+        # `_ls` behavior for a prefix with zero objects under it). That's an expected first-run
+        # state, not a failure - regresses the crash this caused on first materialization.
+        s3 = _fake_s3(_ls=AsyncMock(side_effect=FileNotFoundError("job")))
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                delete_existing=True,
+                use_timestamped_folders=True,
+            )
+
+        s3._cp_file.assert_awaited_once()
 
 
 @parameterized.expand(

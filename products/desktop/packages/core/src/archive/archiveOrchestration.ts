@@ -37,6 +37,8 @@ export interface ArchiveOrchestrationDeps {
   getFocusedWorktreePath(): string | null | undefined;
   disableFocus(): Promise<void>;
   stopCloudRun(taskId: string, runId?: string): Promise<boolean>;
+  /** Answer nothing and close every prompt the task's session is holding. */
+  cancelPendingPermissions(taskId: string): Promise<void>;
   disconnectFromTask(taskId: string): Promise<void>;
   archive(taskId: string): Promise<void>;
   clearViewedState(taskId: string): void;
@@ -112,6 +114,11 @@ export async function archiveTask(
   }
 
   try {
+    // Before disconnecting, while the agent is still reachable. A prompt left
+    // open outlives the archive: it is re-derived from the run log on the next
+    // bootstrap, so the task comes back asking a question from a list it has
+    // been removed from, with nothing anywhere pointing at it.
+    await deps.cancelPendingPermissions(taskId);
     await deps.disconnectFromTask(taskId);
     await deps.archive(taskId);
     deps.clearTerminalStates(taskId);

@@ -1,3 +1,4 @@
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import type { PermissionRequest } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
@@ -8,6 +9,7 @@ import {
   isPermissionRejection,
   permissionOptionUsesCustomInput,
   planPermissionResponse,
+  resolveAllowAlwaysUpgradeMode,
   resolveInitialPlanApprovalOption,
   selectPlanPermissionOptions,
 } from "./permissionResponse";
@@ -99,6 +101,22 @@ describe("planPermissionResponse", () => {
     );
     const plan = planPermissionResponse(permission, "allow");
     expect(plan.applyAllowAlwaysUpgrade).toBe(false);
+  });
+
+  it("keeps auto mode when always allowing a tool", () => {
+    const modeOption: SessionConfigOption = {
+      id: "mode",
+      name: "Mode",
+      type: "select",
+      category: "mode",
+      currentValue: "auto",
+      options: [
+        { value: "acceptEdits", name: "Accept edits" },
+        { value: "auto", name: "Auto" },
+      ],
+    };
+
+    expect(resolveAllowAlwaysUpgradeMode(modeOption)).toBeUndefined();
   });
 
   it("responds with custom input for the other option", () => {

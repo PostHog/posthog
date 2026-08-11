@@ -54,6 +54,9 @@ class StopSlackAgentDesignStreamInput:
     complete_task_details: Optional[str] = None
     # Streamed as markdown_text chunks below the plan block right before stopStream.
     final_markdown: Optional[str] = None
+    # Sources the provenance footer. Optional so a relay started before this field
+    # existed replays cleanly — it just closes without one.
+    run_id: Optional[str] = None
 
 
 @activity.defn
@@ -99,11 +102,17 @@ def append_slack_agent_design_steps(input: AppendSlackAgentDesignStepsInput) -> 
 @close_db_connections
 def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> None:
     """Mark the last step complete, stream the final answer, append @-mention, close."""
+    from products.slack_app.backend.services.slack_messages import load_run_footer
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
-        SlackThreadHandler(context).stop_status_stream(
+        handler = SlackThreadHandler(context)
+        # Describing the run costs a query and a flag call, so only do it for a
+        # workspace that will actually be shown the result.
+        if handler.footer_enabled():
+            handler.run_footer = load_run_footer(input.run_id)
+        handler.stop_status_stream(
             ts=input.ts,
             complete_task_id=input.complete_task_id,
             complete_task_title=input.complete_task_title,

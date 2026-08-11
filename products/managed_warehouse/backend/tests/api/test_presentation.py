@@ -492,6 +492,21 @@ def test_cp_bucket_for_returns_none_when_cp_has_no_bucket(mock_request: MagicMoc
     assert managed_warehouse.cp_bucket_for(org.id) is None
 
 
+def test_teams_response_attaches_the_org_naming_policy_to_each_row() -> None:
+    response = Response(
+        {
+            "teams": [{"team_id": 1}, {"team_id": 2}],
+            "data_imports_table_naming_version": "copy_v1",
+        },
+        status=200,
+    )
+
+    assert managed_warehouse._teams_from_response(response) == [
+        {"team_id": 1, "data_imports_table_naming_version": "copy_v1"},
+        {"team_id": 2, "data_imports_table_naming_version": "copy_v1"},
+    ]
+
+
 @pytest.mark.django_db
 @patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
 @patch("products.managed_warehouse.backend.presentation.views._request")

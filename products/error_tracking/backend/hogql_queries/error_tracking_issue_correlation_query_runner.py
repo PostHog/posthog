@@ -20,6 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.issue_serializers import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
@@ -32,7 +33,9 @@ class VolumeOptions:
     resolution: int
 
 
-class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner[ErrorTrackingIssueCorrelationQueryResponse]):
+class ErrorTrackingIssueCorrelationQueryRunner(
+    ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingIssueCorrelationQueryResponse]
+):
     query: ErrorTrackingIssueCorrelationQuery
     cached_response: CachedErrorTrackingIssueCorrelationQueryResponse
     paginator: HogQLHasMorePaginator

@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.temporal.ai_observability.eval_reports.delivery import (
+    CitationMap,
     _build_citation_map,
     _format_period_for_display,
     _inline_email_styles,
@@ -24,7 +25,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 
 
-def _generation_citation_map(generation_id: str, trace_id: str) -> dict[str, tuple[str, str | None]]:
+def _generation_citation_map(generation_id: str, trace_id: str) -> CitationMap:
     return _build_citation_map([Citation(generation_id=generation_id, trace_id=trace_id, reason="example")])
 
 
@@ -103,6 +104,15 @@ class TestLinkifyCitations(SimpleTestCase):
                 Citation(generation_id="", trace_id="trace/id ?#", reason="example"),
                 "trace/id ?#",
                 "/traces/trace%252Fid%2520%253F%2523",
+                False,
+            ),
+            # A session citation may name a trace inside it, but the reader wants the session:
+            # that is the unit that was evaluated and what the finding is about.
+            (
+                "session",
+                Citation(session_id="session/id ?#", trace_id="trace-inside", reason="example"),
+                "session/id ?#",
+                "/sessions/session%2Fid%20%3F%23",
                 False,
             ),
         ]

@@ -1,5 +1,11 @@
 export const EMPTY_JSON = '{\n  \n}'
 
+export type JSONValue = Record<string, unknown> | unknown[] | string | number | boolean | null
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /**
  * Coerce a string to a valid JSON object or null.
  * @param maybeJson - The string to coerce
@@ -10,10 +16,9 @@ export function coerceJsonToObject(maybeJson: string | null): Record<string, unk
         return null
     }
     try {
-        const parsedObject = JSON.parse(maybeJson)
-        // Regular object or null
-        if (typeof parsedObject === 'object' && Object.keys(parsedObject).length > 0) {
-            return parsedObject as Record<string, unknown>
+        const parsedObject: unknown = JSON.parse(maybeJson)
+        if (isJsonObject(parsedObject) && Object.keys(parsedObject).length > 0) {
+            return parsedObject
         }
         return null
     } catch {
@@ -31,14 +36,43 @@ export function isStringJsonObject(maybeJson: string | null): boolean {
         return true
     }
     try {
-        const parsedObject = JSON.parse(maybeJson)
-        if (typeof parsedObject !== 'object' || parsedObject === null) {
-            return false
-        }
+        return isJsonObject(JSON.parse(maybeJson))
     } catch {
         return false
     }
-    return true
+}
+
+export function isStringJsonValue(maybeJson: string | null, allowNull: boolean = true): boolean {
+    if (!maybeJson) {
+        return allowNull
+    }
+    try {
+        const parsedValue = JSON.parse(maybeJson)
+        return allowNull || parsedValue !== null
+    } catch {
+        return false
+    }
+}
+
+export function parseJsonValue(maybeJson: string | null): JSONValue {
+    return maybeJson ? (JSON.parse(maybeJson) as JSONValue) : null
+}
+
+export function parseJsonObject(maybeJson: string | null): Record<string, unknown> {
+    const parsedObject: unknown = maybeJson ? JSON.parse(maybeJson) : {}
+    if (!isJsonObject(parsedObject)) {
+        throw new TypeError('Expected a JSON object')
+    }
+    return parsedObject
+}
+
+export function normalizeJsonValue(value: unknown, fallback: JSONValue): JSONValue {
+    try {
+        const serializedValue = JSON.stringify(value)
+        return serializedValue === undefined ? fallback : (JSON.parse(serializedValue) as JSONValue)
+    } catch {
+        return fallback
+    }
 }
 
 /**
@@ -46,10 +80,14 @@ export function isStringJsonObject(maybeJson: string | null): boolean {
  * @param json - The JSON object to convert
  * @returns The stringified JSON object or null
  */
-export function prettifyJson(json?: Record<string, unknown> | null): string | null {
-    let stringified = json ? JSON.stringify(json, null, 2) : null
+export function prettifyJson(json?: unknown): string | null {
+    if (json === undefined || json === null) {
+        return null
+    }
+
+    let stringified = JSON.stringify(json, null, 2)
     if (stringified === '{}') {
         stringified = EMPTY_JSON
     }
-    return stringified
+    return stringified ?? null
 }

@@ -26,6 +26,7 @@ from posthog.temporal.session_replay.session_summary.state import (
 from posthog.temporal.session_replay.session_summary.types.inputs import SingleSessionProgress
 from posthog.temporal.session_replay.session_summary.workflow import (
     SUMMARY_RESULT_NO_EVENTS,
+    PreparedSingleSessionExecution,
     _execute_single_session_summary_workflow,
     _set_phase,
     _start_video_summary_workflow,
@@ -291,7 +292,13 @@ class TestExecuteSummarizeSessionVideoStream:
             patch.object(SingleSessionSummary.objects, "get_summary", get_summary_mock),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -370,7 +377,13 @@ class TestExecuteSummarizeSessionVideoStream:
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -438,7 +451,13 @@ class TestExecuteSummarizeSessionVideoStream:
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -481,7 +500,13 @@ class TestExecuteSummarizeSessionVideoStream:
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -524,7 +549,13 @@ class TestExecuteSummarizeSessionVideoStream:
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -617,7 +648,13 @@ class TestExecuteSummarizeSessionVideoStream:
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(side_effect=[None, completed_summary])),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -674,7 +711,13 @@ class TestExecuteSummarizeSessionVideoStream:
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -735,7 +778,13 @@ class TestExecuteSummarizeSessionVideoStream:
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -804,7 +853,13 @@ class TestExecuteSummarizeSessionVideoStream:
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -856,7 +911,13 @@ class TestExecuteSummarizeSessionVideoStream:
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -900,7 +961,13 @@ class TestExecuteSummarizeSessionVideoStream:
             patch.object(SingleSessionSummary.objects, "get_summary", MagicMock(return_value=None)),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",
@@ -1065,7 +1132,13 @@ class TestVideoStreamCapEndToEnd:
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._prepare_execution",
-                return_value=(None, None, None, MagicMock(), "workflow-id"),
+                return_value=PreparedSingleSessionExecution(
+                    redis_client=MagicMock(),
+                    redis_input_key="",
+                    redis_output_key="",
+                    session_input=MagicMock(),
+                    workflow_id="workflow-id",
+                ),
             ),
             patch(
                 "posthog.temporal.session_replay.session_summary.workflow._start_video_summary_workflow",

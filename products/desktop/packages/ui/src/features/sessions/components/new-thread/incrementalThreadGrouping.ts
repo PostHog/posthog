@@ -4,11 +4,9 @@ import {
   isGroupableItem,
   type ThreadGrouping,
 } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import type { CollapseMode } from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
 
 interface Cache {
   items: ConversationItem[];
-  mode: CollapseMode;
   overrides: Record<string, boolean>;
   grouping: ThreadGrouping;
   stablePrefixItemCount: number;
@@ -25,13 +23,11 @@ export function createIncrementalThreadGrouper() {
 
   const rebuildAll = (
     items: ConversationItem[],
-    mode: CollapseMode,
     overrides: Record<string, boolean>,
   ): ThreadGrouping => {
-    const grouping = buildThreadGroups(items, mode, overrides);
+    const grouping = buildThreadGroups(items, overrides);
     cache = {
       items,
-      mode,
       overrides,
       grouping,
       stablePrefixItemCount: findStablePrefixItemCount(items),
@@ -41,11 +37,10 @@ export function createIncrementalThreadGrouper() {
 
   const update = (
     items: ConversationItem[],
-    mode: CollapseMode,
     overrides: Record<string, boolean>,
   ): ThreadGrouping => {
-    if (!cache || cache.mode !== mode || cache.overrides !== overrides) {
-      return rebuildAll(items, mode, overrides);
+    if (!cache || cache.overrides !== overrides) {
+      return rebuildAll(items, overrides);
     }
 
     if (cache.items === items) {
@@ -66,7 +61,7 @@ export function createIncrementalThreadGrouper() {
       rebuildStart > 0 &&
       cache.items[rebuildStart - 1] !== items[rebuildStart - 1]
     ) {
-      return rebuildAll(items, mode, overrides);
+      return rebuildAll(items, overrides);
     }
 
     const prefixRowCount = getPrefixRowCount(
@@ -76,7 +71,6 @@ export function createIncrementalThreadGrouper() {
     );
     const suffixGrouping = buildThreadGroups(
       items.slice(rebuildStart),
-      mode,
       overrides,
     );
 
@@ -101,7 +95,7 @@ export function createIncrementalThreadGrouper() {
     }
 
     const grouping = { rows, keepMounted, idToRowIndex };
-    cache = { items, mode, overrides, grouping, stablePrefixItemCount };
+    cache = { items, overrides, grouping, stablePrefixItemCount };
     return grouping;
   };
 

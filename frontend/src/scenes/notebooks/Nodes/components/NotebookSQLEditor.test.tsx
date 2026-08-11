@@ -10,10 +10,12 @@ jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
 }))
 
 import { act, render, waitFor } from '@testing-library/react'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -26,6 +28,7 @@ import {
     getNotebookSqlEditorOutputTab,
     getSqlEditorSourceQuery,
     hasAlreadyRunSqlEditorSourceQuery,
+    useNotebookCodeSQLEditorSync,
     useNotebookSQLOutputTabSync,
 } from './NotebookSQLEditor'
 
@@ -45,6 +48,65 @@ function OutputTabSyncHarness({
         },
         tabId,
         updateAttributes,
+    })
+
+    return null
+}
+
+// Stands in for sqlEditorLogic: the code sync reads `queryInput` plus the connection selectors,
+// and the connection selector's only contract with it is `setSourceQuery`. The two selectors
+// mirror the real ones so the stub can't quietly diverge on the raw-mode rule.
+const stubSqlEditorLogic = kea<any>([
+    path(['test', 'stubSqlEditorLogic']),
+    props({} as { tabId: string }),
+    key((logicProps: { tabId: string }) => logicProps.tabId),
+    actions({
+        initialize: true,
+        setQueryInput: (...args: any[]) => ({ queryInput: args[0] as string | null }),
+        setSourceQuery: (...args: any[]) => ({ sourceQuery: args[0] as DataVisualizationNode }),
+    }),
+    reducers({
+        queryInput: [null as string | null, { setQueryInput: (_: any, { queryInput }: any) => queryInput }],
+        sourceQuery: [
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: '' },
+                display: ChartDisplayType.ActionsTable,
+            } as DataVisualizationNode,
+            { setSourceQuery: (_: any, { sourceQuery }: any) => sourceQuery },
+        ],
+    }),
+    selectors({
+        selectedConnectionId: [
+            (s: any) => [s.sourceQuery],
+            (sourceQuery: DataVisualizationNode) => sourceQuery.source.connectionId,
+        ],
+        sendRawQueryEnabled: [
+            (s: any) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined) =>
+                !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
+        ],
+    }),
+])
+
+function CodeSyncHarness({
+    code,
+    connectionId,
+    sendRawQuery,
+    tabId,
+    updateAttributes,
+}: {
+    code: string
+    connectionId?: string | null
+    sendRawQuery?: boolean | null
+    tabId: string
+    updateAttributes: jest.Mock
+}): JSX.Element | null {
+    useNotebookCodeSQLEditorSync({
+        attributes: { nodeId: 'node-1', code, connectionId, sendRawQuery },
+        tabId,
+        updateAttributes,
+        persistConnection: true,
     })
 
     return null
@@ -197,5 +259,51 @@ describe('NotebookSQLEditor', () => {
         expect(sourceQuery).not.toBeNull()
         expect(lastRunQuery).not.toBeNull()
         expect(hasAlreadyRunSqlEditorSourceQuery(sourceQuery!, lastRunQuery)).toBe(false)
+    })
+
+    it('keeps the selected connection while the code cell is edited', async () => {
+        // The bug: every keystroke rebuilt the source query from scratch, dropping the connection
+        // the user had picked — so the selector snapped back to PostHog mid-typing.
+        initKeaTests()
+        const tabId = 'notebook-sql-connection-keystroke'
+        const logic = stubSqlEditorLogic({ tabId })
+        ;(sqlEditorLogic as unknown as jest.Mock).mockImplementation(() => logic)
+        const updateAttributes = jest.fn()
+
+        render(
+            <CodeSyncHarness code="select 1" connectionId="conn-1" tabId={tabId} updateAttributes={updateAttributes} />
+        )
+        await waitFor(() => expect(logic.values.sourceQuery.source.connectionId).toBe('conn-1'))
+
+        act(() => {
+            logic.actions.setQueryInput('select 2')
+        })
+
+        await waitFor(() => expect(updateAttributes).toHaveBeenCalledWith({ code: 'select 2' }))
+        expect(logic.values.sourceQuery.source.connectionId).toBe('conn-1')
+    })
+
+    it('persists a newly picked connection onto the cell', async () => {
+        // The connection selector writes straight into sqlEditorLogic, so without this the choice
+        // would never reach the run request or survive a reload.
+        initKeaTests()
+        const tabId = 'notebook-sql-connection-persist'
+        const logic = stubSqlEditorLogic({ tabId })
+        ;(sqlEditorLogic as unknown as jest.Mock).mockImplementation(() => logic)
+        const updateAttributes = jest.fn()
+
+        render(<CodeSyncHarness code="select 1" tabId={tabId} updateAttributes={updateAttributes} />)
+        await waitFor(() => expect(logic.values.queryInput).toBe('select 1'))
+
+        act(() => {
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, connectionId: 'conn-1', sendRawQuery: true },
+            })
+        })
+
+        await waitFor(() =>
+            expect(updateAttributes).toHaveBeenCalledWith({ connectionId: 'conn-1', sendRawQuery: true })
+        )
     })
 })

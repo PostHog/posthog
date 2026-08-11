@@ -79,6 +79,7 @@ export function MCPAnalyticsInstallHero(): JSX.Element {
                             size="md"
                             decoration="rainbow"
                             className="bg-bg-light border border-border hover:border-primary"
+                            condensed
                         />
                         <p className="text-xs text-muted mb-0">
                             {currentTeam?.name ? (

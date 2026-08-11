@@ -32,3 +32,7 @@ export const SurveysCreate: Story = {
 export const InsightsCreate: Story = {
     args: { surfaceKey: 'insights.create', forceDisplay: true },
 }
+
+export const AIObservabilityEvaluationsCreate: Story = {
+    args: { surfaceKey: 'ai_observability_evaluations.create', forceDisplay: true },
+}

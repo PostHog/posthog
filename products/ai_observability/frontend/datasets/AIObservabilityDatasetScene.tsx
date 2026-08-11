@@ -3,10 +3,22 @@ import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTab, LemonTabs, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { IconArchive, IconDownload, IconPlusSmall } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonTab,
+    LemonTabs,
+    LemonTag,
+    Link,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -17,7 +29,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { createdAtColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
+import { isObject } from 'lib/utils/guards'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -39,10 +52,18 @@ import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Dataset, DatasetItem } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { truncateValue } from '../utils'
-import { DatasetLogicProps, DatasetTab, isDataset, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
+import {
+    DATASET_ITEM_VERSIONS_PER_PAGE,
+    DatasetLogicProps,
+    DatasetTab,
+    isDataset,
+    aiObservabilityDatasetLogic,
+} from './aiObservabilityDatasetLogic'
+import { getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { DatasetItemModal } from './DatasetItemModal'
 import { EditDatasetForm } from './EditDatasetForm'
 import { JSONColumn } from './JSONColumn'
@@ -69,30 +90,74 @@ export function AIObservabilityDatasetScene(): JSX.Element {
         isNewDataset,
         datasetForm,
         dataset,
-        isDeletingDataset,
+        isArchivingDataset,
+        canEditDataset,
+        canManageDataset,
+        isHistoricalRevision,
+        filters,
+        datasetExportLoading,
+        datasetLoadError,
     } = useValues(aiObservabilityDatasetLogic)
     const {
         submitDatasetForm,
         loadDataset,
         editDataset,
-        deleteDataset,
+        archiveDataset,
+        restoreDataset,
+        exportDataset,
         setDatasetFormValue,
-        triggerDatasetItemModal,
         onUnmount,
     } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
-    const displayEditForm = isNewDataset || isEditingDataset
+    const displayEditForm = isNewDataset || (isEditingDataset && canEditDataset)
+    const canChangeDatasetStatus = canManageDataset && !isHistoricalRevision
+    const archiveOrRestoreDataset = (): void => {
+        if (!canChangeDatasetStatus) {
+            return
+        }
+        if (isDataset(dataset) && dataset.archived) {
+            restoreDataset()
+            return
+        }
+        LemonDialog.open({
+            title: 'Archive dataset?',
+            description: 'This removes it from the active datasets list.',
+            primaryButton: {
+                children: 'Archive',
+                type: 'primary',
+                status: 'danger',
+                'data-attr': 'confirm-archive-dataset',
+                onClick: archiveDataset,
+            },
+            secondaryButton: {
+                children: 'Close',
+                type: 'secondary',
+            },
+        })
+    }
 
     // TRICKY: Scene logic is not unmounted. Workaround.
-    useEffect(() => {
-        return () => onUnmount()
-    }, [onUnmount])
+    useEffect(() => () => onUnmount(), [onUnmount])
 
     if (isDatasetMissing) {
         return <NotFound object="dataset" />
+    }
+
+    if (datasetLoadError?.status === 403) {
+        return <AccessDenied object="dataset" />
+    }
+
+    if (datasetLoadError && !isDataset(dataset)) {
+        return (
+            <SceneContent>
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDataset }}>
+                    {datasetLoadError.detail || "Couldn't load this dataset. Try again."}
+                </LemonBanner>
+            </SceneContent>
+        )
     }
 
     if (shouldDisplaySkeleton) {
@@ -109,82 +174,53 @@ export function AIObservabilityDatasetScene(): JSX.Element {
     return (
         <Form id="dataset-form" formKey="datasetForm" logic={aiObservabilityDatasetLogic}>
             <SceneContent>
+                {datasetLoadError && (
+                    <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDataset }}>
+                        {datasetLoadError.detail || "Couldn't refresh this dataset. Try again."}
+                    </LemonBanner>
+                )}
                 <SceneTitleSection
                     name={datasetForm.name}
                     resourceType={{ type: 'llm_analytics' }}
                     isLoading={datasetLoading}
                     actions={
-                        <>
-                            {!shouldDisplaySkeleton ? (
-                                displayEditForm ? (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            data-attr="cancel-dataset"
-                                            onClick={() => {
-                                                if (isEditingDataset) {
-                                                    editDataset(false)
-                                                    loadDataset()
-                                                } else {
-                                                    router.actions.push(
-                                                        combineUrl(urls.aiObservabilityDatasets(), searchParams).url
-                                                    )
-                                                }
-                                            }}
-                                            disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
-                                            size="small"
-                                        >
-                                            Cancel
-                                        </LemonButton>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.LlmAnalytics}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                        >
-                                            <LemonButton
-                                                type="primary"
-                                                data-attr="save-dataset"
-                                                onClick={submitDatasetForm}
-                                                loading={isDatasetFormSubmitting}
-                                                size="small"
-                                            >
-                                                {isNewDataset ? 'Create dataset' : 'Save'}
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    </>
-                                ) : (
-                                    <>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.LlmAnalytics}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                        >
-                                            <LemonButton
-                                                type="secondary"
-                                                onClick={() => editDataset(true)}
-                                                loading={false}
-                                                data-attr="edit-dataset"
-                                                size="small"
-                                            >
-                                                Edit
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.LlmAnalytics}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                        >
-                                            <LemonButton
-                                                type="primary"
-                                                onClick={() => triggerDatasetItemModal(true)}
-                                                data-attr="add-dataset-item"
-                                                icon={<IconPlusSmall />}
-                                                size="small"
-                                            >
-                                                Add item
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    </>
-                                )
-                            ) : undefined}
-                        </>
+                        !shouldDisplaySkeleton && displayEditForm ? (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    data-attr="cancel-dataset"
+                                    onClick={() => {
+                                        if (isEditingDataset) {
+                                            editDataset(false)
+                                            loadDataset()
+                                        } else {
+                                            router.actions.push(getDatasetListUrl(searchParams))
+                                        }
+                                    }}
+                                    disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
+                                    size="small"
+                                >
+                                    Cancel
+                                </LemonButton>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={
+                                        isDataset(dataset) ? toAccessControlLevel(dataset.user_access_level) : undefined
+                                    }
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-dataset"
+                                        onClick={submitDatasetForm}
+                                        loading={isDatasetFormSubmitting}
+                                        size="small"
+                                    >
+                                        {isNewDataset ? 'Create dataset' : 'Save'}
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </>
+                        ) : undefined
                     }
                 />
 
@@ -193,39 +229,30 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                         <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
                             <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
                             <SceneMenuBarSeparator />
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
+                            <SceneMenuBarItem
+                                disabled={datasetExportLoading}
+                                onClick={() => exportDataset(filters.revision ?? undefined)}
+                                data-attr={`${RESOURCE_TYPE}-menubar-export`}
                             >
-                                {({ disabledReason }) => (
+                                <IconDownload />
+                                Export
+                            </SceneMenuBarItem>
+                            {canChangeDatasetStatus && (
+                                <>
+                                    <SceneMenuBarSeparator />
                                     <SceneMenuBarItem
-                                        variant="destructive"
-                                        opensFloatingUi
-                                        disabled={!!disabledReason || datasetLoading || isDeletingDataset}
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Permanently delete dataset?',
-                                                description: 'This action cannot be undone.',
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    type: 'primary',
-                                                    status: 'danger',
-                                                    'data-attr': 'confirm-delete-dataset',
-                                                    onClick: deleteDataset,
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Close',
-                                                    type: 'secondary',
-                                                },
-                                            })
-                                        }}
-                                        data-attr={`${RESOURCE_TYPE}-menubar-delete`}
+                                        variant={dataset.archived ? undefined : 'destructive'}
+                                        disabled={datasetLoading || isArchivingDataset}
+                                        onClick={archiveOrRestoreDataset}
+                                        data-attr={`${RESOURCE_TYPE}-menubar-${
+                                            dataset.archived ? 'unarchive' : 'archive'
+                                        }`}
                                     >
-                                        <IconTrash />
-                                        Delete
+                                        <IconArchive />
+                                        {dataset.archived ? 'Unarchive' : 'Archive'}
                                     </SceneMenuBarItem>
-                                )}
-                            </AccessControlAction>
+                                </>
+                            )}
                         </SceneMenuBarMenu>
                     </SceneMenuBar>
                 )}
@@ -240,11 +267,8 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                     submitDatasetForm()
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
-                                isLoading={datasetLoading}
-                                canEdit={userHasAccess(
-                                    AccessControlResourceType.LlmAnalytics,
-                                    AccessControlLevel.Editor
-                                )}
+                                isLoading={datasetLoading || isDatasetFormSubmitting}
+                                canEdit={canEditDataset}
                             />
                             <SceneTextarea
                                 name="description"
@@ -255,50 +279,28 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                                 }}
                                 dataAttrKey={RESOURCE_TYPE}
                                 optional
-                                isLoading={datasetLoading}
-                                canEdit={userHasAccess(
-                                    AccessControlResourceType.LlmAnalytics,
-                                    AccessControlLevel.Editor
-                                )}
+                                isLoading={datasetLoading || isDatasetFormSubmitting}
+                                canEdit={canEditDataset}
                             />
                         </ScenePanelInfoSection>
                         <ScenePanelDivider />
                         <ScenePanelActionsSection>
                             <ScenePanelDivider />
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
+                            {canChangeDatasetStatus && (
                                 <ButtonPrimitive
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Permanently delete dataset?',
-                                            description: 'This action cannot be undone.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                type: 'primary',
-                                                status: 'danger',
-                                                'data-attr': 'confirm-delete-dataset',
-                                                onClick: deleteDataset,
-                                            },
-                                            secondaryButton: {
-                                                children: 'Close',
-                                                type: 'secondary',
-                                            },
-                                        })
-                                    }}
-                                    variant="danger"
+                                    onClick={archiveOrRestoreDataset}
+                                    variant={dataset.archived ? undefined : 'danger'}
                                     menuItem
-                                    data-attr={`${RESOURCE_TYPE}-delete`}
+                                    data-attr={`${RESOURCE_TYPE}-${dataset.archived ? 'unarchive' : 'archive'}`}
                                     disabledReasons={{
                                         'Dataset is loading': datasetLoading,
-                                        'Dataset is being deleted': isDeletingDataset,
+                                        'Dataset status is changing': isArchivingDataset,
                                     }}
                                 >
-                                    <IconTrash />
-                                    Delete
+                                    <IconArchive />
+                                    {dataset.archived ? 'Unarchive' : 'Archive'}
                                 </ButtonPrimitive>
-                            </AccessControlAction>
+                            )}
                         </ScenePanelActionsSection>
                     </ScenePanel>
                 )}
@@ -310,9 +312,46 @@ export function AIObservabilityDatasetScene(): JSX.Element {
 }
 
 function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
-    const { activeTab, isDatasetItemModalOpen, selectedDatasetItem } = useValues(aiObservabilityDatasetLogic)
-    const { closeModalAndRefetchDatasetItems } = useActions(aiObservabilityDatasetLogic)
+    const {
+        activeTab,
+        isDatasetItemModalOpen,
+        selectedDatasetItem,
+        selectedDatasetItemLoadError,
+        selectedDatasetItemDetailsLoading,
+        selectedDatasetItemVersions,
+        datasetItemVersionsLoading,
+        datasetItemVersionsLoadError,
+        datasetItemVersionsPage,
+        restoringDatasetItemVersion,
+        archivingDatasetItemId,
+        canEditDataset,
+        canManageDataset,
+        isHistoricalRevision,
+        filters,
+        datasetExportLoading,
+        datasetExportLoadError,
+    } = useValues(aiObservabilityDatasetLogic)
+    const {
+        closeModalAndRefetchDatasetItems,
+        loadDatasetItemDetails,
+        restoreDatasetItem,
+        restoreDatasetItemVersion,
+        loadDatasetItemVersions,
+        setFilters,
+        exportDataset,
+        editDataset,
+    } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
+    const selectedItemReadOnly = !canEditDataset || !!selectedDatasetItem?.archived
+    const selectedItemReadOnlyReason = isHistoricalRevision
+        ? `You're viewing revision ${filters.revision}. Select Latest to edit items.`
+        : dataset.archived
+          ? 'This dataset is archived. Unarchive it to edit items.'
+          : selectedDatasetItem?.archived
+            ? 'This item is archived. Unarchive it to edit.'
+            : !canManageDataset
+              ? 'You have view-only access to this dataset.'
+              : undefined
 
     const tabs: LemonTab<DatasetTab>[] = [
         {
@@ -332,8 +371,49 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
 
     return (
         <>
-            <div>
+            <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <LemonTag type={dataset.archived ? 'muted' : 'success'}>
+                            {dataset.archived ? 'Archived' : 'Active'}
+                        </LemonTag>
+                        {isHistoricalRevision && <LemonTag type="default">Revision {filters.revision}</LemonTag>}
+                    </div>
+                    {canEditDataset && (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => editDataset(true)}
+                            data-attr="edit-dataset"
+                            size="small"
+                        >
+                            Edit
+                        </LemonButton>
+                    )}
+                </div>
                 <p className="m-0">{dataset.description || <span className="italic">Description (optional)</span>}</p>
+                {isHistoricalRevision && (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'View latest',
+                            onClick: () => setFilters({ revision: null, page: 1 }, false),
+                        }}
+                    >
+                        This is a read-only snapshot of the dataset.
+                    </LemonBanner>
+                )}
+                {datasetExportLoadError && (
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => exportDataset(filters.revision ?? undefined),
+                            loading: datasetExportLoading,
+                        }}
+                    >
+                        {datasetExportLoadError.detail || "Couldn't add the dataset to exports. Try again."}
+                    </LemonBanner>
+                )}
             </div>
 
             <LemonTabs activeKey={activeTab} data-attr="dataset-tabs" tabs={tabs} />
@@ -344,15 +424,82 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
                 partialDatasetItem={selectedDatasetItem}
                 datasetId={dataset.id}
                 displayBulkCreationButton
+                readOnly={selectedItemReadOnly}
+                readOnlyReason={selectedItemReadOnlyReason}
+                loading={selectedDatasetItemDetailsLoading}
+                loadError={selectedDatasetItemLoadError}
+                versions={selectedDatasetItemVersions.results}
+                versionsLoading={datasetItemVersionsLoading}
+                versionsLoadError={datasetItemVersionsLoadError}
+                versionsCount={selectedDatasetItemVersions.count}
+                versionsPage={datasetItemVersionsPage}
+                versionsPageSize={DATASET_ITEM_VERSIONS_PER_PAGE}
+                canRestoreVersions={canEditDataset && !selectedDatasetItem?.archived}
+                restoringVersion={restoringDatasetItemVersion}
+                onRestoreVersion={restoreDatasetItemVersion}
+                onVersionsPageChange={
+                    selectedDatasetItem
+                        ? (page) => loadDatasetItemVersions({ itemId: selectedDatasetItem.id, page })
+                        : undefined
+                }
+                onRetryVersions={
+                    selectedDatasetItem
+                        ? () =>
+                              loadDatasetItemVersions({
+                                  itemId: selectedDatasetItem.id,
+                                  page: datasetItemVersionsPage,
+                              })
+                        : undefined
+                }
+                onRetry={
+                    searchParams.item
+                        ? () =>
+                              loadDatasetItemDetails({
+                                  itemId: String(searchParams.item),
+                                  revision: filters.revision ?? undefined,
+                              })
+                        : undefined
+                }
+                onUnarchive={
+                    selectedDatasetItem?.archived && canManageDataset && !dataset.archived && !isHistoricalRevision
+                        ? () => restoreDatasetItem(selectedDatasetItem.id, selectedDatasetItem.version)
+                        : undefined
+                }
+                unarchiving={archivingDatasetItemId === selectedDatasetItem?.id}
             />
         </>
     )
 }
 
 function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
-    const { datasetItems, datasetItemsLoading, pagination } = useValues(aiObservabilityDatasetLogic)
-    const { deleteDatasetItem, loadDatasetItems } = useActions(aiObservabilityDatasetLogic)
+    const {
+        archivingDatasetItemId,
+        datasetItems,
+        datasetItemsLoading,
+        datasetItemsLoadError,
+        datasetRevisionsLoading,
+        datasetRevisionsLoadError,
+        pagination,
+        filters,
+        revisionOptions,
+        canEditDataset,
+        canManageDataset,
+        isHistoricalRevision,
+        isArchivingDataset,
+        datasetExportLoading,
+    } = useValues(aiObservabilityDatasetLogic)
+    const {
+        archiveDatasetItem,
+        restoreDatasetItem,
+        loadDatasetItems,
+        loadDatasetRevisions,
+        setFilters,
+        restoreDataset,
+        exportDataset,
+        triggerDatasetItemModal,
+    } = useActions(aiObservabilityDatasetLogic)
     const { searchParams } = useValues(router)
+    const canChangeDatasetStatus = canManageDataset && !isHistoricalRevision
 
     const columns: LemonTableColumns<DatasetItem> = [
         {
@@ -370,22 +517,22 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
         },
         {
             title: 'Trace',
-            dataIndex: 'ref_trace_id',
-            key: 'ref_trace_id',
+            dataIndex: 'source_trace_id',
+            key: 'source_trace_id',
             width: '10%',
-            render: function renderRefTraceId(_, item) {
-                if (!item.ref_trace_id || !item.ref_source_id || !item.ref_timestamp) {
-                    return <span>—</span>
+            render: function renderSourceTraceId(_, item) {
+                if (!item.source_trace_id || !item.source_timestamp) {
+                    return <span>-</span>
                 }
 
                 return (
                     <Link
-                        to={urls.aiObservabilityTrace(item.ref_trace_id, {
-                            event: item.ref_source_id,
-                            timestamp: item.ref_timestamp,
+                        to={urls.aiObservabilityTrace(item.source_trace_id, {
+                            event: item.source_event_id ?? undefined,
+                            timestamp: item.source_timestamp,
                         })}
                     >
-                        {truncateValue(item.ref_trace_id)}
+                        {truncateValue(item.source_trace_id)}
                     </Link>
                 )
             },
@@ -394,18 +541,27 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
             title: 'Input',
             dataIndex: 'input',
             key: 'input',
-            width: '30%',
+            width: '20%',
             render: function renderInput(_, item) {
                 return <JSONColumn>{item.input}</JSONColumn>
             },
         },
         {
-            title: 'Output',
-            dataIndex: 'output',
-            key: 'output',
-            width: '30%',
-            render: function renderOutput(_, item) {
-                return <JSONColumn>{item.output}</JSONColumn>
+            title: 'Expected output',
+            dataIndex: 'expected_output',
+            key: 'expected_output',
+            width: '20%',
+            render: function renderExpectedOutput(_, item) {
+                return <JSONColumn>{item.expected_output}</JSONColumn>
+            },
+        },
+        {
+            title: 'Source output',
+            dataIndex: 'source_output',
+            key: 'source_output',
+            width: '20%',
+            render: function renderSourceOutput(_, item) {
+                return <JSONColumn>{item.source_output}</JSONColumn>
             },
         },
         {
@@ -424,8 +580,19 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
                     </div>
+                )
+            },
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            render: function renderStatus(_, item) {
+                return (
+                    <LemonTag type={item.archived ? 'muted' : 'success'}>
+                        {item.archived ? 'Archived' : 'Active'}
+                    </LemonTag>
                 )
             },
         },
@@ -443,22 +610,31 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                                     data-attr={`dataset-item-${item.id}-dropdown-edit`}
                                     fullWidth
                                 >
-                                    Edit
+                                    {canEditDataset && !item.archived ? 'Edit' : 'View'}
                                 </LemonButton>
 
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.LlmAnalytics}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
+                                {canManageDataset && !dataset.archived && !isHistoricalRevision && (
                                     <LemonButton
-                                        status="danger"
-                                        onClick={() => deleteDatasetItem(item.id)}
-                                        data-attr={`dataset-item-${item.id}-dropdown-delete`}
+                                        status={item.archived ? undefined : 'danger'}
+                                        onClick={() =>
+                                            item.archived
+                                                ? restoreDatasetItem(item.id, item.version)
+                                                : archiveDatasetItem(item.id, item.version)
+                                        }
+                                        loading={archivingDatasetItemId === item.id}
+                                        disabledReason={
+                                            archivingDatasetItemId && archivingDatasetItemId !== item.id
+                                                ? 'Another dataset item is being archived'
+                                                : undefined
+                                        }
+                                        data-attr={`dataset-item-${item.id}-dropdown-${
+                                            item.archived ? 'unarchive' : 'archive'
+                                        }`}
                                         fullWidth
                                     >
-                                        Delete
+                                        {item.archived ? 'Unarchive' : 'Archive'}
                                     </LemonButton>
-                                </AccessControlAction>
+                                )}
                             </>
                         }
                     />
@@ -469,14 +645,82 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
 
     return (
         <>
-            <div className="flex justify-between items-center">
-                <RefreshButton
-                    onClick={() => {
-                        loadDatasetItems(true)
-                    }}
-                    isRefreshing={datasetItemsLoading}
-                />
+            <div className="flex justify-between items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <LemonSegmentedButton
+                        value={filters.archived ? 'archived' : 'active'}
+                        onChange={(value) => setFilters({ archived: value === 'archived', page: 1 }, false)}
+                        options={[
+                            { value: 'active', label: 'Active' },
+                            { value: 'archived', label: 'Archived' },
+                        ]}
+                        size="small"
+                        data-attr="dataset-items-status-filter"
+                    />
+                    <LemonSelect
+                        value={filters.revision === null ? 'latest' : String(filters.revision)}
+                        onChange={(value) =>
+                            setFilters({ revision: value === 'latest' ? null : Number(value), page: 1 }, false)
+                        }
+                        options={revisionOptions}
+                        loading={datasetRevisionsLoading}
+                        size="small"
+                        data-attr="dataset-revision-select"
+                    />
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <RefreshButton
+                        onClick={() => {
+                            loadDatasetItems(true)
+                        }}
+                        isRefreshing={datasetItemsLoading}
+                    />
+                    <LemonButton
+                        type="secondary"
+                        onClick={() => exportDataset(filters.revision ?? undefined)}
+                        loading={datasetExportLoading}
+                        data-attr="export-dataset"
+                        icon={<IconDownload />}
+                        size="small"
+                    >
+                        Export
+                    </LemonButton>
+                    {canEditDataset && (
+                        <LemonButton
+                            type="primary"
+                            onClick={() => triggerDatasetItemModal(true)}
+                            data-attr="add-dataset-item"
+                            icon={<IconPlusSmall />}
+                            size="small"
+                        >
+                            Add item
+                        </LemonButton>
+                    )}
+                    {dataset.archived && canChangeDatasetStatus && (
+                        <LemonButton
+                            type="primary"
+                            onClick={restoreDataset}
+                            loading={isArchivingDataset}
+                            data-attr="unarchive-dataset"
+                            size="small"
+                        >
+                            Unarchive
+                        </LemonButton>
+                    )}
+                </div>
             </div>
+
+            {datasetItemsLoadError && (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadDatasetItems(false) }}>
+                    {datasetItemsLoadError.detail || "Couldn't load dataset items. Try again."}
+                </LemonBanner>
+            )}
+
+            {datasetRevisionsLoadError && (
+                <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDatasetRevisions }}>
+                    {datasetRevisionsLoadError.detail || "Couldn't load dataset revisions. Try again."}
+                </LemonBanner>
+            )}
 
             <LemonDivider className="my-4" />
 
@@ -498,7 +742,7 @@ function DatasetMetadata({ dataset }: { dataset: Dataset }): JSX.Element {
         <div className="flex flex-col gap-4 max-w-160">
             <div className="flex flex-col gap-2">
                 <h3 className="text-sm font-semibold m-0">Metadata</h3>
-                {dataset.metadata ? (
+                {isObject(dataset.metadata) ? (
                     <div className="bg-bg-light p-4 rounded border overflow-x-auto">
                         <HighlightedJSONViewer src={dataset.metadata} />
                     </div>

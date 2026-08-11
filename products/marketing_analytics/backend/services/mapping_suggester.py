@@ -5,28 +5,47 @@ Reuses `attribution_health`'s alias-token suggestions (canonical + team-custom) 
 catalogue for the LLM to interpret.
 """
 
+import asyncio
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from django.utils import timezone
+
 import structlog
 
-from posthog.schema import NativeMarketingSource
+from posthog.schema import DateRange, NativeMarketingSource
 
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.marketing_analytics.backend.services.attribution_health import UnmatchedUtmSample, get_attribution_health
+from products.marketing_analytics.backend.services.attribution_health import (
+    AttributionHealthResponse,
+    UnmatchedUtmSample,
+    get_attribution_health,
+)
+from products.marketing_analytics.backend.services.campaign_mapping_suggester import (
+    CampaignMappingSuggestions,
+    suggest_campaign_name_mappings,
+)
 from products.marketing_analytics.backend.services.native_integrations import (
     NATIVE_TO_KEY,
     NativeIntegration,
     canonical_source_aliases,
     display_name_for_key,
 )
+from products.marketing_analytics.backend.services.utm_audit import (
+    get_campaigns_with_spend_async,
+    get_utm_campaign_catalogue_async,
+)
+from products.marketing_analytics.backend.services.utm_matching import load_team_mappings
 
 logger = structlog.get_logger(__name__)
 
-MappingMethod = Literal["exact_alias", "llm"]
+# `fuzzy_*` come from `campaign_mapping_suggester`, which now fills `campaign_suggestions`.
+# Additive: consumers keep seeing the two values they already handle.
+MappingMethod = Literal["exact_alias", "llm", "fuzzy_exact_scope", "fuzzy_unscoped"]
 
 # Minimum 30d event count worth suggesting — tiny tails don't justify config changes.
 DEFAULT_MIN_EVENT_COUNT = 10
@@ -108,13 +127,28 @@ async def suggest_utm_mappings(
     min_event_count: int = DEFAULT_MIN_EVENT_COUNT,
     max_per_integration: int = MAX_SUGGESTIONS_PER_INTEGRATION,
     lookback_days: int = 90,
+    attribution: AttributionHealthResponse | None = None,
+    campaign_proposals: CampaignMappingSuggestions | None = None,
 ) -> UtmMappingSuggestionsResponse:
     """Detect unmatched utm_source values and propose target integrations.
 
     `lookback_days` defaults to 90 (vs attribution_health's 7) to catch typo'd or
     one-off values worth mapping; widen further for catalog-style audits.
+
+    `attribution` lets a caller that already ran `get_attribution_health` hand the
+    result in rather than paying for the same ClickHouse aggregation twice — the
+    setup plan needs both. `lookback_days` is ignored when it's supplied: the
+    reported window comes off the response so it can never disagree with the data
+    the suggestions were actually derived from.
+
+    `campaign_proposals` does the same for `campaign_name_mappings`: left out, this derives them
+    itself at the cost of three more reads.
     """
-    attribution = await get_attribution_health(team, lookback_days=lookback_days)
+    if attribution is None:
+        attribution = await get_attribution_health(team, lookback_days=lookback_days)
+    if campaign_proposals is None:
+        campaign_proposals = await _derive_campaign_proposals(team, lookback_days)
+    lookback_days = attribution.lookback_days
     current_mappings = await _read_current_mappings(team)
     notes: list[str] = []
 
@@ -189,8 +223,9 @@ async def suggest_utm_mappings(
 
     final_notes = [
         *notes,
-        "Campaign clustering (campaign_name_mappings) is not yet implemented; "
-        "this v1 only proposes custom_source_mappings entries.",
+        "campaign_suggestions are fuzzy matches over orphaned utm_campaign values. Near-ties are "
+        "deliberately withheld rather than guessed, so an absent campaign is not necessarily "
+        "unmappable — it may just need a human to pick between two candidates.",
     ]
     catalogue: list[CatalogueEntry] = []
     for entry in attribution.all_utm_source_samples:
@@ -208,7 +243,7 @@ async def suggest_utm_mappings(
 
     return UtmMappingSuggestionsResponse(
         source_suggestions=source_suggestions,
-        campaign_suggestions=[],  # campaign clustering disabled in v1
+        campaign_suggestions=_to_campaign_suggestions(campaign_proposals),
         raw_unmatched_samples=raw_unmatched,
         full_utm_source_catalogue=catalogue,
         current_mappings=current_mappings,
@@ -219,10 +254,83 @@ async def suggest_utm_mappings(
     )
 
 
+async def _derive_campaign_proposals(team: Team, lookback_days: int) -> CampaignMappingSuggestions:
+    """Run the campaign mapping suggester over this team's own window.
+
+    Contained: an empty `campaign_suggestions` is what every consumer sees today, so a broken
+    campaign query must not take the source suggestions down with it.
+    """
+    date_range = QueryDateRange(
+        date_range=DateRange(date_from=f"-{lookback_days}d", date_to=None),
+        team=team,
+        interval=None,
+        now=timezone.now(),
+    )
+    try:
+        campaigns, utm_events, mappings = await asyncio.gather(
+            get_campaigns_with_spend_async(team, date_range),
+            get_utm_campaign_catalogue_async(team, date_range),
+            load_team_mappings_async(team),
+        )
+    except Exception:
+        logger.exception("mapping_suggester.campaign_proposals_failed", team_id=team.pk)
+        return CampaignMappingSuggestions()
+    return suggest_campaign_name_mappings(campaigns, utm_events, mappings)
+
+
+def _to_campaign_suggestions(proposals: CampaignMappingSuggestions) -> list[CampaignMappingSuggestion]:
+    """Fold the suggester's per-orphan proposals into this response's per-target shape.
+
+    One proposal is one raw `utm_campaign`; one suggestion is one clean name with every raw value
+    pointing at it, which is how `campaign_name_mappings` is stored — so several collapse into one.
+    Confidence is the *lowest* of the folded proposals: the entry applies as a unit. Excludes
+    `ambiguous`, which exists because the suggester refused to guess.
+    """
+    grouped: dict[tuple[str, str], list] = defaultdict(list)
+    for proposal in proposals.proposals:
+        grouped[(proposal.integration, proposal.clean_name)].append(proposal)
+
+    suggestions: list[CampaignMappingSuggestion] = []
+    for (integration, clean_name), group in grouped.items():
+        native = NATIVE_TO_KEY.get(NativeMarketingSource(integration))
+        if native is None:
+            # Not an integration this response can name; dropping beats emitting a broken key.
+            logger.warning("mapping_suggester.unknown_integration", integration=integration)
+            continue
+        first = group[0]
+        suggestions.append(
+            CampaignMappingSuggestion(
+                integration=native,
+                integration_display_name=first.integration_display_name,
+                suggested_clean_name=clean_name,
+                raw_campaign_values=sorted(p.raw_utm_campaign for p in group),
+                confidence=min(p.confidence for p in group),
+                method=first.method,
+                reason=first.reason if len(group) == 1 else _folded_reason(group, clean_name),
+                event_count_30d=sum(p.event_count for p in group),
+            )
+        )
+    # Highest-volume first: same ordering rule the source suggestions use.
+    suggestions.sort(key=lambda s: (-s.event_count_30d, s.suggested_clean_name))
+    return suggestions
+
+
+def _folded_reason(group: list, clean_name: str) -> str:
+    values = ", ".join(sorted(f"'{p.raw_utm_campaign}'" for p in group))
+    total = sum(p.event_count for p in group)
+    return (
+        f"{values} all look like typo'd variants of '{clean_name}' — {total} events in the window "
+        "that currently attribute to nothing."
+    )
+
+
 @database_sync_to_async
 def _read_team_custom_mappings(team: Team) -> dict:
     config = getattr(team, "marketing_analytics_config", None)
     return config.custom_source_mappings if config is not None else {}
+
+
+load_team_mappings_async = database_sync_to_async(load_team_mappings)
 
 
 async def _read_current_mappings(team: Team) -> list[CurrentMapping]:

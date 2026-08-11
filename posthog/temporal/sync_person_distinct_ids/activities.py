@@ -166,6 +166,8 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
                 AND pdi.team_id = p.team_id
             WHERE p.team_id = %s
               AND p.uuid IN (SELECT unnest(%s::uuid[]))
+              AND p.is_deleted = false
+              AND pdi.is_deleted = false
             ORDER BY p.uuid, pdi.id
         """
         params = [inputs.team_id, inputs.person_uuids]
@@ -214,6 +216,7 @@ async def lookup_pg_distinct_ids(inputs: LookupPgDistinctIdsInputs) -> LookupPgD
                 FROM posthog_person
                 WHERE team_id = %s
                   AND uuid IN (SELECT unnest(%s::uuid[]))
+                  AND is_deleted = false
             """
             params = [inputs.team_id, persons_not_found]
 

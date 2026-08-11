@@ -63,6 +63,7 @@ from posthog.hogql_queries.query_runner import (
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.organization import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.query_cache.failures import (
     BASE_BACKOFF,
@@ -73,6 +74,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
 )
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.shared_link_user import SharedLinkUser
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -1361,6 +1363,20 @@ class TestSharedInsightsExecutionMode(BaseTest):
         result_mode, cache_age_seconds = shared_insights_execution_mode(execution_mode)
         self.assertEqual(result_mode, expected_mode)
         self.assertEqual(cache_age_seconds, expected_cache_age_seconds)
+
+    @parameterized.expand([("shared_link_viewer", True), ("member", False)])
+    @mock.patch("posthog.hogql_queries.query_runner.enqueue_process_query_task")
+    def test_async_calculation_carries_the_share_for_a_shared_link_viewer(
+        self, _name: str, is_shared_viewer: bool, mock_enqueue: mock.MagicMock
+    ) -> None:
+        sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        user = SharedLinkUser(sharing_configuration) if is_shared_viewer else self.user
+        runner = setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team)
+
+        runner.enqueue_async_calculation(cache_manager=mock.MagicMock(), user=user)
+
+        expected = sharing_configuration.pk if is_shared_viewer else None
+        assert mock_enqueue.call_args.kwargs["sharing_configuration_id"] == expected
 
 
 @pytest.mark.ee

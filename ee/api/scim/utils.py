@@ -1,9 +1,10 @@
 from typing import Any
 
+from django.conf import settings
+
 from rest_framework.request import Request
 
 from posthog.models.identity_provider_config import IdentityProviderConfig
-from posthog.models.organization_domain import OrganizationDomain
 
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
@@ -124,14 +125,11 @@ def regenerate_scim_token_for_config(config: IdentityProviderConfig) -> str:
     return token.plain
 
 
-def get_scim_base_url(domain: OrganizationDomain, request=None) -> str:
+def get_scim_base_url(config: IdentityProviderConfig) -> str:
     """
-    Get the SCIM base URL for a domain.
+    Get the SCIM base URL for an IdentityProviderConfig.
     """
-    from django.conf import settings
-
-    base_url = settings.SITE_URL
-    return f"{base_url}/scim/v2/{domain.id}"
+    return f"{settings.SITE_URL}/scim/v2/{config.scim_slug}"
 
 
 def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityProvider:

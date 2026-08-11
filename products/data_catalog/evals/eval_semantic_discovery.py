@@ -11,6 +11,8 @@ from products.data_catalog.evals.constants import (
     ACCEPTED_RELATIONSHIP_TARGET_NAME,
     CERTIFIED_SOURCE_NAME,
     DEPRECATED_SOURCE_NAME,
+    DEPRECATION_CANONICAL_SOURCE_NAME,
+    DEPRECATION_STALE_SOURCE_NAME,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
     INJECTION_SENTINEL,
@@ -19,10 +21,15 @@ from products.data_catalog.evals.constants import (
     RELATIONSHIP_SOURCE_NAME,
     RELATIONSHIP_TARGET_KEY,
 )
-from products.data_catalog.evals.scorers import SemanticMetadataQueried, SemanticTrustDecisionCorrectness
+from products.data_catalog.evals.scorers import (
+    DeprecationProposed,
+    SemanticMetadataQueried,
+    SemanticTrustDecisionCorrectness,
+)
 from products.data_catalog.evals.seeders import (
     seed_accepted_relationship_context,
     seed_certification_trust_sources,
+    seed_deprecation_candidate_sources,
     seed_instruction_like_relationship_context,
 )
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
@@ -52,6 +59,16 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
                 },
             },
             setup=seed_certification_trust_sources,
+        ),
+        SandboxedEvalCase(
+            name="propose_table_deprecation",
+            prompt=(
+                f"Our warehouse has two payments tables. {DEPRECATION_CANONICAL_SOURCE_NAME} syncs daily and is the "
+                f"one we rely on; {DEPRECATION_STALE_SOURCE_NAME} is a one-off backup from last year that's stale and "
+                "shouldn't be used anymore. Flag the stale one in the data catalog so future agent sessions avoid it."
+            ),
+            expected={"deprecation_proposed": {}},
+            setup=seed_deprecation_candidate_sources,
         ),
         SandboxedEvalCase(
             name="accepted_relationship_selection",
@@ -102,6 +119,6 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
     await SandboxedPublicEval(
         experiment_name="sandboxed-semantic-discovery-cli",
         cases=cases,
-        scorers=[SemanticMetadataQueried(), SemanticTrustDecisionCorrectness()],
+        scorers=[SemanticMetadataQueried(), SemanticTrustDecisionCorrectness(), DeprecationProposed()],
         ctx=ctx,
     )

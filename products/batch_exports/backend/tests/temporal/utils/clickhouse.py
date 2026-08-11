@@ -7,7 +7,7 @@ from posthog.models.app_metrics2.sql import APP_METRICS2_DATA_TABLE_SQL, APP_MET
 from posthog.temporal.common.asyncpa import InvalidMessageFormat
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 
-from products.batch_exports.backend.temporal.spmc import slice_record_batch
+from products.batch_exports.backend.temporal.pipeline.producer import slice_record_batch
 
 
 @retry(

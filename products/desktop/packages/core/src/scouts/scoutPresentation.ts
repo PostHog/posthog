@@ -2,6 +2,7 @@ import type {
   LlmSkillCreatedBy,
   LlmSkillListItem,
   ScoutConfig,
+  ScoutPauseReason,
   ScoutRun,
 } from "@posthog/api-client/posthog-client";
 
@@ -20,6 +21,159 @@ export function getScoutOrigin(
   config: Pick<ScoutConfig, "scout_origin"> | null | undefined,
 ): ScoutOrigin {
   return config?.scout_origin === "canonical" ? "canonical" : "custom";
+}
+
+/**
+ * How a scout came to be in its current on/off state. `enabled` alone cannot
+ * tell "someone switched this off" from "the platform switched it off", and it
+ * says nothing at all about a scout that is still running but already flagged
+ * for auto-pause.
+ */
+export type ScoutLifecycle =
+  | "active"
+  /** Still running, but the system has flagged it. See `willPause`. */
+  | "warned"
+  | "paused_by_user"
+  | "paused_by_system";
+
+export interface ScoutLifecycleState {
+  lifecycle: ScoutLifecycle;
+  reason: ScoutPauseReason | null;
+  /** Badge text, or null when there is nothing worth flagging on the row. */
+  label: string | null;
+  /** What happened and how to get the scout running again; null when healthy. */
+  explanation: string | null;
+  /** The system stopped this scout — switching it back on resumes it. */
+  isSystemPaused: boolean;
+  /** The scout still runs, but the system has flagged it. */
+  isWarned: boolean;
+  /**
+   * The warning actually advances to a pause. False for a `no_output` warning,
+   * which the sweep raises for a look but never escalates: silence alone never
+   * pauses a scout, because a watchdog's silence is the job.
+   */
+  willPause: boolean;
+  /** ISO timestamp of the transition into this state, when the backend has one. */
+  changedAt: string | null;
+  consecutiveFailureCount: number;
+  /**
+   * Null when the backend never sent the field, which is not the same as false:
+   * a PATCH it does not understand cannot persist, so the control has nothing to
+   * write and should not be offered.
+   */
+  autoPauseExempt: boolean | null;
+}
+
+function failureCountClause(count: number): string {
+  return count > 1 ? `${count} runs in a row failed` : "its runs kept failing";
+}
+
+function warnedCopy(
+  reason: ScoutPauseReason | null,
+  failureCount: number,
+): { label: string; explanation: string; willPause: boolean } {
+  switch (reason) {
+    case "ignored":
+      return {
+        label: "Pausing soon",
+        explanation:
+          "Its findings have been going unacted on, so the inactivity sweep will pause this scout soon. Act on a finding, or exempt it from inactivity pauses, to keep it running.",
+        willPause: true,
+      };
+    case "no_output":
+      return {
+        label: "Quiet",
+        explanation:
+          "This scout has surfaced nothing lately, so the inactivity sweep flagged it for a look. Staying quiet on its own never pauses a scout, so nothing happens unless someone acts.",
+        willPause: false,
+      };
+    case "repeated_failures":
+      return {
+        label: "Pausing soon",
+        explanation: `PostHog will pause this scout soon because ${failureCountClause(failureCount)}. Fix the skill to keep it running.`,
+        willPause: true,
+      };
+    default:
+      return {
+        label: "Pausing soon",
+        explanation:
+          "PostHog is about to pause this scout. Exempt it from inactivity pauses to keep it running.",
+        willPause: true,
+      };
+  }
+}
+
+function systemPausedExplanation(
+  reason: ScoutPauseReason | null,
+  failureCount: number,
+): string {
+  switch (reason) {
+    case "ignored":
+      return "PostHog paused this scout because its findings were going unacted on. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
+    case "no_output":
+      return "PostHog paused this scout because it stopped emitting findings. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
+    case "repeated_failures":
+      // The breaker keeps a half-open probe on this reason, so this one recovers
+      // without anyone touching it. Say so, or the badge reads as terminal.
+      return `PostHog paused this scout because ${failureCountClause(failureCount)}. It retries about once a day and resumes on its own once a run succeeds. Fix the skill, or switch it back on to retry right away.`;
+    default:
+      return "PostHog paused this scout. Switch it back on to resume.";
+  }
+}
+
+/**
+ * Read a scout's lifecycle out of the configs endpoint, with the copy that
+ * explains it. Backends predating the lifecycle fields (and any status value we
+ * do not recognise) fall back to `enabled`, which reads as a user pause — the
+ * same thing the UI showed before these fields existed.
+ */
+export function deriveScoutLifecycle(config: ScoutConfig): ScoutLifecycleState {
+  const reason = config.pause_reason ?? null;
+  const failureCount = config.consecutive_failure_count ?? 0;
+  const base = {
+    reason,
+    changedAt: config.status_changed_at ?? null,
+    consecutiveFailureCount: failureCount,
+    autoPauseExempt: config.auto_pause_exempt ?? null,
+  };
+  // A system pause always leaves the scout switched off and a warning always
+  // leaves it switched on, so `enabled` breaks the tie where the two disagree.
+  // That keeps an optimistically enabled scout from reading as "on, but
+  // auto-paused" for the round trip it takes the server to clear the status.
+  if (!config.enabled && config.status === "paused_by_system") {
+    return {
+      ...base,
+      lifecycle: "paused_by_system",
+      label: "Auto-paused",
+      explanation: systemPausedExplanation(reason, failureCount),
+      isSystemPaused: true,
+      isWarned: false,
+      willPause: false,
+    };
+  }
+  if (config.enabled && config.status === "pending_pause") {
+    const copy = warnedCopy(reason, failureCount);
+    return {
+      ...base,
+      lifecycle: "warned",
+      label: copy.label,
+      explanation: copy.explanation,
+      isSystemPaused: false,
+      isWarned: true,
+      willPause: copy.willPause,
+    };
+  }
+  return {
+    ...base,
+    lifecycle: config.enabled ? "active" : "paused_by_user",
+    // The switch and the dimmed row already say "off"; a badge would only
+    // repeat them, and an active scout has nothing to explain.
+    label: null,
+    explanation: null,
+    isSystemPaused: false,
+    isWarned: false,
+    willPause: false,
+  };
 }
 
 /** "signals-scout-error-tracking" → "Error tracking" */
@@ -352,6 +506,14 @@ export function computeScoutRollups(
 export interface FleetSummary {
   totalCount: number;
   enabledCount: number;
+  /**
+   * Enabled scouts heading for a pause unless something changes. Excludes a
+   * `no_output` warning, which never escalates — counting it here would promise
+   * a pause that is not coming.
+   */
+  pausingSoonCount: number;
+  /** Scouts the platform switched off; a user has to switch them back on. */
+  systemPausedCount: number;
   runningCount: number;
   emittedCount: number;
   /** Completed / (completed + failed) over the visible window, or null when no finished runs. */
@@ -380,10 +542,16 @@ export function computeFleetSummary(
       if ((run.emitted_count ?? 0) > 0) emittedRunCount += 1;
     }
   }
+  const lifecycles = configs.map(deriveScoutLifecycle);
   const finished = completedCount + failedCount;
   return {
     totalCount: configs.length,
     enabledCount: configs.filter((config) => config.enabled).length,
+    pausingSoonCount: lifecycles.filter((lifecycle) => lifecycle.willPause)
+      .length,
+    systemPausedCount: lifecycles.filter(
+      (lifecycle) => lifecycle.isSystemPaused,
+    ).length,
     runningCount,
     emittedCount,
     successRate: finished > 0 ? completedCount / finished : null,
@@ -425,11 +593,24 @@ export function formatRunIntervalShort(minutes: number): string {
   return `every ${minutes}m`;
 }
 
+/**
+ * Enabled scouts first, then the ones the system switched off (they need a
+ * human to switch them back on, so they lead the off-block), then the rest
+ * alphabetically.
+ */
 export function sortConfigsForDisplay(configs: ScoutConfig[]): ScoutConfig[] {
-  return [...configs].sort((a, b) => {
-    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
-    return prettifyScoutSkillName(a.skill_name).localeCompare(
-      prettifyScoutSkillName(b.skill_name),
-    );
-  });
+  return configs
+    .map((config) => ({
+      config,
+      systemPaused: deriveScoutLifecycle(config).isSystemPaused,
+      name: prettifyScoutSkillName(config.skill_name),
+    }))
+    .sort((a, b) => {
+      if (a.config.enabled !== b.config.enabled) {
+        return a.config.enabled ? -1 : 1;
+      }
+      if (a.systemPaused !== b.systemPaused) return a.systemPaused ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    })
+    .map((entry) => entry.config);
 }

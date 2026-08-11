@@ -34,6 +34,20 @@ class TestRunCredentialRefreshLoop:
         second_input = execute_activity.await_args_list[1].args[1]
         assert second_input.exclude_kinds == ["github"]
 
+    async def test_task_gone_stops_loop(self, monkeypatch):
+        # Without this exit the loop would spin forever against rows a team deletion removed.
+        execute_activity = AsyncMock(
+            side_effect=[
+                RefreshSandboxCredentialsOutput(next_refresh_seconds=1.0, refreshed_kinds=[], task_gone=True),
+            ]
+        )
+        self._patch_workflow(monkeypatch, execute_activity)
+
+        exit_reason = await run_credential_refresh_loop(MagicMock(), "sb-1")
+
+        assert exit_reason == CredentialRefreshExitReason.TASK_GONE
+        assert execute_activity.await_count == 1
+
     async def test_sandbox_gone_still_wins_over_orphaned_kinds(self, monkeypatch):
         execute_activity = AsyncMock(
             side_effect=[

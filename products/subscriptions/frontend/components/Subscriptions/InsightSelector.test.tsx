@@ -121,15 +121,15 @@ describe('InsightSelector', () => {
     })
 
     it('shows max limit message when at capacity', () => {
-        const sixInsightTiles = Array.from({ length: 6 }, (_, i) => ({
+        const maxInsightTiles = Array.from({ length: MAX_INSIGHTS }, (_, i) => ({
             id: i + 1,
             insight: { id: 100 + i, name: `Insight ${i}` } as any,
             layouts: { sm: { x: 0, y: i } } as any,
         }))
-        const selectedIds = sixInsightTiles.map((t) => t.insight.id)
+        const selectedIds = maxInsightTiles.map((t) => t.insight.id)
 
         renderInsightSelector({
-            tiles: sixInsightTiles as DashboardTile[],
+            tiles: maxInsightTiles as DashboardTile[],
             selectedInsightIds: selectedIds,
             onChange: jest.fn(),
         })
