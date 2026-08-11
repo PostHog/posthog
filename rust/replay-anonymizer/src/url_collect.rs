@@ -27,7 +27,15 @@ use base64::Engine;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
-use crate::url_policy::canonicalize;
+use crate::url_policy::{canonicalize, MAX_URL_LEN};
+/// Distinct raw values one message may memoize.
+///
+/// Larger than [`MAX_URLS_PER_MESSAGE`] on purpose, because the memo also holds the values this
+/// collector declined, and a decline is exactly what a repeat should not pay for twice. Past this
+/// the memo stops growing and repeats fall back to the full check, which is slower and bounded
+/// rather than unbounded.
+const MAX_MEMO_ENTRIES: usize = 1024;
+
 /// Distinct URLs collected from one message. A page with more media than this is already past the
 /// point where the extra images teach a model anything, and the cap bounds the Kafka fan-out.
 pub const MAX_URLS_PER_MESSAGE: usize = 256;
@@ -77,6 +85,11 @@ pub struct UrlCollector {
     /// One image recurs many times in a message: a background on every row of a list, a sprite
     /// re-added by every mutation. The image lane memoizes its blur for the same reason. Without
     /// this, each repeat pays a WHATWG parse, a query walk, and an HMAC.
+    ///
+    /// Bounded by [`MAX_MEMO_ENTRIES`], because the keys are attacker-controlled. Every other
+    /// structure here is capped by [`MAX_URLS_PER_MESSAGE`], and a page carrying thousands of
+    /// distinct `src` values would otherwise pin a second copy of all of them, including the ones
+    /// this collector declined.
     memo: HashMap<String, Option<String>>,
 }
 
@@ -98,7 +111,11 @@ impl UrlCollector {
             return hit.clone();
         }
         let result = self.collect_uncached(raw);
-        self.memo.insert(raw.to_string(), result.clone());
+        // A value past the length cap is rejected by an O(1) check, so caching it buys nothing and
+        // would store the longest strings on offer. The entry cap bounds the rest.
+        if raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES {
+            self.memo.insert(raw.to_string(), result.clone());
+        }
         result
     }
 
@@ -213,6 +230,22 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(c.memo.len(), 1, "the second occurrence comes from the memo");
         assert_eq!(c.into_urls().len(), 1);
+    }
+
+    #[test]
+    fn the_memo_is_bounded_against_attacker_controlled_values() {
+        // Every other structure here is capped, and the memo keys come from page content.
+        let mut c = collector();
+        for i in 0..(MAX_MEMO_ENTRIES + 500) {
+            c.collect(&format!("https://example.com/{i}.png"));
+        }
+        assert_eq!(c.memo.len(), MAX_MEMO_ENTRIES);
+
+        // An over-length value is rejected by an O(1) check, so it is never worth storing.
+        let mut c = collector();
+        let long = format!("https://example.com/{}", "a".repeat(MAX_URL_LEN));
+        assert!(c.collect(&long).is_none());
+        assert!(c.memo.is_empty());
     }
 
     #[test]
