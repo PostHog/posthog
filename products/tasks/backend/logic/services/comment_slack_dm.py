@@ -98,6 +98,9 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
         if recipient is None:
             _skip(comment_id, "recipient_missing", user_id=user_id)
             continue
+        if not recipient.is_active:
+            _skip(comment_id, "recipient_inactive", user_id=user_id)
+            continue
         # Re-checked at send time rather than trusting the projected recipient set: the in-app feed
         # re-checks visibility on every read, and a DM can't be taken back.
         if not OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id=user_id).exists():
