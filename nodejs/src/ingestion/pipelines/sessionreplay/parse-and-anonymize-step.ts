@@ -57,7 +57,7 @@ export interface CollectedImage {
  * any destination outside the fetch topic.
  */
 export interface CollectedUrl {
-    /** `image:<pseudoTeam>:<hash>` — the same ref shape the mirrored line now carries. */
+    /** `imageurl:<pseudoTeam>:<hash>` — the ref the mirrored line carries for this URL. */
     ref: string
     url: string
     /** The fetch topic's Kafka key, so every URL for one host lands on one partition. */
