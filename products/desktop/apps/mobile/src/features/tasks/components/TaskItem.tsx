@@ -22,6 +22,7 @@ import {
   prChipAccessibilityLabel,
   type TaskPrChip,
 } from "../utils/prPresentation";
+import { getTaskOriginMeta } from "../utils/taskOrigin";
 import { isLocalRunTask } from "../utils/taskRunPlacement";
 import { TaskStatusIcon } from "./TaskStatusIcon";
 
@@ -103,6 +104,10 @@ function TaskItemComponent({
   // continued in the cloud — the glyph plus the dimmed title says so without
   // spending a whole row on an explanation.
   const isLocalRun = isLocalRunTask(task);
+  // Tasks the user did not type get a glyph naming what raised them, so the
+  // impact of triaging the inbox is visible from the task list itself.
+  const originMeta = getTaskOriginMeta(task.origin_product);
+  const OriginIcon = originMeta?.Icon;
 
   return (
     <Pressable
@@ -138,6 +143,13 @@ function TaskItemComponent({
           {isLocalRun ? (
             <View className="shrink-0" accessibilityLabel="Ran on your desktop">
               <Laptop size={12} weight="bold" color={themeColors.gray[9]} />
+            </View>
+          ) : null}
+          {OriginIcon && originMeta ? (
+            // No text label at list density — the glyph carries it, and the
+            // accessibility label is what says it out loud.
+            <View className="shrink-0" accessibilityLabel={originMeta.label}>
+              <OriginIcon size={12} weight="bold" color={themeColors.gray[9]} />
             </View>
           ) : null}
           <Text

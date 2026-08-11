@@ -9,15 +9,28 @@ const { mockPrStatus } = vi.hoisted(() => ({
   mockPrStatus: vi.fn<() => PrChipStatus | null>(() => null),
 }));
 
-vi.mock("phosphor-react-native", () => ({
-  Check: (props: Record<string, unknown>) => createElement("Check", props),
-  GitMerge: (props: Record<string, unknown>) =>
-    createElement("GitMerge", props),
-  GitPullRequest: (props: Record<string, unknown>) =>
-    createElement("GitPullRequest", props),
-  Laptop: (props: Record<string, unknown>) => createElement("Laptop", props),
-  PushPin: (props: Record<string, unknown>) => createElement("PushPin", props),
-}));
+// The row's own glyphs, plus every icon `taskOrigin` can hand back — the row
+// imports the whole origin map, so a missing entry here fails at import time
+// rather than in the assertion that needed it.
+vi.mock("phosphor-react-native", () => {
+  const icon = (name: string) => (props: Record<string, unknown>) =>
+    createElement(name, props);
+  return {
+    Binoculars: icon("Binoculars"),
+    Broadcast: icon("Broadcast"),
+    Bug: icon("Bug"),
+    Check: icon("Check"),
+    FilmSlate: icon("FilmSlate"),
+    Flask: icon("Flask"),
+    GitMerge: icon("GitMerge"),
+    GitPullRequest: icon("GitPullRequest"),
+    Laptop: icon("Laptop"),
+    Lifebuoy: icon("Lifebuoy"),
+    PushPin: icon("PushPin"),
+    Robot: icon("Robot"),
+    SlackLogo: icon("SlackLogo"),
+  };
+});
 
 vi.mock("@/lib/theme", () => ({
   useThemeColors: () => ({
@@ -270,5 +283,44 @@ describe("TaskItem", () => {
 
     expect(local.props.className).toContain("text-gray-10");
     expect(cloud.props.className).toContain("text-gray-12");
+  });
+
+  it.each<[string, string]>([
+    ["signal_report", "Broadcast"],
+    ["slack", "SlackLogo"],
+    ["automation", "Robot"],
+  ])("brands a %s task with its origin glyph", (origin, glyph) => {
+    const task = { ...makeTask(), origin_product: origin };
+    const renderer = render(task);
+
+    expect(
+      renderer.root.findAll((node) => String(node.type) === glyph),
+    ).toHaveLength(1);
+  });
+
+  it("names the origin for screen readers without spending a text label", () => {
+    const task = { ...makeTask(), origin_product: "signal_report" };
+    const labelled = render(task).root.findAll(
+      (node) => node.props.accessibilityLabel === "From inbox",
+    );
+
+    expect(labelled).toHaveLength(1);
+    // The glyph carries it visually — no visible caption at list density.
+    expect(
+      render(task).root.findAll(
+        (node) =>
+          String(node.type) === "Text" && node.props.children === "From inbox",
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("leaves a task the user typed unbranded", () => {
+    const renderer = render({ ...makeTask(), origin_product: "user_created" });
+
+    for (const glyph of ["Broadcast", "SlackLogo", "Robot"]) {
+      expect(
+        renderer.root.findAll((node) => String(node.type) === glyph),
+      ).toHaveLength(0);
+    }
   });
 });

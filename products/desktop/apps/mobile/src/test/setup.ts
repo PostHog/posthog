@@ -47,6 +47,11 @@ vi.mock("phosphor-react-native", async () => {
   return {
     __esModule: true,
     Archive: icon("Archive"),
+    SlackLogo: icon("SlackLogo"),
+    Lifebuoy: icon("Lifebuoy"),
+    Flask: icon("Flask"),
+    FilmSlate: icon("FilmSlate"),
+    Broadcast: icon("Broadcast"),
     ArrowCounterClockwise: icon("ArrowCounterClockwise"),
     ArrowDown: icon("ArrowDown"),
     ArrowSquareOut: icon("ArrowSquareOut"),
