@@ -3,13 +3,15 @@ import urllib.request
 from typing import IO, cast
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.storage import object_storage
-from posthog.storage.object_storage import ObjectStorageError
+from posthog.storage.object_storage import ObjectStorageError, UnavailableStorage
 
 from products.notebooks.backend import frame_store
 
@@ -53,13 +55,25 @@ class TestFrameStoreObjects(APIBaseTest):
 
     def test_write_stream_then_presigned_fetch_needs_no_credentials(self):
         # The sandbox holds no storage identity — the presigned URL must be the whole
-        # authorization. A broken presign config (wrong signature version, wrong endpoint
-        # client) surfaces here.
+        # authorization, and must carry a signature. The local store serves anonymous reads, so
+        # the round trip alone would also pass for a bare object URL that 403s in cloud; the
+        # signature assertion is what rejects that. Mapping the URL onto a public host is a
+        # deployment concern covered in posthog/storage/test/test_object_storage.py.
         payload = b"arrow-ipc-bytes" * 1024
-        with self.settings(OBJECT_STORAGE_ENABLED=True):
+        # Presign against the endpoint this process writes through, so the fetch below does not
+        # depend on OBJECT_STORAGE_PUBLIC_ENDPOINT resolving from here — the frame-store runbook
+        # tells devs to point that at the sandbox's network, which on macOS is
+        # host.docker.internal and resolves only inside Docker. Dropping the cached client is
+        # what makes the override bite: the storage client keeps its presigning endpoint in a
+        # module global and rebuilds only after a call made while storage is disabled.
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_PUBLIC_ENDPOINT=settings.OBJECT_STORAGE_ENDPOINT),
+            patch.object(object_storage, "_client", UnavailableStorage()),
+        ):
             stored_bytes = frame_store.write_stream(self.KEY, io.BytesIO(payload))
             url = frame_store.presign_get(self.KEY, team_id=999999)
         self.assertEqual(stored_bytes, len(payload))
+        self.assertIn("X-Amz-Signature=", url)
         with urllib.request.urlopen(url) as response:  # deliberately credential-free
             self.assertEqual(response.read(), payload)
 
