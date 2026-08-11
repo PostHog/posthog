@@ -18,6 +18,12 @@ pub struct PersonState {
 #[derive(Default)]
 struct Journal {
     persons: HashMap<i64, ExpectedPerson>,
+    /// Persons currently frozen by a lifecycle fence, mapped to their
+    /// sealed version. While a person is here, no write above the sealed
+    /// version may be acked — the fence's whole guarantee. Writes acked at
+    /// or below the sealed version are pre-fence acks whose responses
+    /// landed late, not violations.
+    fenced: HashMap<i64, i64>,
     /// Acks that broke an invariant at journaling time. The leader
     /// serializes writes per person and bumps the version on every change,
     /// so each version of a person is assigned to at most one acked write;
@@ -80,6 +86,38 @@ impl PersonState {
                 actual: serde_json::json!(version),
             });
         }
+        if let Some(&sealed) = journal.fenced.get(&person_id) {
+            // A fenced person must reject writes; an ack above the sealed
+            // version means the fence failed open (leader amnesia, a
+            // fail-open check, a lost fence record). Acks at or below the
+            // seal raced the fence and were processed before it.
+            if version > sealed {
+                journal.anomalies.push(ConsistencyViolation {
+                    person_id,
+                    key: "__acked_write_while_fenced".to_string(),
+                    expected: serde_json::json!(format!("no acked version above seal {sealed}")),
+                    actual: serde_json::json!(version),
+                });
+            }
+        }
+    }
+
+    /// Open a fence window: from now until `close_fence`, any write acked
+    /// above `sealed_version` is a violation. Call after the fence ack (the
+    /// sealed version is only known then).
+    pub async fn open_fence(&self, person_id: i64, sealed_version: i64) {
+        self.inner
+            .write()
+            .await
+            .fenced
+            .insert(person_id, sealed_version);
+    }
+
+    /// Close a fence window. Call *before* issuing the release so a write
+    /// racing the release's ack cannot be flagged as a phantom violation;
+    /// the coverage lost is only the release call's own duration.
+    pub async fn close_fence(&self, person_id: i64) {
+        self.inner.write().await.fenced.remove(&person_id);
     }
 
     /// Journal an ack whose response reported no change applied. The data
@@ -346,6 +384,38 @@ mod tests {
         let person = &snapshot[&1];
         assert_eq!(person.last_version, 5, "anomaly must not move the version");
         assert!(person.written_properties.contains_key("k2"));
+    }
+
+    #[tokio::test]
+    async fn acked_writes_above_the_seal_are_violations_only_while_fenced() {
+        let state = PersonState::new();
+
+        // Pre-fence ack: no window open, nothing flagged.
+        state.record_write(1, 4, props(&[("k1", "v1")])).await;
+
+        state.open_fence(1, 5).await;
+        // An ack at or below the seal raced the fence (processed before it).
+        state.record_write(1, 5, props(&[("k2", "v2")])).await;
+        assert!(state.take_anomalies().await.is_empty());
+        // An ack above the seal means the fence failed open.
+        state.record_write(1, 6, props(&[("k3", "v3")])).await;
+        assert_eq!(
+            violation_keys(state.take_anomalies().await),
+            vec!["__acked_write_while_fenced"]
+        );
+        // Another person is unaffected by this person's fence.
+        state.record_write(2, 100, props(&[("k", "v")])).await;
+        assert!(state.take_anomalies().await.is_empty());
+
+        state.close_fence(1).await;
+        // Post-release writes above the old seal are normal life again.
+        state.record_write(1, 7, props(&[("k4", "v4")])).await;
+        assert!(state.take_anomalies().await.is_empty());
+
+        // The flagged write stays journaled: it was acked, so end-of-run
+        // verification must still hold it visible.
+        let snapshot = state.snapshot().await;
+        assert!(snapshot[&1].written_properties.contains_key("k3"));
     }
 
     #[tokio::test]

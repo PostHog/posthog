@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -47,6 +47,9 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
+    'loadToolDataEvents',
+    'loadPrChecks', // Polled in the Inbox report detail; the CI checks section renders its own error state
+    'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
 ]
 
 /*
@@ -144,7 +147,7 @@ export function initKea({
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
-                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
+                    ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
                     !isAccessDenied
                 ) {
@@ -189,7 +192,9 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                // An approvals 409 is expected control flow (a change request was created, or one
+                // is already pending) surfaced to the user by the approvals UI, not a failure.
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !isApprovalRequiredError(error)) {
                     posthog.captureException(error)
                 }
             },

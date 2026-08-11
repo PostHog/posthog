@@ -81,6 +81,14 @@ _HOST_UNREACHABLE_ERROR = (
     "firewall allowlist, then try again."
 )
 
+# Wrong username or password reported by libpq's standard wording or the SCRAM exchange. The raw
+# driver string is prefixed with "connection to server at <host>, port <port> failed", so surface a
+# clean, host-free message on the non-retryable sync path instead of storing that raw prefix.
+_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Check the user and password configured for "
+    "this source, then re-enable the sync."
+)
+
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
     # libpq reports a bad password via SCRAM with a different wording than the line above.
@@ -337,7 +345,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '"postgres.<project-ref>"). Update the user for this source to the pooler username '
                 "shown in your Supabase dashboard, then re-enable the sync."
             ),
-            "error received from server in SCRAM exchange: Wrong password": None,
+            "error received from server in SCRAM exchange: Wrong password": _INVALID_CREDENTIALS_ERROR,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
             # SASL/SCRAM credential exchange with "FATAL: SASL authentication failed" instead of
             # PostgreSQL's "password authentication failed for user" — so none of the password keys
@@ -368,14 +376,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "could not translate host name": None,
             "timeout expired connection to server at": None,
-            "password authentication failed for user": None,
+            "password authentication failed for user": _INVALID_CREDENTIALS_ERROR,
             # Some providers (observed on a Neon-style pooler) report the same auth rejection without
             # libpq's "for user" wording, putting the role on its own line instead: "password
             # authentication failed\nuser \"<role>\"". The key above requires "for user" right after
             # "failed", so it doesn't substring-match this variant and Temporal keeps retrying a
             # credential mismatch only the customer can fix. Match the stable, wording-independent
             # fragment shared by both forms.
-            "password authentication failed": None,
+            "password authentication failed": _INVALID_CREDENTIALS_ERROR,
             # AWS RDS Proxy reports bad credentials with its own wording instead of PostgreSQL's
             # "password authentication failed for user" — it validates against Secrets Manager and
             # returns "The password that was provided for the role <role> is wrong." None of the
@@ -453,6 +461,11 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # retry budget re-running the same futile statement-timeout query before the workflow gives
             # up. Match the index-guidance fragment every postgres statement-timeout message shares.
             "has an appropriate index": None,
+            # Activity-layer twin for `_schema_discovery_timeout_error` (schema discovery's own
+            # statement-timeout classification, distinct from the incremental-field message above).
+            # Same reasoning: match the raw `str(e)` fragment so the activity-level check recognises
+            # it too, instead of burning the retry budget re-scanning the same oversized catalog.
+            "listing table columns while discovering the database schema": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
@@ -793,9 +806,22 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
         # sustained shortage that outlasts that budget is still transient — the same
         # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        #
+        # A mid-stream or connect-time connection drop ("server closed the connection unexpectedly",
+        # the SSL-flavoured "SSL connection has been closed unexpectedly") is retried in-process by
+        # `_connect_with_dropped_retry` / the offset-chunking fallback (both keyed on
+        # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py). Once that budget is exhausted the
+        # raw psycopg `OperationalError` reaches `_handle_import_error`, which — without a match here
+        # — logs it at `exception` and reports it to error tracking on every occurrence, even though
+        # Temporal retries the whole activity and the drop is transient and self-recovering (a pooler
+        # idle cull, failover, or network blip). Classify it retryable so it logs as a warning
+        # instead. These stay clear of `get_non_retryable_errors` deliberately (see the note there),
+        # so the sync keeps retrying rather than being disabled.
         return {
             "terminating connection due to",
             "the database system is shutting down",
+            "server closed the connection unexpectedly",
+            "SSL connection has been closed unexpectedly",
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
         }
 

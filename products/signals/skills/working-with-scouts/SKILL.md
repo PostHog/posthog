@@ -31,6 +31,10 @@ Three sibling skills carry the mechanics — reach for them when a workflow belo
 | `exploring-scouts`  | Read-only observability: the fleet roster, run history, scratchpad memory, health assessment        |
 | `inbox-exploration` | The inbox itself: triaging, drilling into, acting on, and resolving / dismissing / snoozing reports |
 
+> **Before delegating: is this actually a scout job?**
+> If the user wants the key numbers from an **existing dashboard or insight** posted to a channel on a fixed schedule ("have a scout post the top-line from this dashboard in #launch once a day"), a **dashboard (or insight) subscription with the AI summary enabled** is usually the better fit — scouts are for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
+> Respect a user who's certain they want a scout; when it's ambiguous, suggest the subscription and confirm first ("A dashboard subscription is a better fit for a recurring message — want me to set that up?"), and route to `managing-subscriptions`.
+
 ## First: is the fleet running?
 
 Don't delegate to a fleet that isn't there.

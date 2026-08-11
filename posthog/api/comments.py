@@ -21,9 +21,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment, CommentSlackThread
@@ -119,6 +120,61 @@ class CommentSlackThreadRefSerializer(serializers.Serializer):
         "Empty for private channels and when unknown; may lag behind a rename in Slack.",
     )
     url = serializers.CharField(help_text="Deep link that opens the mirrored Slack thread.")
+
+
+def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Team) -> None:
+    if (
+        comment.scope not in {"task", "task_artifact", "desktop_canvas"}
+        or not comment.created_by
+        or not comment.created_by.distinct_id
+    ):
+        return
+
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    thread_state = context.get("threadState")
+    if comment.source_comment_id and thread_state == "resolved":
+        action_type = "resolved"
+    elif comment.source_comment_id and thread_state == "open":
+        action_type = "reopened"
+    elif comment.source_comment_id:
+        action_type = "replied"
+    else:
+        action_type = "created"
+
+    anchor = context.get("anchor")
+    anchor_kind = anchor.get("kind") if isinstance(anchor, dict) else None
+    raw_task_id = comment.item_id if comment.scope == "task" else context.get("taskId")
+    properties: dict[str, Any] = {
+        "analytics_version": 1,
+        "action_type": action_type,
+        "scope": comment.scope,
+        "anchor_kind": anchor_kind if anchor_kind in {"text", "region", "document"} else "unknown",
+        "task_id": raw_task_id if isinstance(raw_task_id, str) else None,
+        "item_id": comment.item_id,
+        "thread_id": str(comment.source_comment_id or comment.id),
+        "comment_id": str(comment.id),
+        "is_reply": action_type == "replied",
+        "mention_count": len(mentions),
+    }
+    if action_type in {"created", "replied"}:
+        content_length = len(comment.content or "")
+        properties["content_length_bucket"] = (
+            "0-50" if content_length <= 50 else "51-200" if content_length <= 200 else "201+"
+        )
+    if action_type in {"created", "reopened"}:
+        properties["thread_state"] = "open"
+    elif action_type == "resolved":
+        properties["thread_state"] = "resolved"
+
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(comment.created_by.distinct_id),
+            event="Comment action",
+            properties=properties,
+            groups=groups(team=team),
+        )
+    except Exception:
+        logger.exception("Failed to capture task comment analytics", extra={"comment_id": str(comment.id)})
 
 
 def _record_task_comment_activity(
@@ -366,10 +422,11 @@ class CommentSerializer(serializers.ModelSerializer):
             data["scope"] = root.scope
             data["item_id"] = root.item_id
             reply_context = data.get("item_context") or {}
+            root_context = root.item_context if isinstance(root.item_context, dict) else {}
             # Replies inherit the root's context (anchor, taskId) so filters keep
             # working, but a reply's own signal keys must survive the merge.
             data["item_context"] = {
-                **(root.item_context or {}),
+                **{key: value for key, value in root_context.items() if key != "threadState"},
                 **({"is_emoji": reply_context["is_emoji"]} if "is_emoji" in reply_context else {}),
                 **(
                     {"threadState": reply_context["threadState"]}
@@ -469,6 +526,7 @@ class CommentSerializer(serializers.ModelSerializer):
             produce_discussion_mention_events(comment, mentions, slug)
             send_mention_notifications(comment, mentions, slug)
         _record_task_comment_activity(comment, mentions)
+        _capture_task_comment_action(comment, mentions, self.context["get_team"]())
 
         return comment
 
