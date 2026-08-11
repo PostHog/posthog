@@ -31,7 +31,6 @@ import structlog
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.models.user import User
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
@@ -370,10 +369,8 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
     Never raises: the footer is the last thing added to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
 
-    Both links hang off the task creator's PostHog Code access and fail closed — the app
-    is rolled out via cohort + invite redemption, so surfacing deep links to people who
-    can't open them sends them into an install flow we don't want to scale. Which model
-    ran is not access-sensitive and survives the gate.
+    Describes the run in full, links included. Whether the reader may open them is
+    ``viewer_has_code_access``'s question, asked where the reader is known.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -387,8 +384,6 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
         if run is None:
             return RunFooter()
         state = parse_run_state(run.state)
-        if not _creator_has_posthog_code_access(run.created_by_id):
-            return RunFooter(model=state.model, reasoning_effort=state.reasoning_effort)
         return RunFooter(
             task_url=_task_url(run.team_id, run.task_id, run.id),
             # Task-scoped, matching the desktop app's own task route — the run id has no
@@ -423,32 +418,6 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     return context_block(" · ".join(segments))
 
 
-def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
-    # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
-    # says what the card would, right next to the link.
-    path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false"
-    # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
-    # posted into Slack actually reachable.
-    if settings.DEBUG and settings.NGROK_URL:
-        return f"{settings.NGROK_URL.rstrip('/')}{path}"
-    return absolute_uri(path)
-
-
-def _creator_has_posthog_code_access(user_id: int | None) -> bool:
-    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
-
-    if user_id is None:
-        return False
-    user = User.objects.filter(id=user_id).first()
-    if user is None:
-        return False
-    try:
-        return has_tasks_access(user)
-    except Exception:
-        logger.exception("slack_app_run_footer_access_check_failed", user_id=user_id)
-        return False
-
-
 def context_block(text: str) -> dict[str, Any]:
     """A line of muted supporting text.
 
@@ -473,3 +442,48 @@ def app_home_url(integration: Integration) -> str | None:
     if not app_id or not integration.integration_id:
         return None
     return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
+
+
+def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
+    # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
+    # says what the card would, right next to the link.
+    path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false"
+    # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
+    # posted into Slack actually reachable.
+    if settings.DEBUG and settings.NGROK_URL:
+        return f"{settings.NGROK_URL.rstrip('/')}{path}"
+    return absolute_uri(path)
+
+
+def workspace_org_ids(slack_team_id: str) -> set:
+    """Organizations connected to this Slack workspace — the scope a Slack identity may
+    resolve a PostHog user within."""
+    return set(
+        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
+            "team__organization_id", flat=True
+        )
+    )
+
+
+def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
+    """Whether the Slack identity reading this can open a PostHog Code link.
+
+    Asked about the reader rather than the task's creator: the two can differ, and a link
+    is only useful to the person looking at it. Fail closed — an unlinked identity or a
+    flag-service error means no link rather than one that dead-ends.
+    """
+    from products.slack_app.backend.services.slack_user_oauth import find_linked_posthog_user  # noqa: PLC0415
+    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+
+    if not slack_user_id:
+        return False
+    try:
+        user = find_linked_posthog_user(
+            slack_user_id=slack_user_id,
+            slack_team_id=integration.integration_id,
+            candidate_org_ids=workspace_org_ids(integration.integration_id),
+        )
+        return user is not None and has_tasks_access(user)
+    except Exception:
+        logger.exception("slack_app_viewer_code_access_check_failed", integration_id=integration.id)
+        return False

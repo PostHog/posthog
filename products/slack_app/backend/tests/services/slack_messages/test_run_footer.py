@@ -7,7 +7,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.slack_app.backend.services.slack_messages import RunFooter, load_run_footer, reply_footer_block
+from posthog.models.integration import Integration
+
+from products.slack_app.backend.services.slack_messages import (
+    RunFooter,
+    load_run_footer,
+    reply_footer_block,
+    viewer_has_code_access,
+)
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
 DESKTOP_URL = "posthog-code://task/2"
@@ -54,44 +61,54 @@ class TestRunFooter(SimpleTestCase):
 
 
 class TestLoadRunFooter(SimpleTestCase):
-    def _run(self, created_by_id: int | None):
-        return SimpleNamespace(
-            id=uuid4(),
-            task_id=uuid4(),
-            team_id=1,
-            state={"model": "claude-opus-5"},
-            created_by_id=created_by_id,
-        )
-
-    @patch("products.slack_app.backend.services.slack_messages.User")
-    @patch("products.tasks.backend.facade.access.has_tasks_access")
+    @patch("products.tasks.backend.facade.run_config.parse_run_state")
     @patch("products.tasks.backend.facade.api.get_task_run")
-    def test_a_run_with_no_creator_gets_no_links_without_consulting_the_flag(
-        self, mock_get_run, mock_has_access, _mock_user
-    ) -> None:
-        # Links lead somewhere the reader may not be able to open, so a run we cannot
-        # attribute must not carry them — and must not cost a flag call to find out.
-        mock_get_run.return_value = self._run(created_by_id=None)
+    def test_describes_the_run_links_included(self, mock_get_run, mock_parse) -> None:
+        # Whether the reader may open the links is asked later, where the reader is known.
+        task_id = uuid4()
+        mock_get_run.return_value = SimpleNamespace(id=uuid4(), task_id=task_id, team_id=1, state={})
+        mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort="high")
 
         footer = load_run_footer("run-1")
 
-        mock_has_access.assert_not_called()
-        assert (footer.task_url, footer.desktop_url) == (None, None)
-        # The model is not access-sensitive, so it survives the gate.
+        assert footer.desktop_url == f"posthog-code://task/{task_id}"
+        assert f"/tasks/{task_id}" in (footer.task_url or "")
         assert footer.model == "claude-opus-5"
-
-    @patch("products.slack_app.backend.services.slack_messages.User")
-    @patch("products.tasks.backend.facade.access.has_tasks_access", side_effect=RuntimeError("flags down"))
-    @patch("products.tasks.backend.facade.api.get_task_run")
-    def test_a_flag_service_blip_withholds_the_links_rather_than_guessing(
-        self, mock_get_run, _mock_has_access, _mock_user
-    ) -> None:
-        mock_get_run.return_value = self._run(created_by_id=7)
-
-        footer = load_run_footer("run-1")
-
-        assert (footer.task_url, footer.desktop_url) == (None, None)
 
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
         assert load_run_footer("run-1") == RunFooter()
+
+
+class TestViewerHasCodeAccess(SimpleTestCase):
+    def _integration(self) -> Integration:
+        return Integration(config={}, integration_id="T1")
+
+    @patch("products.tasks.backend.facade.access.has_tasks_access")
+    def test_no_slack_identity_means_no_access_without_consulting_the_flag(self, mock_has_access) -> None:
+        assert viewer_has_code_access(self._integration(), None) is False
+        mock_has_access.assert_not_called()
+
+    @patch("products.slack_app.backend.services.slack_messages.workspace_org_ids", return_value=set())
+    @patch("products.slack_app.backend.services.slack_user_oauth.find_linked_posthog_user", return_value=None)
+    @patch("products.tasks.backend.facade.access.has_tasks_access")
+    def test_an_unlinked_slack_identity_means_no_access(self, mock_has_access, _mock_find, _mock_orgs) -> None:
+        assert viewer_has_code_access(self._integration(), "U1") is False
+        mock_has_access.assert_not_called()
+
+    @parameterized.expand([("granted", True, True), ("denied", False, False)])
+    @patch("products.slack_app.backend.services.slack_messages.workspace_org_ids", return_value=set())
+    @patch("products.slack_app.backend.services.slack_user_oauth.find_linked_posthog_user")
+    @patch("products.tasks.backend.facade.access.has_tasks_access")
+    def test_a_linked_identity_follows_its_own_code_access(
+        self, _name: str, granted: bool, expected: bool, mock_has_access, mock_find, _mock_orgs
+    ) -> None:
+        # The reader, not the task creator: a thread outlives whoever opened it.
+        mock_find.return_value = object()
+        mock_has_access.return_value = granted
+
+        assert viewer_has_code_access(self._integration(), "U1") is expected
+
+    @patch("products.slack_app.backend.services.slack_messages.workspace_org_ids", side_effect=RuntimeError("db down"))
+    def test_a_lookup_failure_withholds_the_links_rather_than_guessing(self, _mock_orgs) -> None:
+        assert viewer_has_code_access(self._integration(), "U1") is False

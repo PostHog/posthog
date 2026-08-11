@@ -99,7 +99,8 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         footer = load_run_footer(task_run.id)
         handler = SlackThreadHandler(context, footer)
-        task_url = footer.task_url
+        # The buttons lead where the footer's links do, so they answer to the same reader.
+        task_url = footer.task_url if handler.viewer_can_open_code_links() else None
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:

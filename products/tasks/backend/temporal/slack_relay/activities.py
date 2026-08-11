@@ -416,12 +416,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         user_message_ts=input.user_message_ts,
         mentioning_slack_user_id=mapping.mentioning_slack_user_id,
     )
-    handler = SlackThreadHandler(context)
-    if handler.footer_enabled():
-        handler.run_footer = load_run_footer(task_run.id)
-
     # Mention resolution, most precise first: the echoed message's recorded
-    # sender, then the live/mapping actors for pre-rollout runs.
+    # sender, then the live/mapping actors for pre-rollout runs. Resolved before the
+    # handler so the footer's links are gated on whoever this reply is actually for.
     mention_from_message = get_message_actor(input.run_id, input.message_id) if input.message_id else None
     target = (
         mention_from_message
@@ -429,6 +426,10 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         or mapping.latest_actor_slack_user_id
         or mapping.mentioning_slack_user_id
     )
+
+    handler = SlackThreadHandler(context, actor_slack_user_id=target)
+    if handler.footer_enabled():
+        handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()

@@ -16,6 +16,7 @@ from products.slack_app.backend.services.slack_messages import (
     context_block,
     normalize_labeled_mentions_to_bare,
     reply_footer_block,
+    viewer_has_code_access,
 )
 
 logger = structlog.get_logger(__name__)
@@ -123,13 +124,22 @@ class SlackThreadContext:
 class SlackThreadHandler:
     """Handler for posting updates to a Slack thread during task execution."""
 
-    def __init__(self, context: SlackThreadContext, run_footer: RunFooter | None = None) -> None:
+    def __init__(
+        self,
+        context: SlackThreadContext,
+        run_footer: RunFooter | None = None,
+        actor_slack_user_id: str | None = None,
+    ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
+        # Who this reply is for. Links are gated on their access, not the task creator's:
+        # a thread outlives its opener, and a link only helps the person looking at it.
+        self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
         self._integration: Integration | None = None
         self._client: WebClient | None = None
         self._bot_user_id: str | None = None
         self._footer_flag: bool | None = None
+        self._code_access: bool | None = None
 
     def _get_integration(self) -> Integration:
         if self._integration is None:
@@ -155,6 +165,13 @@ class SlackThreadHandler:
             self._footer_flag = is_slack_app_model_classifier_enabled(self._get_integration())
         return bool(self._footer_flag)
 
+    def viewer_can_open_code_links(self) -> bool:
+        """Whether this reply's reader can open a PostHog Code link. Memoized: the cards
+        ask for their buttons and the footer asks again for its own links."""
+        if self._code_access is None:
+            self._code_access = viewer_has_code_access(self._get_integration(), self.actor_slack_user_id)
+        return bool(self._code_access)
+
     def _footer_block(self, include_task_url: bool = True) -> dict[str, Any] | None:
         """This handler's footer, or `None` when the workspace isn't in the rollout.
 
@@ -173,6 +190,8 @@ class SlackThreadHandler:
         if configure_url and not is_slack_app_home_enabled(integration):
             configure_url = None
         footer = self.run_footer if include_task_url else replace(self.run_footer, task_url=None)
+        if not self.viewer_can_open_code_links():
+            footer = replace(footer, task_url=None, desktop_url=None)
         return reply_footer_block(footer, configure_url)
 
     def _get_bot_user_id(self) -> str | None:

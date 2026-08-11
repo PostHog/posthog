@@ -34,6 +34,11 @@ class TestPostSlackUpdate(TestCase):
         )
         self._footer_patcher.start()
         self.addCleanup(self._footer_patcher.stop)
+        # These tests mock the handler's __init__, so the reader gate is patched on the
+        # class rather than resolved from a Slack identity.
+        self._access_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=True)
+        self._access_patcher.start()
+        self.addCleanup(self._access_patcher.stop)
         # The PR-opened notification path resolves the reply target from a live
         # SlackThreadTaskMapping. Default that lookup to "no mapping" so tests
         # that don't exercise multiplayer tagging aren't forced to seed the
@@ -596,11 +601,8 @@ class TestPostSlackUpdate(TestCase):
         # When the task creator is not a PostHog Desktop user, every handler call
         # (including the progress handler) receives ``task_url=None`` so the
         # web buttons are skipped.
-        self._footer_patcher.stop()
-        deny_patcher = patch(
-            "products.slack_app.backend.services.slack_messages.load_run_footer",
-            return_value=RunFooter(),
-        )
+        self._access_patcher.stop()
+        deny_patcher = patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=False)
         deny_patcher.start()
         self.addCleanup(deny_patcher.stop)
 

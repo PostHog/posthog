@@ -1706,7 +1706,7 @@ def _resolve_tasks_state(
     from django.utils import timezone as django_timezone
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.slack_messages import DESKTOP_URL_SCHEME
+    from products.slack_app.backend.services.slack_messages import DESKTOP_URL_SCHEME, viewer_has_code_access
     from products.tasks.backend.facade import api as tasks_facade
 
     slack_team_id = integration.integration_id
@@ -1742,7 +1742,7 @@ def _resolve_tasks_state(
     site_url = (settings.SITE_URL or "").rstrip("/")
     # The desktop link only resolves for someone who has the app, so it is offered
     # alongside the web one rather than instead of it.
-    show_desktop = _viewer_has_desktop_access(integration, slack_user_id)
+    show_desktop = viewer_has_code_access(integration, slack_user_id)
     now = django_timezone.now()
     all_items: list[TaskItem] = []
     repos_seen: list[str] = []
@@ -1831,26 +1831,6 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
     if seconds < 7 * 86400:
         return f"{seconds // 86400}d ago"
     return when.strftime("%b %d")
-
-
-def _viewer_has_desktop_access(integration: Integration, slack_user_id: str) -> bool:
-    """Whether the Slack user reading the Home tab can open a `posthog-code://` link.
-
-    Fail closed, like every other PostHog Code gate: an unlinked Slack identity or a
-    flag-service error means no desktop link rather than one that dead-ends.
-    """
-    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
-
-    try:
-        linked_user = find_linked_posthog_user(
-            slack_user_id=slack_user_id,
-            slack_team_id=integration.integration_id,
-            candidate_org_ids=_workspace_org_ids(integration.integration_id),
-        )
-        return linked_user is not None and has_tasks_access(linked_user)
-    except Exception:
-        logger.exception("slack_app_home_desktop_access_check_failed", integration_id=integration.id)
-        return False
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
