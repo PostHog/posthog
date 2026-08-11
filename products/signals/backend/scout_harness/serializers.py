@@ -2147,9 +2147,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
-            "evaluation window), `ignored` (its output received no human engagement), or "
-            "`repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` "
-            "or `paused_by_system`."
+            "evaluation window), `ignored` (no person engaged with its reports — no view, rating, "
+            "note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null "
+            "unless `status` is `pending_pause` or `paused_by_system`."
         ),
     )
     emit = serializers.BooleanField(
@@ -2213,9 +2213,9 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "When `status` last changed. For `pending_pause` this is when the warning was issued "
-            "(an `ignored` warning pauses about a week later unless someone acts on the scout's "
-            "reports; a `no_output` warning only flags the scout); for the paused statuses it is "
-            "when the scout was paused. Null if the status never changed."
+            "(an `ignored` warning pauses about a week later unless someone engages with the scout's "
+            "reports — opening one counts; a `no_output` warning only flags the scout); for the "
+            "paused statuses it is when the scout was paused. Null if the status never changed."
         ),
     )
     auto_pause_exempt = serializers.BooleanField(

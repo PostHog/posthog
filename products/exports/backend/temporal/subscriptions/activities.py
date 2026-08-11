@@ -51,6 +51,10 @@ from ee.tasks.subscriptions.auto_disable import (
     get_subscription_disable_reason,
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
+from ee.tasks.subscriptions.failure_notifications import (
+    create_subscription_delivery_failure_notification,
+    send_subscription_delivery_failure_email,
+)
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 
@@ -608,6 +612,35 @@ async def update_delivery_record(inputs: UpdateDeliveryRecordInputs) -> None:
         delivery_id=inputs.delivery_id,
         status=inputs.status,
     )
+
+
+@temporalio.activity.defn
+async def notify_subscription_delivery_failure(subscription_id: int, failure_id: str) -> None:
+    subscription = await database_sync_to_async(
+        Subscription.objects.select_related("created_by").get,
+        thread_sensitive=False,
+    )(pk=subscription_id)
+    errors: list[Exception] = []
+    try:
+        await database_sync_to_async(send_subscription_delivery_failure_email, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception("notify_subscription_delivery_failure.email_failed", subscription_id=subscription_id)
+
+    try:
+        await database_sync_to_async(create_subscription_delivery_failure_notification, thread_sensitive=False)(
+            subscription, failure_id
+        )
+    except Exception as error:
+        errors.append(error)
+        LOGGER.exception(
+            "notify_subscription_delivery_failure.in_app_notification_failed", subscription_id=subscription_id
+        )
+
+    if errors:
+        raise errors[0]
 
 
 @temporalio.activity.defn

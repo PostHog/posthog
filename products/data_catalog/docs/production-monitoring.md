@@ -41,6 +41,10 @@ Every rubric follows the same shape, and new judges should too: **classify appli
 
 Evaluation definitions are per-team database rows, not repo code; this document is their source of truth.
 
+### Calibration log
+
+- **Aug 2026, canonical metric bypass, first fail.** The first failing verdict was a scheduled Signals Scout run whose executed SQL was entirely schema and freshness validation (`information_schema` lookups, a max-date/row-count check), which is work the metric-discovery steering explicitly exempts as schema-first. The judge failed it on the run's surrounding context (a churn-scoring scout) rather than on the queries it executed. Two remediations: the scout harness prompt now carries a flag-gated catalog-first rule (`products/signals/backend/scout_harness/prompt.py`, the only repo surface reaching custom store-hosted scout skills, which steer with their own prescribed SQL), and the bypass rubric gained an applicability clause returning N/A when a trace computes no business measure. The offline suite (`products/data_catalog/evals/`) pins both sides: `scout_skill_prescribed_bypass` and `scout_schema_validation_control`.
+
 ### Retired: the deterministic Hog evaluation
 
 `MCP: catalog checked before KPI derivation` (Hog) ran Aug 4-5, 2026 and is retired, disabled pending deletion. Two reasons. Its applicability gate was a keyword list, which required predicting every phrasing of a metric question and measurably covered ~6.5% of sessions - the judges classify semantically instead. And it duplicated the catalog-first tile's measurement with worse failure semantics: any single Hog failure disables the whole evaluation (`disables_evaluation=True` on `hog_error`), which took it offline twice in two days, once from a 10s timeout on a pathological trace and once when tool-span capture changed the traffic shape under it.

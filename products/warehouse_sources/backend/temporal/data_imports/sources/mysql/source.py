@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
     MySQLImplementation,
     get_connection_metadata as get_mysql_connection_metadata,
 )
@@ -60,7 +61,10 @@ _VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
         "Connection refused",
         "Could not connect to the host on the port given. Check the host and port are correct and the MySQL server is accepting connections.",
     ),
-    ("timed out", "Connection timed out. Does your database have our IP addresses allowed?"),
+    (
+        "timed out",
+        "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
+    ),
     (
         "No route to host",
         "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
@@ -95,7 +99,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             name=SchemaExternalDataSourceType.MY_SQL,
             category=DataWarehouseSourceCategory.DATABASES,
             featured=True,
-            keywords=["sql", "mariadb"],
+            keywords=["sql", "mariadb", "rds", "aws rds", "amazon rds", "aurora"],
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",
@@ -300,6 +304,12 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # locale-independent error code (the trailing message text is translated on non-English
             # servers) so it catches both the raw pymysql string and the wrapped `(1038, ...)` form.
             "(1038,": "Your MySQL/MariaDB server ran out of sort buffer memory while ordering this table by its incremental field (error 1038). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, raise the server's 'sort_buffer_size', or switch this table to a full re-sync, then resync.",
+            # MySQL/MariaDB error 2013 (lost connection during query) that escapes the in-activity
+            # FORCE INDEX fallback because the incremental field has no usable index (see
+            # `MySQLUnavoidableFilesortError` in mysql.py). The un-indexed full-table sort re-times-out
+            # every run, so it's deterministic — unlike the generic transient 2013 drop, which stays
+            # retryable. Match the stable marker, which carries no host or query text.
+            UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR: "Your MySQL/MariaDB server closed the connection while ordering this table by its incremental field (error 2013). We try to avoid the sort by forcing the incremental field's index, but this table has no usable index on that field. Add an index on the incremental field, or switch this table to a full re-sync, then resync.",
             # MySQL/MariaDB error 3 (EE_WRITE): the server hit ENOSPC writing a temporary file to
             # its own temp directory (e.g. `/rdsdbdata/tmp/...`) — almost always a large filesort
             # spilling the `ORDER BY <incremental_field>` sort to disk. The server's temp filesystem
@@ -342,7 +352,22 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
         # "Too many connections" (MySQL error 1040) shares the same contract: `_connect_with_transient_retry`
         # retries it in-process too (see `_is_transient_too_many_connections`) — a slot frees the moment
         # another connection closes, mirroring the Postgres source's connection-limit handling.
-        return {"Lost connection to MySQL server during query", "Too many connections"}
+        #
+        # "Can't create a new thread" (MySQL error 1135) is the same class of transient host-capacity
+        # condition — the server hit its OS thread/process limit rather than `max_connections` — and is
+        # retried in-process the same way (see `_is_transient_cant_create_thread`).
+        #
+        # A Vitess/PlanetScale shard mid-reparent (see `_is_transient_vitess_reparent`) shares the same
+        # contract too: `_retry_on_transient_tablet_unavailable` already retries it in-process during
+        # metadata discovery, but a reparent can outlast that bounded in-process budget, so match the
+        # stable phrase here as a backstop — Temporal's own activity retry lands on the newly promoted
+        # primary once the reparent completes.
+        return {
+            "Lost connection to MySQL server during query",
+            "Too many connections",
+            "Can't create a new thread",
+            "reparent operation in progress",
+        }
 
     def reconcile_schema_metadata(
         self,

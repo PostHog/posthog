@@ -1001,20 +1001,17 @@ def _route_to_kafka(team_id: int) -> bool:
 def _produce_invalidation(team_id: int) -> None:
     """Produce a single invalidation message; swallow Kafka errors.
 
-    A produce failure here must not raise out of a signal handler — see
-    `_enqueue_invalidation` for why that means the invalidation is dropped
-    rather than retried via Celery. Per-message delivery success/failure is
-    also counted in KAFKA_PRODUCER_MESSAGES_COUNTER (wired in `_KafkaProducer.produce`).
+    A produce failure must not raise out of a signal handler and is deliberately
+    not retried via Celery (see `_enqueue_invalidation`). The `except` below only
+    sees synchronous errors (`BufferError` queue-full, serialization/config).
+    `flush_timeout=0` returns without waiting for acks rather than stalling
+    every flag-edit on-commit hook on an unhealthy cluster, so broker-side
+    failures surface later in `_KafkaProducer._on_delivery` as a counter tick
+    plus a throttled `kafka_producer_delivery_failed` warning keyed by team id.
 
-    `data` must be a dict (not pre-encoded bytes): `_KafkaProducer.produce`
-    runs it through `json_serializer` (`json.dumps` + utf-8 encode). Passing
-    bytes would `TypeError` inside `json.dumps` and silently fail the swallow
-    path. `mode="json"` converts `datetime` to ISO string.
-
-    `flush_timeout=0` keeps this off the request hot path — librdkafka's
-    background thread drains the singleton's queue, and the next call flushes
-    again. A blocking flush would stall every flag-edit on-commit hook on an
-    unhealthy cluster.
+    `data` must be a dict, not pre-encoded bytes: `produce` runs it through
+    `json.dumps`, so bytes would `TypeError` and silently fail the swallow path.
+    `mode="json"` converts `datetime` to ISO string.
     """
     try:
         msg = FlagsCacheInvalidation(team_id=team_id, emitted_at=datetime.now(UTC))
@@ -1023,6 +1020,8 @@ def _produce_invalidation(team_id: int) -> None:
                 topic=KAFKA_FLAGS_CACHE_INVALIDATION,
                 data=msg.model_dump(mode="json"),
                 key=str(team_id),
+                # The key is only ever a team id, so it is safe to log.
+                log_key_on_delivery_failure=True,
             )
     except Exception as e:
         logger.warning("flags_cache_invalidation_produce_failed", team_id=team_id, error=str(e), exc_info=True)
@@ -1031,25 +1030,26 @@ def _produce_invalidation(team_id: int) -> None:
 def _enqueue_invalidation(team_id: int) -> None:
     """Run from `transaction.on_commit`: route to Kafka if enabled, otherwise Celery.
 
-    Model signal handlers wrap this in `transaction.on_commit`: deferring until commit
-    avoids race conditions where the Celery worker reads pre-commit state. Callers with no
-    open transaction to defer past (e.g. staff tooling, via `enqueue_evaluation_cache_invalidation`)
-    call it directly. Shared by all four signal handlers wired to the flag-invalidation topic.
-    Cohort invalidation is intentionally not routed here, since cohort changes flow through their
-    own topic.
+    Signal handlers defer this until commit so the Celery worker can't read
+    pre-commit state; callers with no open transaction (staff tooling, via
+    `enqueue_evaluation_cache_invalidation`) call it directly. Cohort
+    invalidation stays on its own topic.
 
     The two paths are mutually exclusive so the rollout proves the Kafka path
-    actually works end to end: Celery is not a fallback when the flag is on,
-    so a stuck Kafka producer shows up as a stale cache for that team instead
-    of being masked by Celery quietly picking up the slack. `_produce_invalidation`
-    still swallows its own errors — a produce failure must not raise out of a
-    signal handler — but for a flagged team that failure means the invalidation
-    is dropped, not retried via Celery. Watch `flags_cache_invalidation_produce_failed`
-    logs during rollout. Celery's `.delay()` is allowed to raise when the flag
-    is off — it's the sole path in that case and operators want broker failures loud.
+    end to end: a broken Kafka path shows up as a stale cache instead of being
+    masked by Celery quietly picking up the slack. Do not add a Celery fallback
+    on produce failure. It would hide that signal, and it would miss the
+    realistic failure mode anyway, because broker-side delivery failures are
+    reported only after `_produce_invalidation` has returned (see its
+    docstring). A dropped invalidation is repaired by the
+    `verify_and_fix_flags_cache_task` sweep (which includes teams whose flags
+    are all soft-deleted), so worst-case staleness is one sweep interval plus
+    the verification grace period, well under an hour rather than the cache
+    TTL. Celery's `.delay()` may raise when the flag is off, since it is the
+    sole path then and operators want broker failures loud.
 
-    Guarded on FLAGS_REDIS_URL here (not just at each call site) so every caller, including
-    ones outside a signal handler, gets the same no-op-when-unconfigured behavior for free.
+    Guarded on FLAGS_REDIS_URL here rather than at each call site so every
+    caller gets the same no-op-when-unconfigured behavior.
     """
     if not settings.FLAGS_REDIS_URL:
         return

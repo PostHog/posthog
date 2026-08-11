@@ -202,7 +202,7 @@ const accountRelationshipDefinitionsRetrieve = (): ToolBase<
 
 const AccountsCreateSchema = AccountsCreateBody.extend({
     properties: AccountsCreateBody.shape['properties'].describe(
-        'Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All fields are optional.'
+        'Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. `email_domains` (company email domains, e.g. ["acme.com"]) and `known_emails` (individual addresses, for contacts on personal domains) match synced touchpoints such as calendar meetings to this account. All fields are optional.'
     ),
     tags: AccountsCreateBody.shape['tags'].describe(
         'Tag names to attach to the account. Tags are created on demand if they do not already exist for the team.'
@@ -415,7 +415,7 @@ const AccountsPartialUpdateSchema = AccountsPartialUpdateParams.omit({ project_i
     .extend(AccountsPartialUpdateBody.shape)
     .extend({
         properties: AccountsPartialUpdateBody.shape['properties'].describe(
-            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems). To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.'
+            'Typed account properties. The server replaces the `properties` object as a whole, so include any existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems), plus `email_domains` (company email domains, e.g. ["acme.com"]) and `known_emails` (individual addresses, for contacts on personal domains) which match synced touchpoints such as calendar meetings to this account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` instead.'
         ),
         tags: AccountsPartialUpdateBody.shape['tags'].describe(
             'Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a delta. Tags are created on demand if they do not already exist for the team.'
