@@ -199,7 +199,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
             unavailableTitle: 'Keep customer conversations close to your product data',
             unavailableReason: 'Triage and respond to customer questions with the context you need to solve them.',
             setupActionLabel: 'Set up Support',
-            docsHref: 'https://posthog.com/docs/conversations',
+            docsHref: 'https://posthog.com/docs/support',
             compactSetupPrompt: true,
         },
     },
