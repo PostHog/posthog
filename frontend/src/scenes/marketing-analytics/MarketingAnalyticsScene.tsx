@@ -31,6 +31,7 @@ import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analy
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import {
     MarketingAnalyticsTab,
+    SETUP_ABSORBED_TABS,
     marketingAnalyticsLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
@@ -209,7 +210,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
 const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(marketingAnalyticsLogic)
-    const { setActiveTab } = useActions(marketingAnalyticsLogic)
+    const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
 
     // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
     // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
@@ -246,7 +247,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
             : featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
               ? [
                     {
-                        key: MarketingAnalyticsTab.SETUP,
+                        key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
                         label: 'Integration health',
                         content: <UtmAuditTab />,
                     },
@@ -259,9 +260,21 @@ const MarketingAnalyticsContent = (): JSX.Element => {
         return dashboard
     }
 
-    // A stored or aliased tab can name one no flag is rendering — `?tab=integration-health`
-    // with Setup and the audit both off, say. LemonTabs would show nothing selected and no
-    // content, so fall back to the tab that always exists.
+    // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
+    // somewhere sensible. Here rather than in the logic because only the scene knows
+    // whether Setup is rendering: with its flag off those tabs are still real and
+    // resolve on their own.
+    const absorbed = setupEnabled ? SETUP_ABSORBED_TABS[activeTab] : undefined
+    useEffect(() => {
+        if (absorbed) {
+            setActiveTab(MarketingAnalyticsTab.SETUP)
+            setSetupSection(absorbed)
+        }
+    }, [absorbed, setActiveTab, setSetupSection])
+
+    // A stored tab can still name one no flag is rendering — a key persisted from before
+    // a flag was turned off. LemonTabs would show nothing selected and no content, so
+    // fall back to the tab that always exists.
     const selectedTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     return (
@@ -274,6 +287,8 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
         'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
     [MarketingAnalyticsTab.ATTRIBUTION]:
         'Compare how each attribution model credits your conversions, to see which marketing you might be over or under valuing.',
+    [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
+        'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
     [MarketingAnalyticsTab.SETUP]:
         'Everything Marketing analytics needs to work: connected ad platforms, conversion goals, UTM mapping and attribution.',
 }

@@ -69,6 +69,10 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     ATTRIBUTION = 'attribution',
+    // Still the tab key when Setup's flag is off, which is everywhere until it rolls
+    // out. Removing it would change the URL and the header copy for every user of the
+    // audit — which is fully rolled out — for no gain.
+    INTEGRATION_HEALTH = 'integration-health',
     SETUP = 'setup',
 }
 
@@ -87,10 +91,11 @@ export enum SetupSection {
 
 export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
 
-/** Tab keys that no longer exist, and where they went. `integration-health` was a
- * top-level tab before Setup absorbed it, so links and bookmarks still carry it. */
-const LEGACY_TAB_ALIASES: Record<string, { tab: MarketingAnalyticsTab; section: SetupSection }> = {
-    'integration-health': { tab: MarketingAnalyticsTab.SETUP, section: SetupSection.INTEGRATION_HEALTH },
+/** Where a tab key lands once Setup absorbs it. Applied by the scene, which is what
+ * knows whether Setup is rendering — with its flag off `integration-health` is still a
+ * real tab and resolves on its own. */
+export const SETUP_ABSORBED_TABS: Partial<Record<MarketingAnalyticsTab, SetupSection>> = {
+    [MarketingAnalyticsTab.INTEGRATION_HEALTH]: SetupSection.INTEGRATION_HEALTH,
 }
 
 const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
@@ -1415,11 +1420,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
         const rawTab = searchParams.get('tab')
-        const alias = rawTab ? LEGACY_TAB_ALIASES[rawTab] : undefined
-        if (alias) {
-            actions.setActiveTab(alias.tab)
-            actions.setSetupSection(alias.section)
-        } else if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
+        if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
             actions.setActiveTab(rawTab as MarketingAnalyticsTab)
         }
 
