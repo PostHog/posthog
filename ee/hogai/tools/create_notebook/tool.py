@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
+from products.notebooks.backend.facade.widget_catalog import format_notebook_widget_catalog_for_agents
+
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.create_notebook.helpers import (
     ArtifactStatus,
@@ -14,7 +16,9 @@ from ee.hogai.tools.create_notebook.helpers import (
     save_notebook_to_db,
 )
 
-CREATE_NOTEBOOK_PROMPT = """
+NOTEBOOK_WIDGET_CATALOG_PROMPT = format_notebook_widget_catalog_for_agents()
+
+CREATE_NOTEBOOK_PROMPT = f"""
 Use this tool to create a notebook document with rich content.
 
 # Use this when:
@@ -38,6 +42,12 @@ You must use EXACTLY ONE of these parameters:
 # How to use the <insight>insight_id</insight> tag:
 You can use the <insight>insight_id</insight> tag to reference existing visualization insights.
 Use the list_data tool with kind=artifacts to retrieve artifact ids, when in doubt.
+
+# PostHog object widgets:
+Add object widgets with component tags, for example `<FeatureFlag id={{123}} view="summary" />`.
+Use the identity prop and view that fit the task:
+
+{NOTEBOOK_WIDGET_CATALOG_PROMPT}
 
 # Best practices:
 The document should be structured as a series of sections, each with a heading and a body.
