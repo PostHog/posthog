@@ -80,6 +80,7 @@ export interface sharingLogicValues {
     shareLink: string
     sharingAllowed: boolean
     sharingConfiguration: SharingConfigurationType | null
+    sharingConfigurationLoadError: { status?: number } | null
     sharingConfigurationLoading: boolean
     sharingSettings: {
         hideExtraDetails: boolean
@@ -356,6 +357,16 @@ export const sharingLogic = kea<sharingLogicType>([
     reducers({
         showPreview: [true, { togglePreview: (state) => !state }],
         iframeKey: [0, { reloadIframe: (state) => state + 1 }],
+        // Tracks a failed configuration load so the modal can show the cause and a retry
+        // instead of a dead-end message. Cleared whenever a load starts or succeeds.
+        sharingConfigurationLoadError: [
+            null as { status?: number } | null,
+            {
+                loadSharingConfiguration: () => null,
+                loadSharingConfigurationSuccess: () => null,
+                loadSharingConfigurationFailure: (_, { errorObject }) => ({ status: errorObject?.status }),
+            },
+        ],
     }),
 
     loaders(({ props }) => ({

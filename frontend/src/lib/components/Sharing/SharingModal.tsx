@@ -45,6 +45,7 @@ import {
     AvailableFeature,
     InsightShortId,
     QueryBasedInsightModel,
+    SidePanelTab,
 } from '~/types'
 import { InsightType } from '~/types'
 
@@ -127,15 +128,15 @@ export function SharingModalContent({
         accessControlAvailable,
         sharingConfiguration,
         sharingConfigurationLoading,
+        sharingConfigurationLoadError,
         showPreview,
         embedCode,
         iframeProperties,
         shareLink,
         sharingAllowed,
     } = useValues(sharingLogic(logicProps))
-    const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
-        sharingLogic(logicProps)
-    )
+    const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue, loadSharingConfiguration } =
+        useActions(sharingLogic(logicProps))
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { preflight } = useValues(preflightLogic)
     const siteUrl = preflight?.site_url || window.location.origin
@@ -215,7 +216,9 @@ export function SharingModalContent({
                     <AccessControlPopoutCTA
                         resourceType={AccessControlResourceType.Dashboard}
                         callback={() => {
-                            push(urls.dashboard(dashboardId))
+                            // Close the modal but keep the access control panel hash, so the panel
+                            // stays open instead of being torn down along with the modal.
+                            push(urls.dashboard(dashboardId), undefined, { panel: SidePanelTab.AccessControl })
                         }}
                     />
                     <LemonDivider />
@@ -227,7 +230,9 @@ export function SharingModalContent({
                     <AccessControlPopoutCTA
                         resourceType={AccessControlResourceType.Insight}
                         callback={() => {
-                            push(urls.insightView(insightShortId))
+                            // Close the modal but keep the access control panel hash, so the panel
+                            // stays open instead of being torn down along with the modal.
+                            push(urls.insightView(insightShortId), undefined, { panel: SidePanelTab.AccessControl })
                         }}
                     />
                     <LemonDivider />
@@ -238,7 +243,20 @@ export function SharingModalContent({
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
                 ) : !sharingConfiguration ? (
-                    <p>Something went wrong...</p>
+                    <LemonBanner
+                        type="error"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => loadSharingConfiguration(),
+                            loading: sharingConfigurationLoading,
+                        }}
+                    >
+                        We couldn't load the sharing settings
+                        {sharingConfigurationLoadError?.status
+                            ? ` (error ${sharingConfigurationLoadError.status})`
+                            : ''}
+                        . Try again in a moment.
+                    </LemonBanner>
                 ) : (
                     <>
                         <h3>Sharing</h3>

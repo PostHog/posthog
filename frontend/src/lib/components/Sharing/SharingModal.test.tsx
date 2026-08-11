@@ -141,6 +141,27 @@ describe('SharingModal (dashboard)', () => {
         eventUsageLogic.unmount()
     })
 
+    it('captures the load error status so the modal can show a cause and retry', async () => {
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/:dashboard_id/sharing/': () => [
+                    503,
+                    { detail: 'Service Unavailable' },
+                ],
+            },
+        })
+
+        const logic = sharingLogic({ dashboardId })
+        await expectLogic(logic, () => {
+            logic.mount()
+        }).toDispatchActions(['loadSharingConfigurationFailure'])
+
+        expect(logic.values.sharingConfiguration).toBeNull()
+        expect(logic.values.sharingConfigurationLoadError).toEqual({ status: 503 })
+        logic.unmount()
+    })
+
     it('does not call onSharingEnabledChange on initial dashboard sharing load', async () => {
         const onSharingEnabledChange = jest.fn()
 
