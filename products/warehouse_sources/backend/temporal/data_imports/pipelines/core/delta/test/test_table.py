@@ -213,6 +213,40 @@ class TestGetDeltaTableUnrecoverableErrors:
             cast(AsyncMock, table_ref._logger.awarning).assert_awaited_once()
             assert table_ref.is_first_sync is False
 
+    @pytest.mark.asyncio
+    async def test_open_transient_delta_log_race_is_not_captured_but_still_reraised(self):
+        """A concurrent `reset_table` purge (a full_refresh sync, or this same open racing another
+        attempt) can take a `_delta_log` checkpoint file out from under this open between `_last_checkpoint`
+        pointing to it and delta-rs fetching it, surfacing as a DeltaError for a missing checkpoint object
+        (see is_transient_delta_maintenance_error). That's not table corruption, so it must not be
+        captured or trigger the unrecoverable-table wipe — it must propagate as TransientObjectStoreError
+        so Temporal retries the sync."""
+        table_ref = DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        checkpoint_race_error = deltalake.exceptions.DeltaError(
+            "Kernel error: Arrow error: External: Object at location "
+            "dlt/team_1_source_2/table/_delta_log/00000000000000000099.checkpoint.parquet not found: "
+            "Error performing GET https://s3.example.com/... - Server returned non-2xx status code: "
+            "404 Not Found: NoSuchKey"
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+        with (
+            patch.object(table_ref, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}._purge_s3_prefix", AsyncMock()) as mock_purge,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = checkpoint_race_error
+
+            with pytest.raises(TransientObjectStoreError):
+                await table_ref.get_delta_table()
+
+            mock_capture.assert_not_called()
+            mock_purge.assert_not_awaited()
+            assert table_ref.is_first_sync is False
+
 
 class TestIsTableCorrupted:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
@@ -230,6 +264,20 @@ class TestIsTableCorrupted:
             ("delta_error_is_corrupt", True, deltalake.exceptions.DeltaError("no protocol"), True),
             ("file_not_found_is_corrupt", True, FileNotFoundError("missing data file"), True),
             ("unknown_error_not_corrupt", True, ValueError("transient"), False),
+            # A concurrent purge racing this same open (see is_transient_delta_maintenance_error) is a
+            # DeltaError too, but must not read as corrupt — that would trigger a needless destructive
+            # revive (full non-billable resync) for what a plain retry would have resolved on its own.
+            (
+                "transient_delta_log_race_not_corrupt",
+                True,
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Arrow error: External: Object at location "
+                    "dlt/team_1_source_2/table/_delta_log/00000000000000000099.checkpoint.parquet not found: "
+                    "Error performing GET https://s3.example.com/... - Server returned non-2xx status code: "
+                    "404 Not Found: NoSuchKey"
+                ),
+                False,
+            ),
         ]
     )
     @pytest.mark.asyncio

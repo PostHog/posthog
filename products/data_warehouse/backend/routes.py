@@ -6,6 +6,7 @@ from products.data_warehouse.backend.presentation.views import (
     column_statistics,
     data_modeling_job,
     data_warehouse,
+    expression,
     managed_viewset,
     modeling,
     query_tab_state,
@@ -36,6 +37,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"warehouse_view_link", view_link.ViewLinkViewSet, "project_warehouse_view_link", ["team_id"]
+    )
+    routers.projects.register(
+        r"warehouse_expressions",
+        expression.DataWarehouseExpressionViewSet,
+        "project_warehouse_expressions",
+        ["team_id"],
     )
     routers.projects.register(
         r"data_warehouse", data_warehouse.DataWarehouseViewSet, "project_data_warehouse", ["team_id"]

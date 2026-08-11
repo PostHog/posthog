@@ -13,6 +13,7 @@ export const SHORTCUTS = {
   GO_BACK_ALT: "mod+left",
   GO_FORWARD_ALT: "mod+right",
   TOGGLE_LEFT_SIDEBAR: "mod+b",
+  TOGGLE_ACTIVITY_PANEL: "mod+alt+b",
   TOGGLE_REVIEW_PANEL: "mod+shift+b",
   PREV_TASK: "mod+shift+[,ctrl+shift+tab",
   NEXT_TASK: "mod+shift+],ctrl+tab",
@@ -205,6 +206,14 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
     keys: SHORTCUTS.TOGGLE_LEFT_SIDEBAR,
     description: "Toggle left sidebar",
     category: "navigation",
+  },
+  {
+    id: "toggle-activity-panel",
+    keys: SHORTCUTS.TOGGLE_ACTIVITY_PANEL,
+    description: "Toggle activity panel",
+    category: "panels",
+    context: "Spaces",
+    availability: "channels-layout",
   },
   {
     id: "toggle-review-panel",

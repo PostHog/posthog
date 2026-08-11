@@ -430,7 +430,7 @@ def _demo_multi_push(
         "closed_at": None,
         "user": {"login": "webjunkie", "avatar_url": ""},
         "head": {"sha": push_shas[3]},
-        "base": {"repo": {"full_name": "PostHog/posthog"}},
+        "base": {"repo": {"full_name": "PostHog/posthog", "default_branch": "master"}},
         "labels": ["demo"],
     }
     return demo_pr, demo_runs
@@ -720,7 +720,7 @@ def _demo_merged_prs(prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "closed_at": template_ts,
                 "user": {"login": authors[index % len(authors)], "avatar_url": ""},
                 "head": {"sha": f"seed{index:04d}" + "a" * 32, "ref": f"seed/pr-{number}"},
-                "base": {"ref": "master", "repo": {"full_name": SEED_REPOSITORY}},
+                "base": {"ref": "master", "repo": {"full_name": SEED_REPOSITORY, "default_branch": "master"}},
                 "labels": [],
             }
         )

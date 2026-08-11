@@ -31,7 +31,8 @@ ENRICHMENT_SIGNAL_EVENT = "signup_enrichment_completed"
 ENRICHMENT_RECHECK_EVENT = "signup_enrichment_recheck"
 
 # Hard cap per attempt. The Harmonic client tries up to two domain variations at 30s each,
-# so a single lookup can legitimately run ~60s; give it headroom then stop.
+# plus a parent-company profile fetch capped at 10s, so a single lookup can legitimately run
+# ~70s; give it headroom then stop.
 ENRICH_ACTIVITY_TIMEOUT = dt.timedelta(seconds=90)
 
 # A couple of retries for transient provider/network blips, then give up quietly. Kept as a

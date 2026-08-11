@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
     updated_at: string;
   }[],
   totals: {} as Record<string, number>,
+  unreadSessions: {} as Record<string, number>,
+  blockedSessions: {} as Record<string, number>,
   channelsLayout: true,
   navigate: vi.fn(),
 }));
@@ -40,6 +42,18 @@ vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useUnreadChannels", () => ({
   useIsChannelUnread: () => () => false,
+}));
+// Reads the task list and the viewed timestamps, and the timestamps come over
+// tRPC — which this file renders without, like the other data hooks it stubs.
+vi.mock("@posthog/ui/features/canvas/hooks/useUnreadSessionCount", () => ({
+  useUnreadSessionCount: () => (channelId: string | undefined) =>
+    mocks.unreadSessions[channelId ?? ""] ?? 0,
+}));
+// Reads the live session store and the task list, neither of which this file
+// mounts.
+vi.mock("@posthog/ui/features/canvas/hooks/useBlockedSessionCount", () => ({
+  useBlockedSessionCount: () => (channelId: string | undefined) =>
+    mocks.blockedSessions[channelId ?? ""] ?? 0,
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
@@ -142,6 +156,8 @@ describe("ChannelsList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.channels = [ME, ENG, DESIGN];
+    mocks.unreadSessions = {};
+    mocks.blockedSessions = {};
     mocks.channelsLayout = true;
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
@@ -323,27 +339,30 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      await user.keyboard("{ArrowDown}{Enter}");
+      // Nothing is highlighted until a key moves it, and the headings are rows
+      // of their own: Starred, #me, Spaces, then the space below it.
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{Enter}",
+      );
 
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
       expect(mocks.navigate).not.toHaveBeenCalled();
     });
 
-    // Base UI resets the highlight when the pointer leaves a row, and
-    // `autoHighlight="always"` then snaps it back to the top — so drifting the
-    // mouse across the gap between two rows threw the keyboard back to #me.
-    it("keeps the highlight when the pointer leaves a row", async () => {
+    // The heading is a row of the tree, so it answers the tree's keys. A
+    // heading missing from the flat node list would leave the highlight index
+    // and the rendered rows disagreeing from there down.
+    it("folds a section from its heading and opens it again", async () => {
       const user = userEvent.setup();
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      const row = screen.getByText("engineering");
-      await user.hover(row);
-      await user.unhover(row);
-      await user.keyboard("{Enter}");
+      // Onto the Spaces heading: Starred, #me, Spaces.
+      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{ArrowLeft}");
+      expect(screen.queryByText("engineering")).toBeNull();
 
-      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
-      expect(mocks.navigate).not.toHaveBeenCalled();
+      await user.keyboard("{ArrowRight}");
+      expect(screen.getByText("engineering")).toBeTruthy();
     });
 
     // A kept-mounted collapsed row would still be an option, so ↓ would walk
@@ -367,8 +386,11 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      // #me is highlighted to begin with, so one press down is "engineering".
-      await user.keyboard("{ArrowDown}{ArrowRight}");
+      // Nothing is highlighted to begin with: down through the Starred heading,
+      // #me and the Spaces heading reaches "engineering".
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}",
+      );
 
       expect(screen.getByText("Ship the tree")).toBeTruthy();
       expect(screen.getByText("Write the tests")).toBeTruthy();
@@ -383,7 +405,9 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      await user.keyboard("{ArrowDown}{ArrowRight}{ArrowDown}{ArrowDown}");
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}{ArrowDown}{ArrowDown}",
+      );
       // On the second task, two rows below its space.
       await user.keyboard("{ArrowLeft}");
 
@@ -439,8 +463,10 @@ describe("ChannelsList", () => {
       renderList();
 
       await user.click(screen.getByLabelText("Search spaces"));
-      await user.keyboard("{ArrowDown}{ArrowRight}");
-      expect(screen.getByText("View all")).toBeTruthy();
+      await user.keyboard(
+        "{ArrowDown}{ArrowDown}{ArrowDown}{ArrowDown}{ArrowRight}",
+      );
+      expect(screen.getByText("view all")).toBeTruthy();
 
       // Past both sessions and onto the row below them.
       await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
@@ -506,9 +532,10 @@ describe("ChannelsList", () => {
       );
       mocks.navigate.mockClear();
 
-      // From the top, one press down is "engineering" again. Left where it was,
-      // it would have been the row after it.
-      await user.keyboard("{ArrowDown}{Enter}");
+      // From the top, three presses down is "engineering" again — the two
+      // headings are rows too. Left where it was, this would have landed on the
+      // row after it.
+      await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}{Enter}");
 
       expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
       expect(mocks.navigate).not.toHaveBeenCalled();

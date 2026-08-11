@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
@@ -96,6 +96,29 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     deletePerson(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<PersonMessage[]>
 
     /**
+     * Claims the persons in the lifecycle mark table for a merge; at most one live
+     * operation may hold a person. Held until the transaction commits.
+     */
+    claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void>
+
+    /** Releases a merge's lifecycle marks; same transaction as the claim. */
+    releaseLifecycleMarks(
+        opId: string,
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void>
+
+    /** Whether the person is live; only meaningful while holding its lifecycle mark. */
+    isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean>
+
+    /**
      * Adds a distinct ID to a person
      */
     addDistinctId(
@@ -171,21 +194,6 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
     ): Promise<void>
 
     /**
-     * Adds a personless distinct ID
-     */
-    addPersonlessDistinctId(teamId: number, distinctId: string, batchId: number): Promise<boolean>
-
-    /**
-     * Adds a personless distinct ID during merge
-     */
-    addPersonlessDistinctIdForMerge(
-        teamId: number,
-        distinctId: string,
-        tx: PersonRepositoryTransaction | undefined,
-        batchId: number
-    ): Promise<boolean>
-
-    /**
      * Returns the size of the person properties
      */
     personPropertiesSize(personId: string, teamId: number): Promise<number>
@@ -219,20 +227,6 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
      * @param teamDistinctIds - A list of team IDs and distinct IDs to prefetch
      */
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void>
-
-    /**
-     * Batch-inserts personless distinct IDs for events where no person exists.
-     * Stores is_merged results in a cache for later lookup.
-     * @param entries - A list of team IDs and distinct IDs to insert
-     * @param batchId - Batch ID for cache eviction tracking
-     */
-    processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[], batchId: number): Promise<void>
-
-    /**
-     * Gets the is_merged result from batch personless insert.
-     * Returns undefined if not in batch cache.
-     */
-    getPersonlessBatchResult(teamId: number, distinctId: string): boolean | undefined
 
     /**
      * Flushes the batch

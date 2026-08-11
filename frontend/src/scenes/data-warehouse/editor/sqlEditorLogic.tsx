@@ -136,7 +136,8 @@ export interface SqlEditorLogicProps {
 // Monaco renders inline decorations per-line, so we can't get a single rectangular
 // border from a className. Instead, we maintain an absolutely-positioned `div`
 // inside the editor's overlay layer and recompute its bounding box from the pixel
-// positions of the range's start/end on each line.
+// positions of the range's start/end on each line. Runs on every scroll frame, so it
+// stays off the DOM wherever the geometry can be derived from layout math instead.
 export function renderQueryOutline(
     editorInstance: editor.IStandaloneCodeEditor,
     node: HTMLElement,
@@ -148,11 +149,6 @@ export function renderQueryOutline(
         return
     }
 
-    let minLeft = Infinity
-    let maxRight = -Infinity
-    let minTop = Infinity
-    let maxBottom = -Infinity
-
     // The cached range can outlive the document it was computed against: a paste or edit
     // that removes lines shrinks the model, but this render path runs on scroll/layout
     // without re-clamping. Passing an out-of-range line to `getLineMaxColumn` throws
@@ -160,8 +156,34 @@ export function renderQueryOutline(
     const lineCount = model.getLineCount()
     const startLine = Math.max(1, Math.min(range.startLineNumber, lineCount))
     const endLine = Math.max(1, Math.min(range.endLineNumber, lineCount))
+    const startColumn = Math.min(range.startColumn, model.getLineMaxColumn(startLine))
 
-    for (let line = startLine; line <= endLine; line++) {
+    // Vertical extent is pure layout math and monotonic in line number, so the range's own
+    // first/last line always bound it — no per-line scan, and no DOM reads. `getBottomForLineNumber`
+    // measures past the end of the wrapped line, which is exactly what a wrapped range needs.
+    const scrollTop = editorInstance.getScrollTop()
+    const minTop = editorInstance.getTopForPosition(startLine, startColumn) - scrollTop
+    const maxBottom = editorInstance.getBottomForLineNumber(endLine) - scrollTop
+
+    // Horizontal extent has to come from `getScrolledVisiblePosition`, which is expensive:
+    // each call forces a synchronous Monaco view render and reads client rects. Only scan
+    // lines that are actually rendered — for off-screen lines Monaco returns a placeholder
+    // pinned to the gutter edge anyway, so clamping here is more accurate, not less.
+    // Folding can yield several ranges; we only need the outer bounds, and don't assume ordering.
+    const visibleRanges = editorInstance.getVisibleRanges?.() ?? []
+    let loopStart = startLine
+    let loopEnd = endLine
+    if (visibleRanges.length) {
+        const firstVisibleLine = Math.min(...visibleRanges.map((r) => r.startLineNumber))
+        const lastVisibleLine = Math.max(...visibleRanges.map((r) => r.endLineNumber))
+        loopStart = Math.max(startLine, firstVisibleLine)
+        loopEnd = Math.min(endLine, lastVisibleLine)
+    }
+
+    let minLeft = Infinity
+    let maxRight = -Infinity
+
+    for (let line = loopStart; line <= loopEnd; line++) {
         const lineMaxColumn = model.getLineMaxColumn(line)
         const leftCol = Math.min(line === startLine ? range.startColumn : 1, lineMaxColumn)
         const rightCol = line === endLine ? Math.min(range.endColumn, lineMaxColumn) : lineMaxColumn
@@ -179,24 +201,10 @@ export function renderQueryOutline(
         if (endVis.left > maxRight) {
             maxRight = endVis.left
         }
-        if (startVis.top < minTop) {
-            minTop = startVis.top
-        }
-        // With wordWrap on, a single model line can span multiple visual rows: `endVis`
-        // sits on a later row than `startVis`. Take the max bottom of both so the outline
-        // covers the wrapped tail. Width on wrapped lines is still approximate — the
-        // mid-rows could extend past either anchor — but the bottom must be correct or
-        // wrapped queries get clipped vertically.
-        const startBottom = startVis.top + startVis.height
-        const endBottom = endVis.top + endVis.height
-        if (startBottom > maxBottom) {
-            maxBottom = startBottom
-        }
-        if (endBottom > maxBottom) {
-            maxBottom = endBottom
-        }
     }
 
+    // No rendered line intersects the range — it's scrolled fully out of view, so there's
+    // nothing to frame.
     if (minLeft === Infinity) {
         node.style.display = 'none'
         return
@@ -220,6 +228,12 @@ function clearQueryOutlineOverlay(
     cache.scrollDisposable = null
     cache.layoutDisposable?.dispose()
     cache.layoutDisposable = null
+
+    if (cache.outlineRafId != null) {
+        cancelAnimationFrame(cache.outlineRafId)
+        cache.outlineRafId = null
+    }
+    cache.scheduleOutlineRender = null
 
     if (cache.queryOutlineWidget) {
         try {
@@ -1431,17 +1445,26 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             // Reposition the overlay on scroll and layout/resize. These don't change the
             // range, only its pixel coordinates, so we skip the SQL parsing path entirely.
+            // Monaco fires scroll events per wheel tick, several per frame, and repositioning
+            // reads editor geometry — so coalesce to one render per frame.
+            cache.scheduleOutlineRender = (): void => {
+                if (cache.outlineRafId != null) {
+                    return
+                }
+                cache.outlineRafId = requestAnimationFrame(() => {
+                    cache.outlineRafId = null
+                    if (cache.queryOutlineRange) {
+                        renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
+                    }
+                })
+            }
             cache.scrollDisposable?.dispose()
             cache.scrollDisposable = editorInstance.onDidScrollChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
-                }
+                cache.scheduleOutlineRender?.()
             })
             cache.layoutDisposable?.dispose()
             cache.layoutDisposable = editorInstance.onDidLayoutChange(() => {
-                if (cache.queryOutlineRange) {
-                    renderQueryOutline(editorInstance, outlineNode, cache.queryOutlineRange)
-                }
+                cache.scheduleOutlineRender?.()
             })
         }
     }),
@@ -3761,8 +3784,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 )
             }
 
-            // Single query — outline the innermost subquery at the cursor (which collapses
-            // to the whole SELECT when there is no nested subquery).
+            // Single query — outline the innermost subquery at the cursor. A flat query with no
+            // nested SELECT around the cursor gets no outline at all: `findInnermostSelectAtOffset`
+            // needs at least two enclosing SELECTs and returns null otherwise.
             if (queries.length <= 1) {
                 const singleQuery = queries.length === 1 ? queries[0] : null
                 // Offset must be the statement's start in the full text, not 0 — otherwise leading
