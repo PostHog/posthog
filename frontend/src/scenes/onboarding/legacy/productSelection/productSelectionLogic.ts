@@ -79,8 +79,12 @@ export interface productSelectionLogicActions {
         recommendationSource: string
         selected: boolean
     } // eventUsageLogic
-    reportOnboardingStarted: (entrypoint: string) => {
+    reportOnboardingStarted: (
+        entrypoint: string,
+        properties?: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
+    ) => {
         entrypoint: string
+        properties: import('lib/utils/eventUsageLogic').OnboardingEventProperties | undefined
     } // eventUsageLogic
     setOnCompleteOnboardingRedirectUrl: (url: string | null) => {
         url: string | null

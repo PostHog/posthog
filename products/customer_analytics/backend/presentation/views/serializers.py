@@ -634,6 +634,22 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Person and group sources only: the most recent sync/backfill run, or null if none yet.",
     )
+    external_data_source = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: UUID of the warehouse source owning the schema, so the UI "
+            "can link to the table. Null for account sources or when unavailable."
+        ),
+    )
+    table_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Person and group sources only: the bound warehouse table as it is named in HogQL. Null "
+            "for account sources or when unavailable."
+        ),
+    )
 
     class Meta:
         dataclass = CustomPropertySourceView
@@ -657,6 +673,8 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "sync_frequency_interval_seconds",
             "next_sync_at",
             "latest_run",
+            "external_data_source",
+            "table_name",
         ]
 
 

@@ -41,6 +41,7 @@ path = "ee"
 depends_on = [
     "products.cohorts",
     "posthog",
+    "products.access_control",
     "products.actions",
     "products.alerts",
     "products.cdp",
@@ -236,6 +237,7 @@ depends_on = [
     "products.mcp_analytics",
     "products.notifications",
     "products.product_analytics",
+    "products.conversations",
     "products.surveys",
 ]
 layer = "modules"

@@ -1,9 +1,9 @@
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -28,10 +28,16 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
+    CanvasCapabilityWideningSerializer,
     CanvasCreateSerializer,
+    CanvasDraftSerializer,
+    CanvasPromoteSerializer,
     CanvasPublishConflictSerializer,
+    CanvasPublishCurrentVersionSerializer,
     CanvasRevertSerializer,
     CanvasSerializer,
+    CanvasSourceDraftResponseSerializer,
+    CanvasSourceDraftSerializer,
     CanvasSourceEditSerializer,
     CanvasSourceInvalidSerializer,
     CanvasSourcePublishResponseSerializer,
@@ -96,16 +102,30 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Canvas.objects.unscoped().select_related("created_by")
     serializer_class = CanvasSerializer
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
-    scope_object_read_actions = ["list", "retrieve", "source", "versions", "builds", "validate"]
+    scope_object_read_actions = ["list", "retrieve", "source", "versions", "drafts", "builds", "validate"]
     scope_object_write_actions = [
         "create",
         "partial_update",
         "destroy",
         "publish",
+        "publish_current_version",
         "edit",
+        "draft",
+        "promote",
         "revert",
         "build_action",
     ]
+
+    _CREATOR_ONLY_ACTIONS = {
+        "partial_update",
+        "destroy",
+        "publish",
+        "edit",
+        "draft",
+        "promote",
+        "revert",
+        "build_action",
+    }
 
     @extend_schema(
         parameters=[
@@ -126,6 +146,17 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # DRF resolves all detail actions off this queryset.
         user = self._request_user()
         queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
+        if self._is_sandbox_authenticated(self.request):
+            sandbox_task_id = self._sandbox_task_id(self.request)
+            if sandbox_task_id is None:
+                return queryset.none()
+            queryset = queryset.filter(
+                Q(generation_task_id=sandbox_task_id) | Q(source_versions__task_id=sandbox_task_id)
+            ).distinct()
+        elif self.action in self._CREATOR_ONLY_ACTIONS:
+            if user is None:
+                return queryset.none()
+            queryset = queryset.filter(created_by_id=user.id)
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:
@@ -139,7 +170,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         operation_id="canvases_create",
         request=CanvasCreateSerializer,
-        responses={201: CanvasSerializer},
+        responses={
+            201: CanvasSerializer,
+            403: OpenApiResponse(description="The sandbox token is not bound to this task or space."),
+        },
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Create a new, empty canvas in a channel; give it source by publishing a project."""
@@ -151,6 +185,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # someone else's personal channel must be refused here too.
         if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
             return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+        sandbox_task_id = self._sandbox_task_id(request)
+        if self._is_sandbox_authenticated(request) and (
+            sandbox_task_id is None or not tasks_facade.task_is_in_channel(sandbox_task_id, self.team_id, channel_id)
+        ):
+            return Response(
+                {"detail": "This sandbox can create canvases only in its task's space."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         canvas = Canvas.objects.create(
             team_id=self.team_id,
             channel_id=channel_id,
@@ -161,7 +203,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # the two at birth so the client can show the run on the
             # canvas and nest the task under it — composer-initiated
             # generations have no client-side create to record it.
-            generation_task_id=self._sandbox_task_id(request),
+            generation_task_id=sandbox_task_id,
         )
         self._log_canvas_activity(canvas, "created", Detail(name=canvas.name))
         self._report_canvas_action(
@@ -284,9 +326,18 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET"], detail=True)
     def versions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """The canvas's source-version history, newest first (metadata only)."""
+        """The canvas's published source-version history, newest first (metadata only).
+
+        Drafts are excluded: they are staged versions that have never been the
+        head, so they are not part of the undo/revert timeline. Fetch a draft's
+        files with `source?version_id=` to preview it before promoting.
+        """
         canvas = self.get_object()
-        versions = canvas.source_versions.select_related("created_by").order_by("-created_at")[:VERSIONS_WINDOW]
+        versions = (
+            canvas.source_versions.filter(draft=False)
+            .select_related("created_by")
+            .order_by("-created_at")[:VERSIONS_WINDOW]
+        )
         page = self.paginate_queryset(versions)
         if page is not None:
             return self.get_paginated_response(CanvasVersionSerializer(page, many=True).data)
@@ -305,6 +356,44 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload.is_valid(raise_exception=True)
         diagnostics = validate_source_project(payload.validated_data["project"])
         return Response({"valid": not has_errors(diagnostics), "diagnostics": diagnostics})
+
+    @extend_schema(
+        operation_id="canvases_publish_current_version_create",
+        request=CanvasPublishCurrentVersionSerializer,
+        responses={
+            200: CanvasBuildSerializer,
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id.",
+            ),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="publish-current-version")
+    def publish_current_version(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Queue a build for the current source version without changing source or metadata."""
+        canvas = self.get_object()
+        payload = CanvasPublishCurrentVersionSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            canvas, build = build_service.publish_current_source_version(
+                canvas,
+                payload.validated_data["expected_current_version_id"],
+                user=self._request_user(),
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        self._report_canvas_action(
+            "canvas published",
+            canvas,
+            version_id=str(build.source_version_id),
+            first_publish=False,
+            is_sandbox_publish=self._sandbox_task_id(request) is not None,
+        )
+        return Response(CanvasBuildSerializer(build).data)
 
     @extend_schema(
         operation_id="canvases_publish_create",
@@ -466,6 +555,155 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @extend_schema(
+        operation_id="canvases_drafts_retrieve",
+        responses={200: CanvasDraftSerializer(many=True)},
+        request=None,
+    )
+    @action(methods=["GET"], detail=True)
+    def drafts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """The canvas's staged draft versions, newest first, each with its latest build status.
+
+        A draft is a version that was built but never made the head. Preview one
+        with `source?version_id=`, then make it live with `promote`.
+        """
+        canvas = self.get_object()
+        draft_versions = list(
+            canvas.source_versions.filter(draft=True)
+            .select_related("created_by")
+            .order_by("-created_at")[:VERSIONS_WINDOW]
+        )
+        # Newest build per draft version. Only the id/status/version are needed,
+        # so skip the heavy manifest/diagnostics JSON columns.
+        latest_build_by_version: dict[Any, CanvasBuild] = {}
+        for build in (
+            canvas.builds.filter(source_version_id__in=[version.id for version in draft_versions])
+            .only("id", "source_version_id", "status")
+            .order_by("source_version_id", "-created_at")
+        ):
+            latest_build_by_version.setdefault(build.source_version_id, build)
+        data = []
+        for version in draft_versions:
+            build = latest_build_by_version.get(version.id)
+            data.append(
+                {
+                    "version_id": str(version.id),
+                    "prompt": version.prompt,
+                    "created_by": version.created_by,
+                    "created_at": version.created_at,
+                    "build_status": build.status if build else None,
+                    "build_id": str(build.id) if build else None,
+                }
+            )
+        return Response(CanvasDraftSerializer(data, many=True).data)
+
+    @extend_schema(
+        operation_id="canvases_draft_create",
+        request=CanvasSourceDraftSerializer,
+        responses={
+            200: CanvasSourceDraftResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="The source project failed validation.",
+            ),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def draft(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Stage a complete source project as a draft version and build it, without publishing.
+
+        The draft gets the same validation, versioning, and server-side build as
+        a publish, but the canvas's head and live build never move, so nothing
+        changes for viewers. Promote the version with `promote` to make it live.
+        The response reports how the draft's declared capabilities widen the
+        current head's, so growth in access can be reviewed before it ships.
+        No version guard applies: a draft conflicts with nothing.
+        """
+        canvas = self.get_object()
+        payload = CanvasSourceDraftSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        project = payload.validated_data["project"]
+        diagnostics = validate_source_project(project)
+        if has_errors(diagnostics):
+            return _invalid_response(diagnostics)
+        task_id = self._sandbox_task_id(request)
+        try:
+            version, build, widening = build_service.create_draft_version(
+                canvas,
+                project=project,
+                prompt=payload.validated_data.get("prompt"),
+                task_id=task_id,
+                created_by=self._request_user(),
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        except ObjectStorageError:
+            return Response(
+                {"detail": "Canvas source storage is temporarily unavailable; the draft was not saved."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        self._report_canvas_action(
+            "canvas draft created",
+            canvas,
+            version_id=str(version.id),
+            widens_capabilities=widening.widens,
+            is_sandbox_draft=task_id is not None,
+        )
+        return Response(
+            {
+                "version_id": str(version.id),
+                "build": CanvasBuildSerializer(build).data,
+                "diagnostics": diagnostics,
+                "capability_widening": CanvasCapabilityWideningSerializer(widening).data,
+            }
+        )
+
+    @extend_schema(
+        operation_id="canvases_promote_create",
+        request=CanvasPromoteSerializer,
+        responses={
+            200: CanvasBuildSerializer,
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id (a concurrent publish or a revert).",
+            ),
+            429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
+        },
+    )
+    @action(methods=["POST"], detail=True)
+    def promote(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Make a draft version the canvas's live head.
+
+        A draft whose build is ready goes live immediately, with no rebuild;
+        otherwise a fresh build is queued. Returns that build.
+        """
+        canvas = self.get_object()
+        payload = CanvasPromoteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            canvas, build = build_service.promote_draft_version(
+                canvas,
+                payload.validated_data["version_id"],
+                payload.validated_data["expected_current_version_id"],
+                user=self._request_user(),
+                was_impersonated=is_impersonated(request),
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
+        except build_service.CanvasBuildCapacityExceeded:
+            return _capacity_response()
+        except CanvasSourceVersion.DoesNotExist:
+            return Response({"detail": "Draft version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
+        self._report_canvas_action(
+            "canvas draft promoted",
+            canvas,
+            version_id=str(payload.validated_data["version_id"]),
+            build_reused=build.status == CanvasBuild.STATUS_READY,
+        )
+        return Response(CanvasBuildSerializer(build).data)
+
+    @extend_schema(
         operation_id="canvases_revert_create",
         request=CanvasRevertSerializer,
         responses={
@@ -623,21 +861,14 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return None
 
     def _sandbox_task_id(self, request: Request) -> UUID | None:
-        """The calling task's id when this is a sandbox-stamped MCP call for a
-        task in this team; None for human/app saves. The task sandbox stamps
-        every MCP call with an X-PostHog-Task-Id header, but the header alone
-        is forgeable, so two checks bind it to a real sandbox run: the request
-        must carry an OAuth token minted under a sandbox app (those tokens are
-        only created server-side), and the task must have been created by the
-        requesting user (the sandbox authenticates with the task creator's
-        credentials)."""
+        """Return the calling sandbox's task when its header matches the OAuth binding."""
         task_id = self._request_task_id(request)
         if task_id is None or not self._is_sandbox_authenticated(request):
             return None
-        user = self._request_user()
-        if user is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, user.id):
+        authenticator = cast(OAuthAccessTokenAuthentication, request.successful_authenticator)
+        if authenticator.access_token.sandbox_task_id != task_id:
             return None
-        return task_id
+        return task_id if tasks_facade.task_exists(task_id, self.team_id) else None
 
     def _announce_canvas_created(self, task_id: UUID | None, user: User | None, canvas: Canvas) -> None:
         """Announce a canvas's first publish in the generating task's thread.

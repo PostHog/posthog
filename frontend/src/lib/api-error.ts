@@ -6,6 +6,15 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+/**
+ * A 409 from the approvals gate: the change was policy-gated and a change request was created,
+ * or one is already pending. Approval 409 bodies always carry `change_request_id`
+ * (see products/approvals/backend/decorators.py).
+ */
+export function isApprovalRequiredError(error: { status?: number; data?: any } | null | undefined): boolean {
+    return error?.status === 409 && Boolean(error?.data?.change_request_id)
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null

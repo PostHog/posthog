@@ -28,11 +28,12 @@ export function CheckList({
         <ul className={cn('flex flex-col gap-1.5 m-0 p-0 list-none', className)}>
             {items.map((item, i) => (
                 <li key={i} className="flex items-start gap-2">
+                    {/* The icon box matches the text's first-line height (text-xs → h-4, text-sm → h-5)
+                        and centers the icon in it, so single- and multi-line rows align the same way. */}
                     <span
                         className={cn(
-                            'shrink-0 text-success',
-                            size === 'xs' ? '[&_svg]:size-3.5' : '[&_svg]:size-4',
-                            'mt-0.5'
+                            'shrink-0 text-success flex items-center justify-center',
+                            size === 'xs' ? 'h-4 [&_svg]:size-3.5' : 'h-5 [&_svg]:size-4'
                         )}
                     >
                         {item.icon ?? <IconCheck />}
