@@ -1,7 +1,5 @@
-from typing import Any
-
 from django.db import models
-from django.db.models import Case, CharField, FloatField, Func, Value, When
+from django.db.models import Case, CharField, Expression, FloatField, Func, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 
@@ -167,7 +165,7 @@ class ReplayObservation(UUIDModel):
         return f"{self.scanner_id}:{self.session_id} [{self.status}]"
 
 
-def jsonb_typeof(expr: Any) -> Func:
+def jsonb_typeof(expr: Expression) -> Func:
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
 
 
