@@ -769,6 +769,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 if lookup:
                     qs = qs.filter(pk=lookup)
                 elif search:
+                    # name_field comes from _display_model's code-defined maps, never from the
+                    # request, and search is only a value
+                    # nosemgrep: orm-field-injection, no-request-param-orm-filter
                     qs = qs.filter(**{f"{display.name_field}__icontains": search})
                 pks = [str(pk) for pk in qs.order_by(display.name_field).values_list("pk", flat=True)[:limit]]
         except (ValueError, DjangoValidationError):
