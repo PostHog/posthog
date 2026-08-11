@@ -270,9 +270,11 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         const maskTextSelectorChanged = maskTextSelectorBefore !== maskTextSelectorAfter
 
         const maskAllElementAttributesBefore = isObject(change?.before)
-            ? change?.before.maskAllElementAttributes
+            ? (change?.before.maskAllElementAttributes ?? false)
             : false
-        const maskAllElementAttributesAfter = isObject(change?.after) ? change?.after.maskAllElementAttributes : false
+        const maskAllElementAttributesAfter = isObject(change?.after)
+            ? (change?.after.maskAllElementAttributes ?? false)
+            : false
         const maskAllElementAttributesChanged = maskAllElementAttributesBefore !== maskAllElementAttributesAfter
 
         const descriptions = []

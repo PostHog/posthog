@@ -304,9 +304,15 @@ export function ReplayMaskingSettings(): JSX.Element {
         maskTextSelector: maskingConfig.maskTextSelector,
     })
     // A custom block selector can hold non-image selectors set through the API. The toggle only
-    // writes 'img', so disable it there to avoid overwriting the custom value.
-    const hasCustomBlockSelector = !!maskingConfig.blockSelector && maskingConfig.blockSelector !== 'img'
-    const maskImages = !!maskingConfig.blockSelector
+    // writes 'img', so read whether images are blocked and disable the toggle when a custom
+    // selector exists, to avoid overwriting the custom value.
+    const blockSelectors =
+        maskingConfig.blockSelector
+            ?.split(',')
+            .map((selector) => selector.trim())
+            .filter(Boolean) ?? []
+    const maskImages = blockSelectors.includes('img')
+    const hasCustomBlockSelector = blockSelectors.some((selector) => selector !== 'img')
     const maskElementAttributes = maskingConfig.maskAllElementAttributes ?? false
 
     return (
