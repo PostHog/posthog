@@ -29,7 +29,7 @@ jobs:
     integration-service:
         name: Integration Service checks
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 15
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -71,9 +71,14 @@ jobs:
               working-directory: services/integration-service
               run: pnpm typecheck
 
-            - name: Test
+            - name: Unit tests
               working-directory: services/integration-service
-              run: pnpm exec vitest run
+              run: pnpm test:unit
+
+            # Real Postgres via testcontainers; the ubuntu runner provides Docker.
+            - name: Integration tests
+              working-directory: services/integration-service
+              run: pnpm test:integration
 
             - name: Lint
               working-directory: services/integration-service

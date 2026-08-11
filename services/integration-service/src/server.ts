@@ -44,6 +44,8 @@ export class IntegrationServer {
     private pool: Pool | undefined
     private server: DrainableServer | undefined
     private recorder: UsageRecorder | undefined
+    private snapshots: SnapshotManager | undefined
+    private signingKeys: SigningKeyLoader | undefined
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
     private stopping = false
@@ -56,6 +58,12 @@ export class IntegrationServer {
     /** For probes and tests. The object is live; do not mutate it. */
     lifecycleState(): Lifecycle {
         return this.lifecycle
+    }
+
+    /** Re-read the secret mount and the signing keys now, without waiting for the timer. */
+    async reload(): Promise<void> {
+        await this.snapshots?.reload()
+        await this.signingKeys?.reload()
     }
 
     async start(): Promise<void> {
@@ -79,6 +87,7 @@ export class IntegrationServer {
         const pool = this.pool
 
         const signingKeys = new SigningKeyLoader(config.secretsDir)
+        this.signingKeys = signingKeys
         try {
             await signingKeys.load()
         } catch (err) {
@@ -99,6 +108,7 @@ export class IntegrationServer {
         const recorder = new UsageRecorder({ pool })
         this.recorder = recorder
         const snapshots = new SnapshotManager({ store, lifecycle: this.lifecycle, dir: config.secretsDir })
+        this.snapshots = snapshots
 
         const app = createApp({
             verifier: new JwtVerifier(signingKeys),
@@ -118,10 +128,7 @@ export class IntegrationServer {
         })
 
         this.cancelTimers.push(
-            scheduleJittered(config.reloadSeconds * 1000, async () => {
-                await snapshots.reload()
-                await signingKeys.reload()
-            }),
+            scheduleJittered(config.reloadSeconds * 1000, () => this.reload()),
             scheduleJittered(config.usageFlushMs, () => recorder.flush()),
             scheduleJittered(24 * 60 * 60 * 1000, () => recorder.prune(config.retentionDays))
         )

@@ -10,6 +10,7 @@
         "dev": "tsx watch src/index.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
         "test": "vitest",
         "test:unit": "vitest run tests/unit",
+        "test:integration": "vitest run tests/integration",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --quiet",
         "lint:fix": "oxlint --fix --quiet",
@@ -26,6 +27,7 @@
         "prom-client": "^14.2.0"
     },
     "devDependencies": {
+        "@testcontainers/postgresql": "^12.1.0",
         "@types/node": "^22.17.2",
         "esbuild": "^0.25.11",
         "@types/pg": "^8.11.10",

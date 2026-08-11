@@ -273,14 +273,20 @@ the npm-specific supply-chain path worth closing here.
 ## Local development
 
 ```bash
-pnpm --filter @posthog/integration-service dev        # esbuild watch + respawn
-pnpm --filter @posthog/integration-service test
+pnpm --filter @posthog/integration-service dev                # tsx watch, pretty logs
 pnpm --filter @posthog/integration-service typecheck
+pnpm --filter @posthog/integration-service test:unit
+pnpm --filter @posthog/integration-service test:integration   # needs Docker (testcontainers)
 ```
 
+`pnpm vitest run` with no path runs both suites, so it needs Docker; without Docker, run
+`test:unit`. The integration suite starts a disposable Postgres with testcontainers and boots a
+real `IntegrationServer` against a temp-dir mount, so it covers the SQL and the HTTP wiring the
+unit suite fakes.
+
 Point `INTEGRATION_SERVICE_SECRETS_DIR` at a directory of files, one per key, to stand in for the
-mount — no AWS needed. With `INTEGRATION_SERVICE_DATABASE_URL` unset the service runs without
-usage recording, which costs the rollup and nothing else.
+mount. With `INTEGRATION_SERVICE_DATABASE_URL` unset the service runs without usage recording,
+which costs the rollup and nothing else.
 
 ## Configuration
 
