@@ -73,7 +73,6 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { FLAG_DEPENDENCY_ESTIMATE_TOOLTIP, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -86,8 +85,9 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
 import { getPropertySelectErrorMessages, PropertySelectError } from './propertySelectErrorMessages'
-import { conditionHasFlagDependency, conditionOnlyFlagDependencies } from './releaseConditionEstimateUtils'
+import { conditionOnlyFlagDependencies, getEstimateLabelParts } from './releaseConditionEstimateUtils'
 
 interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleaseConditionsLogicProps {
     flagId?: FeatureFlagLogicProps['id']
@@ -213,7 +213,7 @@ function ConditionHeader({
     // for them: drop the count when it's the only filter, and mark it an upper bound otherwise.
     const countSummary =
         actualCount !== null && !conditionOnlyFlagDependencies(group.properties)
-            ? `${conditionHasFlagDependency(group.properties) ? 'at most ' : ''}${humanFriendlyNumber(
+            ? `${getEstimateLabelParts(group.properties).atMostPrefix}${humanFriendlyNumber(
                   actualCount
               )} ${aggregationTargetName}`
             : null
@@ -729,28 +729,15 @@ const ConditionContent = ({
                                                     // estimate can't account for them and would count everyone.
                                                     if (conditionOnlyFlagDependencies(group.properties)) {
                                                         return (
-                                                            <div className="flex flex-col">
-                                                                <span>
-                                                                    Depends on another feature flag, so the match
-                                                                    estimate isn't shown.
-                                                                    <Tooltip
-                                                                        title={FLAG_DEPENDENCY_ESTIMATE_TOOLTIP}
-                                                                        interactive
-                                                                    >
-                                                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                                                    </Tooltip>
-                                                                </span>
-                                                            </div>
+                                                            <FlagDependencyEstimateCaveat className="flex flex-col" />
                                                         )
                                                     }
 
-                                                    const hasFlagDependency = conditionHasFlagDependency(
-                                                        group.properties
-                                                    )
-                                                    const atMost = hasFlagDependency ? 'at most ' : ''
-                                                    const estimateTooltip = hasFlagDependency
-                                                        ? FLAG_DEPENDENCY_ESTIMATE_TOOLTIP
-                                                        : MATCHING_ESTIMATE_TOOLTIP
+                                                    const {
+                                                        hasFlagDependency,
+                                                        atMostPrefix: atMost,
+                                                        tooltip: estimateTooltip,
+                                                    } = getEstimateLabelParts(group.properties)
                                                     const receivingFlag = Math.floor(
                                                         (affected * clamp(rolloutPct, 0, 100)) / 100
                                                     )

@@ -44,7 +44,6 @@ import {
 } from '~/types'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { FLAG_DEPENDENCY_ESTIMATE_TOOLTIP, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -52,8 +51,9 @@ import {
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
+import { FlagDependencyEstimateCaveat } from './FlagDependencyEstimateCaveat'
 import { getPropertySelectErrorMessages } from './propertySelectErrorMessages'
-import { conditionHasFlagDependency, conditionOnlyFlagDependencies } from './releaseConditionEstimateUtils'
+import { conditionOnlyFlagDependencies, getEstimateLabelParts } from './releaseConditionEstimateUtils'
 
 function PropertyValueComponent({
     property,
@@ -492,24 +492,17 @@ export function FeatureFlagReleaseConditions({
                                     // can't account for them and would count everyone.
                                     if (conditionOnlyFlagDependencies(group.properties)) {
                                         return (
-                                            <div className="basis-full flex flex-col mt-1 text-secondary">
-                                                <span>
-                                                    Depends on another feature flag, so the match estimate isn't shown.
-                                                    <Tooltip title={FLAG_DEPENDENCY_ESTIMATE_TOOLTIP} interactive>
-                                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                                    </Tooltip>
-                                                </span>
-                                            </div>
+                                            <FlagDependencyEstimateCaveat className="basis-full flex flex-col mt-1 text-secondary" />
                                         )
                                     }
                                     const rolloutPct = Number.isNaN(group.rollout_percentage)
                                         ? 0
                                         : (group.rollout_percentage ?? 100)
-                                    const hasFlagDependency = conditionHasFlagDependency(group.properties)
-                                    const atMost = hasFlagDependency ? 'at most ' : ''
-                                    const estimateTooltip = hasFlagDependency
-                                        ? FLAG_DEPENDENCY_ESTIMATE_TOOLTIP
-                                        : MATCHING_ESTIMATE_TOOLTIP
+                                    const {
+                                        hasFlagDependency,
+                                        atMostPrefix: atMost,
+                                        tooltip: estimateTooltip,
+                                    } = getEstimateLabelParts(group.properties)
                                     const receivingFlag = Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
                                     return (
                                         <div className="basis-full flex flex-col mt-1 text-secondary tabular-nums">
