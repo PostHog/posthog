@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
-from llm_gateway.baseten import BASETEN_EXCLUSIVE_MODELS, is_baseten_configured
+from llm_gateway.baseten import BASETEN_EXCLUSIVE_COST_MODELS, BASETEN_EXCLUSIVE_MODELS, is_baseten_configured
 from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
 from llm_gateway.modal import (
@@ -30,6 +30,7 @@ _BASETEN_DEFAULT_CONTEXT_WINDOW: Final[int] = 1_048_000
 @dataclass(frozen=True)
 class ModelInfo:
     id: str
+    cost_model_id: str
     provider: str
     context_window: int
     supports_streaming: bool = True
@@ -108,6 +109,7 @@ class ModelRegistryService:
             return None
         return ModelInfo(
             id=model_id,
+            cost_model_id=model_id,
             provider=cost_data.get("litellm_provider", "unknown"),
             context_window=cost_data.get("max_input_tokens") or 0,
             supports_vision=bool(cost_data.get("supports_vision", False)),
@@ -147,6 +149,7 @@ class ModelRegistryService:
             models.append(
                 ModelInfo(
                     id=model_id,
+                    cost_model_id=COST_ALIASES[f"openai/{model_id}"][0],
                     provider=_CLOUDFLARE_PROVIDER,
                     context_window=_CLOUDFLARE_DEFAULT_CONTEXT_WINDOW,
                     supports_streaming=True,
@@ -169,6 +172,7 @@ class ModelRegistryService:
             models.append(
                 ModelInfo(
                     id=model_id,
+                    cost_model_id=BASETEN_EXCLUSIVE_COST_MODELS[model_id],
                     provider="baseten",
                     context_window=_BASETEN_DEFAULT_CONTEXT_WINDOW,
                     supports_streaming=True,

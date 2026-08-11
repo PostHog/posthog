@@ -19,7 +19,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
-import type { SourceToolStatus } from '../../signalSourcesLogic'
+import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterSource } from './agentRosterMeta'
@@ -127,11 +127,11 @@ function StatusDot({
         title = 'Syncing'
     } else if (status === 'watching') {
         // A hollow dot means watching but nothing has arrived, so the two read apart at a glance.
-        className = tool?.receivingData === false ? 'border border-success' : 'bg-success'
+        className = tool?.dataStatus === 'none' ? 'border border-success' : 'bg-success'
         title =
-            tool?.receivingData === false
-                ? 'Watching, no data yet'
-                : tool?.receivingData
+            tool?.dataStatus === 'none'
+                ? 'Watching, no data in the last 30 days'
+                : tool?.dataStatus === 'recent'
                   ? 'Watching, receiving data'
                   : 'Watching'
     }
@@ -158,8 +158,8 @@ function notableTag(
     if (status === 'syncing') {
         return { label: 'Syncing', type: 'primary' }
     }
-    if (armed && tool?.receivingData === false) {
-        return { label: 'No data yet', type: 'muted' }
+    if (armed && tool?.dataStatus === 'none') {
+        return { label: 'No recent data', type: 'muted' }
     }
     return null
 }
@@ -207,9 +207,66 @@ interface ExpansionProps {
     onEnableTool: (tool: SourceToolStatus) => void
     onToggleEntity: (entityId: string) => void
     onConfigureFilters?: () => void
+    onRetryData: () => void
     /** AI observability only: the periodic digest, which is its own signal stream, not a master. */
     onToggleReports?: () => void
     reportsEnabled?: boolean
+}
+
+function ToolDataStatus({
+    agent,
+    status,
+    onRetry,
+}: {
+    agent: AgentRosterDefinition
+    status: SourceToolDataStatus
+    onRetry: () => void
+}): JSX.Element | null {
+    if (status === 'unavailable') {
+        return null
+    }
+
+    if (status === 'loading') {
+        return (
+            <div className="flex items-center gap-1.5 text-xs text-muted">
+                <Spinner className="text-xs" />
+                Checking for recent data
+            </div>
+        )
+    }
+
+    if (status === 'error') {
+        return (
+            <div className="flex items-center gap-2 text-xs text-muted">
+                <span>Couldn't check recent data.</span>
+                <LemonButton type="tertiary" size="xsmall" onClick={onRetry}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (status === 'recent') {
+        return (
+            <div className="flex items-center gap-1.5 text-xs text-muted">
+                <span className="size-1.5 rounded-full bg-success" />
+                Data received in the last 30 days
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex items-center gap-2 text-xs text-muted">
+            <span className="size-1.5 rounded-full bg-border-bold" />
+            <span>No data received in the last 30 days.</span>
+            {agent.docsUrl && (
+                <Link to={agent.docsUrl} target="_blank" className="inline-flex items-center gap-1">
+                    Check setup
+                    <IconArrowUpRight />
+                </Link>
+            )}
+        </div>
+    )
 }
 
 function Expansion({
@@ -220,6 +277,7 @@ function Expansion({
     onEnableTool,
     onToggleEntity,
     onConfigureFilters,
+    onRetryData,
     onToggleReports,
     reportsEnabled,
 }: ExpansionProps): JSX.Element {
@@ -229,7 +287,7 @@ function Expansion({
     const query = filter.trim().toLowerCase()
     const visible = query ? entities.filter((entity) => entity.name.toLowerCase().includes(query)) : entities
     const enabledCount = entities.filter((entity) => entity.enabled).length
-    const toolOff = !!tool && !tool.enabled
+    const toolOff = tool?.enabled === false
 
     return (
         <div className="flex flex-col gap-2 border-t border-primary bg-surface-secondary px-3 py-2.5">
@@ -244,7 +302,7 @@ function Expansion({
                 )}
             </p>
 
-            {toolOff && tool && (
+            {toolOff && tool ? (
                 <div className="flex items-center gap-2">
                     <span className="text-xs text-warning">
                         {tool.toolName} is off, so this source has nothing to read.
@@ -260,7 +318,9 @@ function Expansion({
                         </LemonButton>
                     )}
                 </div>
-            )}
+            ) : tool ? (
+                <ToolDataStatus agent={agent} status={tool.dataStatus} onRetry={onRetryData} />
+            ) : null}
 
             {onToggleReports && (
                 <div className="flex items-start gap-2">
@@ -375,6 +435,7 @@ interface AgentRowProps {
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
     onEnableTool: (tool: SourceToolStatus) => void
     onConfigureFilters?: () => void
+    onRetryData: () => void
     onToggleReports?: () => void
     reportsEnabled?: boolean
 }
@@ -390,12 +451,13 @@ const AgentRow = memo(function AgentRow({
     onToggleEntity,
     onEnableTool,
     onConfigureFilters,
+    onRetryData,
     onToggleReports,
     reportsEnabled,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
-    const toolOff = !!tool && !tool.enabled
+    const toolOff = tool?.enabled === false
     // An off tool blocks arming (the source would watch nothing), never disarming.
     const armingBlocked = toolOff && !armed
     const tag = notableTag(status, armed, toolOff, tool)
@@ -476,6 +538,7 @@ const AgentRow = memo(function AgentRow({
                     onEnableTool={onEnableTool}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     onConfigureFilters={onConfigureFilters}
+                    onRetryData={onRetryData}
                     onToggleReports={onToggleReports}
                     reportsEnabled={reportsEnabled}
                 />
@@ -534,6 +597,7 @@ export function AgentsRoster(): JSX.Element {
         initiateDataWarehouseSourceToggle,
         enableSourceTool,
         openSessionAnalysisSetup,
+        loadToolDataEvents,
     } = useActions(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
@@ -808,6 +872,7 @@ export function AgentsRoster(): JSX.Element {
                                 onConfigureFilters={
                                     agent.source === 'session_replay' ? openSessionAnalysisSetup : undefined
                                 }
+                                onRetryData={loadToolDataEvents}
                                 onToggleReports={agent.source === 'llm_analytics' ? toggleEvalReports : undefined}
                                 reportsEnabled={!!evalReportsConfig?.enabled}
                             />

@@ -155,3 +155,12 @@ class TestCanonicalDescriptions:
         for entry in descriptions.values():
             assert entry.get("description")
             assert "date" in entry.get("columns", {})
+
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_documented_columns_match_the_columns_the_endpoint_produces(self, endpoint):
+        # These descriptions are written per endpoint while the metric set is derived, so without
+        # this an endpoint can document metric columns its table never gets.
+        config = PLAUSIBLE_ENDPOINTS[endpoint]
+        columns = PlausibleSource().get_canonical_descriptions()[endpoint]["columns"]
+
+        assert set(columns) == {*config.column_names, *config.metrics}

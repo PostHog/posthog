@@ -80,6 +80,11 @@ class TestDecagonSource:
         assert usage.supports_incremental is False
         assert usage.supports_append is False
 
+        tags = next(s for s in schemas if s.name == "tags")
+        # /tag/all has no server-side timestamp filter, so only full refresh is honest.
+        assert tags.supports_incremental is False
+        assert tags.supports_append is False
+
     def test_get_schemas_filtered_by_names(self) -> None:
         assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["conversations"])] == [
             "conversations"
