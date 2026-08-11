@@ -18,11 +18,19 @@ from posthog.helpers.dashboard_templates import (
     FEATURE_FLAG_UNIQUE_CALLS_INSIGHT_NAME_SUFFIX,
 )
 from posthog.models.activity_logging.activity_log import Detail, LogActivityEntry, Trigger, bulk_log_activity
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.utils import friendly_time
 
 from products.alerts.backend.facade.api import insight_ids_with_alerts
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.feature_flags.backend.api.feature_flag import (
+    USAGE_DASHBOARD_DESCRIPTION_PREFIX,
+    USAGE_DASHBOARD_NAME_PREFIX,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
 
@@ -87,6 +95,7 @@ class _SweepOptions:
     team_id: int | None
     limit: int | None
     dry_run: bool
+    include_orphaned: bool
     keep_list_ids: frozenset[int]
 
 
@@ -144,6 +153,7 @@ class Command(BaseCommand):
             team_id=options["team_id"],
             limit=options["limit"],
             dry_run=options["dry_run"],
+            include_orphaned=options["include_orphaned"],
             keep_list_ids=self._load_keep_ids(options["keep_ids_file"]),
         )
         self.stats = _SweepStats()
@@ -156,13 +166,13 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Configuration: batch_size={self.options.batch_size}, sleep_interval={self.options.sleep_interval}, "
             f"team_id={self.options.team_id}, limit={self.options.limit}, "
-            f"include_orphaned={options['include_orphaned']}, keep_list={len(self.options.keep_list_ids)}"
+            f"include_orphaned={self.options.include_orphaned}, keep_list={len(self.options.keep_list_ids)}"
         )
 
         start_time = time.time()
 
         self._delete_referential()
-        if options["include_orphaned"]:
+        if self.options.include_orphaned:
             self._delete_orphaned()
 
         verb = "Would soft-delete" if self.options.dry_run else "Soft-deleted"
@@ -186,10 +196,17 @@ class Command(BaseCommand):
                     stripped = line.strip()
                     if not stripped:
                         continue
+                    columns = [c.strip().strip('"') for c in stripped.split(",")]
+                    if len(columns) > 1 and columns[0].isdecimal() and columns[1].isdecimal():
+                        # Two leading numbers means the id is probably not the column being read, as in
+                        # a team_id,insight_id export. Guessing here would protect the wrong insights.
+                        raise CommandError(
+                            f"--keep-ids-file {path} has more than one numeric column on a line: {stripped!r}. "
+                            "Expected one insight ID per line, as the first comma-separated value."
+                        )
                     # isdecimal, not isdigit: isdigit accepts characters like "²" that int() rejects.
-                    token = stripped.split(",")[0].strip().strip('"')
-                    if token.isdecimal():
-                        keep_ids.add(int(token))
+                    if columns[0].isdecimal():
+                        keep_ids.add(int(columns[0]))
                     else:
                         unparsed += 1
         except (OSError, UnicodeDecodeError) as e:
@@ -209,9 +226,10 @@ class Command(BaseCommand):
     def _limit_reached(self) -> bool:
         return self.options.limit is not None and self.stats.deleted >= self.options.limit
 
-    def _throttle(self) -> None:
-        # A dry run issues only reads, so there is no write load to pace.
-        if self.options.dry_run:
+    def _throttle(self, *, wrote: bool) -> None:
+        # A dry run issues only reads, so there is no write load to pace. Same for a batch that matched
+        # nothing, which is the common case on a re-run: pacing it only slows the scan down.
+        if self.options.dry_run or not wrote:
             return
         if self.options.sleep_interval > 0:
             time.sleep(self.options.sleep_interval)
@@ -256,6 +274,7 @@ class Command(BaseCommand):
         insight_ids = [i.id for i in insights]
         Insight.objects_including_soft_deleted.filter(id__in=insight_ids).update(deleted=True, last_modified_at=now())
         DashboardTile.objects_including_soft_deleted.filter(insight_id__in=insight_ids).update(deleted=True)
+        self._prune_file_system_rows(insights)
 
         entries: list[LogActivityEntry] = []
         for insight in insights:
@@ -283,6 +302,22 @@ class Command(BaseCommand):
         # A sweep must not put one CDP internal event per deleted insight onto the topic.
         bulk_log_activity(entries, notify=False)
 
+    def _prune_file_system_rows(self, insights: list[_Candidate]) -> None:
+        """Drop the project-tree rows for insights this sweep deleted.
+
+        `FileSystemSyncMixin` prunes these on save, but the soft delete above goes through `.update()`,
+        which fires no signal. Without this the swept insights stay listed under Unfiled/Insights and in
+        Recents, and clicking one lands on "Insight not found".
+        """
+        tree_refs = Q()
+        for insight in insights:
+            tree_refs |= Q(team_id=insight.team_id, ref=insight.short_id)
+        if not tree_refs:
+            return
+        surface = surface_q(DEFAULT_SURFACE)
+        FileSystem.objects.filter(surface, tree_refs, type="insight").delete()
+        FileSystemShortcut.objects.filter(surface, tree_refs, type="insight").delete()
+
     def _emptied_usage_dashboards(self, dashboard_ids: set[int], deleted_insight_ids: set[int]) -> set[int]:
         """Of these dashboards, the ones this delete leaves with no live tiles.
 
@@ -305,15 +340,16 @@ class Command(BaseCommand):
         Reports the pairs it severs: unlike the soft deletes, this write keeps no copy of the old
         value, so its own output is what makes the run reversible.
         """
-        severed = FeatureFlag.objects.filter(usage_dashboard_id__in=emptied).values_list("id", "usage_dashboard_id")
+        # Read the pairs once and write against those ids, so the lines an operator would replay from
+        # are the rows actually written.
+        severed = list(
+            FeatureFlag.objects.filter(usage_dashboard_id__in=emptied).values_list("id", "usage_dashboard_id")
+        )
         for flag_id, dashboard_id in severed:
             self.stdout.write(f"  unlink flag_id={flag_id} usage_dashboard_id={dashboard_id}")
-        if self.options.dry_run:
-            self.stats.flags_nulled += len(severed)
-            return
-        self.stats.flags_nulled += FeatureFlag.objects.filter(usage_dashboard_id__in=emptied).update(
-            usage_dashboard=None
-        )
+        if not self.options.dry_run:
+            FeatureFlag.objects.filter(id__in=[flag_id for flag_id, _ in severed]).update(usage_dashboard=None)
+        self.stats.flags_nulled += len(severed)
 
     def _delete_referential(self) -> None:
         """Pass 1: the authoritative set, meaning insights on a live FeatureFlag.usage_dashboard that
@@ -356,20 +392,34 @@ class Command(BaseCommand):
                 f"Pass 1: through flag id {last_id} | deleted {self.stats.deleted} | kept {self.stats.kept} | "
                 f"flags nulled {self.stats.flags_nulled}"
             )
-            self._throttle()
+            self._throttle(wrote=bool(deletable or emptied))
 
     def _delete_orphaned(self) -> None:
-        """Pass 2 (opt-in): classified, is_sample insights not reachable from any live usage dashboard."""
+        """Pass 2 (opt-in): generated insights left on a generated dashboard no live flag points at."""
         live_usage_dashboards = FeatureFlag.objects.filter(usage_dashboard_id__isnull=False)
+        # Anchor on the dashboard the generator stamps, so a name match is never the only evidence that
+        # PostHog created the insight. Deleting a flag leaves its dashboard behind, which is what keeps
+        # the orphans reachable; ones whose dashboard was deleted outright stay out of scope.
+        generated_dashboards = Dashboard.objects.filter(
+            creation_mode="template",
+            name__startswith=USAGE_DASHBOARD_NAME_PREFIX,
+            description__startswith=USAGE_DASHBOARD_DESCRIPTION_PREFIX,
+        )
         # Requiring the generator's marker keeps rows an edit has already disqualified out of the scan
         # entirely. `_keep_ids` would spare them anyway, so this only saves fetching them.
-        insights = Insight.objects.filter(_classifier_q(), is_sample=True)
+        insights = Insight.objects.filter(
+            _classifier_q(),
+            is_sample=True,
+            id__in=DashboardTile.objects.filter(dashboard_id__in=generated_dashboards.values("id")).values(
+                "insight_id"
+            ),
+        )
         if self.options.team_id is not None:
             live_usage_dashboards = live_usage_dashboards.filter(team_id=self.options.team_id)
             insights = insights.filter(team_id=self.options.team_id)
         insight_rows = _candidate_rows(insights.order_by("id"))
 
-        self.stdout.write("Pass 2 (orphaned): scanning classified sample insights off any live usage dashboard")
+        self.stdout.write("Pass 2 (orphaned): scanning generated dashboards no live flag points at")
         last_id = 0
         while not self._limit_reached:
             batch = [_Candidate(**row) for row in insight_rows.filter(id__gt=last_id)[: self.options.batch_size]]
@@ -394,4 +444,4 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"Pass 2: through insight id {last_id} | deleted {self.stats.deleted} | kept {self.stats.kept}"
             )
-            self._throttle()
+            self._throttle(wrote=bool(deletable))

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -15,11 +16,13 @@ from posthog.helpers.dashboard_templates import (
     add_enriched_insights_to_feature_flag_dashboard,
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.test.persons import create_group_type_mapping
 
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.feature_flags.backend.api.feature_flag import _create_usage_dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -52,6 +55,16 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
             add_enriched_insights_to_feature_flag_dashboard(flag, dashboard)
         return flag
 
+    def _run(self, *args: str, team: Team | None = None, stdout: StringIO | None = None) -> None:
+        """Run the command scoped to one team, so a reused test database cannot feed it other rows."""
+        call_command(
+            "delete_feature_flag_usage_insights",
+            "--sleep-interval=0",
+            f"--team-id={(team or self.team).id}",
+            *args,
+            **({"stdout": stdout} if stdout is not None else {}),
+        )
+
     def _usage_insights(self, flag: FeatureFlag) -> list[Insight]:
         assert flag.usage_dashboard_id is not None
         tile_insight_ids = DashboardTile.objects.filter(dashboard_id=flag.usage_dashboard_id).values_list(
@@ -80,7 +93,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         assert len(insights) == 4
         assert expected_unique_calls_name in {i.name for i in insights}
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0")
+        self._run()
 
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == 0
         assert DashboardTile.objects.filter(dashboard_id=dashboard_id).count() == 0
@@ -98,7 +111,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         insights = self._usage_insights(flag)
         Insight.objects.filter(id__in=[i.id for i in insights]).update(description="")
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0")
+        self._run()
 
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == 0
 
@@ -109,11 +122,24 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         insights = self._usage_insights(flag)
         FeatureFlag.objects.filter(id=flag.id).update(usage_dashboard=None)
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0")
+        self._run()
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0", "--include-orphaned")
+        self._run("--include-orphaned")
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == 0
+
+    def test_orphan_sweep_needs_a_generated_dashboard_not_just_a_matching_name(self) -> None:
+        # Pass 2 has no flag vouching for its candidates, so it anchors on the dashboard the generator
+        # stamps. Drop that anchor and it goes back to sweeping the whole insight table on a name match.
+        dashboard = Dashboard.objects.create(team=self.team, name="Someone's own dashboard")
+        lookalike = Insight.objects.create(
+            team=self.team, name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME, is_sample=True, saved=True
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=lookalike)
+
+        self._run("--include-orphaned")
+
+        assert Insight.objects.filter(id=lookalike.id).exists()
 
     def test_limit_caps_how_many_are_deleted(self) -> None:
         # --limit is the operator's brake, and the truncation is hand-rolled arithmetic against a
@@ -121,9 +147,14 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         flag = self._flag_with_usage_dashboard("capped")
         insights = self._usage_insights(flag)
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0", "--limit=1")
+        self._run("--limit=1")
 
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights) - 1
+        # The surviving insight is still a live tile, so the flag must keep its dashboard. Computing the
+        # emptied set before the limit truncation would unlink a flag whose dashboard still holds one.
+        flag.refresh_from_db()
+        assert flag.usage_dashboard_id is not None
+        assert DashboardTile.objects.filter(dashboard_id=flag.usage_dashboard_id).count() == 1
 
     def test_team_id_confines_the_sweep_to_one_team(self) -> None:
         # Losing this filter turns an operator's single-team run into a fleet-wide one.
@@ -131,7 +162,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         mine = self._usage_insights(self._flag_with_usage_dashboard("mine"))
         theirs = self._usage_insights(self._flag_with_usage_dashboard("theirs", team=other_team))
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0", f"--team-id={self.team.id}")
+        self._run()
 
         assert Insight.objects.filter(id__in=[i.id for i in mine]).count() == 0
         assert Insight.objects.filter(id__in=[i.id for i in theirs]).count() == len(theirs)
@@ -143,7 +174,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         assert flag.usage_dashboard_id is not None
         DashboardTile.objects_including_soft_deleted.filter(dashboard_id=flag.usage_dashboard_id).delete()
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0")
+        self._run()
 
         flag.refresh_from_db()
         assert flag.usage_dashboard_id is not None
@@ -152,6 +183,8 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         [
             ("missing_file", "/nonexistent/keep.txt", None),
             ("nothing_parseable", None, "insight_id\nnot-an-id\n"),
+            # A team_id,insight_id export would otherwise keep the team ids and sweep the insights.
+            ("two_numeric_columns", None, "team_id,insight_id\n2,4567\n"),
         ]
     )
     def test_unusable_keep_list_stops_the_run(self, _name: str, path: str | None, contents: str | None) -> None:
@@ -163,16 +196,16 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
             path = str(keep_file)
 
         with self.assertRaises(CommandError):
-            call_command("delete_feature_flag_usage_insights", "--sleep-interval=0", f"--keep-ids-file={path}")
+            self._run(f"--keep-ids-file={path}")
 
     def test_does_not_delete_unrelated_sample_insight(self) -> None:
-        # The classifier keys on name/description, not is_sample — so other dashboard-template insights
+        # The classifier keys on name/description, not is_sample, so other dashboard-template insights
         # (billing, onboarding) that also carry is_sample must survive.
         unrelated = Insight.objects.create(
             team=self.team, name="Billable Event Usage by Library", is_sample=True, saved=True
         )
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0", "--include-orphaned")
+        self._run("--include-orphaned")
 
         assert Insight.objects.filter(id=unrelated.id).exists()
 
@@ -199,13 +232,40 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
             keep_file.write_text(f"insight_id\n{kept.id}\n")
             extra_args = [f"--keep-ids-file={keep_file}"]
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0", *extra_args)
+        self._run(*extra_args)
 
         assert Insight.objects.filter(id=kept.id).exists()
         assert not Insight.objects.filter(id=other.id).exists()
         # A kept insight still lives on the dashboard, so the flag must stay linked to it.
         flag.refresh_from_db()
         assert flag.usage_dashboard_id is not None
+
+    def test_writes_activity_rows_without_emitting_events(self) -> None:
+        # The rows are the audit trail, but each one also emits a CDP event that can fire a customer's
+        # webhooks and Slack destinations. A sweep must write the rows and emit nothing.
+        flag = self._flag_with_usage_dashboard("quiet")
+        insights = self._usage_insights(flag)
+
+        with patch("posthog.models.activity_logging.activity_log.post_save.send") as mock_post_save:
+            self._run()
+
+        assert ActivityLog.objects.filter(
+            scope="Insight", activity="deleted", item_id__in=[str(i.id) for i in insights]
+        ).count() == len(insights)
+        assert not [call for call in mock_post_save.call_args_list if call.kwargs.get("sender") is ActivityLog]
+
+    def test_prunes_the_project_tree_rows_for_swept_insights(self) -> None:
+        # The soft delete goes through .update(), which fires no signal, so FileSystemSyncMixin never
+        # prunes these. Leaving them makes a swept insight clickable in Recents and the project tree,
+        # landing on "Insight not found".
+        flag = self._flag_with_usage_dashboard("tree")
+        insights = self._usage_insights(flag)
+        refs = [i.short_id for i in insights]
+        assert FileSystem.objects.filter(team=self.team, type="insight", ref__in=refs).exists()
+
+        self._run()
+
+        assert not FileSystem.objects.filter(team=self.team, type="insight", ref__in=refs).exists()
 
     def test_dry_run_changes_nothing_but_reports_the_flags_it_would_unlink(self) -> None:
         # A dry run sizes the live run, so it has to account for both mutations. Reporting the
@@ -214,7 +274,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         insights = self._usage_insights(flag)
         out = StringIO()
 
-        call_command("delete_feature_flag_usage_insights", "--sleep-interval=0", "--dry-run", stdout=out)
+        self._run("--dry-run", stdout=out)
 
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
         flag.refresh_from_db()
