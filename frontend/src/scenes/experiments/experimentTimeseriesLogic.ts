@@ -52,6 +52,8 @@ export interface ProcessedChartData {
     processedData: ProcessedTimeseriesDataPoint[]
     /** When the timeseries was last computed (ISO string), shared across all data points. */
     computedAt: string | null
+    /** Color of the variant's line, from the experiment's stable variant order. */
+    variantColor: string
 }
 
 export interface ExperimentTimeseriesLogicProps {
@@ -513,6 +515,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         datasets,
                         processedData: trimmedData,
                         computedAt: timeseries?.computed_at ?? null,
+                        variantColor,
                     }
                 }
             },
