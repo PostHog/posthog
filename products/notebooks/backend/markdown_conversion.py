@@ -670,7 +670,8 @@ def _get_serializable_component_props(props: Mapping[str, NotebookPropValue]) ->
     next_props = {
         key: value
         for key, value in props.items()
-        if key not in ("view", "edit", "hideFilters", "hideResults", "showFilters", "showResults")
+        if key not in ("edit", "hideFilters", "hideResults", "showFilters", "showResults")
+        and not (key == "view" and isinstance(value, bool))
     }
     legacy_view_panel_visible = props.get("view") if isinstance(props.get("view"), bool) else None
     show_filters = props.get("showFilters") is True

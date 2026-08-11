@@ -132,6 +132,13 @@ class TestNotebookMarkdownConversion(BaseTest):
                         "showResults": False,
                     },
                 },
+                {
+                    "type": "ph-feature-flag",
+                    "attrs": {
+                        "id": 123,
+                        "view": "summary",
+                    },
+                },
             ],
         }
 
@@ -145,6 +152,7 @@ class TestNotebookMarkdownConversion(BaseTest):
             '<Query showFilters hideResults query={{"kind":"SavedInsightNode","shortId":"custom-panels"}} />'
             in markdown
         )
+        assert '<FeatureFlag id={123} view="summary" />' in markdown
 
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
         content = {

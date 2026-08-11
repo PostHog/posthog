@@ -351,6 +351,18 @@ describe('featureFlagLogic', () => {
 
             expect(router.values.location.pathname).toBe(embeddedPathname)
         })
+
+        it('keeps the current route when an embedded editor save requires approval', async () => {
+            const notebookUrl = urls.notebook('embedded-flag')
+            router.actions.push(notebookUrl)
+            const embeddedPathname = router.values.location.pathname
+
+            await expectLogic(logic, () => {
+                logic.actions.saveFeatureFlagFailure('Approval required', { status: 409 })
+            }).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
     })
 
     describe('setMultivariateEnabled functionality', () => {
