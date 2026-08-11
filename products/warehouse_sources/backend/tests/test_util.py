@@ -3,6 +3,7 @@ import socket
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
@@ -11,6 +12,8 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import (
+    _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE,
+    _POSTHOG_OWNED_BUCKET_SETTING_NAMES,
     get_view_or_table_by_name,
     reconstruct_ordered_columns,
     validate_warehouse_table_url_pattern,
@@ -50,6 +53,10 @@ class TestReconstructOrderedColumns(SimpleTestCase):
     BUCKET_PATH="ph-warehouse",
     OBJECT_STORAGE_BUCKET="ph-objects",
     SESSION_RECORDING_V2_S3_BUCKET="ph-replay",
+    CLICKHOUSE_BACKUPS_BUCKET="ph-ch-backups",
+    IDENTITY_MATCHING_S3_BUCKET="ph-identity-matching",
+    OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET="ph-web-analytics",
+    QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET="ph-query-log-archive",
 )
 class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
     @parameterized.expand(
@@ -68,6 +75,12 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
             # Buckets other than the warehouse one are just as reachable from the ClickHouse node.
             ("object_storage_bucket", "https://s3.us-east-1.amazonaws.com/ph-objects/exports/x.csv"),
             ("session_replay_bucket", "https://ph-replay.s3.eu-central-1.amazonaws.com/x.json"),
+            # These four are also read or written by ClickHouse's own s3()/BACKUP...S3() with no
+            # explicit credentials - the same shape that made the original vulnerability exploitable.
+            ("clickhouse_backups_bucket", "https://s3.us-east-1.amazonaws.com/ph-ch-backups/db/table/full-x/"),
+            ("identity_matching_bucket", "https://ph-identity-matching.s3.us-east-1.amazonaws.com/x.parquet"),
+            ("web_analytics_bucket", "https://ph-web-analytics.s3.us-east-1.amazonaws.com/team_1/data.native"),
+            ("query_log_archive_bucket", "https://ph-query-log-archive.s3.amazonaws.com/day=2026-01-01/data.parquet"),
         ]
     )
     def test_rejects_urls_that_address_posthog_storage(self, _name: str, url_pattern: str) -> None:
@@ -102,6 +115,27 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
             is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
 
         assert is_valid, error_message
+
+
+class TestBucketSettingsAreAllTriaged(SimpleTestCase):
+    def test_every_bucket_setting_is_either_owned_or_excluded_with_a_reason(self) -> None:
+        # A setting a future PR adds without following the "*_BUCKET" suffix (like BUCKET_PATH
+        # today) won't be caught here - it has to be added to _POSTHOG_OWNED_BUCKET_SETTING_NAMES
+        # by hand. What this catches is the drift that made the original check incomplete: a new
+        # "*_BUCKET" setting landing without anyone deciding whether the node role can read it.
+        existing_bucket_settings = {name for name in dir(settings) if name.isupper() and name.endswith("_BUCKET")}
+        triaged = set(_POSTHOG_OWNED_BUCKET_SETTING_NAMES) | set(_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE)
+
+        untriaged = existing_bucket_settings - triaged
+        assert not untriaged, (
+            f"{sorted(untriaged)} aren't triaged in products/warehouse_sources/backend/models/util.py. "
+            "Add each to _POSTHOG_OWNED_BUCKET_SETTING_NAMES if the ClickHouse node role can read it, "
+            "or to _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE with a reason if it can't."
+        )
+
+    def test_owned_and_excluded_lists_do_not_overlap(self) -> None:
+        overlap = set(_POSTHOG_OWNED_BUCKET_SETTING_NAMES) & set(_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE)
+        assert not overlap, f"{sorted(overlap)} listed as both node-role-readable and not"
 
 
 class TestGetViewOrTableByName(BaseTest):

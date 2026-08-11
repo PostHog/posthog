@@ -610,6 +610,52 @@ _NOT_OUR_STORAGE = (
 )
 
 
+# Every Django setting naming a bucket the ClickHouse node role can read, so a table's
+# url_pattern must never resolve to one - see _posthog_owned_bucket_names below.
+# test_bucket_settings_are_all_triaged in test_util.py enumerates every "*_BUCKET" setting that
+# exists and fails if one isn't listed here or in _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE,
+# so a newly added bucket setting can't silently miss this check the way this one originally did.
+# BUCKET_PATH is the one name here that doesn't follow the "*_BUCKET" suffix, so it has to stay
+# listed by hand; the test can't discover it on its own.
+#
+# CLICKHOUSE_BACKUPS_BUCKET, IDENTITY_MATCHING_S3_BUCKET, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
+# and QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here because each is read or written by ClickHouse's own
+# `s3(...)` / `BACKUP ... TO S3(...)` with no explicit access key in the query, the same credential-less
+# shape the original vulnerability exploited - not because a customer's url_pattern can reach them today.
+_POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
+    "BUCKET_PATH",
+    "CLICKHOUSE_BACKUPS_BUCKET",
+    "DATAWAREHOUSE_BUCKET",
+    "IDENTITY_MATCHING_S3_BUCKET",
+    "OBJECT_STORAGE_BUCKET",
+    "OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET",
+    "QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET",
+    "SESSION_RECORDING_V2_S3_BUCKET",
+)
+
+# "*_BUCKET" settings checked and found to be read only through a Python process's own boto3/aioboto3
+# client (a different IAM identity than the ClickHouse node role) or to have no reader in this
+# codebase at all - never through ClickHouse's `s3(...)`/`BACKUP...S3(...)`, the credential-less
+# access pattern that makes a bucket reachable by the node role. Each reason names what was actually
+# checked; "no reader found" means exactly that, not a claim that none exists in a non-Python service.
+_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
+    "AGENT_BUNDLES_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+    "AI_BLOB_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by ai_observability/backend/api/ai_blob.py",
+    "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "read via aioboto3 by the Temporal batch-exports workflow",
+    "BATCH_EXPORT_INTERNAL_STAGING_BUCKET": "read via aioboto3 by the Temporal batch-exports workflow",
+    "BILLING_USAGE_REPORTS_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by posthog/temporal/usage_report/storage.py",
+    "DAGSTER_AI_EVALS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/posthog_ai/dags/utils.py",
+    "DAGSTER_FAVICONS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/web_analytics/dags/cache_favicons.py",
+    "DAGSTER_S3_BUCKET": "read via Dagster's own S3Resource (boto3), the pickle io-manager's storage",
+    "INBOX_RANKING_DATASET_S3_BUCKET": "read via boto3 by products/signals/dags/inbox_ranking/common.py",
+    "MANAGED_MIGRATIONS_TRIAL_S3_BUCKET": "read via boto3 by products/managed_migrations/backend/trial_storage.py",
+    "POSTHOG_JS_S3_BUCKET": "read via boto3 by posthog/models/js_snippet_versioning.py",
+    "QUERY_CACHE_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+    "REPLAY_MESSAGE_TOO_LARGE_SAMPLE_BUCKET": "no reader found in this codebase",
+    "VIDEO_SEGMENT_CLUSTERING_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
+}
+
+
 def _posthog_owned_bucket_names() -> set[str]:
     """Buckets PostHog owns, so a table must never be pointed at one.
 
@@ -617,12 +663,7 @@ def _posthog_owned_bucket_names() -> set[str]:
     table carries no credential. These are the buckets that role can reach, and they hold every
     team's data, so reading one across the API would cross the tenant boundary.
     """
-    names = {
-        settings.DATAWAREHOUSE_BUCKET,
-        settings.BUCKET_PATH,
-        settings.OBJECT_STORAGE_BUCKET,
-        settings.SESSION_RECORDING_V2_S3_BUCKET,
-    }
+    names = {getattr(settings, name, None) for name in _POSTHOG_OWNED_BUCKET_SETTING_NAMES}
     # A couple of these settings are configured as `bucket/prefix`; only the bucket identifies storage.
     return {str(name).strip("/").split("/", 1)[0] for name in names if name}
 
