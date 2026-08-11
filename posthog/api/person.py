@@ -813,7 +813,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         paginator = DeletionStatusPagination()
         page = paginator.paginate_queryset(queryset, request)
         # Only pay for the ClickHouse cut-off lookup when the page has a pending deletion to classify.
-        watermark = get_person_deletion_watermark() if any(row.delete_verified_at is None for row in page) else None
+        has_pending = any(row.delete_verified_at is None for row in (page or []))
+        watermark = get_person_deletion_watermark() if has_pending else None
         serializer = AsyncDeletionStatusSerializer(page, many=True, context={"deletion_watermark": watermark})
         return paginator.get_paginated_response(serializer.data)
 
