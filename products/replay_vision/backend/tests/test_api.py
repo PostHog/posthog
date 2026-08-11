@@ -1683,6 +1683,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/?result_search=checkout")
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(resp.json()["status_counts"]["succeeded"], 1)
+
     def test_stats_respect_score_bounds(self) -> None:
         # The scorer stats embed the filtered queryset into raw SQL, so the annotation-based
         # filter must survive that path, not just the plain list.
