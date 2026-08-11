@@ -14284,6 +14284,11 @@ export namespace Schemas {
       current_version_id: string | null;
     }
 
+    export interface CanvasPublishCurrentVersion {
+      /** Current source version to publish. A changed head returns a 409 version_conflict. */
+      expected_current_version_id: string;
+    }
+
     /**
      * Payload for reverting the canvas's head to an existing source version.
      */
@@ -14849,6 +14854,11 @@ export namespace Schemas {
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
+    }
+
+    export interface ChannelDeleteConflict {
+      /** Why the space cannot be deleted. */
+      detail: string;
     }
 
     /**
@@ -16456,10 +16466,7 @@ export namespace Schemas {
     /**
      * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
      * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
-     * avoids presigning a log URL per conversation.
-     *
-     * Read access here follows the conversation (the share-by-link unit), not per-creator task
-     * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+     * avoids presigning a log URL per conversation. Task data follows the task's space visibility.
      */
     export interface ConversationTask {
       id: string;
@@ -20753,6 +20760,9 @@ export namespace Schemas {
      * * `Sevalla` - Sevalla
      * * `Motion` - Motion
      * * `ImpactPartner` - ImpactPartner
+     * * `Depot` - Depot
+     * * `Schematic` - Schematic
+     * * `Dokploy` - Dokploy
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -22043,6 +22053,9 @@ export namespace Schemas {
       Sevalla: 'Sevalla',
       Motion: 'Motion',
       ImpactPartner: 'ImpactPartner',
+      Depot: 'Depot',
+      Schematic: 'Schematic',
+      Dokploy: 'Dokploy',
     } as const;
 
     /**
@@ -23346,7 +23359,10 @@ export namespace Schemas {
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
        * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner */
+       * * `ImpactPartner` - ImpactPartner
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -25338,7 +25354,10 @@ export namespace Schemas {
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
        * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner */
+       * * `ImpactPartner` - ImpactPartner
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -28383,7 +28402,7 @@ export namespace Schemas {
          */
       source: string;
     } | {
-      /** Classify sentiment from user messages in the generation input. */
+      /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
       source?: 'user_messages';
     };
 
@@ -28590,7 +28609,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_reason_detail: string | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
        *
        * * `llm_judge` - LLM as a judge
        * * `hog` - Hog
@@ -33042,7 +33061,10 @@ export namespace Schemas {
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
        * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner */
+       * * `ImpactPartner` - ImpactPartner
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -34364,7 +34386,10 @@ export namespace Schemas {
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
        * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner */
+       * * `ImpactPartner` - ImpactPartner
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -54493,7 +54518,7 @@ export namespace Schemas {
          */
       source: string;
     } | {
-      /** Classify sentiment from user messages in the generation input. */
+      /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
       source?: 'user_messages';
     };
 
@@ -54557,7 +54582,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_reason_detail?: string | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
        *
        * * `llm_judge` - LLM as a judge
        * * `hog` - Hog
@@ -70901,7 +70926,10 @@ export namespace Schemas {
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
        * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner */
+       * * `ImpactPartner` - ImpactPartner
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -72233,7 +72261,10 @@ export namespace Schemas {
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
        * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner */
+       * * `ImpactPartner` - ImpactPartner
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -73555,7 +73586,10 @@ export namespace Schemas {
        * * `Wix` - Wix
        * * `Sevalla` - Sevalla
        * * `Motion` - Motion
-       * * `ImpactPartner` - ImpactPartner */
+       * * `ImpactPartner` - ImpactPartner
+       * * `Depot` - Depot
+       * * `Schematic` - Schematic
+       * * `Dokploy` - Dokploy */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -76083,6 +76117,55 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+    }
+
+    /**
+     * * `task` - task
+     * * `pull_request` - pull_request
+     * * `artifact` - artifact
+     * * `channel` - channel
+     */
+    export type TaskSearchResultKindEnum = typeof TaskSearchResultKindEnum[keyof typeof TaskSearchResultKindEnum];
+
+
+    export const TaskSearchResultKindEnum = {
+      Task: 'task',
+      PullRequest: 'pull_request',
+      Artifact: 'artifact',
+      Channel: 'channel',
+    } as const;
+
+    export interface TaskSearchResult {
+      /** Search document identifier. */
+      id: string;
+      /** Type of matched resource.
+       *
+       * * `task` - task
+       * * `pull_request` - pull_request
+       * * `artifact` - artifact
+       * * `channel` - channel */
+      kind: TaskSearchResultKindEnum;
+      /** Primary result label. */
+      title: string;
+      /** Secondary result context. */
+      subtitle: string;
+      /**
+         * Containing task identifier, when applicable.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Containing task run identifier, when applicable.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /**
+         * Containing space identifier, when applicable.
+         * @nullable
+         */
+      channel_id: string | null;
+      /** Resource-specific navigation metadata. */
+      metadata: unknown;
     }
 
     export interface TaskSessionResponse {
@@ -88540,7 +88623,7 @@ export namespace Schemas {
 
     export type TasksListParams = {
     /**
-     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
+     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
      */
     all_team_tasks?: boolean;
     /**
@@ -88769,6 +88852,21 @@ export namespace Schemas {
      * @maximum 30
      */
     window_days?: number;
+    };
+
+    export type TasksSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Text or exact identifier to search for.
+     * @minLength 1
+     * @maxLength 512
+     */
+    q: string;
     };
 
     export type TasksSlackThreadContextRetrieveParams = {

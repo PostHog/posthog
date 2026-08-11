@@ -923,12 +923,14 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deno_deploy
+- depot
 - deputy
 - develocity
 - dialpad
 - directus
 - discord
 - display_video_360
+- dokploy
 - dolibarr
 - donorbox
 - doorloop
@@ -1290,6 +1292,7 @@ doesn't conflict with concurrent PRs.
 - scale_ai
 - scaleway
 - scalr
+- schematic
 - search_ads_360
 - sec_edgar
 - secureframe
