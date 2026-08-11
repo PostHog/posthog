@@ -17,6 +17,7 @@ pub mod otel;
 #[cfg(test)]
 mod overflow_parity;
 pub mod payload;
+pub mod pipeline;
 pub mod prometheus;
 pub mod quota_limiters;
 pub mod router;
