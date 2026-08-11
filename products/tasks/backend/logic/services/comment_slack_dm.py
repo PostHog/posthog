@@ -17,6 +17,7 @@ from django.conf import settings
 
 import structlog
 
+from posthog.comment.access import task_comment_target_is_accessible
 from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
 from posthog.helpers.slack_identity import resolve_slack_user
 from posthog.models.comment import Comment
@@ -27,10 +28,8 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
-from products.canvas.backend.comment_access import canvas_belongs_to_task
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
-from products.tasks.backend.logic.services.comment_activity import target_is_accessible
 from products.tasks.backend.models import Task, TaskCommentActivity
 
 logger = structlog.get_logger(__name__)
@@ -109,19 +108,14 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
         if UserPermissions(user=recipient, team=team).current_team.effective_membership_level is None:
             _skip(comment_id, "recipient_lost_project_access", user_id=user_id)
             continue
-        if not target_is_accessible(
+        if not task_comment_target_is_accessible(
             team_id=team_id,
             user_id=user_id,
             task_id=task_id,
-            scope="task" if comment.scope == "desktop_canvas" else comment.scope,
-            item_id=str(task_id) if comment.scope == "desktop_canvas" else comment.item_id,
+            scope=comment.scope,
+            item_id=comment.item_id,
         ):
             _skip(comment_id, "recipient_lost_access", user_id=user_id)
-            continue
-        if comment.scope == "desktop_canvas" and not canvas_belongs_to_task(
-            team_id=team_id, user_id=user_id, canvas_id=comment.item_id or "", task_id=task_id
-        ):
-            _skip(comment_id, "recipient_lost_canvas_access", user_id=user_id)
             continue
         try:
             integration = _integration_for_recipient(
