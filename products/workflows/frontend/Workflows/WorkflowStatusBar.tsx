@@ -3,19 +3,16 @@ import { useValues, useActions } from 'kea'
 import { IconClock, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 /**
- * The single home for the content lifecycle of a saved workflow: what you're editing (live config
- * vs staged draft), save state, and the save/publish/discard actions. Lifecycle (enable/disable)
- * stays in the scene header.
+ * State narration for a saved workflow: what you're editing (live config vs staged draft), save
+ * state, and the auto-save toggle. Deliberately no write actions here - save/publish/discard live
+ * in the scene header with every other scene's primary actions, and in the scene menu bar.
  */
 export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null {
     const logic = workflowLogic(props)
@@ -24,15 +21,11 @@ export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null
         workflowLoading,
         hasUnsavedChanges,
         hasStagedDraft,
-        draftActionPending,
         isAutoSavePending,
         autoSaveEnabled,
         lastSavedAt,
-        isWorkflowSubmitting,
-        workflowHasErrors,
-        workflowUserAccessLevel,
     } = useValues(logic)
-    const { submitWorkflow, discardChanges, publishDraft, discardDraft, setAutoSaveEnabled } = useActions(logic)
+    const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
 
     if (!props.id || props.id === 'new' || props.editTemplateId || !originalWorkflow) {
@@ -95,87 +88,6 @@ export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null
                 >
                     History
                 </LemonButton>
-                {hasUnsavedChanges && (
-                    <LemonButton
-                        data-attr="discard-workflow-changes"
-                        type="secondary"
-                        size="small"
-                        onClick={() => discardChanges()}
-                    >
-                        Clear changes
-                    </LemonButton>
-                )}
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.Workflow}
-                    minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={workflowUserAccessLevel ?? undefined}
-                >
-                    <LemonButton
-                        data-attr="workflow-save"
-                        type={isEditingDraftOfLive ? 'secondary' : 'primary'}
-                        size="small"
-                        htmlType="submit"
-                        form="workflow"
-                        onClick={submitWorkflow}
-                        loading={isWorkflowSubmitting}
-                        disabledReason={
-                            workflowHasErrors
-                                ? 'Some fields still need work'
-                                : !hasUnsavedChanges
-                                  ? 'No changes to save'
-                                  : undefined
-                        }
-                    >
-                        {isActive ? 'Save draft' : 'Save'}
-                    </LemonButton>
-                </AccessControlAction>
-                {hasStagedDraft && (
-                    <>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Workflow}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={workflowUserAccessLevel ?? undefined}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                status="danger"
-                                onClick={() => discardDraft()}
-                                loading={draftActionPending === 'discard'}
-                                disabledReason={
-                                    hasUnsavedChanges
-                                        ? 'Save or clear your in-progress edits first'
-                                        : draftActionPending === 'publish'
-                                          ? 'Publishing is in progress'
-                                          : undefined
-                                }
-                            >
-                                Discard draft
-                            </LemonButton>
-                        </AccessControlAction>
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Workflow}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={workflowUserAccessLevel ?? undefined}
-                        >
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={() => publishDraft()}
-                                loading={draftActionPending === 'publish'}
-                                disabledReason={
-                                    hasUnsavedChanges
-                                        ? 'Save or clear your in-progress edits first'
-                                        : draftActionPending === 'discard'
-                                          ? 'Discarding is in progress'
-                                          : undefined
-                                }
-                            >
-                                Publish
-                            </LemonButton>
-                        </AccessControlAction>
-                    </>
-                )}
             </div>
         </div>
     )
