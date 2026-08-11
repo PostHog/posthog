@@ -74,6 +74,9 @@ def test_alert_evaluation_failure_email_includes_the_reason_and_next_check_timin
     )
 
     assert "The query could not run." in html
+    assert "This alert could not be evaluated." in html
+    assert "Insight" in html
+    assert "Error" in html
     assert "normal schedule" in html
     assert "alert_id=1" in html
     assert "Example insight" in html

@@ -1,9 +1,15 @@
-{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+{% extends "email/base.html" %} {% load posthog_assets %} {% block heading %}{{ alert_name }}{% endblock %} {% block section %}
     <p>
-        The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert could not be evaluated for insight <a
-            href="{% absolute_uri insight_url %}">{{ insight_name }}</a>.
+        This alert could not be evaluated.
     </p>
-    <p><i>{{ alert_error }}</i></p>
+    <p>
+        <strong>Insight</strong><br />
+        <a href="{% absolute_uri insight_url %}">{{ insight_name }}</a>
+    </p>
+    <p>
+        <strong>Error</strong><br />
+        <i>{{ alert_error }}</i>
+    </p>
     <p>PostHog will check this alert again on its normal schedule.</p>
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
