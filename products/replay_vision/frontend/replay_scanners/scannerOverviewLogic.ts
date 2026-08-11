@@ -50,6 +50,9 @@ export interface ScannerOverviewLogicProps {
     scannerId: string
 }
 
+/** The two summarizer facets a user can drill into from the Overview panels. */
+export type SummarizerFacetField = 'friction' | 'keywords'
+
 const DEFAULT_DATE_FROM = '-14d'
 
 /** The bucket size of the Overview charts; the drill-down only knows how to map day buckets onto the Observations tab. */
@@ -119,6 +122,13 @@ export interface scannerOverviewLogicActions {
     ) => {
         breakdown: unknown
         day: number | string | undefined
+    }
+    drillIntoObservationsByTerm: (
+        field: SummarizerFacetField,
+        term: string
+    ) => {
+        field: SummarizerFacetField
+        term: string
     }
     loadOverviewImpact: () => any
     loadOverviewImpactFailure: (
@@ -215,6 +225,7 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
         setOverviewTagFilter: (values: string[]) => ({ values }),
         clearOverviewFilters: true,
         drillIntoObservations: (day: string | number | undefined, breakdown?: unknown) => ({ day, breakdown }),
+        drillIntoObservationsByTerm: (field: SummarizerFacetField, term: string) => ({ field, term }),
     }),
 
     reducers({
@@ -354,6 +365,11 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                     // Replaces any existing observation filters: the drill-down defines the slice being inspected.
                     router.actions.push(urls.replayVision(props.scannerId), searchParams)
                 }
+            },
+
+            // A clicked friction/keyword row lands on the Observations tab, filtered to that exact term.
+            drillIntoObservationsByTerm: ({ field, term }) => {
+                router.actions.push(urls.replayVision(props.scannerId), { tab: 'observations', [field]: term })
             },
 
             loadOverviewStats: async (_, breakpoint) => {

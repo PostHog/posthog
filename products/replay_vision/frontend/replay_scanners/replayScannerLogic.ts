@@ -126,6 +126,8 @@ interface ObservationListParams {
     backfill_id?: string
     verdict?: string
     tags?: string
+    friction?: string
+    keywords?: string
     recording_subject?: string
     date_from?: string
     date_to?: string
@@ -158,6 +160,8 @@ interface ObservationFilterValues {
     observationTriggeredByFilter: ObservationTriggeredByValue[]
     observationVerdictFilter: ObservationVerdictValue[]
     observationTagFilter: string[]
+    observationFrictionFilter: string | null
+    observationKeywordFilter: string | null
     observationSubjectFilter: string
     observationDateFrom: string | null
     observationDateTo: string | null
@@ -169,11 +173,29 @@ function observationFilterParams(
     values: ObservationFilterValues
 ): Pick<
     ObservationListParams,
-    'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to' | 'backfill_id'
+    | 'status'
+    | 'triggered_by'
+    | 'verdict'
+    | 'tags'
+    | 'friction'
+    | 'keywords'
+    | 'recording_subject'
+    | 'date_from'
+    | 'date_to'
+    | 'backfill_id'
 > {
     const params: Pick<
         ObservationListParams,
-        'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to' | 'backfill_id'
+        | 'status'
+        | 'triggered_by'
+        | 'verdict'
+        | 'tags'
+        | 'friction'
+        | 'keywords'
+        | 'recording_subject'
+        | 'date_from'
+        | 'date_to'
+        | 'backfill_id'
     > = {}
     if (values.observationStatusFilter.length > 0) {
         params.status = values.observationStatusFilter.join(',')
@@ -186,6 +208,12 @@ function observationFilterParams(
     }
     if (values.observationTagFilter.length > 0) {
         params.tags = values.observationTagFilter.join(',')
+    }
+    if (values.observationFrictionFilter) {
+        params.friction = values.observationFrictionFilter
+    }
+    if (values.observationKeywordFilter) {
+        params.keywords = values.observationKeywordFilter
     }
     if (values.observationSubjectFilter.trim()) {
         params.recording_subject = values.observationSubjectFilter.trim()
@@ -249,6 +277,8 @@ export interface replayScannerLogicValues {
     observationDateFrom: string | null
     observationDateTo: string | null
     observationDetailLinkParams: Record<string, string>
+    observationFrictionFilter: string | null
+    observationKeywordFilter: string | null
     observationStats: ObservationStatusStats
     observationStatsApi: ObservationStatsApi | null
     observationStatsApiLoading: boolean
@@ -384,6 +414,8 @@ export interface replayScannerLogicActions {
         backfillId: string | null
         dateFrom: string | null
         dateTo: string | null
+        friction: string | null
+        keywords: string | null
         page: number
         sort: ObservationsSorting | null
         status: ObservationStatusValue[]
@@ -395,6 +427,8 @@ export interface replayScannerLogicActions {
         backfillId: string | null
         dateFrom: string | null
         dateTo: string | null
+        friction: string | null
+        keywords: string | null
         page: number
         sort: ObservationsSorting | null
         status: ObservationStatusEnumApi[]
@@ -456,6 +490,12 @@ export interface replayScannerLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setObservationFrictionFilter: (value: string | null) => {
+        value: string | null
+    }
+    setObservationKeywordFilter: (value: string | null) => {
+        value: string | null
     }
     setObservationStatusFilter: (values: ObservationStatusValue[]) => {
         values: ObservationStatusEnumApi[]
@@ -559,6 +599,8 @@ export interface replayScannerLogicMeta {
             observationTriggeredByFilter: ObservationTriggerEnumApi[],
             observationVerdictFilter: ObservationVerdictValue[],
             observationTagFilter: string[],
+            observationFrictionFilter: string | null,
+            observationKeywordFilter: string | null,
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
@@ -569,6 +611,8 @@ export interface replayScannerLogicMeta {
             observationTriggeredByFilter: ObservationTriggerEnumApi[],
             observationVerdictFilter: ObservationVerdictValue[],
             observationTagFilter: string[],
+            observationFrictionFilter: string | null,
+            observationKeywordFilter: string | null,
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
@@ -625,6 +669,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
         setObservationTagFilter: (values: string[]) => ({ values }),
+        setObservationFrictionFilter: (value: string | null) => ({ value }),
+        setObservationKeywordFilter: (value: string | null) => ({ value }),
         setObservationSubjectFilter: (value: string) => ({ value }),
         setObservationDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setObservationBackfillFilter: (value: string | null) => ({ value }),
@@ -636,6 +682,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             triggeredBy: ObservationTriggeredByValue[]
             verdict: ObservationVerdictValue[]
             tags: string[]
+            friction: string | null
+            keywords: string | null
             subject: string
             dateFrom: string | null
             dateTo: string | null
@@ -920,6 +968,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 setObservationTriggeredByFilter: () => 1,
                 setObservationVerdictFilter: () => 1,
                 setObservationTagFilter: () => 1,
+                setObservationFrictionFilter: () => 1,
+                setObservationKeywordFilter: () => 1,
                 setObservationSubjectFilter: () => 1,
                 setObservationDateRange: () => 1,
                 setObservationsSort: () => 1,
@@ -1019,6 +1069,22 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 restoreObservationsTableState: (_, { tags }) => tags,
             },
         ],
+        observationFrictionFilter: [
+            null as string | null,
+            {
+                setObservationFrictionFilter: (_, { value }) => value,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { friction }) => friction,
+            },
+        ],
+        observationKeywordFilter: [
+            null as string | null,
+            {
+                setObservationKeywordFilter: (_, { value }) => value,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { keywords }) => keywords,
+            },
+        ],
         observationSubjectFilter: [
             '' as string,
             {
@@ -1088,6 +1154,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationTriggeredByFilter,
                 s.observationVerdictFilter,
                 s.observationTagFilter,
+                s.observationFrictionFilter,
+                s.observationKeywordFilter,
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
@@ -1098,6 +1166,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggeredByFilter: ObservationTriggeredByValue[],
                 verdictFilter: ObservationVerdictValue[],
                 tagFilter: string[],
+                frictionFilter: string | null,
+                keywordFilter: string | null,
                 subjectFilter: string,
                 dateFrom: string | null,
                 dateTo: string | null,
@@ -1107,6 +1177,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggeredByFilter.length > 0 ||
                 verdictFilter.length > 0 ||
                 tagFilter.length > 0 ||
+                frictionFilter !== null ||
+                keywordFilter !== null ||
                 subjectFilter.trim().length > 0 ||
                 dateFrom !== null ||
                 dateTo !== null ||
@@ -1119,6 +1191,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationTriggeredByFilter,
                 s.observationVerdictFilter,
                 s.observationTagFilter,
+                s.observationFrictionFilter,
+                s.observationKeywordFilter,
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
@@ -1131,6 +1205,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationTriggeredByFilter: ObservationTriggeredByValue[],
                 observationVerdictFilter: ObservationVerdictValue[],
                 observationTagFilter: string[],
+                observationFrictionFilter: string | null,
+                observationKeywordFilter: string | null,
                 observationSubjectFilter: string,
                 observationDateFrom: string | null,
                 observationDateTo: string | null,
@@ -1143,6 +1219,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     observationTriggeredByFilter,
                     observationVerdictFilter,
                     observationTagFilter,
+                    observationFrictionFilter,
+                    observationKeywordFilter,
                     observationSubjectFilter,
                     observationDateFrom,
                     observationDateTo,
@@ -1615,6 +1693,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTriggeredByFilter: writeUrl,
             setObservationVerdictFilter: writeUrl,
             setObservationTagFilter: writeUrl,
+            setObservationFrictionFilter: writeUrl,
+            setObservationKeywordFilter: writeUrl,
             setObservationDateRange: writeUrl,
             setObservationBackfillFilter: writeUrl,
             setObservationSubjectFilter: writeUrlReplace,
@@ -1635,6 +1715,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             )
             const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict, OBSERVATION_VERDICT_VALUES)
             const tags = parseCsvParam<string>(searchParams.tags)
+            // Friction phrases and keywords are single exact values (phrases can contain commas), so they're
+            // read whole rather than split like the comma-separated filters above.
+            const friction = typeof searchParams.friction === 'string' ? searchParams.friction : null
+            const keywords = typeof searchParams.keywords === 'string' ? searchParams.keywords : null
             const subjectRaw = searchParams.recording_subject
             // String() so a numeric-looking subject (`?recording_subject=12345`) survives the router's coercion.
             const subject =
@@ -1650,6 +1734,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 objectsEqual(triggeredBy, values.observationTriggeredByFilter) &&
                 objectsEqual(verdict, values.observationVerdictFilter) &&
                 objectsEqual(tags, values.observationTagFilter) &&
+                friction === values.observationFrictionFilter &&
+                keywords === values.observationKeywordFilter &&
                 subject === values.observationSubjectFilter &&
                 dateFrom === values.observationDateFrom &&
                 dateTo === values.observationDateTo &&
@@ -1662,6 +1748,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     triggeredBy,
                     verdict,
                     tags,
+                    friction,
+                    keywords,
                     subject,
                     dateFrom,
                     dateTo,
@@ -1718,6 +1806,8 @@ const TABLE_URL_PARAM_KEYS = [
     'triggered_by',
     'verdict',
     'tags',
+    'friction',
+    'keywords',
     'recording_subject',
     'date_from',
     'date_to',

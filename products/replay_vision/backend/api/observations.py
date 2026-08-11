@@ -536,6 +536,17 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
         ),
     )
+    friction = django_filters.CharFilter(
+        method="_filter_friction",
+        help_text=(
+            "Filter summarizer observations whose friction points include this exact phrase. "
+            "Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list."
+        ),
+    )
+    keywords = django_filters.CharFilter(
+        method="_filter_keywords",
+        help_text="Filter summarizer observations whose keywords include this exact value.",
+    )
     session_id = MultiChoiceFilter(
         field_name="session_id",
         help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
@@ -634,6 +645,23 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_friction(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        phrase = value.strip()
+        if not phrase:
+            return queryset
+        # `__contains` on the JSONB array matches when `friction_points` holds this exact phrase.
+        return queryset.filter(scanner_result__model_output__friction_points__contains=[phrase])
+
+    def _filter_keywords(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        keyword = value.strip()
+        if not keyword:
+            return queryset
+        return queryset.filter(scanner_result__model_output__keywords__contains=[keyword])
 
 
 # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed

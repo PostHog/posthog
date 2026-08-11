@@ -512,6 +512,8 @@ describe('replayScannerLogic', () => {
             observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
+            observationFrictionFilter: null as string | null,
+            observationKeywordFilter: null as string | null,
             observationSubjectFilter: '',
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
@@ -547,6 +549,16 @@ describe('replayScannerLogic', () => {
             expect(params.triggered_by).toBe('on_demand')
             expect(params.verdict).toBe('yes,inconclusive')
             expect(params.tags).toBe('onboarding,support')
+        })
+
+        it('passes friction and keyword filters whole, without splitting on commas', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationFrictionFilter: "Users can't find export, so they give up",
+                observationKeywordFilter: 'export',
+            })
+            expect(params.friction).toBe("Users can't find export, so they give up")
+            expect(params.keywords).toBe('export')
         })
 
         it('passes date range only when set', () => {
@@ -884,6 +896,20 @@ describe('replayScannerLogic', () => {
                 expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
                 expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
                 expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
+            }
+        })
+
+        it('restores a friction phrase from the URL without splitting on its commas', async () => {
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                const phrase = "Users can't find export, so they give up"
+                router.actions.push(urls.replayVision('sid'), { tab: 'observations', friction: phrase })
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationFrictionFilter).toBe(phrase)
+                expect(sidLogic.values.hasActiveObservationFilters).toBe(true)
             } finally {
                 sidLogic.unmount()
             }

@@ -13,6 +13,14 @@
             "description": "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.",
             "type": "string"
         },
+        "friction": {
+            "description": "Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.",
+            "type": "string"
+        },
+        "keywords": {
+            "description": "Filter summarizer observations whose keywords include this exact value.",
+            "type": "string"
+        },
         "labeled": {
             "description": "When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.",
             "type": "boolean"

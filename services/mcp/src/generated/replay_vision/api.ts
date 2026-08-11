@@ -505,6 +505,16 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
         ),
+    friction: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.'
+        ),
+    keywords: zod
+        .string()
+        .optional()
+        .describe('Filter summarizer observations whose keywords include this exact value.'),
     labeled: zod
         .string()
         .optional()
@@ -1032,6 +1042,16 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
         ),
+    friction: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.'
+        ),
+    keywords: zod
+        .string()
+        .optional()
+        .describe('Filter summarizer observations whose keywords include this exact value.'),
     labeled: zod
         .boolean()
         .optional()
@@ -1100,6 +1120,16 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
         ),
+    friction: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.'
+        ),
+    keywords: zod
+        .string()
+        .optional()
+        .describe('Filter summarizer observations whose keywords include this exact value.'),
     labeled: zod
         .string()
         .optional()
@@ -1165,6 +1195,16 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone."
         ),
+    friction: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.'
+        ),
+    keywords: zod
+        .string()
+        .optional()
+        .describe('Filter summarizer observations whose keywords include this exact value.'),
     labeled: zod
         .string()
         .optional()

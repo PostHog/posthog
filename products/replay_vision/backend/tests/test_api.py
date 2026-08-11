@@ -1603,6 +1603,49 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         sessions = sorted(r["session_id"] for r in resp.json()["results"])
         self.assertEqual(sessions, ["sess-0", "sess-2"])
 
+    def test_filterset_friction_and_keywords_match_exact_summarizer_terms(self) -> None:
+        summarizer = self._create_scanner(
+            name="journeys",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "medium"},
+        )
+        # The first friction phrase carries a comma on purpose: friction is an exact single-value match,
+        # so a comma inside a phrase must not split it into two search terms the way the `tags` filter does.
+        rows = [
+            (["Users can't find export, so they give up"], ["export"]),
+            (["filter reset on back"], ["filters"]),
+            ([], ["export"]),
+        ]
+        for idx, (friction, keywords) in enumerate(rows):
+            ReplayObservation.objects.create(
+                scanner=summarizer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(summarizer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "summarizer",
+                        "title": "t",
+                        "summary": "s",
+                        "friction_points": friction,
+                        "keywords": keywords,
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+
+        base = self.observations_url(str(summarizer.id))
+        friction_resp = self.client.get(base, {"friction": "Users can't find export, so they give up"})
+        self.assertEqual(friction_resp.status_code, 200, friction_resp.json())
+        self.assertEqual([r["session_id"] for r in friction_resp.json()["results"]], ["sess-0"])
+
+        keyword_resp = self.client.get(base, {"keywords": "export"})
+        self.assertEqual(keyword_resp.status_code, 200, keyword_resp.json())
+        self.assertEqual(sorted(r["session_id"] for r in keyword_resp.json()["results"]), ["sess-0", "sess-2"])
+
     def test_stats_scorer_summary_and_histogram(self) -> None:
         scorer = self._create_scanner(
             name="frustration",

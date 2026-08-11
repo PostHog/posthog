@@ -90,6 +90,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationTriggeredByFilter,
         observationVerdictFilter,
         observationTagFilter,
+        observationFrictionFilter,
+        observationKeywordFilter,
         observationSubjectFilter,
         observationDateFrom,
         observationDateTo,
@@ -112,6 +114,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationTriggeredByFilter,
         setObservationVerdictFilter,
         setObservationTagFilter,
+        setObservationFrictionFilter,
+        setObservationKeywordFilter,
         setObservationSubjectFilter,
         setObservationDateRange,
         setObservationBackfillFilter,
@@ -291,6 +295,43 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         onChange={setObservationTagFilter}
                                         searchable
                                     />
+                                )}
+                                {observationFrictionFilter && (
+                                    // Arrives from a friction-point drill-down on the Overview tab, so it clears
+                                    // rather than opening a dropdown. The phrase can be long, so it truncates.
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        tooltip={`Friction: ${observationFrictionFilter}`}
+                                        sideAction={{
+                                            icon: <IconX />,
+                                            onClick: () => setObservationFrictionFilter(null),
+                                            tooltip: 'Clear friction filter',
+                                        }}
+                                        data-attr="vision-observations-friction-filter"
+                                    >
+                                        <span className="max-w-[16rem] truncate">
+                                            Friction: {observationFrictionFilter}
+                                        </span>
+                                    </LemonButton>
+                                )}
+                                {observationKeywordFilter && (
+                                    // Arrives from a keyword drill-down on the Overview tab; clear-only, same as above.
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        tooltip={`Keyword: ${observationKeywordFilter}`}
+                                        sideAction={{
+                                            icon: <IconX />,
+                                            onClick: () => setObservationKeywordFilter(null),
+                                            tooltip: 'Clear keyword filter',
+                                        }}
+                                        data-attr="vision-observations-keyword-filter"
+                                    >
+                                        <span className="max-w-[16rem] truncate">
+                                            Keyword: {observationKeywordFilter}
+                                        </span>
+                                    </LemonButton>
                                 )}
                                 {observationBackfillFilter && (
                                     // Same secondary/small button the FilterPills next to it render, so

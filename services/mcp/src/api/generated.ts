@@ -89009,6 +89009,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.
+     */
+    friction?: string;
+    /**
+     * Filter summarizer observations whose keywords include this exact value.
+     */
+    keywords?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
@@ -89131,6 +89139,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.
+     */
+    friction?: string;
+    /**
+     * Filter summarizer observations whose keywords include this exact value.
+     */
+    keywords?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean;
@@ -89186,6 +89202,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.
+     */
+    friction?: string;
+    /**
+     * Filter summarizer observations whose keywords include this exact value.
+     */
+    keywords?: string;
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string;
@@ -89232,6 +89256,14 @@ export namespace Schemas {
      * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string;
+    /**
+     * Filter summarizer observations whose friction points include this exact phrase. Friction phrases are model-written sentences, so this is a single exact value, not a comma-separated list.
+     */
+    friction?: string;
+    /**
+     * Filter summarizer observations whose keywords include this exact value.
+     */
+    keywords?: string;
     /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */

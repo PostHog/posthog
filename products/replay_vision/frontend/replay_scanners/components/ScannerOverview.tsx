@@ -70,12 +70,15 @@ function RankedTermList({
     emptyMessage,
     variant,
     renderAction,
+    onTermClick,
 }: {
     ranked: [string, number][]
     loading: boolean
     emptyMessage: string
     variant: RankedTermVariant
     renderAction?: (term: string) => JSX.Element
+    // When set, each row becomes a button that drills into the observations behind that term.
+    onTermClick?: (term: string) => void
 }): JSX.Element {
     if (ranked.length === 0) {
         return <PanelEmpty loading={loading} message={emptyMessage} />
@@ -85,45 +88,63 @@ function RankedTermList({
     // When no term repeats, every bar is full width and falsely reads as "these all dominate", so drop the bars.
     const showBars = maxCount > 1
     const percent = (count: number): number => Math.round((count / maxCount) * 100)
+    const clickTooltip = 'Show the recordings behind this'
 
     if (variant === 'tag') {
         return (
             <div className="space-y-1.5">
-                {top.map(([term, count]) => (
-                    <div key={term} className="flex items-center gap-2">
-                        {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
-                        <div className="w-24 sm:w-40 shrink-0 flex">
-                            <LemonTag type="option" title={term} className="max-w-full truncate">
-                                {term}
-                            </LemonTag>
+                {top.map(([term, count]) => {
+                    const inner = (
+                        <>
+                            {/* Fixed-width label column so every bar shares the same left edge and their lengths stay comparable. */}
+                            <div className="w-24 sm:w-40 shrink-0 flex">
+                                <LemonTag type="option" title={term} className="max-w-full truncate">
+                                    {term}
+                                </LemonTag>
+                            </div>
+                            {showBars ? (
+                                <LemonProgress percent={percent(count)} className="flex-1" />
+                            ) : (
+                                <div className="flex-1" />
+                            )}
+                            <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
+                                {count.toLocaleString()}
+                            </span>
+                            {renderAction?.(term)}
+                        </>
+                    )
+                    return onTermClick ? (
+                        <button
+                            key={term}
+                            type="button"
+                            onClick={() => onTermClick(term)}
+                            title={clickTooltip}
+                            className="flex items-center gap-2 w-full text-left rounded px-1 -mx-1 cursor-pointer hover:bg-fill-button-tertiary-hover"
+                        >
+                            {inner}
+                        </button>
+                    ) : (
+                        <div key={term} className="flex items-center gap-2">
+                            {inner}
                         </div>
-                        {showBars ? (
-                            <LemonProgress percent={percent(count)} className="flex-1" />
-                        ) : (
-                            <div className="flex-1" />
-                        )}
-                        <span className="text-xs text-muted tabular-nums text-right whitespace-nowrap shrink-0 w-12">
-                            {count.toLocaleString()}
-                        </span>
-                        {renderAction?.(term)}
-                    </div>
-                ))}
+                    )
+                })}
             </div>
         )
     }
 
     return (
         <div className="space-y-1">
-            {top.map(([term, count]) => (
-                <div key={term} className="relative rounded overflow-hidden">
-                    {showBars && (
-                        <div
-                            className="absolute inset-y-0 left-0 bg-accent-highlight-secondary"
-                            // Width is data-derived, so it can't live in a class.
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: `${percent(count)}%` }}
-                        />
-                    )}
+            {top.map(([term, count]) => {
+                const bar = showBars && (
+                    <div
+                        className="absolute inset-y-0 left-0 bg-accent-highlight-secondary"
+                        // Width is data-derived, so it can't live in a class.
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${percent(count)}%` }}
+                    />
+                )
+                const content = (
                     <div className="relative flex items-baseline justify-between gap-2 px-2 py-1">
                         <span className="text-xs">{term}</span>
                         <div className="flex items-center gap-1 shrink-0">
@@ -131,8 +152,25 @@ function RankedTermList({
                             {renderAction?.(term)}
                         </div>
                     </div>
-                </div>
-            ))}
+                )
+                return onTermClick ? (
+                    <button
+                        key={term}
+                        type="button"
+                        onClick={() => onTermClick(term)}
+                        title={clickTooltip}
+                        className="relative block w-full text-left rounded overflow-hidden cursor-pointer hover:bg-fill-button-tertiary-hover"
+                    >
+                        {bar}
+                        {content}
+                    </button>
+                ) : (
+                    <div key={term} className="relative rounded overflow-hidden">
+                        {bar}
+                        {content}
+                    </div>
+                )
+            })}
         </div>
     )
 }
@@ -356,6 +394,7 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
     const { scanner, summarizerFacetStats, hasActiveOverviewFilters, overviewStatsApiLoading } = useValues(
         scannerOverviewLogic({ scannerId })
     )
+    const { drillIntoObservationsByTerm } = useActions(scannerOverviewLogic({ scannerId }))
     if (!scanner || scanner.scanner_type !== 'summarizer') {
         return null
     }
@@ -384,6 +423,7 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     loading={overviewStatsApiLoading}
                     emptyMessage={frictionEmpty}
                     variant="phrase"
+                    onTermClick={(term) => drillIntoObservationsByTerm('friction', term)}
                 />
             </OverviewPanel>
             <OverviewPanel title="Common keywords" subtitle={keywordSubtitle} fill>
@@ -392,6 +432,7 @@ function SummarizerOverview({ scannerId }: { scannerId: string }): JSX.Element |
                     loading={overviewStatsApiLoading}
                     emptyMessage={keywordEmpty}
                     variant="tag"
+                    onTermClick={(term) => drillIntoObservationsByTerm('keywords', term)}
                 />
             </OverviewPanel>
         </div>
