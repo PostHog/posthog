@@ -1356,7 +1356,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             last_sync_timestamp = max_lookback
 
-        current_sync_timestamp = now
+        # Stop short of now so rows that have not reached the replica answering this query yet
+        # fall into the next run's window rather than being skipped for good.
+        current_sync_timestamp = now - timedelta(
+            seconds=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS
+        )
         window_seconds = (current_sync_timestamp - last_sync_timestamp).total_seconds()
 
         logger.info(
@@ -1388,6 +1392,9 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # `distributed_events_recent` reads the batch-export shard through both of its
         # replicas, while `events_recent` is pinned to a single replica, so one
         # unavailable node fails the entire scan with nothing to fall back to.
+        # `posthog/models/event/sql.py` defines the two identically, so dev and CI cannot
+        # tell them apart and no test covers the difference. Check the live offline host
+        # rather than this repo before changing the table.
         chunk_query = """
             SELECT
                 team_id,
@@ -1414,7 +1421,6 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         # everything from that point on has to be retried by the next run rather than
         # skipped, which would silently lose flag calls.
         checkpoint_timestamp = last_sync_timestamp
-        checkpoint_contiguous = True
 
         for chunk_start_ts, chunk_end_ts in chunks:
             try:
@@ -1425,12 +1431,18 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                         "current_sync_timestamp": chunk_end_ts,
                         "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
                     },
+                    settings={"max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS},
                 )
             except Exception as e:
-                # One unreadable chunk should not discard the chunks that did succeed,
-                # so keep going and let the checkpoint logic bound what gets committed.
+                # Transient errors are what autoretry_for is for. ClickHouseAtCapacity in
+                # particular means the cluster is already shedding load, so the useful
+                # response is to abandon the run and let Celery retry it with backoff rather
+                # than keep querying. Swallowing one here would report a successful sync and
+                # skip the retry that recovers these runs today.
+                if isinstance(e, CH_TRANSIENT_ERRORS):
+                    raise
+
                 chunk_failures += 1
-                checkpoint_contiguous = False
                 if first_chunk_error is None:
                     first_chunk_error = e
                 logger.warning(
@@ -1439,9 +1451,17 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                     chunk_end=chunk_end_ts.isoformat(),
                     error=str(e),
                 )
+                # Nothing has been read yet, so the checkpoint cannot advance and the run
+                # re-raises below. Sweeping the rest of the window would query every
+                # remaining chunk against a cluster that just failed one and then discard
+                # every result. A failure after a successful chunk is different: the later
+                # chunks are still worth reading, they just cannot move the checkpoint
+                # past the gap.
+                if checkpoint_timestamp == last_sync_timestamp:
+                    break
                 continue
 
-            if checkpoint_contiguous:
+            if not chunk_failures:
                 checkpoint_timestamp = chunk_end_ts
 
             if chunk_result:
@@ -1492,7 +1512,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
             clickhouse_results_gauge.set(0)
-            checkpoint_lag_gauge.set(0.0)
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1518,7 +1538,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             clickhouse_results_gauge.set(total_clickhouse_results)
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
-            checkpoint_lag_gauge.set(0.0)
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
             return
 
         # Fetch flags matching any (team_id, key) combination from updates.
