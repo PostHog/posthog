@@ -1510,6 +1510,7 @@ use personhog_identity::lifecycle::merge::MergeOpExecutor;
 use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::validation::RequestLimits;
 use personhog_identity::service::PersonHogIdentityService;
+use personhog_identity::storage::IdentityStorage;
 use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
 use personhog_proto::personhog::identity::v1::{
     MergePersonsRequest, MergePersonsResponse, MergeSource, MergeSourceOutcome,
@@ -1517,6 +1518,27 @@ use personhog_proto::personhog::identity::v1::{
 use tonic::Request;
 
 impl MergeHarness {
+    fn service_with_storage(&self, storage: Arc<dyn IdentityStorage>) -> PersonHogIdentityService {
+        let engine = Arc::new(self.ctx.engine());
+        PersonHogIdentityService::new(
+            storage.clone(),
+            self.leader.clone(),
+            RequestLimits {
+                max_batch_size: 250,
+                max_distinct_id_length: 400,
+                max_extra_distinct_ids: 10,
+            },
+            MergeEntrance::new(
+                storage,
+                self.leader.clone(),
+                MergeOpExecutor::new(
+                    engine,
+                    MergeDriver::new(self.leader.clone(), self.ctx.tables.clone()),
+                ),
+            ),
+        )
+    }
+
     fn service(&self) -> PersonHogIdentityService {
         let engine = Arc::new(self.ctx.engine());
         PersonHogIdentityService::new(
@@ -1876,7 +1898,7 @@ async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
             Uuid::now_v7(),
         )))
         .await
-        .expect("flipped case 1 succeeds")
+        .expect("target attach succeeds")
         .into_inner();
 
     assert_eq!(
@@ -1920,7 +1942,7 @@ async fn a_fully_unresolved_call_births_the_target_person() {
     let response = service
         .merge_persons(Request::new(request.clone()))
         .await
-        .expect("case 4 succeeds")
+        .expect("target birth succeeds")
         .into_inner();
 
     // The person is born on the target distinct id's deterministic uuid,
@@ -2290,6 +2312,118 @@ async fn a_failed_push_after_attach_leaves_the_attach_durable() {
         )]
     );
     assert_eq!(retry.survivor.as_ref().expect("survivor").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_target_attach_race_resolves_to_the_winner() {
+    let h = MergeHarness::new().await;
+    let winner = h.ctx.insert_person_with_distinct_id("race-winner").await;
+    let source = h.ctx.insert_person_with_distinct_id("race-source").await;
+    let racing = Arc::new(common::RacingStorage::new(h.ctx.storage.clone()));
+    *racing.hijack_attach_to.lock().unwrap() = Some(winner);
+    let service = h.service_with_storage(racing);
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "race-target",
+            &["race-source"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    // The concurrent mapping wins: the target distinct id belongs to the
+    // winner, the winner is the survivor, and the resolved source still
+    // folds into it through the saga.
+    assert_eq!(response.survivor.as_ref().expect("survivor").id, winner);
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("race-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    assert_eq!(h.pdi_state("race-target").await, (winner, false, 1));
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(source_deleted);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_lost_stub_race_resolves_to_the_winner() {
+    let h = MergeHarness::new().await;
+    let racing = Arc::new(common::RacingStorage::new(h.ctx.storage.clone()));
+    *racing.lose_create_race.lock().unwrap() = true;
+    let service = h.service_with_storage(racing);
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "race-birth-target",
+            &["race-birth-anon"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    // The lost insert re-resolves to the concurrent winner — the same
+    // person, born on the target distinct id's deterministic uuid — and
+    // settlement continues against it.
+    let survivor = response.survivor.as_ref().expect("survivor");
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "race-birth-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("race-birth-anon".to_string(), MergeSourceOutcome::Attached)]
+    );
+    assert_eq!(
+        h.pdi_state("race-birth-anon").await,
+        (survivor.id, false, 1)
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_vanished_survivor_answers_unavailable_with_nothing_written() {
+    let h = MergeHarness::new().await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("race-vanish-source")
+        .await;
+    let racing = Arc::new(common::RacingStorage::new(h.ctx.storage.clone()));
+    *racing.vanish_attach.lock().unwrap() = true;
+    let service = h.service_with_storage(racing);
+
+    let status = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "race-vanish-target",
+            &["race-vanish-source"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect_err("a vanished survivor fails the call");
+
+    // Retryable, and nothing durable happened: the target distinct id is
+    // still unmapped and the source person untouched.
+    assert_eq!(status.code(), Code::Unavailable);
+    let mapped: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(h.ctx.team_id as i32)
+    .bind("race-vanish-target")
+    .fetch_one(&h.ctx.pool)
+    .await
+    .unwrap();
+    assert_eq!(mapped, 0);
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(!source_deleted);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
