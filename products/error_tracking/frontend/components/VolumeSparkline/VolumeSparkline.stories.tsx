@@ -1,5 +1,4 @@
 import { Meta, StoryObj } from '@storybook/react'
-import * as d3 from 'd3'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -13,6 +12,8 @@ const meta: Meta<VolumeSparklineProps> = {
     parameters: {
         layout: 'centered',
         viewMode: 'story',
+        // Bars paint asynchronously (ResizeObserver → rAF); chromium alone keeps the snapshot stable.
+        testOptions: { snapshotBrowsers: ['chromium'] },
     },
     component: VolumeSparkline,
     args: {
@@ -89,7 +90,7 @@ function buildData(
     minDate: string = '2022-01-01',
     maxDate: string = '2022-02-01'
 ): SparklineData {
-    const generator = d3.randomLcg(42)
+    const generator = seededRandom(42)
     const dayJsStart = dayjs(minDate)
     const dayJsEnd = dayjs(maxDate)
     const binSize = dayJsEnd.diff(dayJsStart, 'seconds') / resolution
@@ -99,6 +100,15 @@ function buildData(
             date: dayJsStart.add(index * binSize, 'seconds').toDate(),
         }
     })
+}
+
+/** Deterministic pseudo-random so the visual snapshots don't churn. */
+function seededRandom(seed: number): () => number {
+    let state = seed
+    return () => {
+        state = (state * 1103515245 + 12345) % 2147483648
+        return state / 2147483648
+    }
 }
 
 function buildEvents(firstDate: string, lastDate: string): SparklineEvent<string>[] {

@@ -3,7 +3,8 @@ export type SparklineDatum = {
     value: number
     label?: string
     color?: string
-    /** When true with `color`, bar uses diagonal stripe fill + animation */
+    /** When true with `color`, the bar is flagged as a detected spike: its own color plus a
+     *  diagonal hatch fill. */
     animated?: boolean
 }
 
@@ -30,16 +31,4 @@ export type ErrorTrackingVolumeSparklineHoverValues = {
     hoveredDatum: SparklineDatum | null
     isBarHighlighted: boolean
     hoverSelection: VolumeSparklineHoverSelection | null
-}
-
-export type SparklineOptions = {
-    backgroundColor: string
-    hoverBackgroundColor: string
-    axisColor: string
-    borderRadius: number
-    eventLabelHeight: number
-    eventMinSpace: number
-    eventLabelPaddingX: number
-    eventLabelPaddingY: number
-    minBarHeight: number
 }
