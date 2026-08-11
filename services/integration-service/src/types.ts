@@ -26,12 +26,6 @@ export interface MountedCredentials {
     fetchedAt: string
     /** Hash of the whole mounted key set. Identifies the content, not an AWS version. */
     versionId: string
-    /**
-     * When this content was first seen, from the version table so every replica agrees and a
-     * restart does not reset it. It is the threshold safeToRetirePrevious compares reads
-     * against. Not per-key: an unrelated edit moves it forward and only delays a verdict.
-     */
-    changedAt: string | null
     credentials: Record<string, Credential>
 }
 

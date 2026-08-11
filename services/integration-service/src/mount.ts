@@ -10,7 +10,7 @@ import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { logger } from './lib/logging'
-import { secretAgeSeconds, mountErrorsTotal, servingStaleSeconds } from './metrics'
+import { mountErrorsTotal, servingStaleSeconds } from './metrics'
 import type { Credential, Lifecycle, MountedCredentials } from './types'
 
 /**
@@ -80,11 +80,6 @@ export interface SecretMountOptions {
     /** Directory the Kubernetes Secret is mounted at. */
     dir: string
     lifecycle: Lifecycle
-    /**
-     * Records when a content hash was first seen and returns that timestamp. Persisted, so
-     * every replica agrees and the answer survives a restart.
-     */
-    observeVersion: (contentHash: string) => Promise<string | null>
     now?: () => number
 }
 
@@ -106,13 +101,11 @@ export class SecretMount {
 
     async reload(): Promise<void> {
         const now = this.opts.now ?? Date.now
-        const next = await this.load()
+        const values = await readMount(this.opts.dir)
+        const next = values ? this.build(values) : null
         if (next) {
             this.held = next
             servingStaleSeconds.set(0)
-            if (next.changedAt) {
-                secretAgeSeconds.set((now() - Date.parse(next.changedAt)) / 1000)
-            }
         } else {
             mountErrorsTotal.inc()
             if (this.held) {
@@ -126,12 +119,7 @@ export class SecretMount {
         this.opts.lifecycle.ready = this.held !== null
     }
 
-    private async load(): Promise<MountedCredentials | null> {
-        const values = await readMount(this.opts.dir)
-        if (!values) {
-            return null
-        }
-
+    private build(values: Record<string, string>): MountedCredentials {
         // Hash the whole set, sorted, so the id is stable and identifies the content rather
         // than an AWS version we can no longer see from a mount.
         const contentHash = createHash('sha256')
@@ -165,11 +153,6 @@ export class SecretMount {
             credentials[key] = { state: 'steady', value, versionId: contentHash, fetchedAt }
         }
 
-        return {
-            fetchedAt,
-            versionId: contentHash,
-            changedAt: await this.opts.observeVersion(contentHash),
-            credentials,
-        }
+        return { fetchedAt, versionId: contentHash, credentials }
     }
 }

@@ -11,7 +11,6 @@ import { logger } from '../lib/logging'
 import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal, register, shuttingDown } from '../metrics'
 import { resolveKeys } from '../resolve'
 import type { Lifecycle, MountedCredentials } from '../types'
-import type { UsageRecorder } from '../usage/recorder'
 
 const KNOWN_PATHS = new Set(['/_liveness', '/_readiness', '/metrics', '/v1/secrets/resolve'])
 
@@ -28,7 +27,6 @@ export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
     credentials: () => MountedCredentials | null
-    recorder: UsageRecorder
     metricsToken: string
 }
 
@@ -98,7 +96,7 @@ export function createApp(opts: AppOptions): Hono {
             return c.json({ error: 'Secret store unavailable' }, 503)
         }
 
-        return c.json(resolveKeys(identity, mounted, opts.recorder))
+        return c.json(resolveKeys(identity, mounted))
     })
 
     return app

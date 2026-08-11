@@ -7,18 +7,14 @@ export interface Config {
     /** Wait before draining, so Kubernetes has removed the pod from its endpoints first. */
     shutdownPrestopDelayMs: number
 
-    /** Logical environment (dev | prod-us | prod-eu). Recorded on the usage rollup. */
+    /** Logical environment (dev | prod-us | prod-eu). */
     env: string
 
     /** Directory the Kubernetes Secret is mounted at. */
     mountDir: string
-    /** From the chart's `psql:` harness. Unset disables usage recording (local dev). */
-    databaseUrl: string | undefined
 
     /** How often to re-read the mount. Kubelet updates it in roughly 60-90s. */
     reloadSeconds: number
-    usageFlushMs: number
-    retentionDays: number
 
     metricsToken: string
 }
@@ -46,13 +42,10 @@ export function loadConfig(): Config {
         env: process.env.INTEGRATION_SERVICE_ENV ?? 'dev',
 
         mountDir: process.env.INTEGRATION_SERVICE_SECRETS_DIR ?? '/etc/integration-secrets',
-        databaseUrl: process.env.INTEGRATION_SERVICE_DATABASE_URL,
 
         // Shorter than kubelet's own sync so a rotation is visible within about a minute
         // of the mount changing.
         reloadSeconds: intFromEnv('INTEGRATION_SERVICE_RELOAD_SECONDS', 30),
-        usageFlushMs: intFromEnv('INTEGRATION_SERVICE_USAGE_FLUSH_MS', 10000),
-        retentionDays: intFromEnv('INTEGRATION_SERVICE_RETENTION_DAYS', 9),
 
         metricsToken: process.env.INTEGRATION_SERVICE_METRICS_TOKEN ?? '',
     }
@@ -61,11 +54,6 @@ export function loadConfig(): Config {
         const missing: string[] = []
         if (!process.env.INTEGRATION_SERVICE_ENV) {
             missing.push('INTEGRATION_SERVICE_ENV')
-        }
-        // Without it the usage rollup silently stops, and the rollup is what decides when
-        // an old credential is safe to retire.
-        if (!config.databaseUrl) {
-            missing.push('INTEGRATION_SERVICE_DATABASE_URL')
         }
         // /metrics carries no credential values, but the resolve counter is a precise map
         // of which deployment reads which credential, so exposing it must be deliberate.

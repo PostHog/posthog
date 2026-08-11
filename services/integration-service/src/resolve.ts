@@ -10,7 +10,6 @@
 import { logger } from './lib/logging'
 import { observeResolve, previousVersionServedTotal } from './metrics'
 import type { CallerIdentity, MountedCredentials, ResolveOutcome } from './types'
-import type { UsageRecorder } from './usage/recorder'
 
 /** Stand-in label for a name the mount does not carry, which is caller-supplied text. */
 const UNKNOWN_KEY = 'unknown'
@@ -29,11 +28,7 @@ export interface ResolveResponse {
     missing: string[]
 }
 
-export function resolveKeys(
-    identity: CallerIdentity,
-    mounted: MountedCredentials,
-    recorder: UsageRecorder
-): ResolveResponse {
+export function resolveKeys(identity: CallerIdentity, mounted: MountedCredentials): ResolveResponse {
     const secrets: Record<string, WireSecret> = {}
     const missing: string[] = []
     const served: string[] = []
@@ -69,8 +64,6 @@ export function resolveKeys(
     // One audit line per request rather than per key, so Loki keeps the whole request
     // together. The key list is bounded by the token scope, so it stays readable.
     logger.info('secrets:resolved', { deployment: identity.deployment, caller: identity.caller, served, missing })
-
-    recorder.record(identity.deployment, served)
 
     return { secrets, missing }
 }

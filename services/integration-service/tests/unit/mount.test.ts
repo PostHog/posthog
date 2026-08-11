@@ -30,8 +30,7 @@ function secretMount(
     opts: { lifecycle?: Lifecycle; now?: () => number } = {}
 ): { mount: SecretMount; lifecycle: Lifecycle } {
     const lifecycle = opts.lifecycle ?? { shuttingDown: false, ready: false }
-    const options = { dir, lifecycle, observeVersion: () => Promise.resolve(null), ...(opts.now && { now: opts.now }) }
-    return { mount: new SecretMount(options), lifecycle }
+    return { mount: new SecretMount({ dir, lifecycle, ...(opts.now && { now: opts.now }) }), lifecycle }
 }
 
 async function load(values: Record<string, string>): Promise<MountedCredentials | null> {
