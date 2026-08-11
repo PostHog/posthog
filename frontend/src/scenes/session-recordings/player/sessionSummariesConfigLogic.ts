@@ -174,26 +174,34 @@ export const sessionSummariesConfigLogic = kea<sessionSummariesConfigLogicType>(
                 return await api.sessionSummaries.config.get()
             },
             updateConfig: async (data: SessionSummariesConfigForm): Promise<SessionSummariesConfig> => {
-                const controller = new AbortController()
-                const timeout = window.setTimeout(() => controller.abort(), CONFIG_SAVE_TIMEOUT_MS)
+                const request = api.sessionSummaries.config.update({
+                    product_context: data.product_context,
+                    custom_tags: customTagsToDict(data.custom_tags),
+                })
+                // If the request loses the race below and later rejects, this keeps that
+                // rejection from surfacing as an unhandled promise rejection.
+                request.catch(() => undefined)
+
+                let timedOut = false
+                let timer: number | undefined
+                const timeout = new Promise<never>((_resolve, reject) => {
+                    timer = window.setTimeout(() => {
+                        timedOut = true
+                        reject(new Error('Saving timed out'))
+                    }, CONFIG_SAVE_TIMEOUT_MS)
+                })
+
                 try {
-                    const response = await api.sessionSummaries.config.update(
-                        {
-                            product_context: data.product_context,
-                            custom_tags: customTagsToDict(data.custom_tags),
-                        },
-                        { signal: controller.signal }
-                    )
+                    const response = await Promise.race([request, timeout])
                     lemonToast.success('Session summaries config saved.')
                     return response
                 } catch (error) {
-                    // The global loader error handler stays silent on aborts, so surface the timeout here.
-                    if (controller.signal.aborted) {
+                    if (timedOut) {
                         lemonToast.error('Saving timed out. Check your connection and try again.')
                     }
                     throw error
                 } finally {
-                    window.clearTimeout(timeout)
+                    window.clearTimeout(timer)
                 }
             },
         },

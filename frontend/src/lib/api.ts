@@ -7453,14 +7453,8 @@ const api = {
             async get(): Promise<SessionSummariesConfig> {
                 return await new ApiRequest().sessionSummary().withAction('config').get()
             },
-            async update(
-                data: Partial<SessionSummariesConfig>,
-                options?: ApiMethodOptions
-            ): Promise<SessionSummariesConfig> {
-                return await new ApiRequest()
-                    .sessionSummary()
-                    .withAction('config')
-                    .update({ data, ...options })
+            async update(data: Partial<SessionSummariesConfig>): Promise<SessionSummariesConfig> {
+                return await new ApiRequest().sessionSummary().withAction('config').update({ data })
             },
         },
     },

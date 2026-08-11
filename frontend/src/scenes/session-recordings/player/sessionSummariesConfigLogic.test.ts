@@ -24,15 +24,8 @@ describe('sessionSummariesConfigLogic', () => {
     })
 
     it('clears isUpdating and toasts when a save never settles', async () => {
-        // A PATCH that only rejects once its abort signal fires stands in for a request that hangs.
-        jest.spyOn(api.sessionSummaries.config, 'update').mockImplementation(
-            (_data, options) =>
-                new Promise((_resolve, reject) => {
-                    options?.signal?.addEventListener('abort', () =>
-                        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
-                    )
-                })
-        )
+        // A PATCH that never settles stands in for a request that hangs forever.
+        jest.spyOn(api.sessionSummaries.config, 'update').mockImplementation(() => new Promise(() => {}))
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
         jest.useFakeTimers()
 
