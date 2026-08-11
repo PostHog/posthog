@@ -16,13 +16,13 @@ use tracing::{info, warn};
 use crate::config::{CaptureMode, Config};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::outputs::{Output, OutputTable};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
     is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
-use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
@@ -571,11 +571,23 @@ async fn create_sink(
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
 ) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
+    let output = create_output(config, sink_handle, advisory_handle).await?;
+    Ok(Box::new(OutputTable::new(output)))
+}
+
+/// Build the deployment's output policy tree from config: print/noop and
+/// plain Kafka are single-backend outputs; S3 fallback composes a failover
+/// pair gated by the Kafka advisory handle.
+async fn create_output(
+    config: &Config,
+    sink_handle: Option<lifecycle::Handle>,
+    advisory_handle: Option<lifecycle::Handle>,
+) -> anyhow::Result<Output> {
     if config.print_sink {
-        Ok(Box::new(PrintSink {}))
+        Ok(Output::single(PrintSink {}))
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
-        Ok(Box::new(NoOpSink::new()))
+        Ok(Output::single(NoOpSink::new()))
     } else if config.s3_fallback_enabled {
         let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
         let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
@@ -596,17 +608,17 @@ async fn create_sink(
         .await
         .expect("failed to create S3 sink");
 
-        Ok(Box::new(FallbackSink::new_with_advisory(
-            kafka_sink,
-            s3_sink,
-            kafka_handle,
-        )))
+        Ok(Output::failover(
+            Output::single(kafka_sink),
+            Output::single(s3_sink),
+            Some(kafka_handle),
+        ))
     } else {
         let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
             .await
             .context("failed to start Kafka sink")?;
 
-        Ok(Box::new(kafka_sink))
+        Ok(Output::single(kafka_sink))
     }
 }
 

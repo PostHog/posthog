@@ -17,6 +17,7 @@ use tracing::instrument;
 use tracing::log::{debug, error, info};
 
 use crate::api::CaptureError;
+use crate::outputs::Prepare;
 use crate::sinks::Event;
 
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -274,9 +275,9 @@ impl Inner {
 }
 
 #[async_trait]
-impl Event for S3Sink {
+impl Prepare for S3Sink {
     #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         let mut buffer = self.inner.buffer.lock().await;
         buffer.add_event(event)?;
         let mut rx = buffer.tx.subscribe();
@@ -287,7 +288,7 @@ impl Event for S3Sink {
     }
 
     #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let mut buffer = self.inner.buffer.lock().await;
         for event in events {
             buffer.add_event(event)?;
@@ -297,6 +298,17 @@ impl Event for S3Sink {
         rx.recv()
             .await
             .map_err(|_| CaptureError::NonRetryableSinkError)?
+    }
+}
+
+#[async_trait]
+impl Event for S3Sink {
+    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        Prepare::publish_one(self, event).await
+    }
+
+    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        Prepare::publish_batch(self, events).await
     }
 }
 

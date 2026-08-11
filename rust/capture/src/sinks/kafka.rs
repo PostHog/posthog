@@ -20,6 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::ordering::OrderingGuarantee;
+use crate::outputs::Prepare;
 use crate::pipeline::{self, Address, Lane, Pipeline};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
@@ -732,6 +733,28 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     }
 }
 
+/// The prep → publish → fold dance for the outputs layer. No
+/// `capture_event_batch_size` here: the outputs facade records it for
+/// every backend uniformly, where the retiring `Event` impls record it
+/// themselves.
+#[async_trait]
+impl<P: KafkaProducer + 'static> Prepare for KafkaSinkBase<P> {
+    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
+        self.kafka_send(event)?
+            .instrument(info_span!("ack_wait_one"))
+            .await
+    }
+
+    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        let payloads = self.prepare_batch(events).await?;
+        fold_results(self.publish(payloads).await)
+    }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        Sink::flush(self)
+    }
+}
+
 #[async_trait]
 impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
     #[instrument(skip_all)]
@@ -751,8 +774,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         // Matches the single-event `send` path which records before any await.
         histogram!("capture_event_batch_size").record(events.len() as f64);
 
-        let payloads = self.prepare_batch(events).await?;
-        fold_results(self.publish(payloads).await)
+        Prepare::publish_batch(self, events).await
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {

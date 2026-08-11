@@ -2,7 +2,6 @@ use async_trait::async_trait;
 
 use crate::{api::CaptureError, v0_request::ProcessedEvent};
 
-pub mod fallback;
 pub mod kafka;
 pub mod noop;
 pub mod print;
@@ -37,5 +36,3 @@ impl<T: Event + ?Sized + Send + Sync> Event for Box<T> {
         (**self).flush()
     }
 }
-
-pub use fallback::FallbackSink;
