@@ -54,6 +54,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
+    ClickHouseCredentials,
     ClickHouseUser,
     get_clickhouse_creds,
     get_kwargs_for_client,
@@ -63,6 +64,7 @@ from posthog.clickhouse.client.execute_async import QueryNotFoundError, QuerySta
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -227,6 +229,37 @@ class FrameMaterializeInputs:
     # decodes to the streaming path on the interactive pool, which keeps in-flight runs
     # replayable across the deploy.
     ch_writes: bool = False
+
+
+@frozen
+class _ResolvedWriter:
+    """Which write path a run really takes, once the writer identity is known."""
+
+    # The path actually taken, which is not always the one the flag asked for.
+    ch_writes: bool
+    # The confined `notebooks` writer identity is not provisioned here.
+    is_default_user: bool
+    # None on the streaming path, which runs as the default user by design.
+    creds: ClickHouseCredentials | None
+
+
+def _resolve_writer(inputs: FrameMaterializeInputs) -> _ResolvedWriter:
+    """Resolve the requested transport against the writer identity this deployment has.
+
+    Shared with the terminal safety net so a run that degraded is not counted under the
+    transport it asked for — the metric that separates the two transports is the whole point
+    of the rollout, and a failure filed under the wrong one is worse than no sample.
+    """
+    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS) if inputs.ch_writes else None
+    is_default_user = creds is None or creds.user == settings.CLICKHOUSE_USER
+    # Fail closed in a real deployment: the CH-writes statement is write-capable (readonly=0
+    # + S3 egress), so running it as the broad default user — when the flag was flipped before
+    # the confined `notebooks` writer identity was provisioned — defeats the whole containment
+    # model. Degrade to the read-only streaming path (correct as any user) rather than hand a
+    # write+egress statement to the default account. Dev/test keep CH-writes on the default
+    # user so the path stays exercisable.
+    degraded = is_default_user and not settings.DEBUG and not settings.TEST
+    return _ResolvedWriter(ch_writes=inputs.ch_writes and not degraded, is_default_user=is_default_user, creds=creds)
 
 
 __GLOBAL_LIMITER: RateLimit | None = None
@@ -627,22 +660,16 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     # Dedicated `notebooks` CH user (server-side profile/quota backstop no application
     # bug can exceed); falls back to the default credentials where not provisioned.
     # sync_execute on the CH-writes path resolves the same creds via the same enum.
-    creds = get_clickhouse_creds(ClickHouseUser.NOTEBOOKS) if offline else None
-    resolved_default_user = creds is None or creds.user == settings.CLICKHOUSE_USER
-    ch_writes = inputs.ch_writes
-    if ch_writes and resolved_default_user and not settings.DEBUG and not settings.TEST:
-        # Fail closed in a real deployment: the CH-writes statement is write-capable
-        # (readonly=0 + S3 egress), so running it as the broad default user — when the flag
-        # was flipped before the confined `notebooks` writer identity was provisioned —
-        # defeats the whole containment model. Degrade to the read-only streaming path (which
-        # is correct as any user) rather than hand a write+egress statement to the default
-        # account. Dev/test keep CH-writes on the default user so the path stays exercisable.
+    resolved = _resolve_writer(inputs)
+    creds = resolved.creds
+    resolved_default_user = resolved.is_default_user
+    ch_writes = resolved.ch_writes
+    if inputs.ch_writes and not ch_writes:
         logger.warning(
             "notebook_frame_ch_writes_missing_writer_identity",
             team_id=inputs.team_id,
             query_id=inputs.query_id,
         )
-        ch_writes = False
     mode = "ch_writes" if ch_writes else "streaming"
     ch_url = settings.CLICKHOUSE_OFFLINE_HTTP_URL if offline else settings.CLICKHOUSE_HTTP_URL
     # Reports where the query actually went, not what the flag asked for, and the two paths
@@ -806,6 +833,16 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             if isinstance(exc, ClickHouseQuerySizeExceeded):
                 message = _QUERY_SIZE_MESSAGE
             elif isinstance(exc, ClickHouseQueryMemoryLimitExceeded):
+                if not exc.is_per_query_limit:
+                    # "(total)" or "(for user)": the cluster was under pressure, this query was
+                    # not too big. classify_failure() draws the same line. Retrying is what
+                    # fixes it, and telling the user to narrow a fine query would be wrong.
+                    logger.warning(
+                        "notebook_frame_materialize_insert_cluster_memory_pressure",
+                        team_id=inputs.team_id,
+                        query_id=inputs.query_id,
+                    )
+                    raise
                 message = _RESOURCE_BUDGET_MESSAGE
             else:
                 message = _TIME_BUDGET_MESSAGE
@@ -936,7 +973,9 @@ def mark_frame_materialize_failed(inputs: FrameMaterializeInputs) -> None:
     except QueryNotFoundError:
         pass
     _finalize_status(manager, inputs, error_message="The frame could not be materialized. Try re-running the cell.")
-    mode = "ch_writes" if inputs.ch_writes else "streaming"
+    # The effective transport, not the requested one: a run that fell back to streaming must
+    # not land in the ch_writes bucket, or the rollout comparison counts its failures twice over.
+    mode = "ch_writes" if _resolve_writer(inputs).ch_writes else "streaming"
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
 
 

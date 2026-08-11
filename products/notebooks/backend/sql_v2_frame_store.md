@@ -415,8 +415,10 @@ The playbook, if/when built: keep the URL out of the statement via a named colle
 `notebooks/frames/` prefix (only a charset-validated **and** escaped `filename` override in SQL — validation
 as policy, escaping as defense in depth; also keeps credentials out of `system.query_log` and error text);
 build the INSERT wrapper as a printer-level construct rather than post-hoc string surgery, with a shape-matrix
-test (plain / WITH / UNION / settings-suffix) asserting the output parses as exactly one INSERT; preserve
-server-side param binding; give the writer identity the minimal-grant shape above (`readonly = 0`, no
+test (plain / WITH / UNION / settings-suffix) asserting the output parses as exactly one INSERT; keep every
+s3() value in the `sync_execute` parameter map, with no interpolation ahead of its single client-side
+escaping pass (there is no server-side binding on this path to fall back on); give the writer identity the
+minimal-grant shape above (`readonly = 0`, no
 table-write grants, S3 source grant) confined to the materialize path; pin `remote_url_allow_hosts` to our
 storage endpoints; scope the CH-side credentials write-only to the notebooks prefix. Verdict: the splice is a
 contained engineering problem with a known playbook and its own security review, and the table-mutation half

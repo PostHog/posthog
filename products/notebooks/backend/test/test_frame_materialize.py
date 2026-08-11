@@ -26,6 +26,14 @@ from products.notebooks.backend.temporal import frame_materialize
 _DISPATCH_TARGET = "products.notebooks.backend.temporal.client.start_frame_materialize_workflow"
 
 
+def _per_query_memory_error() -> ClickHouseQueryMemoryLimitExceeded:
+    # wrap_clickhouse_query_error sets this out of band, and it defaults to False — the
+    # cluster-pressure reading. Only the query's own budget overrun is terminal.
+    error = ClickHouseQueryMemoryLimitExceeded()
+    error.is_per_query_limit = True
+    return error
+
+
 def _registered_inputs(
     team_id: int, notebook_short_id: str, user_id: int, query: str = "select 1", ch_writes: bool = False
 ) -> tuple["frame_materialize.FrameMaterializeInputs", QueryStatusManager]:
@@ -304,7 +312,11 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
             # Budget failures sync_execute rewraps as APIException subclasses (NOT
             # InternalCHQueryError) — the case the earlier hand-built InternalCHQueryError
             # masked. Must be terminal, else the canonical whale failures retry 10x.
-            ("memory_wrapped", ClickHouseQueryMemoryLimitExceeded(), True, "materialization limits"),
+            ("memory_wrapped", _per_query_memory_error(), True, "materialization limits"),
+            # "(total)" / "(for user)" memory pressure: the cluster was busy, not this query too
+            # big, so the same query can succeed on retry. Finalizing it would both waste the
+            # retry budget and tell the user to narrow a query that is fine.
+            ("cluster_memory_pressure", ClickHouseQueryMemoryLimitExceeded(), False, None),
             ("timeout_wrapped", ClickHouseQueryTimeOut(), True, "time limit"),
             # A big-but-valid query (printer-expanded IN lists) that overflows max_query_size:
             # deterministic, terminal with an actionable message, not a retry.
