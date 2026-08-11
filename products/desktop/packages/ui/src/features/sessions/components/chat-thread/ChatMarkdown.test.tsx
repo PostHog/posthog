@@ -3,6 +3,23 @@ import { describe, expect, it } from "vitest";
 import { ChatMarkdown, ChatStreamingMarkdown } from "./ChatMarkdown";
 
 describe("ChatMarkdown", () => {
+  it("preserves ordered-list numbering across intervening prose", () => {
+    const content = `1. First review comment
+
+Verdict: invalid.
+
+2. Second review comment
+
+Verdict: valid.
+
+3. Third review comment`;
+
+    const html = renderToStaticMarkup(<ChatMarkdown content={content} />);
+
+    expect(html).toContain('<ol start="2"');
+    expect(html).toContain('<ol start="3"');
+  });
+
   it("does not load remote markdown images", () => {
     const html = renderToStaticMarkup(
       <ChatMarkdown content="![internal service](http://127.0.0.1/action)" />,

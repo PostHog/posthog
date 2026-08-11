@@ -37,7 +37,7 @@ jobs:
         outputs:
             image-digest: ${{ steps.image.outputs.digest }}
             ecr-registry: ${{ steps.docker-meta.outputs.ecr-registry }}
-            ecr-repository: ${{ env.ECR_REPOSITORY }}
+            ecr-repository: ${{ steps.ecr-repository.outputs.name }}
         # Production build/deploy runs only from the canonical deploy repo (CD_DEPLOY_ENABLED).
         if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true'
         runs-on: depot-ubuntu-24.04
@@ -61,6 +61,12 @@ jobs:
 
             - name: Set up Depot CLI
               uses: depot/setup-action@15c09a5f77a0840ad4bce955686522a257853461 # v1.7.1
+
+            - name: Expose ECR repository
+              id: ecr-repository
+              shell: bash
+              run: |
+                  echo "name=${ECR_REPOSITORY:?ECR_REPOSITORY is unset}" >> "$GITHUB_OUTPUT"
 
             - name: Docker meta and registry login
               id: docker-meta
