@@ -14,6 +14,14 @@ import type {
   TaskRunArtifactMetadata,
   UpdateTaskAutomationOptions,
 } from "@posthog/shared";
+// Consumers reach these through the automation methods below, so they need to
+// travel with this module rather than being fetched separately from `shared`.
+export type {
+  CreateTaskAutomationOptions,
+  TaskAutomation,
+  UpdateTaskAutomationOptions,
+};
+
 import {
   buildCloudTaskConfigOptions,
   type CloudTaskConfigOption,
