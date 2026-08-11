@@ -119,8 +119,8 @@ tools:
         description: >
             Create a canonical metric, or refine the live one already holding this name (upsert on name; always lands
             'proposed'). A deleted metric's name is available again - creating with it starts a fresh metric with no
-            history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery / an event
-            node) that the query runner computes, OR an agent-calculated markdown definition - {"kind":
+            history carried over. The definition can be an executable query (HogQLQuery / TrendsQuery / FunnelsQuery /
+            an event node) that the query runner computes, OR an agent-calculated markdown definition - {"kind":
             "MarkdownDefinition", "markdown": "<numbered steps to calculate the metric>"} - which an agent follows to
             produce the number. Prefer an executable definition when the metric is deterministic; use a markdown
             definition when the calculation needs judgment or multiple steps. Only propose a definition that was
@@ -169,8 +169,8 @@ tools:
             Update a metric's fields. Editing an approved metric's definition, description, or unit resets it to
             'proposed' (it must be re-approved by a human). This tool cannot rename a metric: 'name' addresses the
             metric to update, so it always matches the metric it points at. Renaming is available in the data catalog
-            UI. When editing 'description', keep it to 1-3 sentences of
-            business meaning, not a narration of the query; rationale for the definition belongs in 'reasoning'.
+            UI. When editing 'description', keep it to 1-3 sentences of business meaning, not a narration of the query;
+            rationale for the definition belongs in 'reasoning'.
         exclude_params:
             - created_source
         inject_body:
