@@ -4,7 +4,7 @@ import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplate
 
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { BUILDING_WORKFLOWS_SKILL, WORKFLOWS_MCP_TOOLS } from '../agentContext.generated'
+import { BUILDING_WORKFLOWS_SKILL, WORKFLOWS_MCP_TOOLS } from '../generated/agentContext'
 import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 

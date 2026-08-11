@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
@@ -13,6 +14,12 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
 )
 
 TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
+
+
+async def _run_update_task_run_status(
+    activity_environment: ActivityEnvironment, input_data: UpdateTaskRunStatusInput
+) -> None:
+    await activity_environment.run(update_task_run_status, input_data)
 
 
 @pytest.mark.requires_secrets
@@ -85,6 +92,28 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("timed_out_inactivity") is True
         # Merge, not replace: pre-existing state keys survive the marker write.
         assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_timed_out_unclaimed_prewarm_soft_deletes_task(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun
+    ) -> None:
+        test_task_run.task.title = ""
+        test_task_run.task.description = ""
+        test_task_run.task.save(update_fields=["title", "description", "updated_at"])
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        async_to_sync(_run_update_task_run_status)(
+            activity_environment,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=TaskRun.Status.COMPLETED,
+                timed_out_inactivity=True,
+            ),
+        )
+
+        test_task_run.task.refresh_from_db()
+        assert test_task_run.task.deleted is True
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
