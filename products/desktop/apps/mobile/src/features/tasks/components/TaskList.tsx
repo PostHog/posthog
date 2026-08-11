@@ -427,25 +427,25 @@ export function TaskList({
           >
             {selectedIds.size} selected
           </Text>
+          {/* Icon-only so the bar still fits a two-digit count plus Archive
+              on the narrowest phones. */}
           <Pressable
             onPress={handleBulkPin}
-            className="flex-row items-center gap-2 rounded-full bg-gray-3 px-4 py-2.5 active:bg-gray-4"
+            hitSlop={8}
+            className="h-10 w-10 items-center justify-center rounded-full bg-gray-3 active:bg-gray-4"
             accessibilityLabel={
               bulkPinWouldPin ? "Pin selected tasks" : "Unpin selected tasks"
             }
           >
             {bulkPinWouldPin ? (
-              <PushPin size={16} color={themeColors.gray[11]} weight="fill" />
+              <PushPin size={18} color={themeColors.gray[11]} weight="fill" />
             ) : (
               <PushPinSlash
-                size={16}
+                size={18}
                 color={themeColors.gray[11]}
                 weight="fill"
               />
             )}
-            <Text className="font-semibold text-[14px] text-gray-12">
-              {bulkPinWouldPin ? "Pin" : "Unpin"}
-            </Text>
           </Pressable>
           <Pressable
             onPress={handleBulkArchive}
