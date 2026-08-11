@@ -49,6 +49,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         attributes,
         updateAttributes,
         Settings = null,
+        editableTitle = true,
     } = props
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
@@ -251,7 +252,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                   },
               }
             : null,
-        isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
+        isEditable && editableTitle ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
         isEditable
             ? sourceComment
                 ? { label: 'Show comment', onClick: () => selectComment(nodeId) }

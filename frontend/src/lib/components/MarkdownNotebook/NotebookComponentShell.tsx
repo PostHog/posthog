@@ -25,8 +25,10 @@ import {
     IconPeople,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
+
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ComponentPanelContext } from './componentPanelContext'
 import {
@@ -124,8 +126,10 @@ export function NotebookComponentShell({
     const showCollapseToggle = isViewModeCanvas && !!definition && !definition.hideModeActions
     const canToggleComponentPanels = mode === 'edit'
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
+    const [toolbarExtras, setToolbarExtras] = useState<NotebookComponentToolbarExtras | null>(null)
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const toolbarTitle = getComponentToolbarTitle(node, definition, titleDisplay.label)
+    const isTitleEditable = definition?.editableTitle !== false
     const href = definition?.getHref?.(node) ?? null
     // Suppress the link on public/shared renders (see hideResourceLinks): its relative URL would
     // resolve against the viewer's own project rather than the notebook author's.
@@ -135,8 +139,10 @@ export function NotebookComponentShell({
     // as "no user title" so the field reads as empty by default.
     const rawTitle = (getNotebookStringProp(node.props.title) ?? '').trim()
     const userTitle = rawTitle && rawTitle !== titleDisplay.label ? rawTitle : ''
-    const titlePlaceholder = toolbarTitle ?? 'Add a title'
-    const resolvedTitle = userTitle || toolbarTitle || null
+    const titlePlaceholder = toolbarTitle ?? (isTitleEditable ? 'Add a title' : titleDisplay.label)
+    const publishedTitle = toolbarExtras?.title?.trim() || null
+    const resolvedTitle = isTitleEditable ? userTitle || toolbarTitle || null : publishedTitle || toolbarTitle || null
+    const titleStatus = isTitleEditable ? null : toolbarExtras?.titleStatus
     const filtersLabel = componentPanels.filters ? 'Hide filters' : 'Show filters'
     const resultsLabel = componentPanels.results ? 'Hide results' : 'Show results'
     const titleClassName = clsx(
@@ -151,7 +157,6 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
-    const [toolbarExtras, setToolbarExtras] = useState<NotebookComponentToolbarExtras | null>(null)
     const toolbarMenuItems = toolbarExtras?.menuItems?.some(Boolean) ? toolbarExtras.menuItems : null
     const toolbarActions = mode === 'edit' && toolbarExtras?.actions.length ? toolbarExtras.actions : null
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
@@ -180,6 +185,26 @@ export function NotebookComponentShell({
             <span>{titleDisplay.label}</span>
         </>
     )
+    const titleStatusTag = titleStatus ? (
+        <LemonTag
+            type={titleStatus.type}
+            size="small"
+            className="uppercase shrink-0"
+            icon={titleStatus.loading ? <Spinner textColored /> : undefined}
+            disabledReason={titleStatus.loading ? 'Updating status' : undefined}
+            title={titleStatus.tooltip}
+            onClick={
+                titleStatus.loading || !titleStatus.onClick
+                    ? undefined
+                    : (event) => {
+                          event.stopPropagation()
+                          titleStatus.onClick?.()
+                      }
+            }
+        >
+            {titleStatus.label}
+        </LemonTag>
+    ) : null
     const setComponentPanels = (panels: ComponentPanelVisibility): void => {
         if (!persistComponentPanelVisibility) {
             setLocalComponentPanels(node.id, panels)
@@ -314,6 +339,18 @@ export function NotebookComponentShell({
         event.preventDefault()
         event.stopPropagation()
     }
+    const handleTitleClick = (): void => {
+        if (!canToggleComponentPanels) {
+            return
+        }
+        if (titleCollapseTimerRef.current) {
+            clearTimeout(titleCollapseTimerRef.current)
+        }
+        titleCollapseTimerRef.current = setTimeout(() => {
+            titleCollapseTimerRef.current = null
+            toggleAllComponentPanels()
+        }, 250)
+    }
 
     return (
         <div
@@ -371,7 +408,7 @@ export function NotebookComponentShell({
                     ) : null}
                 </div>
                 {mode === 'edit' ? (
-                    isEditingTitle ? (
+                    isTitleEditable && isEditingTitle ? (
                         <input
                             className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--input"
                             value={titleInputValue}
@@ -386,7 +423,7 @@ export function NotebookComponentShell({
                             }}
                             onKeyDown={handleTitleKeyDown}
                         />
-                    ) : (
+                    ) : isTitleEditable ? (
                         // Clicking the title collapses the whole cell (same as hiding both panels);
                         // double-click renames. No extra control is added to the toolbar.
                         <button
@@ -394,18 +431,7 @@ export function NotebookComponentShell({
                             className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
                             title={resolvedTitle ?? titlePlaceholder}
                             aria-expanded={hasOpenComponentPanel}
-                            onClick={() => {
-                                if (!canToggleComponentPanels) {
-                                    return
-                                }
-                                if (titleCollapseTimerRef.current) {
-                                    clearTimeout(titleCollapseTimerRef.current)
-                                }
-                                titleCollapseTimerRef.current = setTimeout(() => {
-                                    titleCollapseTimerRef.current = null
-                                    toggleAllComponentPanels()
-                                }, 250)
-                            }}
+                            onClick={handleTitleClick}
                             onDoubleClick={() => {
                                 if (titleCollapseTimerRef.current) {
                                     clearTimeout(titleCollapseTimerRef.current)
@@ -420,10 +446,26 @@ export function NotebookComponentShell({
                                 </span>
                             )}
                         </button>
+                    ) : (
+                        <div className="MarkdownNotebook__component-toolbar-title-group">
+                            <button
+                                type="button"
+                                className="MarkdownNotebook__component-toolbar-title MarkdownNotebook__component-toolbar-title--button"
+                                title={resolvedTitle ?? titlePlaceholder}
+                                aria-expanded={hasOpenComponentPanel}
+                                onClick={handleTitleClick}
+                            >
+                                {resolvedTitle ?? titlePlaceholder}
+                            </button>
+                            {titleStatusTag}
+                        </div>
                     )
                 ) : resolvedTitle ? (
-                    <div className="MarkdownNotebook__component-toolbar-title" title={resolvedTitle}>
-                        {resolvedTitle}
+                    <div className="MarkdownNotebook__component-toolbar-title-group">
+                        <div className="MarkdownNotebook__component-toolbar-title" title={resolvedTitle}>
+                            {resolvedTitle}
+                        </div>
+                        {titleStatusTag}
                     </div>
                 ) : null}
                 {showResourceLink || mode === 'edit' || toolbarMenuItems || showCollapseToggle ? (

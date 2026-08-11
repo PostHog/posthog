@@ -104,6 +104,10 @@ describe('markdownNotebookRegistry', () => {
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlagCodeExample.exclusiveEditPanel).toBeUndefined()
     })
 
+    it('uses the resource-derived title for feature flags', () => {
+        expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlag.editableTitle).toBe(false)
+    })
+
     it.each([
         {
             tagName: 'FeatureFlag',

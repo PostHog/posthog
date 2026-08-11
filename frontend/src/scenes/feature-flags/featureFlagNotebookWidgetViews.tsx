@@ -1,10 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { IconFlag } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { defineNotebookWidgetViews } from 'scenes/notebooks/notebookWidgetCatalog'
 import { NotebookNodeProps } from 'scenes/notebooks/types'
 
@@ -13,7 +14,6 @@ import { FeatureFlagType } from '~/types'
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
-import { FlagActiveToggleTag } from './FlagActiveToggleTag'
 
 export type FeatureFlagNotebookWidgetAttributes = {
     id: FeatureFlagLogicProps['id']
@@ -26,11 +26,62 @@ type LoadedFeatureFlagWidgetProps = {
 
 function FeatureFlagWidgetLoading(): JSX.Element {
     return (
-        <div className="flex items-center gap-2 p-3">
-            <IconFlag className="text-lg" />
+        <div className="p-3">
             <LemonSkeleton className="h-6 flex-1" />
         </div>
     )
+}
+
+function FeatureFlagNotebookMetadata({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): null {
+    const { id, view } = attributes
+    const logic = featureFlagLogic({ id })
+    const { featureFlag, featureFlagActiveUpdateLoading } = useValues(logic)
+    const { toggleFeatureFlagActive } = useActions(logic)
+    const { setTitlePlaceholder, setTitleStatus } = useActions(notebookNodeLogic)
+
+    useEffect(() => {
+        if (!featureFlag.key) {
+            setTitlePlaceholder('Feature flag')
+            setTitleStatus(null)
+            return
+        }
+
+        const canToggle = view === 'editor' && featureFlag.can_edit
+        setTitlePlaceholder(featureFlag.key)
+        setTitleStatus({
+            label: featureFlag.active ? 'Enabled' : 'Disabled',
+            type: featureFlag.active ? 'success' : 'default',
+            loading: featureFlagActiveUpdateLoading,
+            onClick: canToggle ? () => toggleFeatureFlagActive(!featureFlag.active) : undefined,
+            tooltip: canToggle ? (featureFlag.active ? 'Disable feature flag' : 'Enable feature flag') : undefined,
+        })
+    }, [
+        featureFlag.active,
+        featureFlag.can_edit,
+        featureFlag.key,
+        featureFlagActiveUpdateLoading,
+        setTitlePlaceholder,
+        setTitleStatus,
+        toggleFeatureFlagActive,
+        view,
+    ])
+
+    return null
+}
+
+export function withFeatureFlagNotebookMetadata(
+    ViewComponent: (props: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>) => JSX.Element | null
+): (props: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>) => JSX.Element {
+    return function FeatureFlagNotebookViewWithMetadata(
+        props: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>
+    ): JSX.Element {
+        return (
+            <>
+                <FeatureFlagNotebookMetadata {...props} />
+                <ViewComponent {...props} />
+            </>
+        )
+    }
 }
 
 function FeatureFlagCompactSummary({
@@ -64,12 +115,7 @@ function FeatureFlagCompactSummaryContent({ featureFlag }: LoadedFeatureFlagWidg
 
     return (
         <div className="flex flex-wrap items-center gap-2 p-3">
-            <IconFlag className="text-lg shrink-0" />
-            <div className="flex min-w-48 flex-1 flex-col">
-                <span className="truncate font-semibold">{featureFlag.key}</span>
-                {featureFlag.name ? <span className="truncate text-xs text-secondary">{featureFlag.name}</span> : null}
-            </div>
-            <FlagActiveToggleTag active={featureFlag.active} />
+            {featureFlag.name ? <span className="min-w-48 flex-1 truncate">{featureFlag.name}</span> : null}
             <LemonTag type="muted">{flagType}</LemonTag>
             {!featureFlag.is_remote_configuration ? (
                 <span className="text-xs text-secondary">
@@ -131,16 +177,9 @@ function FeatureFlagImplementationWidget({
 function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element {
     const { id } = attributes
     const logic = featureFlagLogic({ id })
-    const {
-        featureFlag,
-        featureFlagActiveUpdateLoading,
-        featureFlagLoading,
-        featureFlagMissing,
-        hasUnsavedChanges,
-        nonEmptyVariants,
-    } = useValues(logic)
-    const { loadFeatureFlag, setFeatureFlagFilters, submitFeatureFlagWithValidation, toggleFeatureFlagActive } =
-        useActions(logic)
+    const { featureFlag, featureFlagLoading, featureFlagMissing, hasUnsavedChanges, nonEmptyVariants } =
+        useValues(logic)
+    const { loadFeatureFlag, setFeatureFlagFilters, submitFeatureFlagWithValidation } = useActions(logic)
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
@@ -159,18 +198,6 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
     return (
         <BindLogic logic={featureFlagLogic} props={{ id }}>
             <div className="flex flex-col gap-3 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                        <IconFlag className="text-lg shrink-0" />
-                        <span className="truncate font-semibold">{featureFlag.key}</span>
-                    </div>
-                    <FlagActiveToggleTag
-                        active={featureFlag.active}
-                        toggling={featureFlagActiveUpdateLoading}
-                        onToggle={featureFlag.can_edit ? toggleFeatureFlagActive : undefined}
-                    />
-                </div>
-
                 {featureFlag.is_remote_configuration ? (
                     <div className="rounded border border-dashed p-3 text-sm text-secondary">
                         Open the feature flag to edit its remote config payload.
@@ -226,8 +253,8 @@ export const FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<
     FeatureFlagNotebookWidgetAttributes,
     'FeatureFlag'
 >('FeatureFlag', {
-    summary: FeatureFlagCompactSummary,
-    editor: FeatureFlagCompactEditor,
-    conditions: FeatureFlagReleaseConditionsWidget,
-    implementation: FeatureFlagImplementationWidget,
+    summary: withFeatureFlagNotebookMetadata(FeatureFlagCompactSummary),
+    editor: withFeatureFlagNotebookMetadata(FeatureFlagCompactEditor),
+    conditions: withFeatureFlagNotebookMetadata(FeatureFlagReleaseConditionsWidget),
+    implementation: withFeatureFlagNotebookMetadata(FeatureFlagImplementationWidget),
 })

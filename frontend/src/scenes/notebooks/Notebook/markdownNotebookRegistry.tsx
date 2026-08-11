@@ -258,6 +258,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
+            editableTitle: options?.editableTitle,
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,
@@ -333,7 +334,7 @@ export function getMarkdownNotebookNodeTitle(
     const attributes = getNodeAttributes(node.props, node.id, options, nodeType, false)
     const explicitTitle = getUnknownStringProp(attributes.title)
 
-    if (explicitTitle) {
+    if (explicitTitle && options?.editableTitle !== false) {
         return explicitTitle
     }
 
@@ -641,6 +642,7 @@ export function MountedRealNotebookNodeComponent({
             messageListeners: options.messageListeners,
             startExpanded: options.startExpanded,
             titlePlaceholder: options.titlePlaceholder,
+            editableTitle: options.editableTitle,
             settingsPlacement: options.settingsPlacement,
         }),
         [attributes, mountedNotebookLogic, notebookNodeType, options, updateAttributes]
@@ -651,6 +653,8 @@ export function MountedRealNotebookNodeComponent({
         actions: nodeActions,
         customMenuItems: nodeMenuItems,
         settingsDisabledReason: nodeSettingsDisabledReason,
+        title: nodeTitle,
+        titleStatus: nodeTitleStatus,
     } = useValues(nodeLogic)
     const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
 
@@ -666,8 +670,10 @@ export function MountedRealNotebookNodeComponent({
             actions: nodeActions,
             menuItems: nodeMenuItems,
             filtersDisabledReason: nodeSettingsDisabledReason,
+            title: nodeTitle,
+            titleStatus: nodeTitleStatus,
         })
-    }, [editOnly, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, setToolbarExtras])
+    }, [editOnly, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, nodeTitle, nodeTitleStatus, setToolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings

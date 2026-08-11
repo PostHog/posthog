@@ -1,18 +1,16 @@
-import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconFlag, IconRocket } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
     FeatureFlagNotebookWidgetAttributes,
+    withFeatureFlagNotebookMetadata,
 } from 'scenes/feature-flags/featureFlagNotebookWidgetViews'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
@@ -31,7 +29,6 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
     const { id } = attributes
     const {
         featureFlag,
-        featureFlagLoading,
         recordingFilterForFlag,
         featureFlagMissing,
         hasEarlyAccessFeatures,
@@ -40,15 +37,13 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
     } = useValues(featureFlagLogic({ id }))
     const { createEarlyAccessFeature, createSurvey } = useActions(featureFlagLogic({ id }))
     const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter, setActions, setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
     const { shouldDisableInsertEarlyAccessFeature, shouldDisableInsertSurvey } = useValues(
         notebookNodeFlagLogic({ id, insertAfter })
     )
 
     useEffect(() => {
-        setTitlePlaceholder(featureFlag.key ? `Feature flag: ${featureFlag.key}` : 'Feature flag')
-
         setActions([
             {
                 icon: <IconSurveys />,
@@ -110,44 +105,23 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
     }
 
     return (
-        <div>
+        <>
             <BindLogic logic={featureFlagLogic} props={{ id }}>
-                <div className="flex items-center gap-2 p-3">
-                    <IconFlag className="text-lg" />
-                    {featureFlagLoading ? (
-                        <LemonSkeleton className="h-6 flex-1" />
-                    ) : (
-                        <>
-                            <span className="flex-1 font-semibold truncate">{featureFlag.key}</span>
-                            <span
-                                className={clsx(
-                                    'text-white rounded px-1',
-                                    featureFlag.active ? 'bg-success' : 'bg-muted-alt'
-                                )}
-                            >
-                                {featureFlag.active ? 'Enabled' : 'Disabled'}
-                            </span>
-                        </>
-                    )}
-                </div>
-
                 {expanded ? (
-                    <>
-                        <LemonDivider className="my-0" />
-                        <div className="p-2">
-                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
-                        </div>
-                    </>
+                    <div className="p-2">
+                        <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                    </div>
                 ) : null}
             </BindLogic>
-        </div>
+        </>
     )
 }
 
 export const NotebookNodeFlag = createPostHogWidgetNode<FeatureFlagNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
     titlePlaceholder: 'Feature flag',
-    Component,
+    editableTitle: false,
+    Component: withFeatureFlagNotebookMetadata(Component),
     heightEstimate: '3rem',
     href: (attrs) => urls.featureFlag(attrs.id),
     resizeable: false,

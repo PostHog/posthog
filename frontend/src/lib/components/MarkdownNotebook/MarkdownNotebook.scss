@@ -1725,6 +1725,15 @@ h3.MarkdownNotebook__text-block--heading {
     white-space: nowrap;
 }
 
+.MarkdownNotebook__component-toolbar-title-group {
+    display: flex;
+    flex: 1 1 0;
+    gap: 0.375rem;
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
+}
+
 .MarkdownNotebook__component-toolbar-title--input {
     padding: 0.125rem 0.375rem;
     color: var(--color-text-primary);

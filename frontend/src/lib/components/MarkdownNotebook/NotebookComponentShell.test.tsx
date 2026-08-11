@@ -215,6 +215,74 @@ describe('NotebookComponentShell', () => {
         expect(screen.getByLabelText('More actions')).toBeTruthy()
     })
 
+    it('renders a published fixed title and status without offering title editing', () => {
+        const toggleStatus = jest.fn()
+
+        function FixedTitleProbe(): JSX.Element {
+            const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+            useEffect(() => {
+                setToolbarExtras?.({
+                    actions: [],
+                    menuItems: null,
+                    title: 'onboarding-wizard-sync-mode',
+                    titleStatus: {
+                        label: 'Enabled',
+                        type: 'success',
+                        onClick: toggleStatus,
+                    },
+                })
+            }, [setToolbarExtras])
+            return <div>Release conditions</div>
+        }
+
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'FeatureFlagProbe',
+                label: 'Feature flag',
+                category: 'Test',
+                editableTitle: false,
+                ViewComponent: FixedTitleProbe,
+            },
+        ])
+
+        const { container } = render(
+            <NotebookComponentShell
+                node={{
+                    id: 'feature-flag-node',
+                    type: 'component',
+                    tagName: 'FeatureFlagProbe',
+                    props: { title: 'Ignored custom title' },
+                }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        const titleButton = container.querySelector(
+            '.MarkdownNotebook__component-toolbar-title--button'
+        ) as HTMLButtonElement
+        expect(titleButton.textContent).toBe('onboarding-wizard-sync-mode')
+        expect(screen.getByText('Enabled').closest('.LemonTag')?.classList.contains('LemonTag--success')).toBe(true)
+
+        fireEvent.doubleClick(titleButton)
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title--input')).toBeNull()
+
+        fireEvent.click(screen.getByText('Enabled'))
+        expect(toggleStatus).toHaveBeenCalledTimes(1)
+    })
+
     it('shows the filters toggle in view mode only when the host and definition opt in', () => {
         const toggleComponentPanel = jest.fn()
         const registry = createMarkdownNotebookRegistry([
