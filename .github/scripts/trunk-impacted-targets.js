@@ -127,6 +127,12 @@ const RUST = 'rust'
 // those files can reach.
 const PRODUCT_SURFACE = 'product-surface'
 
+// The three proto trees, named for their consumers for the same reason. Every
+// consumer generates stubs from them, so the set is enumerable: tonic builds
+// the rust ones on `cargo build`, and the personhog stubs are checked in for
+// both python and nodejs.
+const PROTO = 'proto'
+
 // Resolved per file from the rule's own `languages:` declaration rather than
 // from its path, so it cannot be expressed as a static domain here.
 const SEMGREP = 'semgrep'
@@ -146,8 +152,15 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/trunk-lane-telemetry*.js', UNIVERSAL],
     ['.github/scripts/turbo-discover*.js', UNIVERSAL],
     ['.github/workflows/trunk-impacted-targets.yml', UNIVERSAL],
-    ['tach.toml', UNIVERSAL],
     ['turbo.json', UNIVERSAL],
+
+    // tach.toml is one of those graphs, so it carries the same self-gating
+    // hazard, but every edge it can move lands on a python lane: `tach check`
+    // runs in ci-backend.yml, and the two readers of the graph, this script and
+    // turbo-discover, use it only to cascade python product lanes. `python`
+    // claims all of them, so a PR editing the graph still overlaps every PR
+    // whose lanes were computed against the old one.
+    ['tach.toml', PYTHON],
 
     // A workflow decides which suites run, so one that defines a single
     // language's suite can be held to that language's lanes. Everything else
@@ -209,22 +222,40 @@ const TRIPWIRE_RULES = [
     // names are the ones a Python change can rename out from under it.
     ['unit.json.tpl', PYTHON],
 
-    // Lockfiles and workspace manifests stay universal. pnpm-workspace.yaml
-    // lists frontend, nodejs, services, tools, products, and three rust node
-    // bindings, and pyproject.toml roots every product package, so a resolution
-    // change in either really does reach almost every lane. The telemetry says
-    // the same: a lockfile was the widening reason for one PR, against 26 for
-    // the CI and lint rules split above.
-    ['pnpm-lock.yaml', UNIVERSAL],
-    ['pnpm-workspace.yaml', UNIVERSAL],
-    ['package.json', UNIVERSAL],
-    ['uv.lock', UNIVERSAL],
-    ['pyproject.toml', UNIVERSAL],
-    ['requirements.txt', UNIVERSAL],
-    ['requirements-dev.txt', UNIVERSAL],
-    ['rust/Cargo.lock', UNIVERSAL],
-    ['rust/Cargo.toml', UNIVERSAL],
-    ['rust/.sqlx/**', UNIVERSAL],
+    // The pnpm workspace's lockfile and manifests. A resolution change here can
+    // red the python lanes, which install the root package and drive pytest
+    // through `pnpm turbo run backend:test`, but a lane is not what catches
+    // that: the ci-*.yml path filters decide what runs, so the break lands in
+    // the PR's own run. A lane only has to hold the interaction with a second
+    // PR, and the shape that reaches a python lane is lockfile drift against a
+    // workspace package.json, which needs both PRs to edit pnpm-lock.yaml and
+    // so surfaces as a textual conflict git forces a rebase for.
+    ['pnpm-lock.yaml', JAVASCRIPT],
+    ['pnpm-workspace.yaml', JAVASCRIPT],
+    ['package.json', JAVASCRIPT],
+    // The python lockfile and manifests, on the same reasoning. Every section
+    // of pyproject.toml configures a python tool, and nothing in the pnpm
+    // workspace or the cargo one resolves against either file: the two pyo3
+    // crates install from PyPI rather than from this checkout, which the
+    // uv.lock path-source test holds in place.
+    ['uv.lock', PYTHON],
+    ['pyproject.toml', PYTHON],
+    // The cargo workspace's own lockfile and manifest. What kept them universal
+    // was the three crates that are also pnpm packages, and the `rust` domain
+    // now names the lanes consuming those, so the radius is covered without
+    // claiming every lane in the repo. The workspace's two pyo3 crates do not
+    // extend the radius the same way: hogql_parser_rs and deltalite-python are
+    // published to PyPI by their own workflows and pinned by version in
+    // pyproject.toml, so the python suites install a released wheel rather than
+    // building either from this checkout. A resolution change reaches a python
+    // lane only through the version bump, which is a pyproject.toml and uv.lock
+    // edit claiming those lanes above. ci-rust.yml already narrows a lockfile
+    // touch further, by diffing the resolved graph rather than rebuilding
+    // everything, which is a step this script cannot take without a cargo
+    // toolchain in the compute job.
+    ['rust/Cargo.lock', RUST],
+    ['rust/Cargo.toml', RUST],
+    ['rust/.sqlx/**', RUST],
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
     ['docker-compose*.yml', UNIVERSAL],
@@ -232,10 +263,9 @@ const TRIPWIRE_RULES = [
     // Decides what lands in the build context of every image built from the
     // repository root, so it belongs with the Dockerfiles above.
     ['.dockerignore', UNIVERSAL],
-    ['proto/**', UNIVERSAL],
-    // schema.json generates posthog/schema.py, and both sides are committed.
-    ['frontend/src/queries/schema.json', UNIVERSAL],
-    ['posthog/schema.py', UNIVERSAL],
+    ['proto/**', PROTO],
+    ['frontend/src/queries/schema.json', PRODUCT_SURFACE],
+    ['posthog/schema.py', PRODUCT_SURFACE],
     // A manifest publishes its product's urls, routes, and tree items into
     // globals any other product's frontend can reference, and build-products.mjs
     // compiles every manifest into products.json, which posthog/products.py
@@ -253,14 +283,19 @@ const TRIPWIRE_RULES = [
     ['products/*/manifest.tsx', PRODUCT_SURFACE],
     // Generates the frontend API types from the backend serializers, so a
     // change lands on both sides of the fe/py split at once.
-    ['tools/openapi-codegen/**', UNIVERSAL],
+    ['tools/openapi-codegen/**', PRODUCT_SURFACE],
     // Ownership data read by the backend, frontend, and script suites alike.
     // The root owners.yaml is the fallback every path resolves through when no
     // nearer file claims it, so it has the same readers as the tooling. A
     // product's own owners.yaml is not here: it keeps its product lane.
     ['tools/owners/**', UNIVERSAL],
     ['owners.yaml', UNIVERSAL],
-    ['.test_durations', UNIVERSAL],
+    // pytest-split timing data, and nothing else reads it.
+    ['.test_durations', PYTHON],
+    // Left universal: the quarantine list covers all three suites at once, and
+    // playwright.quarantine.ts and replay-shared's jest.config.js read it
+    // alongside pytest, so an entry for a flaky frontend test moves a
+    // frontend lane.
     ['.test_quarantine.json', UNIVERSAL],
     // bin/ appears in the backend, frontend, and E2E path filters alike.
     ['bin/**', UNIVERSAL],
@@ -920,7 +955,10 @@ function discoverRustCrates(repoRoot) {
                 const text = fs.readFileSync(full, 'utf8')
                 const name = parseCrateName(text)
                 if (name) {
-                    crates.push({ dir: relative, name, text })
+                    // A package.json beside the Cargo.toml means the crate also
+                    // builds an npm package, so its lane extends past rust/.
+                    const publishesNpmPackage = fs.existsSync(path.join(dir, 'package.json'))
+                    crates.push({ dir: relative, name, text, publishesNpmPackage })
                 }
             }
         }
@@ -1015,8 +1053,28 @@ function parseCrateDependencies(tomlText, crateNames) {
     return [...deps]
 }
 
+// Dependencies no Cargo.toml declares, because they are not compile-time edges:
+// the key crate spawns the listed ones as binaries at run time. The cargo graph
+// cannot see that, so the reverse closure would stop short of the spawner and
+// leave it free to merge in parallel with a change to a service it executes.
+//
+// Mirrors the [[package-rule]] on-affected block in
+// rust/affected-services/determinator-rules.toml, which exists for this same
+// blind spot on the CI side. The two lists have to be changed together, which a
+// test asserts, and loadRustGraph gives up the whole graph rather than dropping
+// an edge if a crate named here stops existing.
+const RUNTIME_SPAWN_EDGES = new Map([
+    [
+        'personhog-test-harness',
+        ['personhog-replica', 'personhog-router', 'personhog-leader', 'personhog-writer', 'personhog-identity'],
+    ],
+])
+
 // Returns null when the crate graph can't be built. Callers must treat null as
-// "unknown dependents" and report every rust target, never as "no dependents".
+// "unknown dependents" and widen to every target, never as "no dependents".
+// Widening past the rust lanes is deliberate: without the graph the script
+// cannot tell which crate a rust path belongs to either, so the rust targets
+// alone would not be a superset of what the change can break.
 function loadRustGraph(repoRoot) {
     try {
         const crates = discoverRustCrates(repoRoot)
@@ -1028,14 +1086,29 @@ function loadRustGraph(repoRoot) {
         for (const crate of crates) {
             dependsOn.set(crate.name, parseCrateDependencies(crate.text, crateNames))
         }
+        // A crate renamed out from under the runtime map would otherwise drop
+        // its edge silently, which is the under-reporting direction, so an
+        // unresolvable entry gives up the whole graph instead.
+        for (const [spawner, spawned] of RUNTIME_SPAWN_EDGES) {
+            const unknown = [spawner, ...spawned].filter((crate) => !crateNames.has(crate))
+            if (unknown.length > 0) {
+                console.error(
+                    `Runtime spawn edges name crates that no longer exist (${unknown.join(', ')}); ` +
+                        'widening to every target until RUNTIME_SPAWN_EDGES is updated'
+                )
+                return null
+            }
+            dependsOn.set(spawner, [...new Set([...dependsOn.get(spawner), ...spawned])])
+        }
+        const nativeBindings = new Set(crates.filter((crate) => crate.publishesNpmPackage).map((crate) => crate.name))
         // Longest directory first so rust/common/hogvm resolves to its own crate
         // rather than to rust/common.
         const byDir = crates
             .map((crate) => ({ dir: crate.dir, name: crate.name }))
             .sort((a, b) => b.dir.length - a.dir.length)
-        return { dependsOn, byDir }
+        return { dependsOn, byDir, nativeBindings }
     } catch (error) {
-        console.error(`Rust crate graph unavailable (${error.message}); reporting every rust target`)
+        console.error(`Rust crate graph unavailable (${error.message}); widening to every target`)
         return null
     }
 }
@@ -1070,6 +1143,13 @@ function reverseClosure(seeds, dependsOn) {
 const pyProduct = (product) => `py:product:${product}`
 const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
+
+// The lanes that import a native module built from the cargo workspace.
+// nodejs/package.json is the only dependent of the three binding packages
+// (@posthog/cyclotron, @posthog/hogvm-node, @posthog/replay-anonymizer) today,
+// and the test suite re-derives that from pnpm-workspace.yaml so a second
+// dependent fails there rather than silently going unclaimed here.
+const NATIVE_BINDING_CONSUMER_LANES = ['node:ingestion']
 
 // Every target this script can emit. A widening decision names this set instead
 // of the "ALL" sentinel, so the set intersection Trunk computes is unchanged
@@ -1173,6 +1253,9 @@ function addJavaScriptLanes(targets, context) {
 // also claims the independent tools/ lanes. Those exist because the Python
 // toolchain spans tools/, and no tool in that list loads products.json or globs
 // the manifests.
+//
+// `query-schema` reaches the same set through different readers, so it shares
+// this function while keeping its own domain name for the telemetry.
 function addProductSurfaceLanes(targets, context) {
     targets.add('py:core')
     targets.add('fe:core')
@@ -1197,12 +1280,26 @@ function addRustLanes(targets, context) {
 
 // The nodejs lane on its own. No tripwire resolves to it, because a file that
 // can break the ingestion suite can almost always break more than that. The
-// rust rules below still need to name it without dragging in the frontend.
+// rust and proto rules still need to name it without dragging in the frontend.
 const NODE = 'node'
 
 function addNodeLanes(targets) {
     targets.add('node:ingestion')
     return true
+}
+
+// proto/README.md's consumer table is the source for this set, and the stubs
+// themselves are the check on it: every consumer commits generated code, so a
+// tree that reads a proto without one would be reading nothing. The nodejs half
+// takes the node domain rather than the javascript one because the stubs land
+// only in nodejs/src/common/generated; no frontend or services package imports
+// them.
+function addProtoLanes(targets, context) {
+    if (!addRustLanes(targets, context)) {
+        return false
+    }
+    addPythonLanes(targets, context)
+    return addNodeLanes(targets)
 }
 
 const DOMAIN_LANES = new Map([
@@ -1211,6 +1308,7 @@ const DOMAIN_LANES = new Map([
     [RUST, addRustLanes],
     [NODE, addNodeLanes],
     [PRODUCT_SURFACE, addProductSurfaceLanes],
+    [PROTO, addProtoLanes],
 ])
 
 // Returns false when the file's domain is universal, which is the caller's cue
@@ -1523,8 +1621,19 @@ function computeTargets(changedFiles, context) {
         const seeds = [...targets]
             .filter((target) => target.startsWith('rust:crate:'))
             .map((target) => target.slice('rust:crate:'.length))
-        for (const crate of reverseClosure(seeds, rustGraph.dependsOn)) {
+        const affectedCrates = reverseClosure(seeds, rustGraph.dependsOn)
+        for (const crate of affectedCrates) {
             targets.add(rustCrate(crate))
+        }
+        // A crate that also builds an npm package compiles into a native module
+        // the JS workspace imports, so the closure does not end at rust/. The
+        // dependents are found through package.json rather than Cargo.toml,
+        // which is why the crate graph alone stops one edge short.
+        const bindings = rustGraph.nativeBindings || new Set()
+        if (affectedCrates.some((crate) => bindings.has(crate))) {
+            for (const target of NATIVE_BINDING_CONSUMER_LANES) {
+                targets.add(target)
+            }
         }
     }
 
@@ -1640,8 +1749,10 @@ module.exports = {
     tripwireDomain,
     ALL,
     JAVASCRIPT,
+    NATIVE_BINDING_CONSUMER_LANES,
     PYTHON,
     REPO_ROOT,
+    RUNTIME_SPAWN_EDGES,
     RUST,
     UNIVERSAL,
 }

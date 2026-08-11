@@ -80,7 +80,7 @@ from products.replay_vision.backend.quota import (
     ScannerSpend,
     credits_used_by_scanner,
     current_period_bounds,
-    sum_enabled_scanner_estimated_credits,
+    spend_projection,
 )
 from products.replay_vision.backend.scanner_config import (
     MAX_PROMPT_LENGTH,
@@ -89,8 +89,8 @@ from products.replay_vision.backend.scanner_config import (
     scanner_config_error,
 )
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
-from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
@@ -992,6 +992,13 @@ class EstimateResponseSerializer(serializers.Serializer):
             "double-count the edited scanner."
         ),
     )
+    active_backfill_credits = serializers.IntegerField(
+        help_text=(
+            "Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's "
+            "projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own "
+            "segment instead of adding it to a per-month total."
+        ),
+    )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
     )
@@ -1631,11 +1638,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])
 
-        # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this
-        # estimate on top of a consistent snapshot instead of subtracting a possibly-stale per-scanner field.
-        other_enabled_scanners_monthly_credits = sum_enabled_scanner_estimated_credits(
-            self.team.organization_id, exclude_scanner_id=scanner_id
-        )
+        # One projection read, excluding the scanner being edited, so the editor adds this estimate on top of a
+        # consistent snapshot instead of subtracting a possibly-stale per-scanner field.
+        projection = spend_projection(self.team.organization_id, exclude_scanner_id=scanner_id)
 
         return Response(
             EstimateResponseSerializer(
@@ -1645,7 +1650,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "estimated_observations_per_month": observations_per_month,
                     "credits_per_observation": credits_per_observation,
                     "estimated_credits_per_month": observations_per_month * credits_per_observation,
-                    "other_enabled_scanners_monthly_credits": other_enabled_scanners_monthly_credits,
+                    "other_enabled_scanners_monthly_credits": projection.scanners_monthly_credits,
+                    "active_backfill_credits": projection.backfills_committed_credits,
                     "sampling_rate": sampling_rate,
                 }
             ).data

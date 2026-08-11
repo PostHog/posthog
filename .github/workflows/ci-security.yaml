@@ -62,6 +62,8 @@ jobs:
                         - 'ee/**'
                         - 'posthog/**'
                         - 'products/**'
+                        # the scan --excludes products/desktop (semgrep-desktop covers it)
+                        - '!products/desktop/**'
                         - 'services/llm-gateway/**'
                         - 'services/stripe-mock/**'
                         - '.semgrep/rules/security/**'

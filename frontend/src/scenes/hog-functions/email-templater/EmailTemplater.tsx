@@ -21,8 +21,25 @@ import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary
 
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
+import { EmailFieldErrors } from './types'
 
 export type EmailEditorMode = 'full' | 'preview'
+
+// Maps a templater field key onto its validation message slot. Only the sender, recipient, and
+// subject rows have their own message; body content is reported separately near the editor.
+function fieldErrorFor(fieldKey: string, fieldErrors?: EmailFieldErrors): string | undefined {
+    if (fieldKey === 'from' || fieldKey === 'to' || fieldKey === 'subject') {
+        return fieldErrors?.[fieldKey]
+    }
+    return undefined
+}
+
+function FieldErrorMessage({ error }: { error?: string }): JSX.Element | null {
+    if (!error) {
+        return null
+    }
+    return <div className="pb-1 pl-2 text-xs text-danger">{error}</div>
+}
 
 function AddAdvancedFieldButtons(): JSX.Element | null {
     const { hiddenAdvancedFields } = useValues(emailTemplaterLogic)
@@ -436,60 +453,65 @@ function NativeEmailTemplaterForm({
                             />
                         </div>
                     ) : (
-                        visibleFields.map((field) => (
-                            <LemonField
-                                key={field.key}
-                                name={field.key}
-                                className="gap-1 pl-2 border-b shrink-0"
-                                // We will handle the error display ourselves
-                                renderError={() => null}
-                                showOptional={field.optional}
-                            >
-                                {({ value, onChange, error }: ChildFunctionProps) => (
-                                    <div className="flex gap-2 items-center">
-                                        <LemonLabel
-                                            className={error ? 'text-danger' : ''}
-                                            info={field.helpText}
-                                            showOptional={field.optional}
-                                        >
-                                            {field.label}
-                                        </LemonLabel>
-                                        {field.key === 'from' ? (
-                                            <NativeEmailIntegrationChoice value={value} onChange={onChange} />
-                                        ) : field.key === 'to' ? (
-                                            /**
-                                             * In email inputs, "to" maps to { email: string; name: string; },
-                                             * whereas other fields map directly to their string value
-                                             */
-                                            <LiquidSupportedText
-                                                value={value?.email}
-                                                onChange={(email) => onChange({ ...value, email })}
-                                                globals={logicProps.variables}
-                                            />
-                                        ) : (
-                                            <LiquidSupportedText
-                                                value={value}
-                                                onChange={onChange}
-                                                globals={logicProps.variables}
-                                            />
+                        visibleFields.map((field) => {
+                            const fieldError = fieldErrorFor(field.key, logicProps.fieldErrors)
+                            return (
+                                <div key={field.key} className="border-b shrink-0">
+                                    <LemonField
+                                        name={field.key}
+                                        className="gap-1 pl-2"
+                                        // We will handle the error display ourselves
+                                        renderError={() => null}
+                                        showOptional={field.optional}
+                                    >
+                                        {({ value, onChange }: ChildFunctionProps) => (
+                                            <div className="flex gap-2 items-center">
+                                                <LemonLabel
+                                                    className={fieldError ? 'text-danger' : ''}
+                                                    info={field.helpText}
+                                                    showOptional={field.optional}
+                                                >
+                                                    {field.label}
+                                                </LemonLabel>
+                                                {field.key === 'from' ? (
+                                                    <NativeEmailIntegrationChoice value={value} onChange={onChange} />
+                                                ) : field.key === 'to' ? (
+                                                    /**
+                                                     * In email inputs, "to" maps to { email: string; name: string; },
+                                                     * whereas other fields map directly to their string value
+                                                     */
+                                                    <LiquidSupportedText
+                                                        value={value?.email}
+                                                        onChange={(email) => onChange({ ...value, email })}
+                                                        globals={logicProps.variables}
+                                                    />
+                                                ) : (
+                                                    <LiquidSupportedText
+                                                        value={value}
+                                                        onChange={onChange}
+                                                        globals={logicProps.variables}
+                                                    />
+                                                )}
+                                                {field.isAdvancedField && (
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        type="tertiary"
+                                                        icon={<IconX />}
+                                                        className="mr-2"
+                                                        onClick={() => {
+                                                            onChange('')
+                                                            hideAdvancedField(field.key)
+                                                        }}
+                                                        tooltip="Remove field"
+                                                    />
+                                                )}
+                                            </div>
                                         )}
-                                        {field.isAdvancedField && (
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="tertiary"
-                                                icon={<IconX />}
-                                                className="mr-2"
-                                                onClick={() => {
-                                                    onChange('')
-                                                    hideAdvancedField(field.key)
-                                                }}
-                                                tooltip="Remove field"
-                                            />
-                                        )}
-                                    </div>
-                                )}
-                            </LemonField>
-                        ))
+                                    </LemonField>
+                                    <FieldErrorMessage error={fieldError} />
+                                </div>
+                            )
+                        })
                     )}
 
                     {!compactHeader && <AddAdvancedFieldButtons />}
@@ -579,6 +601,9 @@ function NativeEmailTemplaterForm({
                         )}
                     </LemonField>
                 )}
+                {/* Rendered in both modes so the message stays visible while the body is edited in
+                    the full editor, not just in the preview */}
+                <FieldErrorMessage error={logicProps.fieldErrors?.body} />
             </Form>
         </>
     )
