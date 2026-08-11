@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tonic::Status;
 
@@ -24,7 +25,7 @@ use crate::lifecycle::merge::{
     OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
 };
 use crate::lifecycle::validation::{is_distinct_id_illegal, validate_merge_persons};
-use crate::storage::{AttachOutcome, IdentityStorage};
+use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
 
 /// Handler-decided outcomes that never reach the saga.
 const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
@@ -103,16 +104,10 @@ impl MergeEntrance {
             .map_err(|e| Status::internal(format!("resolution failed: {e}")))?;
 
         let target_key = (request.team_id, request.target_distinct_id.clone());
-        let Some(target_person) = resolved.get(&target_key) else {
-            // Unresolved-target merges (attach the target to a resolved
-            // source's person, or birth a fresh target) are not
-            // implemented yet; the caller keeps them on its own path.
-            return Err(Status::failed_precondition(
-                "target distinct id resolves to no person; \
-                 create it first (unresolved-target merges are not implemented)",
-            ));
+        let target_person = match resolved.get(&target_key) {
+            Some(target) => target.clone(),
+            None => self.establish_target(&request, &resolved).await?,
         };
-        let target_person = target_person.clone();
 
         let mut inline_results: HashMap<String, String> = HashMap::new();
         let mut attach: Vec<String> = Vec::new();
@@ -169,8 +164,14 @@ impl MergeEntrance {
             // is not a dedupe of idempotent work (an attached source
             // re-answers noop_same_person). The event's properties still
             // reach the survivor.
+            // An identify that actually joined identities makes the
+            // survivor identified; a call whose every pair was skipped
+            // proves nothing.
+            let flip_identified = inline_results
+                .values()
+                .any(|o| o == OUTCOME_ATTACHED || o == OUTCOME_NOOP_SAME_PERSON);
             let pushed = self
-                .push_event_properties(&request, target_person.id)
+                .push_event_properties(&request, &target_person, flip_identified)
                 .await?;
             let results = request
                 .sources
@@ -214,31 +215,135 @@ impl MergeEntrance {
         merge_response(&row)
     }
 
-    /// Apply the merge event's $set/$set_once to the survivor when no saga
-    /// runs (the fold carries them when one does). The ack means the
-    /// properties are durable in the changelog.
+    /// Apply the merge event's $set/$set_once and the identified flip to
+    /// the survivor when no saga runs (the fold carries both when one
+    /// does). The ack means the changes are durable in the changelog.
+    /// Skipped entirely when there is nothing to change — a repeat
+    /// identify of an already-identified survivor with no new properties
+    /// costs no leader round trip.
     async fn push_event_properties(
         &self,
         request: &MergePersonsRequest,
-        person_id: i64,
+        survivor: &Person,
+        flip_identified: bool,
     ) -> Result<Option<ProtoPerson>, Status> {
-        if request.event_set.is_empty() && request.event_set_once.is_empty() {
+        let flip = flip_identified && !survivor.is_identified;
+        if request.event_set.is_empty() && request.event_set_once.is_empty() && !flip {
             return Ok(None);
         }
         let response = self
             .property_writer
             .update_person_properties(UpdatePersonPropertiesRequest {
                 team_id: request.team_id,
-                person_id,
+                person_id: survivor.id,
                 event_name: "$identify".to_string(),
                 set_properties: request.event_set.clone(),
                 set_once_properties: request.event_set_once.clone(),
                 unset_properties: Vec::new(),
-                is_identified: None,
+                is_identified: flip.then_some(true),
                 last_seen_at: None,
             })
             .await?;
         Ok(response.person)
+    }
+
+    /// The unresolved-target half of the merge contract: the target
+    /// distinct id resolves to no person, so the call must establish the
+    /// survivor before anything can classify against it. The first
+    /// resolved legal source's person survives and the target distinct id
+    /// attaches to it; when nothing in the call resolves, the target
+    /// person is born fresh, its uuid derived from the target distinct id
+    /// so the id's implied-person events already point at it. Both writes
+    /// are idempotent, so a crash between establishment and settlement
+    /// re-drives through re-classification: the established target then
+    /// simply resolves.
+    async fn establish_target(
+        &self,
+        request: &MergePersonsRequest,
+        resolved: &HashMap<(i64, String), Person>,
+    ) -> Result<Person, Status> {
+        let target_did = &request.target_distinct_id;
+
+        let first_resolved = request
+            .sources
+            .iter()
+            .filter(|s| !is_distinct_id_illegal(&s.source_distinct_id))
+            .find_map(|s| resolved.get(&(request.team_id, s.source_distinct_id.clone())));
+        if let Some(survivor) = first_resolved {
+            let attached = self
+                .storage
+                .attach_distinct_ids(
+                    request.team_id,
+                    survivor.id,
+                    std::slice::from_ref(target_did),
+                )
+                .await
+                .map_err(|e| Status::internal(format!("target attach failed: {e}")))?;
+            return match attached.get(target_did) {
+                Some(AttachOutcome::Attached { .. }) => Ok(survivor.clone()),
+                // The target distinct id got mapped concurrently; that
+                // mapping wins and its person is the survivor.
+                Some(AttachOutcome::AlreadyMapped { .. }) => {
+                    self.resolve_target_after_race(request).await
+                }
+                // The survivor row vanished under the attach (a racing
+                // lifecycle op committed). Nothing durable happened for
+                // this op, so the retry re-classifies against the settled
+                // world.
+                None => Err(Status::unavailable(
+                    "survivor was destroyed by a concurrent operation; retry",
+                )),
+            };
+        }
+
+        // Nothing in the call resolves: birth the target person. An
+        // identify with only illegal sources still creates the target (the
+        // caller's event needs a person) but proves no identity, so it is
+        // born unidentified.
+        let any_legal_source = request
+            .sources
+            .iter()
+            .any(|s| !is_distinct_id_illegal(&s.source_distinct_id));
+        let created_at = if request.created_at == 0 {
+            Utc::now()
+        } else {
+            DateTime::from_timestamp_millis(request.created_at)
+                .ok_or_else(|| Status::invalid_argument("created_at is out of range"))?
+        };
+        let outcomes = self
+            .storage
+            .create_person_stubs(&[PersonStub {
+                team_id: request.team_id,
+                distinct_id: target_did.clone(),
+                extra_distinct_ids: Vec::new(),
+                created_at,
+                is_identified: any_legal_source,
+            }])
+            .await
+            .map_err(|e| Status::internal(format!("target creation failed: {e}")))?;
+        match outcomes.into_iter().next() {
+            Some(StubOutcome::Committed { person, .. }) => Ok(person),
+            Some(StubOutcome::LostRace) | None => self.resolve_target_after_race(request).await,
+        }
+    }
+
+    /// Re-resolve the target distinct id after losing an establishment
+    /// race. The winner's person is as good a survivor as ours would have
+    /// been; a mapping that vanished again mid-race sends the caller back
+    /// around.
+    async fn resolve_target_after_race(
+        &self,
+        request: &MergePersonsRequest,
+    ) -> Result<Person, Status> {
+        let key = (request.team_id, request.target_distinct_id.clone());
+        let mut resolved = self
+            .storage
+            .resolve_distinct_ids(std::slice::from_ref(&key))
+            .await
+            .map_err(|e| Status::internal(format!("target re-resolution failed: {e}")))?;
+        resolved.remove(&key).ok_or_else(|| {
+            Status::unavailable("target resolution raced a concurrent operation; retry")
+        })
     }
 }
 
@@ -283,6 +388,7 @@ fn merge_original(
         "event_set_once": event_set_once,
         "allow_identified_sources": request.allow_identified_sources,
         "move_limit": request.move_limit,
+        "created_at": request.created_at,
     })
 }
 

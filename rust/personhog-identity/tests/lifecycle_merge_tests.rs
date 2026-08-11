@@ -17,6 +17,7 @@ use chrono::Utc;
 use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
 use personhog_common::grpc::semantic_refusal;
+use personhog_common::persons::person_uuid;
 use serde_json::json;
 use sqlx::postgres::PgPool;
 use tonic::{Code, Status};
@@ -1554,6 +1555,7 @@ fn rpc_request(team_id: i64, target: &str, sources: &[&str], op_id: Uuid) -> Mer
         op_id: op_id.to_string(),
         allow_identified_sources: false,
         move_limit: Some(1_000),
+        created_at: 0,
     }
 }
 
@@ -1665,10 +1667,14 @@ async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
     .await
     .unwrap();
     assert_eq!(survivor.created_at, target_created_ms);
-    // The event's $set reached the survivor through the leader...
+    // The event's $set reached the survivor through the leader, carrying
+    // the identified flip: pairs settled, so the survivor is identified...
     assert_eq!(
         h.leader.calls(),
-        vec![LeaderCall::PropertyPush { person_id: target }]
+        vec![LeaderCall::PropertyPush {
+            person_id: target,
+            is_identified: Some(true),
+        }]
     );
     // ...and no durable op exists: nothing was destroyed, so retries just
     // re-classify.
@@ -1836,9 +1842,12 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
             Code::InvalidArgument,
         ),
         (
-            "unresolved target",
-            rpc_request(team_id, "never-created-target", &["s"], op),
-            Code::FailedPrecondition,
+            "negative created_at",
+            MergePersonsRequest {
+                created_at: -1,
+                ..rpc_request(team_id, "t", &["s"], op)
+            },
+            Code::InvalidArgument,
         ),
     ];
     for (label, request, expected) in cases {
@@ -1849,6 +1858,187 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
         assert_eq!(status.code(), expected, "{label}");
     }
     assert!(h.leader.calls().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let survivor = h.ctx.insert_person_with_distinct_id("flip-source").await;
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "flip-target",
+            &["flip-personless", "flip-source"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("flipped case 1 succeeds")
+        .into_inner();
+
+    assert_eq!(
+        response.survivor.as_ref().expect("survivor present").id,
+        survivor
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![
+            ("flip-personless".to_string(), MergeSourceOutcome::Attached),
+            (
+                "flip-source".to_string(),
+                MergeSourceOutcome::NoopSamePerson
+            ),
+        ]
+    );
+    // The target distinct id and the personless source both attached to the
+    // surviving person, with version 1 (an override row is always written).
+    assert_eq!(h.pdi_state("flip-target").await, (survivor, false, 1));
+    assert_eq!(h.pdi_state("flip-personless").await, (survivor, false, 1));
+    // Pairs settled, so the survivor is identified via one leader push.
+    assert_eq!(
+        h.leader.calls(),
+        vec![LeaderCall::PropertyPush {
+            person_id: survivor,
+            is_identified: Some(true),
+        }]
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_fully_unresolved_call_births_the_target_person() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(h.ctx.team_id, "birth-target", &["birth-anon"], op_id);
+    request.created_at = 1_700_000_000_000;
+    let response = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect("case 4 succeeds")
+        .into_inner();
+
+    // The person is born on the target distinct id's deterministic uuid,
+    // stamped with the event's timestamp, already identified.
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "birth-target").to_string()
+    );
+    assert_eq!(survivor.created_at, 1_700_000_000_000);
+    assert!(survivor.is_identified);
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("birth-anon".to_string(), MergeSourceOutcome::Attached)]
+    );
+    // The uuid-seeding distinct id keeps version 0 (its implied-person
+    // events already point at this person); the attached one gets 1.
+    assert_eq!(h.pdi_state("birth-target").await, (survivor.id, false, 0));
+    assert_eq!(h.pdi_state("birth-anon").await, (survivor.id, false, 1));
+    // Born identified with no event properties: no leader push needed.
+    assert!(h.leader.calls().is_empty());
+    let op_count: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(op_count, 0);
+
+    // A retry re-classifies against the settled world and answers the
+    // equivalent no-op, with the same survivor.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry succeeds")
+        .into_inner();
+    assert_eq!(
+        retry.survivor.as_ref().expect("survivor present").id,
+        survivor.id
+    );
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![("birth-anon".to_string(), MergeSourceOutcome::NoopSamePerson)]
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_all_illegal_call_births_the_target_unidentified() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "illegal-only-target",
+            &["anonymous"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    // The caller's event still needs a person, so the target is born — but
+    // an identify whose every pair was skipped proves no identity.
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert!(!survivor.is_identified);
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("anonymous".to_string(), MergeSourceOutcome::SkippedIllegal)]
+    );
+    assert_eq!(
+        h.pdi_state("illegal-only-target").await,
+        (survivor.id, false, 0)
+    );
+    assert!(h.leader.calls().is_empty());
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_unresolved_target_call_still_runs_the_saga_for_second_persons() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let survivor = h.ctx.insert_person_with_distinct_id("flip-saga-a").await;
+    let other = h.ctx.insert_person_with_distinct_id("flip-saga-b").await;
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "flip-saga-target",
+            &["flip-saga-a", "flip-saga-b"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    // The first resolved source's person survives; the second person folds
+    // into it through the saga and dies.
+    assert_eq!(
+        response.survivor.as_ref().expect("survivor present").id,
+        survivor
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![
+            (
+                "flip-saga-a".to_string(),
+                MergeSourceOutcome::NoopSamePerson
+            ),
+            ("flip-saga-b".to_string(), MergeSourceOutcome::Merged),
+        ]
+    );
+    assert_eq!(h.pdi_state("flip-saga-target").await, (survivor, false, 1));
+    assert_eq!(h.pdi_state("flip-saga-b").await, (survivor, false, 1));
+    let (other_deleted, _, _) = h.person_state(other).await;
+    assert!(other_deleted);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
