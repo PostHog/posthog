@@ -34,9 +34,13 @@ the reachability assertion runs before every delete and again inside the transac
 Only the first fails loudly, so the command cannot rely on the database to catch a
 mistake in the other two.
 
-Deleted rows are written to a local JSONL file, fsync'd, before the delete transaction
-opens -- so a rolled back delete leaves a harmless superset and a deleted row can never
-be missing from the backup. Copy that file off the pod; it is the only undo.
+Deleted rows and their dependent rows are written to a local JSONL file, fsync'd, after
+the victims are locked and before the delete runs. Locking first matters: an insert into
+posthog_featureflaghashkeyoverride takes FOR KEY SHARE on the parent person row, so
+reading dependents before the lock would let a row appear afterwards, cascade away, and
+never reach the backup. Writing before the delete means a rolled back transaction leaves
+a harmless superset, and a deleted row can never be missing. Copy that file off the pod;
+it is the only undo.
 """
 
 from __future__ import annotations
@@ -224,6 +228,13 @@ DELETE FROM posthog_cohortpeople cp
 USING {VICTIMS_TABLE}_batch b WHERE cp.person_id = b.id
 """
 
+# posthog_cohortpeople has no FK to posthog_person, so nothing at the database level
+# stops a row appearing for a victim while the delete transaction is open.
+CHECK_COHORT_ORPHANS_SQL = f"""
+SELECT count(*) FROM posthog_cohortpeople cp
+JOIN {VICTIMS_TABLE}_batch b ON cp.person_id = b.id
+"""
+
 DELETE_PERSONS_SQL = f"""
 DELETE FROM posthog_person p
 USING {VICTIMS_TABLE}_batch b
@@ -269,6 +280,12 @@ class Command(BaseCommand):
 
         if mode in ("classify", "verify") and apply_changes:
             raise CommandError(f"--apply is meaningless for --mode {mode}")
+
+        # LIMIT 0 stages nothing and the loop exits reporting success, which reads as
+        # "nothing to do" on a team that still has duplicates. A negative value reaches
+        # Postgres as a raw syntax error.
+        if options["batch_size"] < 1:
+            raise CommandError("--batch-size must be at least 1")
 
         with persons_db_connection(writer=True, autocommit=True) as conn:
             with conn.cursor() as cur:
@@ -378,10 +395,6 @@ class Command(BaseCommand):
                 logger.info("persons_dedup.dry_run_batch_ok", team_id=team, victims=in_batch)
                 return
 
-            backed_up = self._backup(conn, team, backup_path)
-            if backed_up != in_batch:
-                raise CommandError(f"backed up {backed_up} row(s) but staged {in_batch}; aborting")
-
             with conn.cursor() as cur:
                 cur.execute("BEGIN")
                 cur.execute("SET LOCAL lock_timeout = '2s'")
@@ -397,12 +410,35 @@ class Command(BaseCommand):
                         f"in-transaction gate failed for team {team} "
                         f"(locked {locked}/{in_batch}, reachable {gate_row[0] if gate_row else '?'}); rolled back"
                     )
+
+                # Back up after the lock, not before it. An insert into
+                # posthog_featureflaghashkeyoverride takes FOR KEY SHARE on the parent
+                # person row, so the FOR UPDATE above blocks one; reading dependents
+                # earlier would let a row appear afterwards, get cascaded, and never
+                # reach the backup. Still written and fsync'd before the delete, so a
+                # rollback leaves a superset rather than a gap.
+                backed_up = self._backup(conn, team, backup_path)
+                if backed_up != in_batch:
+                    cur.execute("ROLLBACK")
+                    raise CommandError(f"backed up {backed_up} row(s) but staged {in_batch}; rolled back")
+
                 cur.execute(DELETE_COHORT_SQL)
                 cur.execute(DELETE_PERSONS_SQL, {"team": team})
                 removed = cur.rowcount
                 if removed != in_batch:
                     cur.execute("ROLLBACK")
                     raise CommandError(f"deleted {removed} but staged {in_batch}; rolled back")
+
+                # posthog_cohortpeople has no foreign key, so the row lock above cannot
+                # block an insert into it. A cohort recalculation could have added a row
+                # after DELETE_COHORT_SQL ran, which would survive as an orphan.
+                cur.execute(CHECK_COHORT_ORPHANS_SQL)
+                orphan_row = cur.fetchone()
+                if orphan_row and orphan_row[0]:
+                    cur.execute("ROLLBACK")
+                    raise CommandError(
+                        f"{orphan_row[0]} cohort row(s) appeared for a victim mid-transaction; rolled back"
+                    )
                 cur.execute("COMMIT")
 
             with conn.cursor() as cur:

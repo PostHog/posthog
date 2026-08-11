@@ -110,6 +110,32 @@ def _add_flag_override(conn: psycopg.Connection, person_id: int, key: str, hash_
         )
 
 
+def _add_cohort_member(conn: psycopg.Connection, person_id: int, cohort_id: int = 4242) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO posthog_cohortpeople (cohort_id, person_id, version) VALUES (%s, %s, 0)",
+            (cohort_id, person_id),
+        )
+
+
+def _cohort_rows(conn: psycopg.Connection) -> int:
+    return _count(
+        conn,
+        "SELECT count(*) FROM posthog_cohortpeople WHERE person_id IN "
+        "(SELECT id FROM posthog_person WHERE team_id = %s)",
+        (TEAM,),
+    )
+
+
+def _orphaned_cohort_rows(conn: psycopg.Connection, cohort_id: int = 4242) -> int:
+    return _count(
+        conn,
+        "SELECT count(*) FROM posthog_cohortpeople cp WHERE cp.cohort_id = %s "
+        "AND NOT EXISTS (SELECT 1 FROM posthog_person p WHERE p.id = cp.person_id)",
+        (cohort_id,),
+    )
+
+
 def _count(conn: psycopg.Connection, sql: str, params: tuple = ()) -> int:
     with conn.cursor() as cur:
         cur.execute(sql, params)
@@ -320,6 +346,34 @@ class TestPersonsDedupRepair:
             for r in records
         ), "a cascaded override must be recoverable from the backup"
 
+    def test_removes_and_backs_up_a_stranded_cohort_membership(self, persons_conn, tmp_path):
+        # posthog_cohortpeople has no foreign key, so the cascade will not clear it and a
+        # missed delete leaves a row pointing at a person that no longer exists.
+        uuid = _uuid(25)
+        live = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, live, "did-25")
+        stranded = _add_person(persons_conn, uuid)
+        _add_cohort_member(persons_conn, stranded)
+
+        _run("repair", tmp_path, apply=True)
+
+        assert _persons(persons_conn) == 1
+        assert _orphaned_cohort_rows(persons_conn) == 0
+        records = [json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()]
+        assert any(r["_kind"] == "cohortpeople" and r["person_id"] == stranded for r in records)
+
+    def test_keeps_a_reachable_cohort_membership(self, persons_conn, tmp_path):
+        uuid = _uuid(26)
+        live = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, live, "did-26")
+        _add_cohort_member(persons_conn, live)
+        _add_person(persons_conn, uuid)
+
+        _run("repair", tmp_path, apply=True)
+
+        assert _persons(persons_conn) == 1
+        assert _cohort_rows(persons_conn) == 1
+
 
 class TestPersonsDedupVerify:
     def test_verify_fails_while_duplicates_remain(self, persons_conn, tmp_path):
@@ -337,6 +391,19 @@ class TestPersonsDedupVerify:
         _add_distinct_id(persons_conn, person, "did-31")
 
         _run("verify", tmp_path)
+
+    def test_batch_size_must_be_positive(self, persons_conn, tmp_path):
+        # LIMIT 0 stages nothing, so the run would exit reporting success on a team that
+        # still has duplicates -- indistinguishable from "already clean".
+        uuid = _uuid(32)
+        _add_person(persons_conn, uuid)
+        live = _add_person(persons_conn, uuid)
+        _add_distinct_id(persons_conn, live, "did-32")
+
+        with pytest.raises(CommandError, match="at least 1"):
+            _run("plan", tmp_path, apply=True, batch_size=0)
+
+        assert _persons(persons_conn) == 2
 
     def test_apply_is_rejected_for_read_only_modes(self, persons_conn, tmp_path):
         with pytest.raises(CommandError, match="meaningless"):
