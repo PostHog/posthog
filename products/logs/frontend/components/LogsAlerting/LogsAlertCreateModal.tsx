@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
+import { AlertWizardReview } from 'products/alerts/frontend/components/AlertWizardReview'
 
 import { LogsAlertFilters, LogsAlertTrigger } from './LogsAlertForm'
 import { logsAlertFormLogic, LogsAlertFormType } from './logsAlertFormLogic'
@@ -152,42 +153,37 @@ function LogsAlertReview({
         : 'No notification destinations'
 
     return (
-        <div className="max-w-2xl space-y-4">
-            {pendingNotifications.length === 0 ? (
-                <LemonBanner type="warning">
-                    This alert will run without notifications. Go back to Notify to add a destination.
-                </LemonBanner>
-            ) : null}
-            <div className="space-y-1.5 rounded border border-border bg-bg-light p-3 text-sm">
-                <ReviewItem label="Name" value={alertForm.name} />
-                <ReviewItem label="Severity" value={severity} />
-                <ReviewItem label="Service" value={services} />
-                <ReviewItem
-                    label="Attributes"
-                    value={
-                        attributeCount ? `${attributeCount} attribute filter${attributeCount === 1 ? '' : 's'}` : 'None'
-                    }
-                />
-                <ReviewItem
-                    label="Fires when"
-                    value={`log count is ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in ${alertForm.windowMinutes} minutes`}
-                />
-                <ReviewItem
-                    label="Noise reduction"
-                    value={`${alertForm.datapointsToAlarm} of ${alertForm.evaluationPeriods} checks must match`}
-                />
-                <ReviewItem label="Notification cooldown" value={`${alertForm.cooldownMinutes} minutes`} />
-                <ReviewItem label="Notifies" value={notificationSummary} />
-            </div>
-        </div>
-    )
-}
-
-function ReviewItem({ label, value }: { label: string; value: string }): JSX.Element {
-    return (
-        <div className="flex gap-2">
-            <span className="w-36 shrink-0 text-muted">{label}</span>
-            <span className="font-medium">{value}</span>
+        <div className="max-w-2xl">
+            <AlertWizardReview
+                notice={
+                    pendingNotifications.length === 0 ? (
+                        <LemonBanner type="warning">
+                            This alert will run without notifications. Go back to Notify to add a destination.
+                        </LemonBanner>
+                    ) : undefined
+                }
+                items={[
+                    { label: 'Name', value: alertForm.name },
+                    { label: 'Severity', value: severity },
+                    { label: 'Service', value: services },
+                    {
+                        label: 'Attributes',
+                        value: attributeCount
+                            ? `${attributeCount} attribute filter${attributeCount === 1 ? '' : 's'}`
+                            : 'None',
+                    },
+                    {
+                        label: 'Fires when',
+                        value: `log count is ${alertForm.thresholdOperator} ${alertForm.thresholdCount} in ${alertForm.windowMinutes} minutes`,
+                    },
+                    {
+                        label: 'Noise reduction',
+                        value: `${alertForm.datapointsToAlarm} of ${alertForm.evaluationPeriods} checks must match`,
+                    },
+                    { label: 'Notification cooldown', value: `${alertForm.cooldownMinutes} minutes` },
+                    { label: 'Notifies', value: notificationSummary },
+                ]}
+            />
         </div>
     )
 }
