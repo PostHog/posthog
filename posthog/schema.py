@@ -6781,6 +6781,13 @@ class SessionRecordingType(BaseModel):
     start_url: str | None = None
     summary: str | None = None
     summary_outcome: SummaryOutcome | None = None
+    user_access_level: AccessControlLevel | None = Field(
+        default=None,
+        description=(
+            "The effective access level the current user has for this recording. Only"
+            " returned when fetching a single recording."
+        ),
+    )
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
 
