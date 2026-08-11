@@ -27,22 +27,23 @@ class SuggestionKind(StrEnum):
     FIX_CONVERSION_GOAL = "fix_conversion_goal"
     MARK_GOAL_AS_REVENUE = "mark_goal_as_revenue"
     MARK_GOAL_AS_CUSTOMER = "mark_goal_as_customer"
-    SET_ACTIVITY_EVENT = "set_activity_event"
-    SET_SIGNUP_EVENT = "set_signup_event"
-    SET_PAYMENT_EVENT = "set_payment_event"
-    SET_SUBSCRIPTION_EVENT = "set_subscription_event"
 
 
 class Capability(StrEnum):
     """What a working setup buys you. Every suggestion says which of these it
-    unlocks, so the UI can answer "why should I care?" without extra copy."""
+    unlocks, so the UI can answer "why should I care?" without extra copy.
+
+    Retention and LTV by channel are deliberately absent. Both need
+    `customer_analytics_config.activity_event` and friends, which belong to Customer
+    analytics — a different product, a different model, and fields whose own
+    project-admin checks `apply_setup_ops` already refuses to write. Marketing analytics
+    supplies the attribution side; the setup for the other half lives with the other
+    half."""
 
     COST = "cost"
     ATTRIBUTION = "attribution"
     ROAS = "roas"
     CAC = "cac"
-    RETENTION_BY_CHANNEL = "retention_by_channel"
-    LTV_BY_CHANNEL = "ltv_by_channel"
 
 
 class ReadinessStatus(StrEnum):
@@ -100,12 +101,6 @@ UNBLOCKS: dict[SuggestionKind, frozenset[SuggestionKind]] = {
         {
             SuggestionKind.MARK_GOAL_AS_REVENUE,
             SuggestionKind.MARK_GOAL_AS_CUSTOMER,
-        }
-    ),
-    SuggestionKind.SET_ACTIVITY_EVENT: frozenset(
-        {
-            SuggestionKind.SET_PAYMENT_EVENT,
-            SuggestionKind.SET_SUBSCRIPTION_EVENT,
         }
     ),
 }
