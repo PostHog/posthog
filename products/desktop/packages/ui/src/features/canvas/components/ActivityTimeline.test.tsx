@@ -74,23 +74,27 @@ describe("ActivityTimeline", () => {
     expect(screen.queryByRole("button", { name: /SA/ })).toBeNull();
   });
 
-  it("asks the transcript to scroll to the clicked message", () => {
+  it("asks the transcript to scroll to the message, once its row is open", () => {
     renderTimeline(true);
 
-    fireEvent.click(screen.getAllByRole("button")[1]);
+    // The row opens; jumping to the transcript is the button inside it.
+    fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Show in transcript" }));
 
     expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
       "turn-2-2-user",
     );
   });
 
-  it("leaves rows inert with no transcript alongside to drive", () => {
+  it("offers no transcript jump when there is nothing alongside to drive", () => {
     renderTimeline();
 
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
-    const body = screen.getByText(/first thing/).closest("[data-slot]");
-    expect(body).toHaveClass("whitespace-pre-wrap", "break-words");
-    expect(body).not.toHaveClass("line-clamp-1");
+    fireEvent.click(screen.getByRole("button", { name: /first thing/ }));
+
+    expect(screen.getByText(/and more detail/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Show in transcript" }),
+    ).toBeNull();
   });
 
   it("renders structured references natively in conversation previews", () => {
@@ -104,6 +108,7 @@ describe("ActivityTimeline", () => {
       },
     ]);
 
+    // The whole message fits on the row, so the preview is the content — rendered, not raw.
     expect(screen.getByText("#73874 - Loading…")).toBeInTheDocument();
     expect(screen.queryByText(/<github_pr/)).toBeNull();
   });
@@ -122,6 +127,8 @@ describe("ActivityTimeline", () => {
     expect(screen.getByText("Review this")).toBeInTheDocument();
     expect(screen.queryByText(/<channel_context/)).toBeNull();
     expect(screen.queryByText("Saved workspace context")).toBeNull();
+    // The context lives inside the row, so open it before reaching for the fold.
+    fireEvent.click(screen.getByRole("button", { name: /Review this/ }));
 
     fireEvent.click(screen.getByRole("button", { name: "#code CONTEXT.md" }));
 

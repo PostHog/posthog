@@ -6,17 +6,11 @@ import {
 } from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
+  Button,
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-  cn,
-  ThreadItem,
-  ThreadItemAuthor,
-  ThreadItemBody,
-  ThreadItemContent,
   ThreadItemGroup,
-  ThreadItemGutter,
-  ThreadItemHeader,
 } from "@posthog/quill";
 import type {
   Task,
@@ -29,6 +23,7 @@ import {
   ActivityEventRow,
   CommentRow,
   CommentStateRow,
+  DetailBlock,
   RunStatusRow,
   TimelineRow,
 } from "@posthog/ui/features/canvas/components/activityRows";
@@ -37,19 +32,20 @@ import {
   ThreadArtifactCard,
   ThreadMessageRow,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
-import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
-import { Fragment, type KeyboardEvent, useMemo } from "react";
+import { Fragment, useMemo } from "react";
 
 type ConversationItem = ReturnType<
   typeof buildConversationItems
 >["items"][number];
 
+/** A prompt the task's author sent the agent. Collapsed like every other row: the first
+ *  line on the row, the message and its context when opened. */
 function UserMessageRow({
   author,
   content,
@@ -73,50 +69,36 @@ function UserMessageRow({
     [afterChannelContext],
   );
   const displayContent = customInstructions?.stripped ?? afterChannelContext;
-  // The row itself is the hit target. `ThreadItem` renders an <article>, which a
-  // <button> may not wrap and which can't become one (quill's primitive takes no
-  // `render`), so it carries the button role and its own key handling.
-  //
-  // Deliberately no `aria-label`: the button takes its name from its contents, so
-  // it announces the author, time and preview a sighted user sees. A label would
-  // replace all three — and since every row here is authored by the task creator,
-  // one built from the name alone would be identical on every row.
-  const activation = onSelect
-    ? ({
-        role: "button",
-        tabIndex: 0,
-        onClick: onSelect,
-        onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          onSelect();
-        },
-      } as const)
-    : {};
+  const trimmed = displayContent.trim();
+  const firstLine = trimmed.split("\n", 1)[0] ?? "";
+  // A one-line message is already fully shown on the row; repeating it below the fold is
+  // noise. Longer ones keep the full text as their detail.
+  const hasMoreThanPreview = trimmed !== firstLine;
   return (
-    <ThreadItem
-      className={cn("rounded-none", onSelect && "cursor-pointer")}
-      {...activation}
-    >
-      {/* Decorative: the author's name is written beside it, so keep the avatar's
-          initials out of the row's accessible name. */}
-      <ThreadItemGutter className="justify-center" aria-hidden>
-        <UserAvatar user={author} size="sm" className="sticky top-2" />
-      </ThreadItemGutter>
-      <ThreadItemContent>
-        <ThreadItemHeader>
-          <ThreadItemAuthor className="text-[13px]">{name}</ThreadItemAuthor>
-          <ThreadTimestamp dateTime={timestamp} />
-        </ThreadItemHeader>
-        <ThreadItemBody className="mt-1.5 whitespace-pre-wrap break-words text-[13px]">
-          <MentionText content={displayContent} />
+    <TimelineRow
+      gutter={
+        // Decorative: the author's name is written beside it, so keep the avatar's
+        // initials out of the row's accessible name.
+        <div
+          aria-hidden
+          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full ring-4 ring-gray-1"
+        >
+          <UserAvatar user={author} size="sm" className="size-5" />
+        </div>
+      }
+      timestamp={timestamp}
+      detail={
+        <div className="space-y-1.5">
+          {hasMoreThanPreview && (
+            <DetailBlock>
+              <div className="whitespace-pre-wrap break-words">
+                <MentionText content={displayContent} />
+              </div>
+            </DetailBlock>
+          )}
           {channelContext && (
-            <Collapsible className="mt-2 min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
-              <CollapsibleTrigger
-                className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent"
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
+            <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
+              <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
                 <FileTextIcon size={12} />
                 <span className="truncate text-xs">
                   {channelContext.mention.name
@@ -130,9 +112,21 @@ function UserMessageRow({
               </CollapsibleContent>
             </Collapsible>
           )}
-        </ThreadItemBody>
-      </ThreadItemContent>
-    </ThreadItem>
+          {onSelect && (
+            <Button variant="default" size="sm" onClick={onSelect}>
+              Show in transcript
+            </Button>
+          )}
+        </div>
+      }
+    >
+      <span className="font-medium">{name}</span>{" "}
+      {/* Through MentionText like the body: a preview that prints raw mention or chip
+          markup is the same bug as a body that does. */}
+      <span className="text-muted-foreground">
+        <MentionText content={firstLine} />
+      </span>
+    </TimelineRow>
   );
 }
 

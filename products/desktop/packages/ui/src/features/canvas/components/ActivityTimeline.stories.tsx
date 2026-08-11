@@ -129,7 +129,8 @@ const commentThreads: TaskCommentThreadSummary[] = [
   {
     id: "thread-2",
     target: { id: "canvas-1", type: "canvas", name: "Activity mockup" },
-    content: "@ben can you sanity check the collapse rule before this ships?",
+    content:
+      "@[Ben White](ben@example.com) can you sanity check the collapse rule before this ships?",
     content_truncated: false,
     selected_text: null,
     author: shy,

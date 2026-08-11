@@ -28,6 +28,7 @@ import type {
   UserBasic,
 } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
+import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { type ReactNode, useState } from "react";
@@ -56,7 +57,7 @@ export function TimelineRow({
   const [open, setOpen] = useState(defaultOpen);
   const hasDetail = detail !== undefined && detail !== null;
   const header = (
-    <div className="flex min-w-0 items-baseline gap-1.5 text-[13px] leading-5">
+    <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] leading-[22px]">
       <span className="min-w-0 truncate">{children}</span>
       <ThreadTimestamp dateTime={timestamp} />
       {hasDetail && (
@@ -64,8 +65,8 @@ export function TimelineRow({
           size={11}
           aria-hidden
           className={cn(
-            "ml-auto shrink-0 self-center text-muted-foreground opacity-0 transition-all group-hover:opacity-100",
-            open && "rotate-90 opacity-100",
+            "ml-auto shrink-0 text-muted-foreground opacity-0 transition-transform group-hover:opacity-60",
+            open && "rotate-90 opacity-60",
           )}
         />
       )}
@@ -74,13 +75,13 @@ export function TimelineRow({
   return (
     <div
       className={cn(
-        "group flex items-start gap-2 rounded-md py-2 pr-2 pl-2 transition-colors",
+        "group flex items-start gap-2 rounded-md py-1 pr-2 pl-2 transition-colors",
         hasDetail &&
-          "cursor-pointer focus-within:bg-gray-3 hover:bg-gray-3 has-[:focus-visible]:bg-gray-3",
+          "cursor-pointer focus-within:bg-gray-2 hover:bg-gray-2 has-[:focus-visible]:bg-gray-2",
       )}
     >
       <div className="flex w-10 shrink-0 justify-center">{gutter}</div>
-      <div className="min-w-0 flex-1 pt-0.5">
+      <div className="min-w-0 flex-1">
         {hasDetail ? (
           <>
             <button
@@ -104,27 +105,27 @@ export function TimelineRow({
 
 function IconBubble({ children }: { children: ReactNode }) {
   return (
-    <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3 ring-4 ring-gray-1">
+    <span className="relative z-10 flex size-5 items-center justify-center rounded-full bg-gray-3 ring-4 ring-gray-1">
       {children}
     </span>
   );
 }
 
 const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
-  run_started: <PlayIcon size={12} weight="fill" className="text-blue-11" />,
-  run_failed: <XCircleIcon size={14} weight="fill" className="text-red-11" />,
+  run_started: <PlayIcon size={10} weight="fill" className="text-blue-11" />,
+  run_failed: <XCircleIcon size={12} weight="fill" className="text-red-11" />,
   awaiting_input: (
-    <WarningIcon size={13} weight="fill" className="text-amber-11" />
+    <WarningIcon size={11} weight="fill" className="text-amber-11" />
   ),
-  artifact_created: <FileTextIcon size={13} className="text-violet-11" />,
+  artifact_created: <FileTextIcon size={11} className="text-violet-11" />,
   artifact_revised: (
     <ArrowsClockwiseIcon size={12} className="text-violet-11" />
   ),
-  canvas_created: <FileTextIcon size={13} className="text-violet-11" />,
-  pr_created: <GitPullRequestIcon size={13} className="text-gray-12" />,
-  pr_merged: <GitPullRequestIcon size={13} className="text-violet-11" />,
-  pr_closed: <GitPullRequestIcon size={13} className="text-red-11" />,
-  message_forwarded: <ArrowRightIcon size={12} className="text-blue-11" />,
+  canvas_created: <FileTextIcon size={11} className="text-violet-11" />,
+  pr_created: <GitPullRequestIcon size={11} className="text-gray-12" />,
+  pr_merged: <GitPullRequestIcon size={11} className="text-violet-11" />,
+  pr_closed: <GitPullRequestIcon size={11} className="text-red-11" />,
+  message_forwarded: <ArrowRightIcon size={11} className="text-blue-11" />,
 };
 
 /** The sentence an event reads as. Written so a person skimming the panel learns what
@@ -287,12 +288,12 @@ export function RunStatusRow({
         <IconBubble>
           {succeeded ? (
             <CheckCircleIcon
-              size={14}
+              size={12}
               weight="fill"
               className="text-green-11"
             />
           ) : (
-            <XCircleIcon size={14} weight="fill" className="text-red-11" />
+            <XCircleIcon size={12} weight="fill" className="text-red-11" />
           )}
         </IconBubble>
       }
@@ -346,7 +347,7 @@ export function CommentRow({
               </div>
             )}
             <div className="whitespace-pre-wrap break-words">
-              {thread.content}
+              <MentionText content={thread.content} />
             </div>
           </DetailBlock>
           {thread.reply_count > 0 && (
@@ -389,13 +390,13 @@ export function CommentStateRow({
         <IconBubble>
           {resolved ? (
             <CheckCircleIcon
-              size={14}
+              size={12}
               weight="fill"
               className="text-green-11"
             />
           ) : (
             <WarningCircleIcon
-              size={14}
+              size={12}
               weight="fill"
               className="text-amber-11"
             />
@@ -420,28 +421,20 @@ export function CommentStateRow({
  *  a loader over rows already on screen reads as the content disappearing. */
 export function ActivityLoadingState() {
   return (
-    // role=status so a screen reader hears the wait; a bare div can't carry the label.
-    <div
-      className="relative px-1 py-2"
-      role="status"
-      aria-label="Loading timeline"
-    >
+    // <output> is the semantic element for role=status; the label names the wait.
+    <output className="relative block px-1 py-2" aria-label="Loading timeline">
       <div
         aria-hidden
-        className="pointer-events-none absolute top-6 bottom-6 left-8 w-px bg-border"
+        className="pointer-events-none absolute top-5 bottom-5 left-8 w-px bg-border"
       />
       <div className="relative z-10">
         {/* Widths vary so the block reads as copy rather than a progress bar. */}
-        {[36, 52, 44, 60, 40].map((width, index) => (
-          <div
-            // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length decorative placeholder
-            key={index}
-            className="flex items-start gap-2 py-2 pr-2 pl-2"
-          >
+        {[36, 52, 44, 60, 40].map((width) => (
+          <div key={width} className="flex items-start gap-2 py-1 pr-2 pl-2">
             <div className="flex w-10 shrink-0 justify-center">
-              <Skeleton className="size-6 rounded-full ring-4 ring-gray-1" />
+              <Skeleton className="size-5 rounded-full ring-4 ring-gray-1" />
             </div>
-            <div className="min-w-0 flex-1 pt-1">
+            <div className="min-w-0 flex-1 py-1">
               <Skeleton
                 className="h-3 rounded"
                 style={{ width: `${width}%` }}
@@ -450,6 +443,6 @@ export function ActivityLoadingState() {
           </div>
         ))}
       </div>
-    </div>
+    </output>
   );
 }
