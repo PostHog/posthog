@@ -10,6 +10,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
@@ -86,6 +87,42 @@ describe('dashboardsLogic', () => {
 
         logic = dashboardsLogic({ tabId: '1' })
         logic.mount()
+    })
+
+    // Moving from the list only reaches the list through this translation; without it the Folder column
+    // keeps its loaded value until a reload, which is what the move was meant to change.
+    describe('reflecting a completed move', () => {
+        it('updates the moved dashboard to its new folder', async () => {
+            await expectLogic(logic, () => {
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'fs-1', type: 'dashboard', ref: String(dashboardId), path: 'Marketing/A' } as any,
+                    'Marketing/A',
+                    'Revenue/Q3/A'
+                )
+            }).toDispatchActions([
+                dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: 'Revenue/Q3' }),
+            ])
+        })
+
+        it('moves a dashboard to the project root', async () => {
+            await expectLogic(logic, () => {
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'fs-1', type: 'dashboard', ref: String(dashboardId), path: 'Marketing/A' } as any,
+                    'Marketing/A',
+                    'A'
+                )
+            }).toDispatchActions([dashboardsModel.actionCreators.patchDashboardFolders({ [dashboardId]: '' })])
+        })
+
+        it('ignores moves of other item types', async () => {
+            await expectLogic(logic, () => {
+                projectTreeDataLogic.actions.movedItem(
+                    { id: 'fs-2', type: 'insight', ref: '5', path: 'Marketing/An insight' } as any,
+                    'Marketing/An insight',
+                    'Revenue/An insight'
+                )
+            }).toNotHaveDispatchedActions(['patchDashboardFolders'])
+        })
     })
 
     it('shows all dashboards when no filters', async () => {

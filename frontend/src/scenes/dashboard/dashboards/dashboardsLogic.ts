@@ -16,6 +16,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -88,6 +90,15 @@ export interface dashboardsLogicActions {
     openMoveToModal: (items: FileSystemEntry[]) => {
         items: FileSystemEntry[]
     } // moveToLogic
+    movedItem: (
+        item: FileSystemEntry,
+        oldPath: string,
+        newPath: string
+    ) => {
+        item: FileSystemEntry
+        newPath: string
+        oldPath: string
+    } // projectTreeDataLogic
     loadSearchedDashboards: ({ search, tags, folder }: { folder: string | null; search: string; tags: string[] }) => {
         search: string
         tags: string[]
@@ -184,9 +195,17 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
-        // Connected, not reached through `.actions`: kea throws when you dispatch on an unmounted logic,
-        // and the move breaks entirely if either happens to be unmounted.
-        actions: [moveToLogic, ['openMoveToModal'], eventUsageLogic, ['reportDashboardMoveInitiated']],
+        // The first two are connected, not reached through `.actions`: kea throws when you dispatch on an
+        // unmounted logic, and the move breaks entirely if either happens to be unmounted. `movedItem` is
+        // connected so the listener below hears it.
+        actions: [
+            moveToLogic,
+            ['openMoveToModal'],
+            eventUsageLogic,
+            ['reportDashboardMoveInitiated'],
+            projectTreeDataLogic,
+            ['movedItem'],
+        ],
     })),
     actions({
         // Move dashboards into a folder from the list. The list only holds ids, so their file system rows
@@ -403,6 +422,32 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 ...router.values.searchParams,
                 tab,
             })
+        },
+        // The list's Folder column comes from the dashboards model, which the move never touches — so
+        // without this the row keeps its old folder until a reload. A folder move re-parents everything
+        // beneath it; the trailing slash keeps a sibling with a similar name out of the rename.
+        movedItem: ({ item, oldPath, newPath }) => {
+            if (item.type === 'dashboard') {
+                if (item.ref) {
+                    dashboardsModel.actions.patchDashboardFolders({
+                        [item.ref]: joinPath(splitPath(newPath).slice(0, -1)),
+                    })
+                }
+                return
+            }
+            if (item.type !== 'folder') {
+                return
+            }
+            const moved: Record<string, string> = {}
+            for (const dashboard of values.dashboards) {
+                const folder = dashboard.folder
+                if (folder && (folder === oldPath || folder.startsWith(`${oldPath}/`))) {
+                    moved[dashboard.id] = newPath + folder.slice(oldPath.length)
+                }
+            }
+            if (Object.keys(moved).length > 0) {
+                dashboardsModel.actions.patchDashboardFolders(moved)
+            }
         },
         setSearch: ({ search }) => {
             const nextSearch = search ?? ''

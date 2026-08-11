@@ -185,6 +185,9 @@ export interface dashboardsModelActions {
               }
         payload?: string
     }
+    patchDashboardFolders: (folders: Record<string, string>) => {
+        folders: Record<string, string>
+    }
     pinDashboard: (
         id: number,
         source: DashboardEventSource
@@ -344,6 +347,9 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
         delayedDeleteDashboard: (id: number) => ({ id }),
+        // A move reaches us through the project tree, which selects from this model — so the scene
+        // translates the move and this only takes the resulting id -> folder map.
+        patchDashboardFolders: (folders: Record<string, string>) => ({ folders }),
         setDiveSourceId: (id: InsightShortId | null) => ({ id }),
         addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => ({ dashboard }),
         /**
@@ -594,6 +600,16 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     ...state,
                     [dashboard.id]: { ...dashboard, _highlight: true },
                 }),
+                patchDashboardFolders: (state, { folders }) => {
+                    const patched = Object.entries(folders).filter(([id]) => state[id])
+                    if (patched.length === 0) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        ...Object.fromEntries(patched.map(([id, folder]) => [id, { ...state[id], folder }])),
+                    }
+                },
             },
         ],
     }),

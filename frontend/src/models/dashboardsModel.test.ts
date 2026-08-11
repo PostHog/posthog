@@ -186,6 +186,26 @@ describe('the dashboards model', () => {
         })
     })
 
+    // The list's Folder column reads this map. Without the patch the row keeps the folder it was
+    // loaded with, so a move made from the list looks like it did nothing until a reload.
+    describe('patching folders after a move', () => {
+        beforeEach(async () => {
+            await expectLogic(logic, () => logic.actions.loadDashboards()).toFinishAllListeners()
+        })
+
+        it('applies the new folder to the dashboards named', async () => {
+            logic.actions.patchDashboardFolders({ 1: 'Revenue/Q3', 2: '' })
+            expect(logic.values.rawDashboards[1].folder).toEqual('Revenue/Q3')
+            expect(logic.values.rawDashboards[2].folder).toEqual('')
+        })
+
+        it('ignores ids it does not hold', async () => {
+            const before = logic.values.rawDashboards
+            logic.actions.patchDashboardFolders({ 99999: 'Revenue' })
+            expect(logic.values.rawDashboards).toBe(before)
+        })
+    })
+
     it('clears primary_dashboard from team when deleting the primary dashboard', async () => {
         const primaryDashboardId = 42
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, primary_dashboard: primaryDashboardId })
