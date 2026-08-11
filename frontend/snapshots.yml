@@ -1280,6 +1280,10 @@ snapshots:
         hash: v1.k794b7964.e6d1431f2c287222b95e12de13466b613f13602baf25cf0992c1cd0567c93832.Lr1GWE4QycbyRnEu3qFN0pRr6dXkOKnLMzBiG5W61tw
     components-markdown-notebook--slash-menu-and-insertion--light:
         hash: v1.k794b7964.bd761ee9ca4ca6234cdb1010e654ffb858f8f3768908fcd19e1622e33ded5db2.1V0PtJ0cd648-epvNF70aK-NWlnml71MG1wAapku6sY
+    components-markdown-notebook--tables-in-prose--dark:
+        hash: v1.k794b7964.a13a637d5833b26653523a319666fcfa3f549b8fcb9aeb8578d2cbc90ace419c.xxBNxMqNgoZhMl81EacW5YuJNOtvuk5KpH4C9O692lc
+    components-markdown-notebook--tables-in-prose--light:
+        hash: v1.k794b7964.beed90b19074cc9e07f6223c688ab0f938b077f7cab6612e4bebc37245310fbb.-77ktUbDCicNpcBxW-bLiAGCRyxNy9yVhfCUxNeC874
     components-markdown-notebook--text-only-notebook--dark:
         hash: v1.k794b7964.0736ade6a331a708ee3b7b6e393ec3f1d38e8bd62729d4ab67a4dc7080f62a02.zdPGKStU_sTO5KCpsDq66BEJMWx-ufUTiB0auOiVDFw
     components-markdown-notebook--text-only-notebook--light:
@@ -6627,9 +6631,9 @@ snapshots:
     scenes-app-notebooks--empty-notebook--light:
         hash: v1.k794b7964.77aff40362510d2b0372862354b4a55a23ec608def9080f978ee0422a42be781.53nBm8cpvK5A2HhLidaodgMOlw4BlMJlzDqUCf33Gsc
     scenes-app-notebooks--flattened-table--dark:
-        hash: v1.k794b7964.677ede582bed9c869565e1243d26a9651c5021aec2ec41c7c1d3f724538ca843.JIPEWABxzn_aVKEMxVQUpBbwiLP7WdQKBZ1kVZvCgfw
+        hash: v1.k794b7964.ef2e6fa108d6aedc7a660ec0f9929b4362c468b474c6eb96eb3a996d539d77f0.8fZcPL5ZbcePeweEDx5nwAdc1K8naAXwCSl6A38LWg4
     scenes-app-notebooks--flattened-table--light:
-        hash: v1.k794b7964.3003771ef6f5988152880ef8ed616a46419f2eb13a8aa84cf7562d73ba56e6a9.15cAbTKrrcaBv-cerYOLfrOKp-8wyTwwzHrr-Nt6zpg
+        hash: v1.k794b7964.76aadf2d94b340adedffadff6261c3c6dc7350883520fda101752e4021994219.n685ASmlzDTxjja7xjZfNGAksD7Ap99kalcxxxdJ0Yw
     scenes-app-notebooks--headings--dark:
         hash: v1.k794b7964.59254db5c596295bcea25ba1937594bb6654feae3d64fedfcd6681ceab6c4a2c.OghyG8OZyiZQKT2uGKJ1huWUb9PYvEssauVMYICjkbk
     scenes-app-notebooks--headings--light:
