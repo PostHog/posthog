@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  HORIZONTAL_CLAIM_DX,
   SWIPE_COMMIT_THRESHOLD,
   SWIPE_INTENT_THRESHOLD,
   type SwipeIntent,
+  shouldClaimHorizontalDrag,
   stampOpacity,
   stampOpacityRange,
 } from "./swipeIntent";
@@ -64,4 +66,44 @@ describe("stampOpacityRange", () => {
       }
     },
   );
+});
+
+describe("shouldClaimHorizontalDrag", () => {
+  it.each<[string, number, number]>([
+    ["a clean rightward drag", 40, 4],
+    ["a clean leftward drag", -40, -4],
+    ["a drag just past the distance threshold", HORIZONTAL_CLAIM_DX + 1, 0],
+    ["a long shallow drag", 200, 100],
+  ])("claims %s", (_name, dx, dy) => {
+    expect(shouldClaimHorizontalDrag(dx, dy)).toBe(true);
+  });
+
+  it.each<[string, number, number]>([
+    ["a pure vertical scroll", 0, 80],
+    ["a scroll that wobbles sideways", 10, 80],
+    ["a horizontal nudge too small to mean anything", 8, 0],
+    ["a drag exactly at the distance threshold", HORIZONTAL_CLAIM_DX, 0],
+    ["a 45-degree diagonal", 60, 60],
+  ])("leaves %s to the scroll view", (_name, dx, dy) => {
+    expect(shouldClaimHorizontalDrag(dx, dy)).toBe(false);
+  });
+
+  it("needs a clearly horizontal angle, not merely a wider one", () => {
+    // The old `|dx| > |dy|` rule claimed this; a thumb pulling a summary down
+    // and slightly across produces it constantly.
+    const dx = 50;
+    const dy = 45;
+    expect(Math.abs(dx) > Math.abs(dy)).toBe(true);
+    expect(shouldClaimHorizontalDrag(dx, dy)).toBe(false);
+  });
+
+  it("is symmetric in both axes", () => {
+    for (const dx of [-60, -20, -15, 0, 15, 20, 60]) {
+      for (const dy of [-40, -5, 0, 5, 40]) {
+        expect(shouldClaimHorizontalDrag(dx, dy)).toBe(
+          shouldClaimHorizontalDrag(-dx, -dy),
+        );
+      }
+    }
+  });
 });

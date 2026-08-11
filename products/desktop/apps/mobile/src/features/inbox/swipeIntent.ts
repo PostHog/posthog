@@ -10,6 +10,42 @@ export const SWIPE_COMMIT_THRESHOLD = 120;
  */
 export const SWIPE_INTENT_THRESHOLD = 40;
 
+/**
+ * Horizontal drag, in points, before the card claims the gesture from whatever
+ * is underneath it.
+ *
+ * Larger than the 8pt the card used when nothing competed for the touch: the
+ * card body scrolls now, and a vertical scroll that wobbles a few points
+ * sideways must not fling the report off screen.
+ */
+export const HORIZONTAL_CLAIM_DX = 14;
+
+/**
+ * How much more horizontal than vertical a drag has to be to count as a swipe.
+ * A plain `|dx| > |dy|` test hands 46° drags to the card, which is exactly
+ * where a thumb dragging down a long summary lives.
+ */
+export const HORIZONTAL_CLAIM_RATIO = 1.6;
+
+/**
+ * Whether a drag is unambiguously a card swipe rather than a scroll of the
+ * card's body.
+ *
+ * This is asked on the responder *capture* pass, so the card gets first refusal
+ * on each move before the scroll view can claim it. The asymmetry is deliberate
+ * and one-directional: a gesture that starts horizontally swipes, and a gesture
+ * that has already started scrolling keeps scrolling until the finger lifts,
+ * because a scroll view that has begun scrolling refuses to hand the responder
+ * back. Nudging these numbers down trades card-swipe sensitivity for scroll
+ * stability, not the other way around.
+ */
+export function shouldClaimHorizontalDrag(dx: number, dy: number): boolean {
+  return (
+    Math.abs(dx) > HORIZONTAL_CLAIM_DX &&
+    Math.abs(dx) > Math.abs(dy) * HORIZONTAL_CLAIM_RATIO
+  );
+}
+
 /** Right-swipe starts a task from the report; left-swipe dismisses it. */
 export type SwipeIntent = "accept" | "dismiss";
 

@@ -1,17 +1,37 @@
 import { Text } from "@components/text";
+import { formatSignalReportSummaryMarkdown } from "@posthog/core/inbox/reportPresentation";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
-import { GithubLogo, Lightning } from "phosphor-react-native";
+import {
+  GithubLogo,
+  Lightning,
+  MagnifyingGlass,
+  UsersThree,
+} from "phosphor-react-native";
 import { useMemo, useRef } from "react";
-import { Animated, PanResponder, Pressable, View } from "react-native";
+import {
+  Animated,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  View,
+} from "react-native";
+import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
-import { SWIPE_COMMIT_THRESHOLD, stampOpacityRange } from "../swipeIntent";
+import { cardReviewerNames, summarizeCardEvidence } from "../cardDetails";
+import {
+  useInboxReportArtefacts,
+  useInboxReportSignals,
+} from "../hooks/useInboxReports";
+import {
+  SWIPE_COMMIT_THRESHOLD,
+  shouldClaimHorizontalDrag,
+  stampOpacityRange,
+} from "../swipeIntent";
 import { summaryExcerpt } from "../utils";
 import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
-
-const TAP_THRESHOLD = 10;
 
 interface SwipeableReportCardProps {
   report: SignalReport;
@@ -36,33 +56,28 @@ export function SwipeableReportCard({
 }: SwipeableReportCardProps) {
   const themeColors = useThemeColors();
   const translateX = useRef(new Animated.Value(0)).current;
-  const maxDxRef = useRef(0);
 
   const propsRef = useRef({ report, onDismiss, onAccept, onExpand });
   propsRef.current = { report, onDismiss, onAccept, onExpand };
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (_, gesture) =>
-        Math.abs(gesture.dx) > 8 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      // Taps must reach the body: the card opens the full report on press and
+      // its summary scrolls, so the card only ever claims a moving gesture.
+      onStartShouldSetPanResponderCapture: () => false,
+      // Capture rather than bubble. The card's body is a scroll view now, and
+      // the bubble pass only runs when no descendant wanted the touch — by
+      // which point the scroll view owns the gesture and (having scrolled)
+      // will refuse to give it back. Asking on the way down gives the card
+      // first refusal on every move.
+      onMoveShouldSetPanResponderCapture: (_, gesture) =>
+        shouldClaimHorizontalDrag(gesture.dx, gesture.dy),
       onPanResponderTerminationRequest: () => false,
-      onPanResponderGrant: () => {
-        maxDxRef.current = 0;
-      },
       onPanResponderMove: (_, gesture) => {
-        maxDxRef.current = Math.max(maxDxRef.current, Math.abs(gesture.dx));
         translateX.setValue(gesture.dx);
       },
       onPanResponderRelease: (_, gesture) => {
         const p = propsRef.current;
-
-        // Tap detection: no significant movement
-        if (maxDxRef.current < TAP_THRESHOLD) {
-          translateX.setValue(0);
-          p.onExpand(p.report);
-          return;
-        }
 
         if (gesture.dx > SWIPE_COMMIT_THRESHOLD) {
           // Swipe right → accept
@@ -116,30 +131,34 @@ export function SwipeableReportCard({
 
   const updatedAt = formatRelativeTime(Date.parse(report.updated_at));
 
-  // Non-top cards: static, offset down, no gestures
+  // Non-top cards: static, offset down, no gestures. They show a few points of
+  // edge from behind the top card, so they get the cheap flattened excerpt —
+  // rendering markdown and mounting queries for something nobody can read
+  // would cost a frame per swipe for nothing.
   if (!isTopCard) {
     return (
       <View
-        className="absolute inset-x-0 top-0 rounded-2xl border border-gray-6 bg-card shadow-lg"
+        className="absolute inset-x-0 top-0 overflow-hidden rounded-2xl border border-gray-6 bg-card shadow-lg"
         style={{
           bottom: -stackOffset,
           opacity: 0.85,
           elevation: 2,
         }}
       >
-        <CardContent
+        <CardHeader
           report={report}
           updatedAt={updatedAt}
           themeColors={themeColors}
           repo={repo}
         />
+        <CardExcerpt summary={report.summary} />
       </View>
     );
   }
 
   return (
     <Animated.View
-      className="absolute inset-0 rounded-2xl border border-gray-6 bg-card shadow-lg"
+      className="absolute inset-0 overflow-hidden rounded-2xl border border-gray-6 bg-card shadow-lg"
       style={{
         transform: [{ translateX }, { rotate }],
         elevation: 4,
@@ -181,72 +200,85 @@ export function SwipeableReportCard({
 
       <Pressable
         onPress={() => onExpand(report)}
-        className="flex-1 active:opacity-80"
+        className="flex-1 active:opacity-90"
       >
-        <CardContent
+        {/* Fixed head: what the swipe is about stays put while the body moves,
+            so the title can never scroll out from under a half-made decision. */}
+        <CardHeader
           report={report}
           updatedAt={updatedAt}
           themeColors={themeColors}
           repo={repo}
         />
+
+        {/* Scrolling body. The card keeps a constant height — it is absolutely
+            positioned to fill the deck — so a long report deepens this scroll
+            rather than growing the card and breaking the stack. */}
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: 16,
+          }}
+          showsVerticalScrollIndicator
+          // A drag that reaches the end of the summary must not start bouncing
+          // the whole deck's parent instead.
+          nestedScrollEnabled
+        >
+          {report.summary ? (
+            <MarkdownText
+              content={formatSignalReportSummaryMarkdown(report.summary)}
+            />
+          ) : (
+            <Text className="text-[13px] text-gray-9">
+              No summary yet — this report is still being written up.
+            </Text>
+          )}
+
+          <TopCardDetails reportId={report.id} />
+        </ScrollView>
       </Pressable>
     </Animated.View>
   );
 }
 
-interface CardContentProps {
+interface CardHeaderProps {
   report: SignalReport;
   updatedAt: string;
   themeColors: ReturnType<typeof useThemeColors>;
   repo?: string | null;
 }
 
-function CardContent({
-  report,
-  updatedAt,
-  themeColors,
-  repo,
-}: CardContentProps) {
-  const excerpt = useMemo(
-    () => summaryExcerpt(report.summary),
-    [report.summary],
-  );
-
+/**
+ * Badges, title and meta row, in the same order the report detail screen uses
+ * them — a card and the page it opens should not disagree about what matters.
+ */
+function CardHeader({ report, updatedAt, themeColors, repo }: CardHeaderProps) {
   return (
-    <View className="flex-1 p-4">
-      {/* Title */}
-      <Text
-        className="font-bold text-[16px] text-gray-12 leading-snug"
-        numberOfLines={2}
-      >
-        {report.title ?? "Untitled report"}
-      </Text>
-
-      {/* Badges row — the three facts that decide the swipe */}
-      <View className="mt-2 flex-row flex-wrap items-center gap-1.5">
+    <View className="px-4 pt-4 pb-3">
+      <View className="flex-row flex-wrap items-center gap-1.5">
         {report.priority && <PriorityBadge priority={report.priority} />}
         <StatusBadge status={report.status} />
         {report.actionability && (
           <ActionabilityBadge value={report.actionability} />
         )}
+        {report.is_suggested_reviewer && (
+          <View className="rounded-full bg-status-warning/20 px-2 py-0.5">
+            <Text className="font-medium text-[11px] text-status-warning">
+              For you
+            </Text>
+          </View>
+        )}
       </View>
 
-      {/* Summary excerpt — plain text, clamped, so every card in the stack is
-          the same height and the footer stays put. The full rendered summary
-          is a tap away in the expanded view. */}
-      <View className="mt-3 flex-1 overflow-hidden">
-        {excerpt ? (
-          <Text
-            className="text-[13px] text-gray-11 leading-[19px]"
-            numberOfLines={4}
-          >
-            {excerpt}
-          </Text>
-        ) : null}
-      </View>
+      <Text
+        className="mt-2 font-bold text-[16px] text-gray-12 leading-snug"
+        numberOfLines={3}
+      >
+        {report.title ?? "Untitled report"}
+      </Text>
 
-      {/* Footer: signal count + time + repo */}
-      <View className="mt-3 flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
+      <View className="mt-2 flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
         <View className="flex-row items-center gap-1">
           <Lightning size={13} color={themeColors.gray[9]} weight="fill" />
           <Text className="text-[12px] text-gray-9">
@@ -256,15 +288,12 @@ function CardContent({
         <Text className="text-[12px] text-gray-9">·</Text>
         <Text className="text-[12px] text-gray-9">{updatedAt}</Text>
         {repo && (
-          <>
-            <Text className="text-[12px] text-gray-9">·</Text>
-            <View className="min-w-0 flex-row items-center gap-1 rounded-full border border-gray-6 bg-gray-2 px-2 py-0.5">
-              <GithubLogo size={10} color={themeColors.gray[9]} weight="fill" />
-              <Text className="text-[11px] text-gray-9" numberOfLines={1}>
-                {repo}
-              </Text>
-            </View>
-          </>
+          <View className="min-w-0 flex-row items-center gap-1 rounded-full border border-gray-6 bg-gray-2 px-2 py-0.5">
+            <GithubLogo size={10} color={themeColors.gray[9]} weight="fill" />
+            <Text className="text-[11px] text-gray-9" numberOfLines={1}>
+              {repo}
+            </Text>
+          </View>
         )}
         {report.implementation_pr_url ? (
           <View className="ml-auto">
@@ -276,6 +305,83 @@ function CardContent({
           </View>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+/** Flattened, clamped prose — the cheap stand-in for the cards behind. */
+function CardExcerpt({ summary }: { summary: string | null | undefined }) {
+  const excerpt = useMemo(() => summaryExcerpt(summary), [summary]);
+  if (!excerpt) return null;
+  return (
+    <View className="px-4 pb-4">
+      <Text
+        className="text-[13px] text-gray-11 leading-[19px]"
+        numberOfLines={6}
+      >
+        {excerpt}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * The detail screen's evidence and reviewer strips, for the top card only.
+ *
+ * Mounted from inside the top card's body rather than passed down, so the
+ * queries live and die with the card being decided on — the deck renders three
+ * cards, and fanning per-report requests out across all of them would put a
+ * burst of requests behind every swipe.
+ */
+function TopCardDetails({ reportId }: { reportId: string }) {
+  const themeColors = useThemeColors();
+  const signalsQuery = useInboxReportSignals(reportId);
+  // Cache-only: the detail screen and the activity log populate artefacts, and
+  // the reviewer strip is a nice-to-have, not worth a poller behind the deck.
+  const artefactsQuery = useInboxReportArtefacts(reportId, { enabled: false });
+
+  const signals = signalsQuery.data?.signals;
+  const artefacts = artefactsQuery.data?.results;
+
+  const evidence = useMemo(
+    () => summarizeCardEvidence(signals, artefacts),
+    [signals, artefacts],
+  );
+  const reviewers = useMemo(() => cardReviewerNames(artefacts), [artefacts]);
+
+  if (!evidence && reviewers.length === 0) return null;
+
+  return (
+    <View className="mt-4 gap-2 border-gray-5 border-t pt-3">
+      {evidence && (
+        <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1">
+          <View className="flex-row items-center gap-1.5">
+            <MagnifyingGlass size={12} color={themeColors.gray[9]} />
+            <Text className="text-[12px] text-gray-10">
+              {evidence.findingCount} finding
+              {evidence.findingCount !== 1 ? "s" : ""}
+            </Text>
+          </View>
+          {evidence.replayCount > 0 && (
+            <>
+              <Text className="text-[12px] text-gray-9">·</Text>
+              <Text className="text-[12px] text-gray-10">
+                {evidence.replayCount} session replay
+                {evidence.replayCount !== 1 ? "s" : ""}
+              </Text>
+            </>
+          )}
+        </View>
+      )}
+
+      {reviewers.length > 0 && (
+        <View className="flex-row items-center gap-1.5">
+          <UsersThree size={12} color={themeColors.gray[9]} />
+          <Text className="flex-1 text-[12px] text-gray-10" numberOfLines={1}>
+            {reviewers.join(", ")}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
