@@ -1,6 +1,6 @@
 import type { TaskRunArtifact } from "@posthog/shared";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowSquareOut, Warning, X } from "phosphor-react-native";
+import { ArrowSquareOut, Export, Warning, X } from "phosphor-react-native";
 import {
   ActivityIndicator,
   Image,
@@ -15,9 +15,14 @@ import WebView from "react-native-webview";
 import { MarkdownText } from "@/features/chat";
 import { applyCspToHtml } from "@/features/mcp/sandbox/mcpAppCsp";
 import { openExternalUrl } from "@/lib/openExternalUrl";
+import { shareUrl } from "@/lib/shareUrl";
 import { useThemeColors } from "@/lib/theme";
 import { useCloudAttachmentPreview } from "../hooks/useCloudAttachmentPreview";
-import { artifactPreviewKind } from "../utils/artifactPreview";
+import {
+  artifactPreviewKind,
+  artifactPreviewNeedsText,
+  formatJsonForPreview,
+} from "../utils/artifactPreview";
 
 interface ArtifactPreviewProps {
   taskId: string;
@@ -42,9 +47,9 @@ export function ArtifactPreview({
     artifact.id ? { runId, artifactId: artifact.id } : undefined,
   );
 
-  // Markdown and HTML render from the file's text; images and the external
+  // Text-family kinds render from the file's body; images and the external
   // fallback only need the presigned URL.
-  const needsText = kind === "markdown" || kind === "html";
+  const needsText = artifactPreviewNeedsText(kind);
   const {
     data: text,
     isLoading: textLoading,
@@ -79,14 +84,25 @@ export function ArtifactPreview({
             {name}
           </Text>
           {url ? (
-            <Pressable
-              onPress={() => openExternalUrl(url)}
-              hitSlop={8}
-              className="active:opacity-60"
-              accessibilityLabel="Open externally"
-            >
-              <ArrowSquareOut size={20} color={themeColors.gray[12]} />
-            </Pressable>
+            <>
+              <Pressable
+                onPress={() => void shareUrl(url, name)}
+                hitSlop={8}
+                className="active:opacity-60"
+                accessibilityRole="button"
+                accessibilityLabel={`Share ${name}`}
+              >
+                <Export size={20} color={themeColors.gray[12]} />
+              </Pressable>
+              <Pressable
+                onPress={() => openExternalUrl(url)}
+                hitSlop={8}
+                className="active:opacity-60"
+                accessibilityLabel="Open externally"
+              >
+                <ArrowSquareOut size={20} color={themeColors.gray[12]} />
+              </Pressable>
+            </>
           ) : null}
           <Pressable
             onPress={onClose}
@@ -121,6 +137,14 @@ export function ArtifactPreview({
             >
               <MarkdownText content={text ?? ""} disableRemoteImages />
             </ScrollView>
+          ) : kind === "json" || kind === "text" ? (
+            <PlainTextPreview
+              content={
+                kind === "json"
+                  ? formatJsonForPreview(text ?? "")
+                  : (text ?? "")
+              }
+            />
           ) : (
             <WebView
               originWhitelist={["*"]}
@@ -149,6 +173,25 @@ export function ArtifactPreview({
         </View>
       </View>
     </Modal>
+  );
+}
+
+/**
+ * Monospace body for data, config, and source files. Long lines scroll
+ * horizontally rather than wrapping, so CSV columns and code stay aligned.
+ */
+function PlainTextPreview({ content }: { content: string }) {
+  return (
+    <ScrollView className="flex-1" contentContainerStyle={{ padding: 16 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <Text
+          className="font-mono text-[12px] text-gray-12 leading-4"
+          selectable
+        >
+          {content}
+        </Text>
+      </ScrollView>
+    </ScrollView>
   );
 }
 

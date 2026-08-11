@@ -1,17 +1,18 @@
 import type { TaskRunArtifact } from "@posthog/shared";
 import {
-  ArrowSquareOut,
   CaretDown,
   CaretRight,
+  Export,
   File as FileIcon,
 } from "phosphor-react-native";
 import { useCallback, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, Text, View } from "react-native";
-import { openExternalUrl } from "@/lib/openExternalUrl";
+import { shareUrl } from "@/lib/shareUrl";
 import { useThemeColors } from "@/lib/theme";
 import { presignTaskRunArtifact } from "../api";
 import { useTaskArtifacts } from "../hooks/useTaskArtifacts";
 import { formatArtifactSize } from "../utils/artifactPreview";
+import { artifactTypeLabel } from "../utils/artifactTypes";
 import { ArtifactPreview } from "./ArtifactPreview";
 
 interface TaskArtifactsProps {
@@ -38,9 +39,9 @@ export function TaskArtifacts({ taskId, runId, enabled }: TaskArtifactsProps) {
           runId,
           artifact.storage_path,
         );
-        openExternalUrl(url);
+        await shareUrl(url, artifact.name);
       } catch {
-        Alert.alert("Couldn't open file", "Please try again.");
+        Alert.alert("Couldn't share file", "Please try again.");
       } finally {
         setSharingId(null);
       }
@@ -74,6 +75,7 @@ export function TaskArtifacts({ taskId, runId, enabled }: TaskArtifactsProps) {
           {artifacts.map((artifact) => {
             const sharingKey = artifact.id ?? artifact.storage_path;
             const size = formatArtifactSize(artifact.size);
+            const typeLabel = artifactTypeLabel(artifact.type);
             const canPreview = Boolean(artifact.id);
             return (
               <View
@@ -92,6 +94,11 @@ export function TaskArtifacts({ taskId, runId, enabled }: TaskArtifactsProps) {
                   >
                     {artifact.name ?? "artifact"}
                   </Text>
+                  {typeLabel ? (
+                    <Text className="rounded bg-gray-3 px-1.5 py-0.5 text-[10px] text-gray-10 uppercase">
+                      {typeLabel}
+                    </Text>
+                  ) : null}
                   {size ? (
                     <Text className="text-[12px] text-gray-9">{size}</Text>
                   ) : null}
@@ -101,7 +108,8 @@ export function TaskArtifacts({ taskId, runId, enabled }: TaskArtifactsProps) {
                   className="active:opacity-60"
                   disabled={!artifact.storage_path}
                   onPress={() => void shareArtifact(artifact)}
-                  accessibilityLabel="Open externally"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Share ${artifact.name ?? "artifact"}`}
                 >
                   {sharingId === sharingKey ? (
                     <ActivityIndicator
@@ -109,7 +117,7 @@ export function TaskArtifacts({ taskId, runId, enabled }: TaskArtifactsProps) {
                       color={themeColors.gray[11]}
                     />
                   ) : (
-                    <ArrowSquareOut size={16} color={themeColors.gray[11]} />
+                    <Export size={16} color={themeColors.gray[11]} />
                   )}
                 </Pressable>
               </View>

@@ -17,15 +17,14 @@ vi.mock("./ArtifactPreview", () => ({
 
 vi.mock("../api", () => ({ presignTaskRunArtifact: vi.fn() }));
 
-vi.mock("@/lib/openExternalUrl", () => ({ openExternalUrl: vi.fn() }));
+vi.mock("@/lib/shareUrl", () => ({ shareUrl: vi.fn() }));
 
 vi.mock("phosphor-react-native", () => ({
-  ArrowSquareOut: (props: Record<string, unknown>) =>
-    createElement("ArrowSquareOut", props),
   CaretDown: (props: Record<string, unknown>) =>
     createElement("CaretDown", props),
   CaretRight: (props: Record<string, unknown>) =>
     createElement("CaretRight", props),
+  Export: (props: Record<string, unknown>) => createElement("Export", props),
   File: (props: Record<string, unknown>) => createElement("File", props),
 }));
 
@@ -58,7 +57,11 @@ function render(artifacts: TaskRunArtifact[] | undefined) {
 }
 
 function pressHeader(renderer: ReturnType<typeof create>) {
-  const header = renderer.root.findByProps({ accessibilityRole: "button" });
+  const header = renderer.root.find(
+    (node) =>
+      typeof node.props.accessibilityLabel === "string" &&
+      node.props.accessibilityLabel.startsWith("Files ("),
+  );
   act(() => {
     header.props.onPress();
   });
@@ -80,6 +83,26 @@ describe("TaskArtifacts", () => {
     expect(output).toContain("chart.png");
     expect(output).toContain("2 KB");
     expect(output).toContain("512 B");
+  });
+
+  it("badges each artifact with its type", () => {
+    const output = render([
+      { id: "a1", name: "plan.md", type: "plan" },
+      { id: "a2", name: "notes.md", type: "context" },
+      { id: "a3", name: "report.md", type: "output" },
+    ]);
+    expect(output).toContain("Plan");
+    expect(output).toContain("Context");
+    expect(output).toContain("Output");
+  });
+
+  it("offers a share action per artifact", () => {
+    const renderer = mount([
+      { id: "a1", name: "report.md", type: "output", storage_path: "s/1" },
+    ]);
+    expect(
+      renderer.root.findByProps({ accessibilityLabel: "Share report.md" }),
+    ).toBeTruthy();
   });
 
   it("hides the list when the header is tapped and shows it again", () => {
