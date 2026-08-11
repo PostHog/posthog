@@ -166,7 +166,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
                         <Link
                             data-attr="invite-signup-error-contact-support"
-                            onClick={() => openSupportForm({ kind: 'support', target_area: 'login' })}
+                            onClick={() => openSupportForm({ kind: 'support' })}
                             className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
                         >
                             Need help?
@@ -463,12 +463,7 @@ function InviteInvalid(): JSX.Element {
                                 Try again
                             </LemonButton>
                         ) : null}
-                        <LemonButton
-                            size="large"
-                            center
-                            fullWidth
-                            onClick={() => openSupportForm({ kind: 'bug', target_area: 'login' })}
-                        >
+                        <LemonButton size="large" center fullWidth onClick={() => openSupportForm({ kind: 'bug' })}>
                             Contact support
                         </LemonButton>
                     </div>

@@ -7,6 +7,7 @@ import type {
 import type { EffortLevel } from "@posthog/shared/domain-types";
 
 export type {
+  ArtifactSource,
   ArtifactType,
   PostHogAPIConfig,
   Task,

@@ -14,13 +14,21 @@ import {
     mcpGatewayServersList,
     mcpGatewayServersPartialUpdate,
     mcpGatewayServersSetTemplateEnabledCreate,
+    mcpGatewayServiceAccountsAccessCreate,
     mcpGatewayServiceAccountsList,
     mcpServerInstallationsInstallCustomCreate,
     mcpServerInstallationsInstallTemplateCreate,
+    mcpServerInstallationsToolsRefreshCreate,
     mcpServersList,
 } from '../generated/api'
-import type { GatewayMemberSummaryApi, MCPGatewayServerApi, MCPServerTemplateApi } from '../generated/api.schemas'
-import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
+import type {
+    GatewayMemberSummaryApi,
+    MCPGatewayServerApi,
+    MCPServerInstallationApi,
+    MCPServerTemplateApi,
+    MCPServiceAccountApi,
+} from '../generated/api.schemas'
+import { CONNECTED_SERVERS_FILTER, GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 jest.mock('../generated/api', () => ({
     mcpGatewayConfigApplyPresetCreate: jest.fn(),
@@ -31,9 +39,11 @@ jest.mock('../generated/api', () => ({
     mcpGatewayServersList: jest.fn(),
     mcpGatewayServersPartialUpdate: jest.fn(),
     mcpGatewayServersSetTemplateEnabledCreate: jest.fn(),
+    mcpGatewayServiceAccountsAccessCreate: jest.fn(),
     mcpGatewayServiceAccountsList: jest.fn(),
     mcpServerInstallationsInstallCustomCreate: jest.fn(),
     mcpServerInstallationsInstallTemplateCreate: jest.fn(),
+    mcpServerInstallationsToolsRefreshCreate: jest.fn(),
     mcpServersList: jest.fn(),
 }))
 
@@ -53,6 +63,9 @@ const mockServersPartialUpdate = mcpGatewayServersPartialUpdate as jest.MockedFu
 const mockSetTemplateEnabled = mcpGatewayServersSetTemplateEnabledCreate as jest.MockedFunction<
     typeof mcpGatewayServersSetTemplateEnabledCreate
 >
+const mockServiceAccountAccess = mcpGatewayServiceAccountsAccessCreate as jest.MockedFunction<
+    typeof mcpGatewayServiceAccountsAccessCreate
+>
 const mockServiceAccountsList = mcpGatewayServiceAccountsList as jest.MockedFunction<
     typeof mcpGatewayServiceAccountsList
 >
@@ -61,6 +74,9 @@ const mockInstallCustom = mcpServerInstallationsInstallCustomCreate as jest.Mock
 >
 const mockInstallTemplate = mcpServerInstallationsInstallTemplateCreate as jest.MockedFunction<
     typeof mcpServerInstallationsInstallTemplateCreate
+>
+const mockRefreshTools = mcpServerInstallationsToolsRefreshCreate as jest.MockedFunction<
+    typeof mcpServerInstallationsToolsRefreshCreate
 >
 const mockTemplatesList = mcpServersList as jest.MockedFunction<typeof mcpServersList>
 
@@ -140,20 +156,61 @@ function gatewayMember(userId: number): GatewayMemberSummaryApi {
     }
 }
 
+function serviceAccount(): MCPServiceAccountApi {
+    return {
+        id: 'scout-id',
+        name: 'Scout',
+        description: 'Product analyst',
+        handle: 'posthog-scout',
+        agent_key: 'scout',
+        status: 'active',
+        server_ids: [],
+        servers: [],
+        last_active_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+    }
+}
+
+function installation(): MCPServerInstallationApi {
+    return {
+        id: 'installation-id',
+        template_id: null,
+        name: 'Custom server',
+        icon_key: '',
+        icon_domain: '',
+        display_name: 'Custom server',
+        url: 'https://mcp.example.com/mcp',
+        description: '',
+        auth_type: 'api_key',
+        is_enabled: true,
+        scope: 'personal',
+        is_owner: true,
+        needs_reauth: false,
+        pending_oauth: false,
+        proxy_url: '',
+        tool_count: 0,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
+    }
+}
+
 describe('mcpGatewayLogic', () => {
     let logic: ReturnType<typeof mcpGatewayLogic.build>
 
     beforeEach(async () => {
         initKeaTests()
         jest.resetAllMocks()
-        mockConfigList.mockResolvedValue({ is_admin: true, allow_custom_servers: true })
+        mockConfigList.mockResolvedValue({ is_admin: true, allow_custom_servers: true, registered_template_ids: [] })
         mockMembersList.mockResolvedValue({ count: 0, results: [] })
         mockRulesList.mockResolvedValue({ count: 0, results: [] })
         mockServersList.mockResolvedValue({ count: 0, results: [] })
         mockServiceAccountsList.mockResolvedValue({ count: 0, results: [] })
+        mockServiceAccountAccess.mockResolvedValue(serviceAccount())
         mockTemplatesList.mockResolvedValue({ count: 0, results: [] })
         mockInstallCustom.mockResolvedValue({ redirect_url: '' })
         mockInstallTemplate.mockResolvedValue({ redirect_url: '' })
+        mockRefreshTools.mockResolvedValue({ count: 0, results: [] })
 
         logic = mcpGatewayLogic()
         logic.mount()
@@ -162,6 +219,7 @@ describe('mcpGatewayLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        jest.useRealTimers()
         jest.restoreAllMocks()
     })
 
@@ -188,6 +246,46 @@ describe('mcpGatewayLogic', () => {
         )
     })
 
+    it('refreshes tools through the generated installation endpoint', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.refreshServerTools('installation-id')
+        }).toFinishAllListeners()
+
+        expect(mockRefreshTools).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'installation-id')
+        expect(logic.values.refreshingInstallationIds).toEqual(new Set())
+    })
+
+    it('keeps a failed server load distinct from a valid empty result until retry succeeds', async () => {
+        logic.actions.loadServersFailure('Request failed')
+
+        expect(logic.values.serversInitialized).toBe(true)
+        expect(logic.values.serversLoadFailed).toBe(true)
+
+        logic.actions.loadServers()
+        expect(logic.values.serversLoadFailed).toBe(false)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.serversLoadFailed).toBe(false)
+    })
+
+    it('refreshes server metadata while asynchronous tool discovery settles', async () => {
+        jest.useFakeTimers()
+        mockServersList.mockClear()
+
+        logic.actions.refreshServersAfterConnection()
+        await Promise.resolve()
+        expect(mockServersList).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(1500)
+        await Promise.resolve()
+        expect(mockServersList).toHaveBeenCalledTimes(2)
+
+        jest.advanceTimersByTime(3500)
+        await Promise.resolve()
+        expect(mockServersList).toHaveBeenCalledTimes(3)
+        jest.useRealTimers()
+    })
+
     it('passes the entered API key when connecting a catalog template', async () => {
         const server = gatewayServer({
             id: 'template-server',
@@ -212,16 +310,136 @@ describe('mcpGatewayLogic', () => {
         )
     })
 
-    it('does not connect an API-key server without a key', () => {
+    it('does not connect an API-key catalog server without a key', () => {
+        const server = gatewayServer({
+            id: 'template-server',
+            template_id: 'template-id',
+            template_auth_type: 'api_key',
+        })
+        logic.actions.loadServersSuccess([server])
+        logic.actions.connectServer(server.id)
+
+        logic.actions.submitConnection()
+
+        expect(logic.values.connectionSubmitDisabledReason).toBe('Enter an API key to connect this server.')
+        expect(mockInstallTemplate).not.toHaveBeenCalled()
+    })
+
+    it('connects a custom server without a key when it does not require authentication', async () => {
         const server = gatewayServer({ id: 'custom-server' })
         logic.actions.loadServersSuccess([server])
         logic.actions.connectServer(server.id)
         logic.actions.setConnectionAuthType('api_key')
 
-        logic.actions.submitConnection()
+        await expectLogic(logic, () => {
+            logic.actions.submitConnection()
+        }).toFinishAllListeners()
 
-        expect(logic.values.connectionSubmitDisabledReason).toBe('Enter an API key to connect this server.')
-        expect(mockInstallCustom).not.toHaveBeenCalled()
+        expect(logic.values.connectionSubmitDisabledReason).toBeNull()
+        expect(mockInstallCustom).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ auth_type: 'api_key', api_key: undefined })
+        )
+    })
+
+    it('adds a custom server with team and agent sharing in one guarded request', async () => {
+        const pendingInstall = deferred<Awaited<ReturnType<typeof mcpServerInstallationsInstallCustomCreate>>>()
+        mockInstallCustom.mockReturnValue(pendingInstall.promise)
+        logic.actions.loadServiceAccountsSuccess([serviceAccount()])
+        logic.actions.openAddServerModal()
+        logic.actions.setAddServerFormValue('name', '  Custom server  ')
+        logic.actions.setAddServerFormValue('url', ' https://mcp.example.com/mcp ')
+        logic.actions.setAddServerFormValue('authType', 'api_key')
+        logic.actions.setAddServerFormValue('apiKey', 'secret-key')
+        logic.actions.setAddServerFormValue('agentIds', ['scout-id'])
+
+        logic.actions.submitAddServer()
+        logic.actions.submitAddServer()
+
+        expect(logic.values.addingServer).toBe(true)
+        expect(mockInstallCustom).toHaveBeenCalledTimes(1)
+        expect(mockInstallCustom).toHaveBeenCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({
+                name: 'Custom server',
+                url: 'https://mcp.example.com/mcp',
+                auth_type: 'api_key',
+                api_key: 'secret-key',
+                scope: 'personal',
+                team_enabled: true,
+                agent_ids: ['scout-id'],
+            })
+        )
+
+        pendingInstall.resolve(installation())
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.addingServer).toBe(false)
+        expect(logic.values.addServerModalOpen).toBe(false)
+    })
+
+    it('sends initial per-tool policies when sharing a server with an agent', async () => {
+        const account = serviceAccount()
+        const updatedAccount = {
+            ...account,
+            server_ids: ['linear-id'],
+            servers: [
+                {
+                    id: 'linear-id',
+                    name: 'Linear',
+                    description: '',
+                    icon_key: '',
+                    icon_domain: '',
+                    connection_state: 'ready' as const,
+                },
+            ],
+        }
+        const policies = [
+            { tool_name: 'create_issue', policy_state: 'approved' as const },
+            { tool_name: 'delete_issue', policy_state: 'do_not_use' as const },
+        ]
+        logic.actions.loadServiceAccountsSuccess([account])
+        logic.actions.loadServersSuccess([gatewayServer({ id: 'linear-id' })])
+        mockServiceAccountAccess.mockResolvedValue(updatedAccount)
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess(account.id, 'linear-id', true, policies)
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountAccess).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), account.id, {
+            gateway_server_id: 'linear-id',
+            enabled: true,
+            policies,
+        })
+        expect(logic.values.agentServerAccessLoadingKeys).toEqual(new Set())
+        expect(logic.values.serviceAccounts[0].server_ids).toContain('linear-id')
+        expect(logic.values.serviceAccounts[0].servers[0].connection_state).toBe('ready')
+    })
+
+    it('patches server.agents immediately when sharing and revoking, before the servers reload lands', async () => {
+        const account = serviceAccount()
+        const server = gatewayServer({ id: 'linear-id' })
+        logic.actions.loadServiceAccountsSuccess([account])
+        logic.actions.loadServersSuccess([server])
+        mockServiceAccountAccess.mockResolvedValue({ ...account, server_ids: ['linear-id'] })
+        const pendingReload = deferred<Awaited<ReturnType<typeof mcpGatewayServersList>>>()
+        mockServersList.mockClear()
+        mockServersList.mockReturnValue(pendingReload.promise)
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess(account.id, server.id, true)
+        }).toDispatchActions(['setAgentServerAccessComplete'])
+
+        expect(logic.values.servers[0].agents.map((agent) => agent.service_account_id)).toEqual([account.id])
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess(account.id, server.id, false)
+        }).toDispatchActions(['setAgentServerAccessComplete'])
+
+        expect(logic.values.servers[0].agents).toEqual([])
+
+        pendingReload.resolve({ count: 1, results: [server] })
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     it('does not start a second OAuth connection while the first is in flight', async () => {
@@ -270,6 +488,7 @@ describe('mcpGatewayLogic', () => {
         await Promise.resolve()
 
         expect(logic.values.allServersEnabledLoading).toBe(true)
+        expect(logic.values.allServersEnabledTarget).toBe(false)
         pendingBulk.resolve({ ...logic.values.config!, default_servers_enabled: false })
         await expectLogic(logic).toFinishAllListeners()
 
@@ -278,6 +497,7 @@ describe('mcpGatewayLogic', () => {
         expect(logic.values.defaultServersEnabled).toBe(false)
         expect(logic.values.servers).toEqual([{ ...server, is_team_enabled: false }])
         expect(logic.values.allServersEnabledLoading).toBe(false)
+        expect(logic.values.allServersEnabledTarget).toBeNull()
     })
 
     it.each([
@@ -323,6 +543,36 @@ describe('mcpGatewayLogic', () => {
         ])
     })
 
+    it('does not recommend a catalog template whose registry row is hidden from the member', () => {
+        const hiddenTemplate = serverTemplate({ id: 'hidden-template' })
+        const freshTemplate = serverTemplate({ id: 'fresh-template' })
+        logic.actions.loadConfigSuccess({ is_admin: false, registered_template_ids: ['hidden-template'] })
+        logic.actions.loadTemplatesSuccess([hiddenTemplate, freshTemplate])
+        logic.actions.loadServersSuccess([])
+
+        expect(logic.values.recommendedTemplates).toEqual([freshTemplate])
+    })
+
+    it('filters to servers with a connection, including connections that need attention', () => {
+        const connectedServer = gatewayServer({
+            id: 'connected-server',
+            your_connection: {
+                installation_id: 'installation-id',
+                is_enabled: false,
+                pending_oauth: false,
+                needs_reauth: true,
+                last_used_at: null,
+            },
+        })
+        const disconnectedServer = gatewayServer({ id: 'disconnected-server' })
+        logic.actions.loadServersSuccess([connectedServer, disconnectedServer])
+
+        logic.actions.setCategoryFilter(CONNECTED_SERVERS_FILTER)
+
+        expect(logic.values.connectedServerCount).toBe(1)
+        expect(logic.values.filteredServers).toEqual([connectedServer])
+    })
+
     it.each([
         [true, false, true],
         [false, false, false],
@@ -334,15 +584,12 @@ describe('mcpGatewayLogic', () => {
                 is_admin: isAdmin,
                 allow_custom_servers: true,
                 default_servers_enabled: defaultEnabled,
+                registered_template_ids: [],
             })
             logic.actions.loadTemplatesSuccess([serverTemplate({ id: 'fresh-template' })])
 
-            if (!visible) {
-                expect(logic.values.templateOnlyServers).toEqual([])
-            } else {
-                expect(logic.values.templateOnlyServers).toHaveLength(1)
-                expect(logic.values.templateOnlyServers[0].is_team_enabled).toBe(defaultEnabled)
-            }
+            expect(logic.values.templateOnlyServers).toHaveLength(visible ? 1 : 0)
+            expect(logic.values.templateOnlyServers[0]?.is_team_enabled).toBe(visible ? defaultEnabled : undefined)
         }
     )
 

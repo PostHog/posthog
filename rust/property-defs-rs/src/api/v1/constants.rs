@@ -14,8 +14,6 @@ pub const PROPERTY_DEFS_TABLE: &str = "posthog_propertydefinition";
 pub const EVENT_PROPERTY_TABLE: &str = "posthog_eventproperty";
 pub const EVENT_PROPERTY_TABLE_ALIAS: &str = "check_for_matching_event_property";
 
-pub const PARENT_PROPERTY_TYPES: [&str; 4] = ["event", "person", "group", "session"];
-
 pub const PROPERTY_DEFS_TABLE_COLUMNS: [&str; 6] = [
     "id",
     "project_id",

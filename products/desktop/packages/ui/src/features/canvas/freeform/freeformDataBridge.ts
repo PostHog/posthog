@@ -6,6 +6,10 @@ import type {
 import type { QueryClient } from "@tanstack/react-query";
 import { hostClient } from "../hostClient";
 
+// Capability gating (assertCanvasCapability) lives in
+// @posthog/core/canvas/canvasCapabilities — it's a pure business rule, not a
+// transport concern; this file owns only the request routing + read cache.
+
 // Namespace for every cached canvas read.
 export const CANVAS_QUERY_KEY = "canvasData/read";
 

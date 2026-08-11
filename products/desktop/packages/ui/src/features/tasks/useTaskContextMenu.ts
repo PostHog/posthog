@@ -136,7 +136,7 @@ export function useTaskContextMenu() {
             break;
           case "file-to-channel":
             try {
-              await fileTask(intent.channelId, task.id, task.title);
+              await fileTask(intent.channelId, task.id);
               const channelName = channels.find(
                 (channel) => channel.id === intent.channelId,
               )?.name;

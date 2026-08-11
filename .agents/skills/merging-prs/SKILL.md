@@ -22,13 +22,14 @@ Resolve the repo slug once if you need it: `REPO=$(gh repo view --json nameWithO
 ## 1. Preflight
 
 ```bash
-gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup
+gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup,baseRefName
 ```
 
 - **Not open** (already merged/closed) → report and stop.
 - **Draft** → it can't be merged. Ask the developer to confirm, then `gh pr ready <n>` before continuing. Don't un-draft silently.
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject it. Report which checks are red and stop; fix them first. **Pending** checks are fine — the queue waits for them. To work out _why_ a check is red, use `/debugging-ci-failures`.
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; merge `master` in first.
+- **Part of a stack** (`baseRefName != "master"`, or the PR appears in `gh api repos/$REPO/stacks`) → merging it also merges every unmerged layer below it, and the queue only guards merges into `master`. Use `/stacking-prs`, which lands the bottom layer through the queue first.
 
 ## 2. Enqueue
 

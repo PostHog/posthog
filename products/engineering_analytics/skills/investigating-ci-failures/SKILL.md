@@ -35,13 +35,19 @@ Copy-ready SQL for every step is in [references/investigation-queries.md](./refe
 For "what CI failures should I care about right now" (before you have a specific test in hand), the
 `engineering-analytics-broken-tests` MCP tool does the shape classification below across _all_ live
 failures at once: it groups the last 2 days of failures by fingerprint and labels each
-`breaking_master` / `novel_burst` / `potentially_resolved` / `flaky` / `pr_only`, most urgent first,
-plus `breaking_master_jobs` (default-branch jobs whose latest run is red). Use it as the triage entry
-point, then drop into the per-failure workflow below to reach a culprit. It is the automated
-counterpart to fingerprinting by hand; the manual queries stay the way to pin a specific failure to a
-boundary and author.
+`breaking_master` / `blocking_merge_queue` / `novel_burst` / `potentially_resolved` / `flaky` /
+`pr_only`, most urgent first, plus `breaking_master_jobs` (default-branch jobs whose latest run is
+red). Use it as the triage entry point, then drop into the per-failure workflow below to reach a
+culprit. It is the automated counterpart to fingerprinting by hand; the manual queries stay the way
+to pin a specific failure to a boundary and author.
 
-## The three failure shapes
+`blocking_merge_queue` is the one shape the manual table below does not cover, because it looks like
+a single-branch failure and is not. The merge queue runs the full suite on a gate branch
+(`trunk-merge/pr-<n>/…`) carrying the PR rebased onto trunk, so a failure there is on a commit that
+already passed the PR's own CI: a conflict with what landed in between, not that PR's own bug. Read
+it as "this stopped a merge", and diff the PR against trunk rather than reading the PR alone.
+
+## The four failure shapes
 
 Fingerprint the failure first (query 1 in the references), then read its shape — the classification
 falls out of three columns:
@@ -49,6 +55,7 @@ falls out of three columns:
 | Shape                                   | Reading                         | Next step                                            |
 | --------------------------------------- | ------------------------------- | ---------------------------------------------------- |
 | 1 branch, any window                    | That PR's own problem           | Read its failure lines; done                         |
+| 1 `trunk-merge/pr-<n>/…` gate branch    | Conflict with what landed since | Diff the PR against trunk, not the PR alone          |
 | Many branches, dense burst, hits master | Trunk break (master is/was red) | Boundary query → culprit (below)                     |
 | Many branches, sporadic over days/weeks | Flaky                           | Corroborate with `engineering-analytics-flaky-tests` |
 

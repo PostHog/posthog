@@ -1,9 +1,7 @@
-import type { ContextUsage } from "@posthog/core/sessions/contextUsage";
 import type { AcpMessage } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import type { BuildResult } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { SessionFooter } from "@posthog/ui/features/sessions/components/SessionFooter";
-import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import {
   usePendingPermissionsForTask,
@@ -11,6 +9,7 @@ import {
   useSessionForTask,
 } from "@posthog/ui/features/sessions/sessionStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { resolvePendingPermissionVisibility } from "./pendingPermissionVisibility";
 
 interface ChatThreadFooterProps {
   events: AcpMessage[];
@@ -18,19 +17,18 @@ interface ChatThreadFooterProps {
   promptStartedAt?: number | null;
   task?: Task;
   taskId?: string;
-  usage?: ContextUsage | null;
   footerState?: Omit<BuildResult, "items">;
+  hasPendingPermission?: boolean;
 }
 
 /**
- * The session status footer (duration / queued / context usage / diff stats) for the new chat
- * thread, rendered UNDER the composer. The legacy `ConversationView` renders the same
- * `SessionFooter` at the bottom of the thread instead; here it lives under the input.
+ * The session status footer (duration / queued / diff stats) for the new chat thread, rendered as
+ * the last item in the thread. The legacy `ConversationView` renders the same `SessionFooter` the
+ * same way. Context usage is not here — it sits in the composer's own toolbar.
  *
- * Re-derives the turn / usage / queue state from `events` with the same hooks `ConversationView`
- * uses — `ChatThread` runs its own `useConversationItems`, so this is a second (incremental,
- * memoized) parse pass, acceptable for a flag-gated surface. Gated behind
- * `settingsStore.useNewChatThread` at the call site.
+ * Re-derives the turn / usage / queue state from `events` with the same hooks the thread uses —
+ * `ChatThread` runs its own `useConversationItems`, so this is a second (incremental, memoized)
+ * parse pass.
  */
 export function ChatThreadFooter({
   events,
@@ -38,12 +36,10 @@ export function ChatThreadFooter({
   promptStartedAt,
   task,
   taskId,
-  usage,
   footerState,
+  hasPendingPermission,
 }: ChatThreadFooterProps) {
   const showDebugLogs = useSettingsStore((s) => s.debugLogsCloudRuns);
-  const eventContextUsage = useContextUsage(events);
-  const contextUsage = usage === undefined ? eventContextUsage : usage;
   const eventFooterState = useConversationItems(events, isPromptPending, {
     showDebugLogs,
   });
@@ -55,6 +51,10 @@ export function ChatThreadFooter({
     footerState?.completedToolCallCount ??
     eventFooterState.completedToolCallCount;
   const pendingPermissions = usePendingPermissionsForTask(taskId ?? "");
+  const pendingPermissionVisible = resolvePendingPermissionVisibility(
+    hasPendingPermission,
+    pendingPermissions.size,
+  );
   const queuedCount = useQueuedMessagesForTask(taskId).length;
   const session = useSessionForTask(taskId);
   const pausedDurationMs = session?.pausedDurationMs ?? 0;
@@ -72,10 +72,9 @@ export function ChatThreadFooter({
         }
         lastStopReason={lastTurnInfo?.stopReason}
         queuedCount={queuedCount}
-        hasPendingPermission={pendingPermissions.size > 0}
+        hasPendingPermission={pendingPermissionVisible}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
-        usage={contextUsage}
         completedToolCallCount={completedToolCallCount}
       />
     </div>

@@ -3,6 +3,7 @@ import {
   DownloadSimple,
   FilePlus,
   Folder,
+  HandTap,
   LockSimple,
   PencilSimple,
   Trash,
@@ -285,6 +286,14 @@ export function SkillDetailPanel({
               <LockSimple size={10} className="text-gray-9" />
               Read-only
             </Badge>
+          )}
+          {skill.disableModelInvocation && (
+            <Tooltip content="The agent won't use this skill on its own. It runs only when you invoke it">
+              <Badge size="1" variant="soft" color="gray">
+                <HandTap size={10} className="text-gray-9" />
+                Manual-only
+              </Badge>
+            </Tooltip>
           )}
           {skill.source === "codex" && (
             <Button

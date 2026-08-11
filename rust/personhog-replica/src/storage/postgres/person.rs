@@ -48,7 +48,7 @@ impl PersonLookup for PostgresStorage {
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
             FROM posthog_person
-            WHERE team_id = $1 AND id = $2
+            WHERE team_id = $1 AND id = $2 AND is_deleted = false
             "#,
             team_id as i32,
             person_id
@@ -82,7 +82,7 @@ impl PersonLookup for PostgresStorage {
                    CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                    last_seen_at
             FROM posthog_person
-            WHERE team_id = $1 AND uuid = $2
+            WHERE team_id = $1 AND uuid = $2 AND is_deleted = false
             "#,
             team_id as i32,
             uuid
@@ -139,7 +139,7 @@ impl PersonLookup for PostgresStorage {
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
                     FROM posthog_person
-                    WHERE team_id = $1 AND id = ANY($2)
+                    WHERE team_id = $1 AND id = ANY($2) AND is_deleted = false
                     "#,
                     team_id as i32,
                     &chunk,
@@ -214,7 +214,7 @@ impl PersonLookup for PostgresStorage {
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
                     FROM posthog_person
-                    WHERE team_id = $1 AND uuid = ANY($2)
+                    WHERE team_id = $1 AND uuid = ANY($2) AND is_deleted = false
                     "#,
                     team_id as i32,
                     &chunk,
@@ -275,6 +275,7 @@ impl PersonLookup for PostgresStorage {
             FROM posthog_person p
             INNER JOIN posthog_persondistinctid d ON p.id = d.person_id AND p.team_id = d.team_id
             WHERE p.team_id = $1 AND d.distinct_id = $2
+              AND p.is_deleted = false AND d.is_deleted = false
             LIMIT 1
             "#,
             team_id as i32,
@@ -354,8 +355,10 @@ impl PersonLookup for PostgresStorage {
                         FROM UNNEST($2::text[]) AS batch(distinct_id)
                         INNER JOIN posthog_persondistinctid d
                             ON d.team_id = $1 AND d.distinct_id = batch.distinct_id
+                            AND d.is_deleted = false
                         INNER JOIN posthog_person p
                             ON p.id = d.person_id AND p.team_id = d.team_id
+                            AND p.is_deleted = false
                         "#,
                         team_id as i32,
                         &chunk,
@@ -642,6 +645,7 @@ impl PersonLookup for PostgresStorage {
             INNER JOIN posthog_persondistinctid d ON d.person_id = p.id AND d.team_id = p.team_id
             INNER JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
                 ON d.team_id = batch.team_id AND d.distinct_id = batch.distinct_id
+            WHERE p.is_deleted = false AND d.is_deleted = false
             "#,
             &team_ids,
             &distinct_ids,

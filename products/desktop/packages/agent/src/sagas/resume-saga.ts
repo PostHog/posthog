@@ -33,6 +33,7 @@ export interface ResumeInput {
 export interface ResumeOutput {
   conversation: ConversationTurn[];
   latestGitCheckpoint: GitCheckpointEvent | null;
+  latestGitCheckpoints: GitCheckpointEvent[];
   interrupted: boolean;
   lastDevice?: DeviceInfo;
   logEntryCount: number;
@@ -68,10 +69,11 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
 
     this.log.info("Fetched log entries", { count: entries.length });
 
-    const latestGitCheckpoint = await this.readOnlyStep(
+    const latestGitCheckpoints = await this.readOnlyStep(
       "find_git_checkpoint",
-      () => Promise.resolve(this.findLatestGitCheckpoint(entries)),
+      () => Promise.resolve(this.findLatestGitCheckpoints(entries)),
     );
+    const latestGitCheckpoint = latestGitCheckpoints.at(-1) ?? null;
 
     if (latestGitCheckpoint) {
       this.log.info("Found git checkpoint", {
@@ -106,6 +108,7 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
     return {
       conversation,
       latestGitCheckpoint,
+      latestGitCheckpoints,
       interrupted: false,
       lastDevice,
       logEntryCount: entries.length,
@@ -118,6 +121,7 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
     return {
       conversation: [],
       latestGitCheckpoint: null,
+      latestGitCheckpoints: [],
       interrupted: false,
       logEntryCount: 0,
       sessionId: null,
@@ -178,10 +182,11 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
     return null;
   }
 
-  private findLatestGitCheckpoint(
+  private findLatestGitCheckpoints(
     entries: StoredNotification[],
-  ): GitCheckpointEvent | null {
+  ): GitCheckpointEvent[] {
     const sdkPrefixedMethod = `_${POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT}`;
+    const checkpoints = new Map<string, GitCheckpointEvent>();
 
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
@@ -194,11 +199,12 @@ export class ResumeSaga extends Saga<ResumeInput, ResumeOutput> {
           | GitCheckpointEvent
           | undefined;
         if (params?.checkpointId && params?.checkpointRef) {
-          return params;
+          const key = params.repository?.toLowerCase() ?? "legacy";
+          if (!checkpoints.has(key)) checkpoints.set(key, params);
         }
       }
     }
-    return null;
+    return [...checkpoints.values()].reverse();
   }
 
   private findLastDeviceInfo(

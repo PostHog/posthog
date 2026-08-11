@@ -409,6 +409,7 @@ Data is fetched server-side by evaluation ID to ensure data integrity.
             summary = async_to_sync(summarize_evaluation_runs)(
                 evaluation_runs=runs,
                 team_id=self.team_id,
+                evaluation_id=evaluation_id,
                 model=OpenAIModel.GPT_5_MINI,
                 filter_type=filter_type,
                 evaluation_name=evaluation.name,

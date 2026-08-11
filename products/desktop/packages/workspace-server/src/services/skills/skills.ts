@@ -133,11 +133,20 @@ export class SkillsService {
 
   async saveSkillManifest(
     skillPath: string,
-    manifest: { name: string; description: string; body: string },
+    manifest: {
+      name: string;
+      description: string;
+      body: string;
+      disableModelInvocation?: boolean;
+    },
   ): Promise<void> {
     const skillDir = await this.resolveWritableSkillDir(skillPath);
     const content = serializeSkillMarkdown(
-      { name: manifest.name.trim(), description: manifest.description.trim() },
+      {
+        name: manifest.name.trim(),
+        description: manifest.description.trim(),
+        disableModelInvocation: manifest.disableModelInvocation ?? false,
+      },
       manifest.body,
     );
     // The writer and parser must agree, or the skill vanishes from the list.
@@ -268,6 +277,9 @@ export class SkillsService {
       name,
       description,
       body,
+      ...(frontmatter?.disableModelInvocation
+        ? { disableModelInvocation: true }
+        : {}),
       files: results.filter(
         (r): r is { path: string; content: string } => r.content !== null,
       ),
@@ -303,7 +315,11 @@ export class SkillsService {
       await fs.promises.writeFile(
         path.join(staging, "SKILL.md"),
         serializeSkillMarkdown(
-          { name, description: input.description },
+          {
+            name,
+            description: input.description,
+            disableModelInvocation: input.disableModelInvocation,
+          },
           input.body,
         ),
         "utf-8",

@@ -18,6 +18,7 @@ export interface HandoffSagaOutput {
 export interface HandoffResumeState {
   conversation: unknown[];
   latestGitCheckpoint: GitHandoffCheckpoint | null;
+  latestGitCheckpoints?: GitHandoffCheckpoint[];
 }
 
 export interface HandoffSagaDeps extends HandoffBaseDeps {
@@ -100,8 +101,12 @@ export class HandoffSaga extends Saga<HandoffSagaInput, HandoffSagaOutput> {
     );
 
     let checkpointApplied = false;
-    const checkpoint = resumeState.latestGitCheckpoint;
-    if (checkpoint) {
+    const checkpoints = resumeState.latestGitCheckpoints?.length
+      ? resumeState.latestGitCheckpoints
+      : resumeState.latestGitCheckpoint
+        ? [resumeState.latestGitCheckpoint]
+        : [];
+    if (checkpoints.length > 0) {
       this.deps.onProgress(
         "applying_git_checkpoint",
         "Applying cloud git state locally...",
@@ -110,12 +115,24 @@ export class HandoffSaga extends Saga<HandoffSagaInput, HandoffSagaOutput> {
       await this.step({
         name: "apply_git_checkpoint",
         execute: async () => {
-          await this.deps.applyGitCheckpoint(
-            checkpoint,
-            repoPath,
-            taskId,
-            runId,
-            input.localGitState,
+          await Promise.all(
+            checkpoints.map((checkpoint) => {
+              const path = checkpoint.repository
+                ? input.repositoryPaths?.[checkpoint.repository.toLowerCase()]
+                : repoPath;
+              if (!path) {
+                throw new Error(
+                  `No local checkout found for ${checkpoint.repository}`,
+                );
+              }
+              return this.deps.applyGitCheckpoint(
+                checkpoint,
+                path,
+                taskId,
+                runId,
+                checkpoint.repository ? undefined : input.localGitState,
+              );
+            }),
           );
           checkpointApplied = true;
         },

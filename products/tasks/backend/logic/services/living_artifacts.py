@@ -24,10 +24,9 @@ from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
 
-# Both scopes are still in Slack app review (see posthog/helpers/slack_scopes.py), so the canvas
-# and file adapters are additionally gated behind the slack-app-canvas-file-artifacts flag: scope
-# checks alone would force the feature on for any install whose manifest grants the scopes (DEV
-# today, every prod workspace the moment Slack approves them) with no rollout control.
+# Both scopes are approved (see posthog/helpers/slack_scopes.py), so the canvas and file adapters
+# stay behind the slack-app-canvas-file-artifacts flag: scope checks alone would turn the feature
+# on for every install that has them, with no rollout control.
 SLACK_CANVAS_SCOPE = "canvases:write"
 SLACK_FILE_SCOPE = "files:write"
 LIVING_ARTIFACT_TTL_DAYS = "30"

@@ -36,6 +36,8 @@ interface EvaluationRunRowOverrides {
     resultType?: EvaluationRunRow[10]
     sentimentLabel?: EvaluationRunRow[11]
     sentimentScore?: EvaluationRunRow[12]
+    sessionId?: EvaluationRunRow[13]
+    skipped?: EvaluationRunRow[14]
 }
 
 function makeEvaluationRunRow({
@@ -45,6 +47,8 @@ function makeEvaluationRunRow({
     resultType = 'boolean',
     sentimentLabel = null,
     sentimentScore = null,
+    sessionId = null,
+    skipped = null,
 }: EvaluationRunRowOverrides = {}): EvaluationRunRow {
     return [
         'run-1',
@@ -60,6 +64,8 @@ function makeEvaluationRunRow({
         resultType,
         sentimentLabel,
         sentimentScore,
+        sessionId,
+        skipped,
     ]
 }
 
@@ -102,6 +108,18 @@ describe('mapEvaluationRunRow', () => {
         const run = mapEvaluationRunRow(makeEvaluationRunRow({ result: null }))
 
         expect(run.result).toBeNull()
+    })
+
+    // A skip carries result: false when the evaluation disallows N/A, so anything reading the
+    // result alone reports a session that was never graded as one that failed.
+    it.each([
+        [true, true],
+        ['true', true],
+        [false, false],
+        [null, false],
+    ])('maps raw skipped %p to %p', (skipped, expected) => {
+        const run = mapEvaluationRunRow(makeEvaluationRunRow({ skipped }))
+        expect(run.skipped).toBe(expected)
     })
 
     it.each([true, 'true', 'True', '1'])('maps explicit pass result %p', (result) => {

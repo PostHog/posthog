@@ -39,6 +39,7 @@ def _cp_row(team: Team, schema_name: str, **overrides) -> dict:
         "persons_table_name": None,
         "schema_data_imports_name": None,
         "earliest_event_date": None,
+        "data_imports_table_naming_version": "copy_v1",
     }
     row.update(overrides)
     return row
@@ -72,6 +73,19 @@ class TestDataImportsSchema:
             team_state.data_imports_schema(team.id)
         with _patch_org_rows(None):
             assert team_state.data_imports_schema(team.id) == "posthog_data_imports_cp_schema"
+
+
+@pytest.mark.django_db
+class TestDataImportsTableNamingVersion:
+    def test_resolves_the_org_policy_from_the_cp_row(self) -> None:
+        org, team = _team()
+        with _patch_org_rows([_cp_row(team, "cp_schema", data_imports_table_naming_version="legacy_batch_v1")]):
+            assert team_state.data_imports_table_naming_version(team.id) == "legacy_batch_v1"
+
+    def test_without_a_cp_row_uses_copy_workflow_naming(self) -> None:
+        org, team = _team()
+        with _patch_org_rows([]):
+            assert team_state.data_imports_table_naming_version(team.id) == "copy_v1"
 
 
 @pytest.mark.django_db
