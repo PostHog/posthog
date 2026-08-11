@@ -100,9 +100,9 @@ export const loginSessionsLogic = kea<loginSessionsLogicType>([
                         await usersLoginSessionsDestroy('@me', id)
                         lemonToast.success('Logged out of that device')
                     } catch (error) {
-                        // A 404 means the session was already gone (expired, swept, or revoked elsewhere).
-                        // The device is logged out either way, so treat it as success and refresh the list
-                        // in case other rows also went stale.
+                        // A 404 means the session was already gone (expired, swept, or revoked
+                        // elsewhere). The device is logged out either way, so treat it as success
+                        // and reload in case other rows also went stale.
                         if (error instanceof ApiError && error.status === 404) {
                             lemonToast.success('That device was already logged out')
                             actions.loadLoginSessions()
