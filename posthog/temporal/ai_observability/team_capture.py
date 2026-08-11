@@ -47,7 +47,10 @@ def get_team_api_token(team_id: int) -> str:
 
     with _lock:
         if len(_cache) >= _MAX_CACHED_TEAMS:
-            _cache.clear()
+            # Evict the half closest to expiry rather than clearing, so a full cache doesn't
+            # send every team back to Postgres at once.
+            for evicted_id in sorted(_cache, key=lambda cached_id: _cache[cached_id][0])[: _MAX_CACHED_TEAMS // 2]:
+                del _cache[evicted_id]
         _cache[team_id] = (time.monotonic() + TOKEN_CACHE_TTL_SECONDS, token)
     return token
 
