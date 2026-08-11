@@ -11,14 +11,19 @@ once per team per TTL.
 import time
 import threading
 from datetime import datetime
+from http import HTTPStatus
 from typing import Any
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.models.team import Team
 
+# Also bounds how long emits keep using a rotated token: capture-rs accepts stale tokens at
+# the edge, so rotation is only picked up once this TTL lapses.
 TOKEN_CACHE_TTL_SECONDS = 300
 # Backstop so a worker seeing a very large number of teams can't grow the cache unbounded.
 _MAX_CACHED_TEAMS = 10_000
+
+_AUTH_REJECTED_STATUSES = (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN)
 
 _lock = threading.Lock()
 _cache: dict[int, tuple[float, str]] = {}
@@ -48,8 +53,7 @@ def get_team_api_token(team_id: int) -> str:
 
 
 def invalidate_team_api_token(team_id: int) -> None:
-    """Drop a cached token so the next emit re-reads it — used when capture rejects the token,
-    which is how a rotated token recovers before the TTL expires."""
+    """Drop a cached token so the next emit re-reads it from Postgres."""
     with _lock:
         _cache.pop(team_id, None)
 
@@ -82,8 +86,12 @@ def capture_internal_for_team(
             process_person_profile=process_person_profile,
         )
         result.raise_for_status()
-    except Exception as e:
-        # A team over its quota keeps a valid token, so don't force a re-read on every event.
-        if not (isinstance(e, CaptureInternalError) and e.is_billing_limit_exceeded):
+    except CaptureInternalError as e:
+        # Only an explicit auth rejection means the cached token is stale. Timeouts, 5xx, and
+        # billing-limit 402s say nothing about the token, and invalidating on them would
+        # reintroduce the per-event Postgres read exactly while capture is unhealthy.
+        # capture-rs doesn't verify tokens against Postgres at the edge yet, so until it does,
+        # a rotated token recovers via the TTL rather than through this branch.
+        if e.status_code in _AUTH_REJECTED_STATUSES:
             invalidate_team_api_token(team_id)
         raise
