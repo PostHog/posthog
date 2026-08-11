@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { IconCopy, IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -8,7 +6,6 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { replayScannerLogic } from '../replay_scanners/replayScannerLogic'
 import {
     type ClassifierScannerConfig,
     type ScorerScannerConfig,
@@ -413,7 +410,6 @@ export function ObservationDockCard({
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
-    const { scanner } = useValues(replayScannerLogic({ id: observation.scanner_id }))
 
     return (
         <div className="border rounded p-3 bg-surface-primary space-y-2">
@@ -437,7 +433,6 @@ export function ObservationDockCard({
                             errorReason={observation.error_reason}
                             onRetry={onRetry}
                             loading={retrying}
-                            userAccessLevel={scanner?.user_access_level}
                             dataAttr="vision-dock-retry-observation"
                         />
                     )}
@@ -453,7 +448,6 @@ export function ObservationDockCard({
                             errorReason={observation.error_reason}
                             onRetry={onRetry}
                             loading={retrying}
-                            userAccessLevel={scanner?.user_access_level}
                             dataAttr="vision-dock-retry-observation"
                         />
                     )}

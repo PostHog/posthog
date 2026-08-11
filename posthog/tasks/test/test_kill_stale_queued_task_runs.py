@@ -143,6 +143,28 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         self.assertIn("orphaned in QUEUED", run.error_message or "")
         self.assertIsNotNone(run.completed_at)
 
+    def test_reaps_task_shell_for_orphaned_prewarmed_run(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"prewarmed": True, "await_user_message": True},
+        )
+        TaskRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - datetime.timedelta(minutes=31))
+
+        kill_stale_queued_task_runs()
+
+        task.refresh_from_db()
+        self.assertTrue(task.deleted)
+
     def test_spares_prewarmed_run_still_inside_idle_window(self) -> None:
         # A live warm run idles in QUEUED awaiting its first message; it must not be killed before
         # the in-workflow WARM_IDLE_TIMEOUT (10m) has had a chance to finalize an abandoned one.
@@ -154,6 +176,28 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
         self.assertIsNone(run.error_message)
+
+    def test_cleans_up_existing_terminal_prewarm_task_shell(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"prewarmed": True, "await_user_message": True},
+        )
+        TaskRun.objects.filter(pk=run.pk).update(updated_at=timezone.now() - datetime.timedelta(minutes=31))
+
+        kill_stale_queued_task_runs()
+
+        task.refresh_from_db()
+        self.assertTrue(task.deleted)
 
     def test_hard_cap_reaps_ancient_run_with_bumped_updated_at(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")

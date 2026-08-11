@@ -1169,6 +1169,26 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 )
         return filters
 
+    def validate_model(self, model) -> str:
+        if model == "hogql":
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+            if not posthoganalytics.feature_enabled(
+                "hogql-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("HogQL batch exports are not enabled for this team.")
+
+        return model
+
     # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]

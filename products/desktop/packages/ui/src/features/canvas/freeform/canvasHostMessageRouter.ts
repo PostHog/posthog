@@ -1,5 +1,6 @@
 import type {
   CanvasNavIntent,
+  CanvasTextSelection,
   CanvasToHostMessage,
   HostToCanvasMessage,
 } from "@posthog/core/canvas/freeformSchemas";
@@ -28,6 +29,8 @@ export interface CanvasHostCallbacks {
   onReady?: () => void;
   onRendered?: () => void;
   onNavigate?: (intent: CanvasNavIntent) => void;
+  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onCommentActivate?: (id: string) => void;
 }
 
 export type ExternalOpenBlockReason =
@@ -119,6 +122,15 @@ export function createCanvasHostMessageRouter(
       case "navigate":
         // message.nav is already allowlist-validated by the schema parse.
         options.callbacks().onNavigate?.(message.nav);
+        break;
+      case "text-selection":
+        options.callbacks().onTextSelection?.(message.selection);
+        break;
+      case "text-selection-cleared":
+        options.callbacks().onTextSelection?.(null);
+        break;
+      case "comment-activate":
+        options.callbacks().onCommentActivate?.(message.id);
         break;
       case "open-external":
         // Re-checks the schema's allowlist refine in case it ever drifts.

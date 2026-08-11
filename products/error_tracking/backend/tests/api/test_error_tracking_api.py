@@ -128,6 +128,7 @@ class TestErrorTracking(APIBaseTest):
             "cohort": None,
             "description": None,
             "status": "active",
+            "severity": None,
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
@@ -161,7 +162,8 @@ class TestErrorTracking(APIBaseTest):
         issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
-            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}", data={"status": "resolved"}
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"status": "resolved", "severity": "high"},
         )
         issue.refresh_from_db()
 
@@ -172,11 +174,13 @@ class TestErrorTracking(APIBaseTest):
             "cohort": None,
             "description": None,
             "status": "resolved",
+            "severity": "high",
             "assignee": None,
             "first_seen": "2025-01-01T00:00:00Z",
             "external_issues": [],
         }
         assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+        assert issue.severity == ErrorTrackingIssue.Severity.HIGH
 
         self._assert_logs_the_activity(
             issue.id,
@@ -192,7 +196,14 @@ class TestErrorTracking(APIBaseTest):
                                 "before": "active",
                                 "field": "status",
                                 "type": "ErrorTrackingIssue",
-                            }
+                            },
+                            {
+                                "action": "changed",
+                                "after": "high",
+                                "before": None,
+                                "field": "severity",
+                                "type": "ErrorTrackingIssue",
+                            },
                         ],
                         "name": issue.name,
                         "short_id": None,

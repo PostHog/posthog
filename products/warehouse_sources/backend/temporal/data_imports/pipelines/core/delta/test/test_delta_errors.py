@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+    is_invalid_version_race,
     is_offset_overflow_compaction_error,
     is_transient_delta_maintenance_error,
     is_transient_maintenance_error,
@@ -98,8 +99,21 @@ class TestIsTransientDeltaMaintenanceError:
                 ),
                 True,
             ),
-            # "File not found" outside the log directory must not match, because a data file missing for
-            # some other reason is a real failure to capture, not this specific log-commit race.
+            # The same race can take a checkpoint instead of a commit JSON, surfaced through delta-rs's
+            # Arrow/object_store kernel message shape (a plain 404/NoSuchKey GET failure) rather than the
+            # older "File not found: ..." shape above — both mean the same thing when scoped to `_delta_log/`.
+            (
+                "missing_delta_log_checkpoint_object_store_kernel_message",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Arrow error: External: Object at location "
+                    "dlt/team_1_source_2/table/_delta_log/00000000000000000099.checkpoint.parquet not found: "
+                    "Error performing GET https://s3.example.com/bucket/.../00000000000000000099.checkpoint.parquet "
+                    "in 10.9ms - Server returned non-2xx status code: 404 Not Found: NoSuchKey"
+                ),
+                True,
+            ),
+            # "not found" outside the log directory must not match, because a data file missing for some
+            # other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
@@ -155,6 +169,37 @@ class TestIsTransientMaintenanceError:
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_maintenance_error(error) is expected
+
+
+class TestIsInvalidVersionRace:
+    @parameterized.expand(
+        [
+            # Two writers racing to commit the very first version of a brand-new table: the loser's
+            # conflict check can't read back the winner's just-committed version 0 log entry.
+            ("invalid_table_version_zero", deltalake.exceptions.DeltaError("Invalid table version: 0"), True),
+            # The same race losing at a later version, not just table creation.
+            ("invalid_table_version_nonzero", deltalake.exceptions.DeltaError("Invalid table version: 7"), True),
+            # A distinct delta-rs error variant (`VersionDowngrade`, not `InvalidVersion`) with its own
+            # message shape and a real bug to surface (a caller requesting an older version than
+            # loaded) — must not be swept up by this race classifier.
+            (
+                "downgrade_error_not_matched",
+                deltalake.exceptions.DeltaError("Cannot downgrade from version 5 to 2; use DeltaTable.load_version()"),
+                False,
+            ),
+            ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
+            # `CommitFailedError` is a `DeltaError` subclass, but this classifier is deliberately exact-type
+            # only — that variant already has its own dedicated handling via `CommitFailedError`.
+            (
+                "commit_failed_error_not_matched",
+                deltalake.exceptions.CommitFailedError("Invalid table version: 0"),
+                False,
+            ),
+            ("wrong_exception_type", RuntimeError("Invalid table version: 0"), False),
+        ]
+    )
+    def test_classifies_invalid_version_race(self, _name: str, error: Exception, expected: bool):
+        assert is_invalid_version_race(error) is expected
 
 
 class TestIsOffsetOverflowCompactionError:

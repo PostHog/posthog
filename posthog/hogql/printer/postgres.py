@@ -191,6 +191,14 @@ class PostgresPrinter(BasePrinter):
         if func_name == "count" and not args and not node.distinct:
             # ClickHouse's zero-arg count() is spelled count(*) everywhere else.
             args_str = "*"
+        elif func_name == "concat":
+            # concat(any...) cannot infer psycopg's untyped string parameters without an explicit cast.
+            args_str = ", ".join(
+                f"CAST({rendered_arg} AS TEXT)"
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                else rendered_arg
+                for arg, rendered_arg in zip(node.args, args, strict=True)
+            )
         if node.distinct:
             args_str = f"DISTINCT {args_str}"
 

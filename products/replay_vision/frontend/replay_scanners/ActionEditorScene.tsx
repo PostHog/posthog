@@ -5,17 +5,13 @@ import { useMemo } from 'react'
 import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { appLogic } from 'scenes/appLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -635,20 +631,10 @@ function WebhookDelivery({ noun }: { noun: string }): JSX.Element {
 export function ActionEditorSceneComponent(): JSX.Element {
     const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
     // Hooks can't be skipped, and effectiveScannerId can be empty before the action/scanner resolve —
     // 'new' is the sentinel replayScannerLogic already uses to skip its fetch, a harmless placeholder
     // until the real id is available and the logic remounts keyed on it.
     const { scanner } = useValues(replayScannerLogic({ id: effectiveScannerId || 'new' }))
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (!isNew && actionLoading && !loadedAction) {
         return (

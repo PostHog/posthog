@@ -3,14 +3,23 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
+    SANDBOX_GONE_STATE_KEY,
+    TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
 
 TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
+
+
+async def _run_update_task_run_status(
+    activity_environment: ActivityEnvironment, input_data: UpdateTaskRunStatusInput
+) -> None:
+    await activity_environment.run(update_task_run_status, input_data)
 
 
 @pytest.mark.requires_secrets
@@ -83,6 +92,59 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("timed_out_inactivity") is True
         # Merge, not replace: pre-existing state keys survive the marker write.
         assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_timed_out_unclaimed_prewarm_soft_deletes_task(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun
+    ) -> None:
+        test_task_run.task.title = ""
+        test_task_run.task.description = ""
+        test_task_run.task.save(update_fields=["title", "description", "updated_at"])
+        test_task_run.state = {"prewarmed": True, "await_user_message": True}
+        test_task_run.save(update_fields=["state", "updated_at"])
+
+        async_to_sync(_run_update_task_run_status)(
+            activity_environment,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=TaskRun.Status.COMPLETED,
+                timed_out_inactivity=True,
+            ),
+        )
+
+        test_task_run.task.refresh_from_db()
+        assert test_task_run.task.deleted is True
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "marker",
+        [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
+    )
+    def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            timeout_marker=marker,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.FAILED
+        assert test_task_run.error_message is None
+        assert test_task_run.state.get(marker) is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_unknown_timeout_marker_is_not_written(self, activity_environment, test_task_run):
+        # The marker comes off the wire, so only allowlisted keys may reach TaskRun.state.
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            timeout_marker="arbitrary_key",
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert "arbitrary_key" not in (test_task_run.state or {})
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")

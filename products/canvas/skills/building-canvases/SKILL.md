@@ -19,13 +19,17 @@ saves it.
 ## Resolve the target canvas
 
 - If the task names a canvas id (canvas-initiated tasks do), that is the target. Do not create another.
-- Otherwise — channel-composer tasks give the channel, not a canvas — list the channel's canvases
-  with `canvas-list` (scope with `channel`; resolve a bare channel name with `channel-list` first).
-  If one is clearly what the request refers to — an earlier iteration of the same board or tool —
-  build on it instead of creating a near-duplicate, and say so in your reply so the user knows
-  where the result landed.
-- Only when nothing existing fits, create one with `canvas-create` in the right channel, named
+- Otherwise the target channel is the one the task was created in — named in the task's context
+  (the `channel_context` block or the generation instructions). List that channel's canvases with
+  `canvas-list` (scope with `channel`). If one is clearly what the request refers to — an earlier
+  iteration of the same board or tool — build on it instead of creating a near-duplicate, and say
+  so in your reply so the user knows where the result landed.
+- Only when nothing existing fits, create one with `canvas-create` in that same channel, named
   with a short descriptive title drawn from the request — never "Untitled canvas".
+- Never survey channels to choose a target yourself: use `channel-list` only to resolve a channel
+  the USER named to its id. Its listing puts the personal #me channel first, and #me is never a
+  default — a canvas filed there is invisible to everyone else. If the task names neither a canvas
+  nor a channel, ask which channel to use instead of guessing.
 
 ## Choose the least complex implementation that meets the request
 
@@ -50,14 +54,21 @@ user-visible requirement you cannot infer.
    ad-hoc queries) — the host enforces these at runtime and validation rejects undeclared calls.
 3. Validate with `canvas-validate-create` as often as needed and fix every error-severity
    diagnostic.
-4. Publish the complete project with `canvas-publish-create`, passing `expected_current_version_id`.
-   Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
-5. **Wait for the build.** A publish queues a server-side build; poll `canvas-builds-retrieve`
+4. Save the project — which tool depends on whether the canvas is already live:
+   - **First version** (`current_version_id` is null): publish the complete project with
+     `canvas-publish-create`, passing `expected_current_version_id: null`.
+   - **Already live** (`current_version_id` is set): stage the complete project as a draft with
+     `canvas-draft-create` — the user previews the draft and promotes it to live. Publish or
+     promote yourself only when the user explicitly asked to make the change live.
+     Follow the `validating-and-publishing-canvases` skill for diagnostics and conflict recovery.
+5. **Wait for the build** — drafts and publishes alike queue one. Poll `canvas-builds-retrieve`
    (every few seconds, up to ~2 minutes) until your build is `ready` or `failed`. On `failed`,
-   read the build's error diagnostics, fix the project, and publish again — do not finish the
+   read the build's error diagnostics, fix the project, and save again — do not finish the
    task with a failed build.
 
-Publish once per requested change, when the canvas is ready — not after every micro-edit.
+Save once per requested change, when the canvas is ready — not after every micro-edit. When you
+staged a draft, end your reply by saying a draft is ready to preview and promote; the
+`validating-and-publishing-canvases` skill covers the draft → build → preview → promote flow.
 
 ## Source-project shape
 
