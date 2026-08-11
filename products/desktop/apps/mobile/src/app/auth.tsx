@@ -10,7 +10,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { QrScanModal, type QrScanResult } from "@/components/QrScanModal";
-import { type CloudRegion, useAuthStore } from "@/features/auth";
+import {
+  type CloudRegion,
+  useAuthStore,
+  useProjectsQuery,
+} from "@/features/auth";
+import { SelectSheet } from "@/features/tasks/composer/SelectSheet";
 import {
   ANALYTICS_EVENTS,
   type SignInFailureReason,
@@ -47,7 +52,15 @@ export default function AuthScreen() {
   const [devProjectId, setDevProjectId] = useState("");
   const [scannerVisible, setScannerVisible] = useState(false);
 
-  const { loginWithOAuth, loginWithPersonalApiKey } = useAuthStore();
+  const {
+    loginWithOAuth,
+    loginWithPersonalApiKey,
+    setProjectId,
+    scopedTeams,
+    projectId: activeProjectId,
+  } = useAuthStore();
+  const { data: projects } = useProjectsQuery();
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const analytics = useAnalytics();
 
   const trackSignInStarted = (method: SignInMethod) => {
@@ -148,8 +161,13 @@ export default function AuthScreen() {
     try {
       await loginWithOAuth(selectedRegion);
       trackSignInCompleted("oauth");
-      // Navigate to tabs on success
-      navigateAfterLogin();
+      // With one scoped project there is nothing to choose; otherwise let the
+      // user pick instead of silently landing on scoped_teams[0].
+      if (useAuthStore.getState().scopedTeams.length > 1) {
+        setProjectPickerOpen(true);
+      } else {
+        navigateAfterLogin();
+      }
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to authenticate";
@@ -310,6 +328,23 @@ export default function AuthScreen() {
         visible={scannerVisible}
         onClose={() => setScannerVisible(false)}
         onScan={handleQrScan}
+      />
+      <SelectSheet
+        open={projectPickerOpen}
+        title="Choose a project"
+        value={activeProjectId != null ? String(activeProjectId) : ""}
+        onChange={(value) => setProjectId(Number(value))}
+        // Fires after a selection and on plain dismissal alike. Dismissing
+        // keeps the default (first scoped project); changeable in Settings.
+        onClose={() => {
+          setProjectPickerOpen(false);
+          navigateAfterLogin();
+        }}
+        options={scopedTeams.map((id) => ({
+          value: String(id),
+          label: projects?.find((p) => p.id === id)?.name || `Project ${id}`,
+          description: String(id),
+        }))}
       />
     </SafeAreaView>
   );
