@@ -12,6 +12,7 @@ from llm_gateway.products.config import (
     POSTHOG_CODE_DEV_APP_ID,
     POSTHOG_CODE_EU_APP_ID,
     POSTHOG_CODE_US_APP_ID,
+    PREVIEW_MODEL_FLAGS,
     PRODUCT_ALIASES,
     PRODUCTS,
     TWIG_EU_APP_ID,
@@ -22,6 +23,7 @@ from llm_gateway.products.config import (
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
+    required_preview_model_flag,
     resolve_product_alias,
     validate_product,
 )
@@ -726,3 +728,16 @@ class TestServerCredentialConfigInvariant:
         # broken _CODE_APP_PRODUCTS derivation can't quietly hollow out this class.
         assert "posthog_code" in _CODE_APP_PRODUCTS
         assert PRODUCTS["posthog_code"].requires_server_credential is False
+
+
+class TestPreviewModelFlag:
+    @pytest.mark.parametrize(
+        "model",
+        ["moonshotai/kimi-k3", "MoonshotAI/Kimi-K3", "  moonshotai/kimi-k3  "],
+    )
+    def test_gated_model_requires_its_flag(self, model: str):
+        assert required_preview_model_flag(model) == PREVIEW_MODEL_FLAGS["moonshotai/kimi-k3"]
+
+    @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
+    def test_ungated_models_need_no_flag(self, model: str | None):
+        assert required_preview_model_flag(model) is None

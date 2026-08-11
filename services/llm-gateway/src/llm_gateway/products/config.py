@@ -453,6 +453,24 @@ def check_free_tier_model_access(
     )
 
 
+# Preview models gated behind a flag, mirroring products/tasks MODEL_ACCESS_FLAGS. Keys are the
+# model ids callers send.
+PREVIEW_MODEL_FLAGS: Final[dict[str, str]] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+}
+
+
+def required_preview_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it is not preview-gated."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in PREVIEW_MODEL_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
+
+
 def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:
     """Subset of model_ids on the posthog_code free tier."""
     settings = get_settings()
