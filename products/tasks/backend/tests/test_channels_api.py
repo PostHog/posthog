@@ -125,6 +125,21 @@ class ChannelsAPITestCase(TestCase):
         listed = other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"]
         self.assertEqual([t["id"] for t in listed], [created.json()["id"]])
 
+    def test_deleting_github_integration_clears_channel_repositories(self):
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="growth",
+            github_integration=integration,
+            repositories=["posthog/posthog"],
+        )
+
+        Integration.objects.filter(id=integration.id).delete()
+
+        channel.refresh_from_db()
+        self.assertIsNone(channel.github_integration_id)
+        self.assertEqual(channel.repositories, [])
+
     @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
     def test_new_tasks_inherit_channel_repositories(self, list_repositories):
         list_repositories.return_value = [
