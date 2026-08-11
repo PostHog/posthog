@@ -533,6 +533,12 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .string()
         .optional()
         .describe('Filter to observations whose person email contains this value (case-insensitive).'),
+    result_search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.'
+        ),
     session_id: zod
         .string()
         .optional()
@@ -1074,6 +1080,12 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe('Filter to observations whose person email contains this value (case-insensitive).'),
+    result_search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.'
+        ),
     session_id: zod
         .string()
         .optional()
@@ -1152,6 +1164,12 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
         .string()
         .optional()
         .describe('Filter to observations whose person email contains this value (case-insensitive).'),
+    result_search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.'
+        ),
     session_id: zod
         .string()
         .optional()
@@ -1229,6 +1247,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
         .string()
         .optional()
         .describe('Filter to observations whose person email contains this value (case-insensitive).'),
+    result_search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.'
+        ),
     session_id: zod
         .string()
         .optional()

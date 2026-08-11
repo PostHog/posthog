@@ -535,6 +535,14 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
         ),
     )
+    result_search = django_filters.CharFilter(
+        method="_filter_result_search",
+        help_text=(
+            "Case-insensitive text search over summarizer output: matches when the term appears in the title, "
+            "summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these "
+            "fields, so they never match."
+        ),
+    )
     session_id = MultiChoiceFilter(
         field_name="session_id",
         help_text="Filter to observations of one or more session recordings. Accepts a comma-separated list.",
@@ -642,6 +650,21 @@ class ReplayObservationFilter(django_filters.FilterSet):
         self, queryset: QuerySet[ReplayObservation], _name: str, value: float
     ) -> QuerySet[ReplayObservation]:
         return self._scored(queryset).filter(**{"_filter_score__lte": value})
+
+    def _filter_result_search(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        term = value.strip()
+        if not term:
+            return queryset
+        return queryset.filter(
+            Q(scanner_result__model_output__title__icontains=term)
+            | Q(scanner_result__model_output__summary__icontains=term)
+            | Q(scanner_result__model_output__intent__icontains=term)
+            | Q(scanner_result__model_output__outcome__icontains=term)
+            # Keywords are stored normalized to lowercase, so exact containment needs the term lowercased too.
+            | Q(scanner_result__model_output__keywords__contains=[term.lower()])
+        )
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str

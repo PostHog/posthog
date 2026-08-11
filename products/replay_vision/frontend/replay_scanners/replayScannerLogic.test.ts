@@ -514,6 +514,7 @@ describe('replayScannerLogic', () => {
             observationTagFilter: [] as string[],
             observationMinScoreFilter: null as number | null,
             observationMaxScoreFilter: null as number | null,
+            observationResultSearchFilter: '',
             observationSubjectFilter: '',
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
@@ -613,6 +614,13 @@ describe('replayScannerLogic', () => {
         it('passes recording_subject trimmed when set', () => {
             const params = buildObservationListParams({ ...emptyValues, observationSubjectFilter: '  acme  ' })
             expect(params.recording_subject).toBe('acme')
+        })
+
+        it('passes result_search trimmed when set, omits it when blank', () => {
+            expect(
+                buildObservationListParams({ ...emptyValues, observationResultSearchFilter: '  checkout  ' })
+            ).toEqual({ result_search: 'checkout' })
+            expect(buildObservationListParams({ ...emptyValues, observationResultSearchFilter: '   ' })).toEqual({})
         })
 
         it('maps recording_subject column to recording_subject_email', () => {
@@ -739,6 +747,19 @@ describe('replayScannerLogic', () => {
             }).toFinishAllListeners()
             expect(router.values.searchParams.status).toBe('failed,succeeded')
             expect(String(router.values.searchParams.page)).toBe('3')
+        })
+
+        it('round-trips result_search through the URL and resets the page', async () => {
+            scannedLogic.actions.setObservationsPage(3)
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationResultSearchFilter('checkout')
+            }).toMatchValues({ observationsPage: 1 })
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(router.values.searchParams.result_search).toBe('checkout')
+
+            router.actions.push(urls.replayVision('sid'), { result_search: 'refund' })
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(scannedLogic.values.observationResultSearchFilter).toBe('refund')
         })
 
         it('drops default state from the URL', async () => {

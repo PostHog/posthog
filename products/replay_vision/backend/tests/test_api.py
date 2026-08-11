@@ -1646,6 +1646,81 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1", "sess-3", "sess-0"])
 
+    def _create_summarizer_with_outputs(self, outputs: list[dict[str, Any]]) -> ReplayScanner:
+        summarizer = self._create_scanner(
+            name="journeys",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "medium"},
+        )
+        for idx, fields in enumerate(outputs):
+            ReplayObservation.objects.create(
+                scanner=summarizer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(summarizer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "summarizer",
+                        "title": "t",
+                        "summary": "s",
+                        "confidence": 0.5,
+                        **fields,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        return summarizer
+
+    @parameterized.expand(
+        [
+            ("title", {"title": "Checkout journey"}),
+            ("summary", {"summary": "User abandoned checkout twice"}),
+            ("intent", {"intent": "complete checkout"}),
+            ("outcome", {"outcome": "left checkout unfinished"}),
+            ("keyword", {"keywords": ["checkout", "cart"]}),
+        ]
+    )
+    def test_filterset_result_search_matches_each_summarizer_field(self, _name: str, fields: dict[str, Any]) -> None:
+        summarizer = self._create_summarizer_with_outputs([fields, {"summary": "browsing the docs"}])
+        # Uppercase term proves the text fields match case-insensitively and the keyword lookup lowercases.
+        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}?result_search=CHECKOUT")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-0"])
+
+    def test_filterset_result_search_no_match_returns_empty(self) -> None:
+        summarizer = self._create_summarizer_with_outputs([{"summary": "smooth browsing session"}])
+        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}?result_search=refund")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["count"], 0)
+
+    def test_filterset_result_search_does_not_match_monitor_reasoning(self) -> None:
+        # The term appears in monitor `reasoning`, which result_search deliberately does not cover.
+        self._create_observation(
+            session_id="sess-monitor",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "yes",
+                    "reasoning": "user hit a checkout bug",
+                    "confidence": 0.5,
+                },
+                "signals_count": 0,
+            },
+        )
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?result_search=checkout")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["count"], 0)
+
+    def test_filterset_result_search_applies_to_stats(self) -> None:
+        summarizer = self._create_summarizer_with_outputs([{"summary": "checkout stalls"}, {"summary": "browsing"}])
+        resp = self.client.get(f"{self.observations_url(str(summarizer.id))}stats/?result_search=checkout")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["status_counts"]["succeeded"], 1)
+
     def test_order_by_scanner_version_numeric(self) -> None:
         snap_v1 = {**_snapshot_for(self.scanner), "scanner_version": 1}
         snap_v2 = {**_snapshot_for(self.scanner), "scanner_version": 2}

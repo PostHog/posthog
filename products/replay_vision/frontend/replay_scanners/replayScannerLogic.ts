@@ -134,6 +134,7 @@ interface ObservationListParams {
     tags?: string
     min_score?: number
     max_score?: number
+    result_search?: string
     recording_subject?: string
     date_from?: string
     date_to?: string
@@ -168,6 +169,7 @@ interface ObservationFilterValues {
     observationTagFilter: string[]
     observationMinScoreFilter: number | null
     observationMaxScoreFilter: number | null
+    observationResultSearchFilter: string
     observationSubjectFilter: string
     observationDateFrom: string | null
     observationDateTo: string | null
@@ -181,6 +183,7 @@ type ObservationFilterParamKeys =
     | 'tags'
     | 'min_score'
     | 'max_score'
+    | 'result_search'
     | 'recording_subject'
     | 'date_from'
     | 'date_to'
@@ -208,6 +211,9 @@ function observationFilterParams(
     }
     if (values.observationMaxScoreFilter !== null) {
         params.max_score = values.observationMaxScoreFilter
+    }
+    if (values.observationResultSearchFilter.trim()) {
+        params.result_search = values.observationResultSearchFilter.trim()
     }
     if (values.observationSubjectFilter.trim()) {
         params.recording_subject = values.observationSubjectFilter.trim()
@@ -273,6 +279,7 @@ export interface replayScannerLogicValues {
     observationDetailLinkParams: Record<string, number | string>
     observationMaxScoreFilter: number | null
     observationMinScoreFilter: number | null
+    observationResultSearchFilter: string
     observationStats: ObservationStatusStats
     observationStatsApi: ObservationStatsApi | null
     observationStatsApiLoading: boolean
@@ -411,6 +418,7 @@ export interface replayScannerLogicActions {
         maxScore: number | null
         minScore: number | null
         page: number
+        resultSearch: string
         sort: ObservationsSorting | null
         status: ObservationStatusValue[]
         subject: string
@@ -424,6 +432,7 @@ export interface replayScannerLogicActions {
         maxScore: number | null
         minScore: number | null
         page: number
+        resultSearch: string
         sort: ObservationsSorting | null
         status: ObservationStatusEnumApi[]
         subject: string
@@ -484,6 +493,9 @@ export interface replayScannerLogicActions {
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setObservationResultSearchFilter: (value: string) => {
+        value: string
     }
     setObservationScoreRange: (
         minScore: number | null,
@@ -596,6 +608,7 @@ export interface replayScannerLogicMeta {
             observationTagFilter: string[],
             observationMinScoreFilter: number | null,
             observationMaxScoreFilter: number | null,
+            observationResultSearchFilter: string,
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
@@ -608,6 +621,7 @@ export interface replayScannerLogicMeta {
             observationTagFilter: string[],
             observationMinScoreFilter: number | null,
             observationMaxScoreFilter: number | null,
+            observationResultSearchFilter: string,
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
@@ -665,6 +679,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
         setObservationTagFilter: (values: string[]) => ({ values }),
         setObservationScoreRange: (minScore: number | null, maxScore: number | null) => ({ minScore, maxScore }),
+        setObservationResultSearchFilter: (value: string) => ({ value }),
         setObservationSubjectFilter: (value: string) => ({ value }),
         setObservationDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setObservationBackfillFilter: (value: string | null) => ({ value }),
@@ -678,6 +693,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             tags: string[]
             minScore: number | null
             maxScore: number | null
+            resultSearch: string
             subject: string
             dateFrom: string | null
             dateTo: string | null
@@ -963,6 +979,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 setObservationVerdictFilter: () => 1,
                 setObservationTagFilter: () => 1,
                 setObservationScoreRange: () => 1,
+                setObservationResultSearchFilter: () => 1,
                 setObservationSubjectFilter: () => 1,
                 setObservationDateRange: () => 1,
                 setObservationsSort: () => 1,
@@ -1078,6 +1095,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 restoreObservationsTableState: (_, { maxScore }) => maxScore,
             },
         ],
+        observationResultSearchFilter: [
+            '' as string,
+            {
+                setObservationResultSearchFilter: (_, { value }) => value,
+                clearObservationFilters: () => '',
+                restoreObservationsTableState: (_, { resultSearch }) => resultSearch,
+            },
+        ],
         observationSubjectFilter: [
             '' as string,
             {
@@ -1149,6 +1174,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationTagFilter,
                 s.observationMinScoreFilter,
                 s.observationMaxScoreFilter,
+                s.observationResultSearchFilter,
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
@@ -1161,6 +1187,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 tagFilter: string[],
                 minScore: number | null,
                 maxScore: number | null,
+                resultSearchFilter: string,
                 subjectFilter: string,
                 dateFrom: string | null,
                 dateTo: string | null,
@@ -1172,6 +1199,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 tagFilter.length > 0 ||
                 minScore !== null ||
                 maxScore !== null ||
+                resultSearchFilter.trim().length > 0 ||
                 subjectFilter.trim().length > 0 ||
                 dateFrom !== null ||
                 dateTo !== null ||
@@ -1186,6 +1214,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationTagFilter,
                 s.observationMinScoreFilter,
                 s.observationMaxScoreFilter,
+                s.observationResultSearchFilter,
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
@@ -1200,6 +1229,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationTagFilter: string[],
                 observationMinScoreFilter: number | null,
                 observationMaxScoreFilter: number | null,
+                observationResultSearchFilter: string,
                 observationSubjectFilter: string,
                 observationDateFrom: string | null,
                 observationDateTo: string | null,
@@ -1214,6 +1244,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     observationTagFilter,
                     observationMinScoreFilter,
                     observationMaxScoreFilter,
+                    observationResultSearchFilter,
                     observationSubjectFilter,
                     observationDateFrom,
                     observationDateTo,
@@ -1613,6 +1644,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
             setObservationBackfillFilter: () => reloadObservationsAndStats(),
             setObservationDateRange: () => reloadObservationsAndStats(),
+            setObservationResultSearchFilter: async (_, breakpoint) => {
+                // Free-text search — debounce so typing doesn't fire a request per keystroke.
+                await breakpoint(300)
+                reloadObservationsAndStats()
+            },
             setObservationSubjectFilter: async (_, breakpoint) => {
                 // Free-text search — debounce so typing doesn't fire a request per keystroke.
                 await breakpoint(300)
@@ -1692,6 +1728,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationVerdictFilter: writeUrl,
             setObservationTagFilter: writeUrl,
             setObservationScoreRange: writeUrlReplace,
+            setObservationResultSearchFilter: writeUrlReplace,
             setObservationDateRange: writeUrl,
             setObservationBackfillFilter: writeUrl,
             setObservationSubjectFilter: writeUrlReplace,
@@ -1714,6 +1751,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             const tags = parseCsvParam<string>(searchParams.tags)
             const minScore = parseNumericParam(searchParams.min_score)
             const maxScore = parseNumericParam(searchParams.max_score)
+            const resultSearch = typeof searchParams.result_search === 'string' ? searchParams.result_search : ''
             const subjectRaw = searchParams.recording_subject
             // String() so a numeric-looking subject (`?recording_subject=12345`) survives the router's coercion.
             const subject =
@@ -1731,6 +1769,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 objectsEqual(tags, values.observationTagFilter) &&
                 minScore === values.observationMinScoreFilter &&
                 maxScore === values.observationMaxScoreFilter &&
+                resultSearch === values.observationResultSearchFilter &&
                 subject === values.observationSubjectFilter &&
                 dateFrom === values.observationDateFrom &&
                 dateTo === values.observationDateTo &&
@@ -1745,6 +1784,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     tags,
                     minScore,
                     maxScore,
+                    resultSearch,
                     subject,
                     dateFrom,
                     dateTo,
@@ -1803,6 +1843,7 @@ const TABLE_URL_PARAM_KEYS = [
     'tags',
     'min_score',
     'max_score',
+    'result_search',
     'recording_subject',
     'date_from',
     'date_to',

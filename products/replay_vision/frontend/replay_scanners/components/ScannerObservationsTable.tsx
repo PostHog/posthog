@@ -93,6 +93,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationTagFilter,
         observationMinScoreFilter,
         observationMaxScoreFilter,
+        observationResultSearchFilter,
         observationSubjectFilter,
         observationDateFrom,
         observationDateTo,
@@ -116,6 +117,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         setObservationVerdictFilter,
         setObservationTagFilter,
         setObservationScoreRange,
+        setObservationResultSearchFilter,
         setObservationSubjectFilter,
         setObservationDateRange,
         setObservationBackfillFilter,
@@ -306,6 +308,17 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                         value={observationTagFilter}
                                         onChange={setObservationTagFilter}
                                         searchable
+                                    />
+                                )}
+                                {scannerType === 'summarizer' && (
+                                    <LemonInput
+                                        type="search"
+                                        size="small"
+                                        placeholder="Search results"
+                                        value={observationResultSearchFilter}
+                                        onChange={setObservationResultSearchFilter}
+                                        className="w-full sm:w-56"
+                                        data-attr="vision-observations-result-search"
                                     />
                                 )}
                                 {observationBackfillFilter && (

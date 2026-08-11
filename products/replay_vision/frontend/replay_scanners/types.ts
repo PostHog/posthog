@@ -41,6 +41,7 @@ export const OBSERVATION_LIST_FILTER_KEYS: readonly (keyof VisionObservationsRet
     'tags',
     'min_score',
     'max_score',
+    'result_search',
     'session_id',
     'recording_subject',
     'labeled',
