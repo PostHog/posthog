@@ -106,10 +106,13 @@ const REPORT_TASKS_POLL_INTERVAL_MS = 5000
 // without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
 const PR_CHECKS_POLL_INTERVAL_MS = 15000
 
-// Give up auto-fetching checks after this many consecutive failures: a PR GitHub can't return
-// checks for (deleted branch, lost integration access) won't start succeeding mid-session, and
-// each retry flashes the section's inline error back to a loading skeleton.
+// Back off the checks poll after this many consecutive failures: a PR GitHub can't return
+// checks for (deleted branch, lost integration access) re-fails on every 15s tick for nothing.
 const PR_CHECKS_MAX_CONSECUTIVE_FAILURES = 3
+
+// While backed off, still retry every Nth tick (20 × 15s = 5 min) so a transient GitHub outage
+// heals the section without the report having to be closed and reopened.
+const PR_CHECKS_FAILURE_BACKOFF_TICKS = 20
 
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
@@ -217,7 +220,7 @@ export interface inboxReportDetailLogicValues {
     optimisticReviewers: EnrichedReviewer[] | null
     postingThreadKey: string | null
     prChecks: readonly PullRequestCheckApi[] | null
-    prChecksAutoFetchEnabled: boolean
+    prChecksBackedOff: boolean
     prChecksConsecutiveFailures: number
     prChecksError: string | null
     prChecksLoading: boolean
@@ -465,7 +468,7 @@ export interface inboxReportDetailLogicMeta {
         reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
         isReportActive: (report: SignalReport | null) => boolean
         hasImplementationPr: (report: SignalReport | null) => boolean
-        prChecksAutoFetchEnabled: (prChecksConsecutiveFailures: number) => boolean
+        prChecksBackedOff: (prChecksConsecutiveFailures: number) => boolean
         hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
         currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
         inlineThreadsByFile: (prComments: readonly PullRequestCommentApi[] | null) => Record<string, ReviewThread[]>
@@ -803,15 +806,16 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
         // Human-readable PR checks/comments load failures (kea-loaders only exposes a boolean flag).
         // A failure usually means the branch/PR was deleted or the GitHub integration lost access.
+        // Cleared only on success (not on load start), so the section keeps showing the error while
+        // a backed-off retry is in flight instead of flashing back to the loading skeleton.
         prChecksError: [
             null as string | null,
             {
-                loadPrChecks: () => null,
                 loadPrChecksSuccess: () => null,
                 loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
             },
         ],
-        // Consecutive failed checks fetches — feeds `prChecksAutoFetchEnabled`.
+        // Consecutive failed checks fetches — feeds `prChecksBackedOff`.
         prChecksConsecutiveFailures: [
             0,
             {
@@ -883,12 +887,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (s) => [s.report],
             (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
         ],
-        // Gate for the 15s checks poll: once GitHub keeps failing, retrying stops until the detail is
-        // reopened — the section's inline error stays put instead of flashing back to a skeleton.
-        prChecksAutoFetchEnabled: [
+        // True once GitHub has failed enough consecutive times that the 15s cadence stops being worth
+        // it — the poll tick then drops to a slow retry (see PR_CHECKS_FAILURE_BACKOFF_TICKS).
+        prChecksBackedOff: [
             (s) => [s.prChecksConsecutiveFailures],
             (prChecksConsecutiveFailures: number): boolean =>
-                prChecksConsecutiveFailures < PR_CHECKS_MAX_CONSECUTIVE_FAILURES,
+                prChecksConsecutiveFailures >= PR_CHECKS_MAX_CONSECUTIVE_FAILURES,
         ],
         // Whether the current user has a personal GitHub connection — required to post review comments
         // (they're attributed to the user's own GitHub identity, not the app's).
@@ -1394,10 +1398,18 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // prop churns without the interval ever being torn down and restarted (which would keep
         // resetting the 15s cadence). Auto-disposed on unmount / hidden tab.
         cache.disposables.add(() => {
+            let tick = 0
             const interval = setInterval(() => {
-                if (values.hasImplementationPr && values.prChecksAutoFetchEnabled) {
-                    actions.loadPrChecks()
+                tick += 1
+                if (!values.hasImplementationPr) {
+                    return
                 }
+                // While backed off, only every Nth tick retries — enough for a transient GitHub
+                // outage to heal the section without hammering a permanently broken PR.
+                if (values.prChecksBackedOff && tick % PR_CHECKS_FAILURE_BACKOFF_TICKS !== 0) {
+                    return
+                }
+                actions.loadPrChecks()
             }, PR_CHECKS_POLL_INTERVAL_MS)
             return () => clearInterval(interval)
         }, 'prChecksPoll')

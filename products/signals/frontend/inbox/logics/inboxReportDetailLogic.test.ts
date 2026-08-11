@@ -113,15 +113,15 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(prChecksRequests).toBe(1)
 
-            // Two more failures (as the 15s poll would produce) reach the cap and stop the poll's gate.
+            // Two more failures (as the 15s poll would produce) reach the cap and back the poll off.
             logic.actions.loadPrChecks()
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.prChecksAutoFetchEnabled).toBe(true)
+            expect(logic.values.prChecksBackedOff).toBe(false)
             logic.actions.loadPrChecks()
             await expectLogic(logic).toFinishAllListeners()
 
             expect(prChecksRequests).toBe(3)
-            expect(logic.values.prChecksAutoFetchEnabled).toBe(false)
+            expect(logic.values.prChecksBackedOff).toBe(true)
             expect(logic.values.prChecksError).toBeTruthy()
         })
     })
