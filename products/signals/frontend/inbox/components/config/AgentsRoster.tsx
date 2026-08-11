@@ -233,8 +233,9 @@ function Expansion({
 
     return (
         <div className="flex flex-col gap-2 border-t border-primary bg-surface-secondary px-3 py-2.5">
+            {/* Never the tagline again: this line says what triggers a signal, not what is watched. */}
             <p className="mb-0 text-xs text-secondary">
-                {agent.description}{' '}
+                {agent.detail}{' '}
                 {agent.docsUrl && (
                     <Link to={agent.docsUrl} target="_blank" className="whitespace-nowrap text-xs">
                         Learn about {agent.docsLabel ?? agent.label}
@@ -420,7 +421,7 @@ const AgentRow = memo(function AgentRow({
                             </LemonTag>
                         )}
                     </div>
-                    <span className="truncate text-xs leading-4 text-muted">{agent.watches ?? agent.description}</span>
+                    <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
                 </div>
                 {tag && (
                     <LemonTag type={tag.type} size="small">

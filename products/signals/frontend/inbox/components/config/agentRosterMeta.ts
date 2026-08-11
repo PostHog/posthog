@@ -27,12 +27,13 @@ export interface AgentRosterDefinition {
     /** Key into `SOURCE_PRODUCT_META` for the icon tile. */
     sourceProduct: SignalSourceProduct
     label: string
-    description: string
+    /** The tagline: one truncated line under the source name, saying what this source watches. */
+    watches: string
     /**
-     * One truncated line under the source name, saying what it watches. Shorter than `description`,
-     * which has room to breathe once the row is open. Falls back to `description` when absent.
+     * The line the expansion opens with. It must add something the tagline does not say, usually
+     * what triggers a signal or what the source needs, never a restatement of what it watches.
      */
-    watches?: string
+    detail?: string
     /** Plural noun for the things listed inside this source, e.g. "scanners". */
     entityNoun?: string
     /**
@@ -70,8 +71,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'error_tracking',
                 sourceProduct: SignalSourceProduct.ErrorTracking,
                 label: 'Error tracking',
-                description: 'Bugs surfaced as new errors, regressions, and spikes.',
                 watches: 'New errors, regressions, and spikes in your app',
+                detail: 'Each type below is a separate trigger, so turning one off leaves the others watching.',
                 entityNoun: 'signal types',
                 entityNounSingular: 'signal type',
                 docsUrl: 'https://posthog.com/docs/error-tracking',
@@ -81,8 +82,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'conversations',
                 sourceProduct: SignalSourceProduct.Conversations,
                 label: 'Support',
-                description: 'Problems customers raise in support.',
                 watches: 'Problems customers raise in support',
+                detail: 'Only open tickets are read. Resolved ones are left alone.',
                 docsUrl: 'https://posthog.com/docs/support',
                 docsLabel: 'Support',
             },
@@ -90,8 +91,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'replay_vision',
                 sourceProduct: SignalSourceProduct.ReplayVision,
                 label: 'Replay vision',
-                description: 'Bugs and UX problems scanners find while watching recordings.',
                 watches: 'UX problems your scanners find while watching recordings',
+                detail: 'A scanner reaches your inbox only when it is switched on here, even while it keeps scanning.',
                 entityNoun: 'scanners',
                 entityNounSingular: 'scanner',
                 entitiesAreUserCreated: true,
@@ -103,8 +104,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'session_replay',
                 sourceProduct: SignalSourceProduct.SessionReplay,
                 label: 'Session replay',
-                description: 'UX problems found in session recordings. Replay vision covers this now.',
                 watches: 'UX problems in recordings, now covered by replay vision',
+                detail: 'Runs on a sample of the recordings that match your filters.',
                 docsUrl: 'https://posthog.com/docs/session-replay',
                 docsLabel: 'Session replay',
                 legacy: true,
@@ -113,8 +114,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'llm_analytics',
                 sourceProduct: SignalSourceProduct.LlmAnalytics,
                 label: 'AI observability',
-                description: 'Quality problems in your AI features. Set up evaluations to start getting signals.',
                 watches: 'AI quality problems your evaluations catch',
+                detail: 'An evaluation reaches your inbox only when it is switched on here.',
                 entityNoun: 'evaluations',
                 entityNounSingular: 'evaluation',
                 entitiesAreUserCreated: true,
@@ -126,8 +127,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'analytics',
                 sourceProduct: SignalSourceProduct.Analytics,
                 label: 'Product analytics',
-                description: 'Anomalies and unexpected shifts detected in your product metrics.',
                 watches: 'Unexpected shifts in your product metrics',
+                detail: 'Fires when an insight alert with the investigation agent turned on goes off.',
                 docsUrl: 'https://posthog.com/docs/product-analytics',
                 docsLabel: 'Product analytics',
                 alpha: true,
@@ -136,8 +137,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'health_checks',
                 sourceProduct: SignalSourceProduct.HealthChecks,
                 label: 'Health checks',
-                description: 'Instrumentation issues - missing events, proxy gaps, and outdated SDKs.',
                 watches: 'Missing events, proxy gaps, and outdated SDKs',
+                detail: 'Runs a set of checks across your project on a schedule.',
             },
         ],
     },
@@ -148,15 +149,15 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'github',
                 sourceProduct: SignalSourceProduct.Github,
                 label: 'GitHub Issues',
-                description: 'Issues filed in GitHub.',
                 watches: 'Issues filed in GitHub',
+                detail: 'Reads the issues from the GitHub repositories you sync to the warehouse.',
             },
             {
                 source: 'engineering_analytics',
                 sourceProduct: SignalSourceProduct.EngineeringAnalytics,
                 label: 'GitHub CI',
-                description: 'Flaky checks, broken default branch, and slowing workflows in GitHub Actions.',
                 watches: 'Flaky checks and slowing GitHub Actions workflows',
+                detail: 'Reads workflow runs and pull requests from the GitHub repositories you sync.',
                 alpha: true,
                 flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             },
@@ -164,22 +165,22 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 source: 'linear',
                 sourceProduct: SignalSourceProduct.Linear,
                 label: 'Linear',
-                description: 'Issues tracked in Linear.',
                 watches: 'Issues tracked in Linear',
+                detail: 'Reads the issues from the Linear workspace you sync to the warehouse.',
             },
             {
                 source: 'zendesk',
                 sourceProduct: SignalSourceProduct.Zendesk,
                 label: 'Zendesk',
-                description: 'Incoming Zendesk tickets.',
                 watches: 'Incoming Zendesk tickets',
+                detail: 'Reads the tickets from the Zendesk account you sync to the warehouse.',
             },
             {
                 source: 'pganalyze',
                 sourceProduct: SignalSourceProduct.Pganalyze,
                 label: 'pganalyze',
-                description: 'Postgres performance problems, including slow queries and bad indexes.',
                 watches: 'Slow Postgres queries and bad indexes',
+                detail: 'Reads the issues from the pganalyze account you sync to the warehouse.',
             },
         ],
     },
