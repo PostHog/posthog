@@ -51,7 +51,7 @@ CONSECUTIVE_TIMEOUTS_TO_PAUSE = 5
 
 
 def _get_previous_jobs(
-    saved_query_id: UUID, current_job_id: UUID, count: int, ignore_cancelled: bool = False
+    saved_query_id: UUID, current_job_id: UUID, count: int, ignore_inconclusive: bool = False
 ) -> "QuerySet[DataModelingJob]":
     """Get the most recent jobs for a saved query, excluding the current job."""
     jobs = (
@@ -61,10 +61,11 @@ def _get_previous_jobs(
         # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
         .exclude(status=DataModelingJobStatus.SKIPPED)
     )
-    if ignore_cancelled:
-        # A cancelled run is our doing (preemption, a deploy), so it says nothing about whether the
-        # query recovered. The timeout counter keeps treating it as a break, deliberately.
-        jobs = jobs.exclude(status=DataModelingJobStatus.CANCELLED)
+    if ignore_inconclusive:
+        # Neither status says whether the query recovered: a cancel is our doing (preemption, a
+        # deploy), and a run still marked running either is one, or was abandoned by a dead worker.
+        # The timeout counter keeps treating both as a break, deliberately.
+        jobs = jobs.exclude(status__in=(DataModelingJobStatus.CANCELLED, DataModelingJobStatus.RUNNING))
     return jobs.order_by("-created_at")[:count]
 
 
@@ -207,7 +208,7 @@ def _maybe_notify_materialization_failure(
     # An idempotent retry can land here with a job another path already completed or cancelled.
     if job.status != DataModelingJobStatus.FAILED:
         return False
-    previous_job = _get_previous_jobs(saved_query.id, job.id, 1, ignore_cancelled=True).first()
+    previous_job = _get_previous_jobs(saved_query.id, job.id, 1, ignore_inconclusive=True).first()
     if previous_job is not None and previous_job.status == DataModelingJobStatus.FAILED:
         return False
 

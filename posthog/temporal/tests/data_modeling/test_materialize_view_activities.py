@@ -203,11 +203,12 @@ class TestFailMaterializationActivity:
         else:
             mock_create.assert_not_called()
 
-    async def test_a_cancelled_run_does_not_restart_the_streak(
-        self, activity_environment, ateam, anode, asaved_query, adag
+    @pytest.mark.parametrize("intervening_status", [DataModelingJob.Status.CANCELLED, DataModelingJob.Status.RUNNING])
+    async def test_an_inconclusive_run_does_not_restart_the_streak(
+        self, activity_environment, ateam, anode, asaved_query, adag, intervening_status
     ):
         await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
-        await _make_job(ateam, asaved_query, DataModelingJob.Status.CANCELLED)
+        await _make_job(ateam, asaved_query, intervening_status)
         current_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
 
         inputs = FailMaterializationInputs(
