@@ -10,7 +10,6 @@ import {
     LemonTableColumn,
     LemonTableColumns,
     LemonTag,
-    SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -259,11 +258,7 @@ export function LogsAlertList(): JSX.Element {
         },
     ]
 
-    if (alertsLoading && alerts.length === 0) {
-        return <SpinnerOverlay />
-    }
-
-    if (alerts.length === 0 && !createdByFilter) {
+    if (alerts.length === 0 && !createdByFilter && !alertsLoading) {
         return (
             <ProductIntroduction
                 productName="Logs alerts"
@@ -303,6 +298,7 @@ export function LogsAlertList(): JSX.Element {
                 dataSource={alerts}
                 rowKey="id"
                 loading={alertsLoading}
+                loadingSkeletonRows={5}
                 emptyState={createdByFilter ? 'No alerts match this filter.' : 'No alerts configured yet.'}
                 size="small"
                 pagination={{ pageSize: 30 }}

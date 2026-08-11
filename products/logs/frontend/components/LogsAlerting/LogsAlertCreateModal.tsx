@@ -90,10 +90,10 @@ function buildLogsAlertWizardSteps({
             description: 'Select matching logs and set when this alert fires.',
             canAdvance: !configurationCannotAdvanceReason,
             cannotAdvanceReason: configurationCannotAdvanceReason,
-            content: (
+            renderContent: (showValidationErrors) => (
                 <div className="max-w-2xl space-y-5">
-                    <AlertEditorFormDetails nameError={nameError} />
-                    <LogsAlertFilters filterError={filterError} />
+                    <AlertEditorFormDetails nameError={showValidationErrors ? nameError : undefined} />
+                    <LogsAlertFilters filterError={showValidationErrors ? filterError : undefined} />
                 </div>
             ),
         },

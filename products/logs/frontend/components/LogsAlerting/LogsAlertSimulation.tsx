@@ -180,14 +180,9 @@ function SimulationSummary({
     )
 }
 
-function SimulationIncidents({ incidents, threshold }: { incidents: Incident[]; threshold: number }): JSX.Element {
+function SimulationIncidents({ incidents }: { incidents: Incident[] }): JSX.Element | null {
     if (incidents.length === 0) {
-        return (
-            <div className="text-center py-4 text-secondary text-sm border rounded">
-                No alerts — the alert would not have fired during this period.
-                {threshold > 0 && ' Consider lowering the threshold.'}
-            </div>
-        )
+        return null
     }
 
     return (
@@ -255,7 +250,7 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
             </p>
             <SimulationChart result={result} />
             <SimulationSummary result={result} incidents={incidents} />
-            <SimulationIncidents incidents={incidents} threshold={result.threshold_count} />
+            <SimulationIncidents incidents={incidents} />
         </div>
     )
 }
