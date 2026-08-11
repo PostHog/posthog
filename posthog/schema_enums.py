@@ -30,6 +30,48 @@ class AccessControlLevel(StrEnum):
     MANAGER = "manager"
 
 
+class AccountsTableAccountField(StrEnum):
+    NAME = "name"
+    EXTERNAL_ID = "external_id"
+    CREATED_AT = "created_at"
+    UPDATED_AT = "updated_at"
+    STRIPE_CUSTOMER_ID = "stripe_customer_id"
+    HUBSPOT_DEAL_ID = "hubspot_deal_id"
+    BILLING_ID = "billing_id"
+    SFDC_ID = "sfdc_id"
+    ZENDESK_ID = "zendesk_id"
+
+
+class WindowDays(float, Enum):
+    NUMBER_7 = 7
+    NUMBER_14 = 14
+    NUMBER_30 = 30
+    NUMBER_90 = 90
+
+
+class AccountsTableCustomPropertyOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    REGEX = "regex"
+    NOT_REGEX = "not_regex"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
+
+
+class AccountsTableSortDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -544,14 +586,6 @@ class BingAdsDefaultSources(StrEnum):
     MICROSOFT = "microsoft"
     MSADS = "msads"
     BING_VIDEO = "bing_video"
-
-
-class BingAdsTableExclusions(StrEnum):
-    PERFORMANCE = "performance"
-
-
-class BingAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -1397,7 +1431,8 @@ class ExternalDataSourceType(StrEnum):
     PINGDOM = "Pingdom"
     CLOUDFLARE = "Cloudflare"
     COSMOS_DB = "CosmosDB"
-    PLANET_SCALE = "PlanetScale"
+    PLANET_SCALE_MY_SQL = "PlanetScaleMySQL"
+    PLANET_SCALE_POSTGRES = "PlanetScalePostgres"
     SAP_HANA = "SapHana"
     RIPPLING = "Rippling"
     HI_BOB = "HiBob"
@@ -2668,14 +2703,6 @@ class GoogleAdsDefaultSources(StrEnum):
     WAZE = "waze"
 
 
-class GoogleAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class GoogleAdsTableKeywords(StrEnum):
-    CAMPAIGN = "campaign"
-
-
 class GradientScaleMode(StrEnum):
     ABSOLUTE = "absolute"
     RELATIVE = "relative"
@@ -2925,14 +2952,6 @@ class LinkedinAdsDefaultSources(StrEnum):
     LI = "li"
 
 
-class LinkedinAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class LinkedinAdsTableKeywords(StrEnum):
-    CAMPAIGN_GROUPS = "campaign_groups"
-
-
 class MatchedOn(StrEnum):
     KEY = "key"
     VALUE = "value"
@@ -3115,14 +3134,6 @@ class MetaAdsDefaultSources(StrEnum):
     THREADS = "threads"
 
 
-class MetaAdsTableExclusions(StrEnum):
-    STATS = "stats"
-
-
-class MetaAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
 class MetricsAggregation(StrEnum):
     SUM = "sum"
     AVG = "avg"
@@ -3282,6 +3293,7 @@ class NodeKind(StrEnum):
     DOCUMENT_SIMILARITY_QUERY = "DocumentSimilarityQuery"
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
     ACCOUNTS_QUERY = "AccountsQuery"
+    ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
@@ -3341,14 +3353,6 @@ class ValueDisplay(StrEnum):
 
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
-
-
-class PinterestAdsTableExclusions(StrEnum):
-    ANALYTICS = "analytics"
-
-
-class PinterestAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class PlanningStepStatus(StrEnum):
@@ -3678,14 +3682,6 @@ class RedditAdsDefaultSources(StrEnum):
     REDDIT = "reddit"
 
 
-class RedditAdsTableExclusions(StrEnum):
-    REPORT = "report"
-
-
-class RedditAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
-
-
 class RefreshType(StrEnum):
     ASYNC_ = "async"
     ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
@@ -3800,14 +3796,6 @@ class SnapchatAdsConversionValueFields(StrEnum):
 
 class SnapchatAdsDefaultSources(StrEnum):
     SNAPCHAT = "snapchat"
-
-
-class SnapchatAdsTableExclusions(StrEnum):
-    STATS_DAILY = "stats_daily"
-
-
-class SnapchatAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class ReleaseStatus(StrEnum):
@@ -4006,14 +3994,6 @@ class TaxonomicFilterGroupType(StrEnum):
 
 class TikTokAdsDefaultSources(StrEnum):
     TIKTOK = "tiktok"
-
-
-class TikTokAdsTableExclusions(StrEnum):
-    REPORT = "report"
-
-
-class TikTokAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
 
 
 class TraceOrderColumn(StrEnum):

@@ -517,8 +517,6 @@ describe("CloudArtifactDownloads", () => {
     );
   });
 
-  // Collapse state lives in a module-scoped store that nothing here resets, so
-  // the case that leaves the box collapsed has to run last.
   it("starts expanded and collapses when the header is clicked", () => {
     renderDownloads();
 
@@ -537,6 +535,77 @@ describe("CloudArtifactDownloads", () => {
     expect(screen.getByText("report.pdf")).toBeVisible();
   });
 
+  it("expands when the visible file list changes", () => {
+    const { rerender } = renderDownloads();
+
+    fireEvent.click(screen.getByRole("button", { name: "Files (1)" }));
+    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+
+    fetchedArtifacts = [
+      ...(fetchedArtifacts ?? []),
+      {
+        id: "output-2",
+        name: "summary.txt",
+        type: "output",
+        storage_path: "tasks/run-1/summary.txt",
+      },
+    ];
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: "Files (2)" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByText("summary.txt")).toBeVisible();
+  });
+
+  it("stays collapsed when a refetch returns the same files", () => {
+    const { rerender } = renderDownloads();
+
+    fireEvent.click(screen.getByRole("button", { name: "Files (1)" }));
+    fetchedArtifacts = [...(fetchedArtifacts ?? [])];
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    const trigger = screen.getByRole("button", { name: "Files (1)" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(trigger);
+  });
+
+  it("treats a successful empty refresh as authoritative", () => {
+    const { rerender } = renderDownloads();
+
+    fireEvent.click(screen.getByRole("button", { name: "Files (1)" }));
+    const artifacts = fetchedArtifacts;
+    fetchedArtifacts = [];
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Files (1)" })).toBeNull();
+
+    fetchedArtifacts = artifacts;
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: "Files (1)" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("remembers collapse state per task", () => {
     const { unmount } = renderDownloads();
 
@@ -544,7 +613,15 @@ describe("CloudArtifactDownloads", () => {
     expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
     unmount();
 
-    renderDownloads();
+    const artifacts = fetchedArtifacts;
+    fetchedArtifacts = undefined;
+    const { rerender } = renderDownloads();
+    fetchedArtifacts = artifacts;
+    rerender(
+      <Theme>
+        <CloudArtifactDownloads taskId="task-1" task={task} />
+      </Theme>,
+    );
 
     expect(screen.getByRole("button", { name: "Files (1)" })).toHaveAttribute(
       "aria-expanded",
