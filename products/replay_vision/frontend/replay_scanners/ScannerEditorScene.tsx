@@ -22,6 +22,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
+import { RequestModelButton } from '../components/RequestModelButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ScannerTemplatePicker } from './components/ScannerTemplatePicker'
 import { ScannerTriggers } from './components/ScannerTriggers'
@@ -291,7 +292,8 @@ function ConfigureStep(): JSX.Element {
                 <div className="text-xs text-muted">
                     {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
-                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
+                        : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}{' '}
+                    <RequestModelButton />
                 </div>
             </div>
 
