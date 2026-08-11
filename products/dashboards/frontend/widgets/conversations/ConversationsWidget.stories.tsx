@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 import { DashboardPlacement } from '~/types'
@@ -39,6 +40,7 @@ const savedViewsApiDecorator = mswDecorator({
 
 function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
     const { isAvailable } = useWidgetAvailability(CATALOG.availability)
+    const [config, setConfig] = useState(props.config)
 
     return (
         <WidgetCard className="h-full">
@@ -48,7 +50,7 @@ function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
                 defaultTitle={CATALOG.headerTitle ?? CATALOG.label}
                 titleHref={CATALOG.titleHref}
                 widgetTypeLabel={getDashboardWidgetGroupLabel(CATALOG.groupId)}
-                config={props.config}
+                config={config}
                 headerMeta={CATALOG.headerMeta}
                 description={CATALOG.description}
                 showDescription
@@ -57,15 +59,11 @@ function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
                 moreButtonOverlay={mockMoreOverlay}
             />
             {isAvailable ? (
-                <ConversationsWidgetTileFilters
-                    tileId={props.tileId}
-                    config={props.config}
-                    onUpdateConfig={props.onUpdateConfig}
-                />
+                <ConversationsWidgetTileFilters tileId={props.tileId} config={config} onUpdateConfig={setConfig} />
             ) : null}
             <WidgetCardBody>
                 <WidgetRuntimeAvailabilityGuard availability={CATALOG.availability}>
-                    <ConversationsWidget {...props} />
+                    <ConversationsWidget {...props} config={config} />
                 </WidgetRuntimeAvailabilityGuard>
             </WidgetCardBody>
         </WidgetCard>
