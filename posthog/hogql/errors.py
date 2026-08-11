@@ -73,6 +73,25 @@ class TableAccessDeniedError(QueryError):
         self.table_name = table_name
 
 
+class UnknownTableError(QueryError):
+    """A referenced table is not in the HogQL catalog."""
+
+    # Surfaces as the error code on API responses (see posthog/api/query.py), so clients can tell an
+    # unknown table from any other query error and offer a "fix the query" step instead of a dead end.
+    code_name = "unknown_table"
+
+    table_name: str
+    suggestions: list[str]
+
+    def __init__(self, table_name: str, *, suggestions: Optional[list[str]] = None):
+        self.table_name = table_name
+        self.suggestions = suggestions or []
+        message = f"Unknown table `{table_name}`."
+        if self.suggestions:
+            message += f" Did you mean: {', '.join(self.suggestions)}?"
+        super().__init__(message)
+
+
 class NotImplementedError(InternalHogQLError):
     """This feature isn't implemented in HogQL (yet)."""
 

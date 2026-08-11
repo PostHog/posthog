@@ -59,6 +59,8 @@ const HedgehogConstruction2 = pngHoggie(construction2Png)
 
 // Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
 const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+// Matches UnknownTableError.code_name on the backend. Keep the two in sync.
+const UNKNOWN_TABLE_ERROR_CODE = 'unknown_table'
 
 const MEMORY_LIMIT_AI_PROMPT = autoRunMaxPrompt(
     "This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
@@ -596,6 +598,7 @@ export function InsightValidationError({
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
+    const isUnknownTableError = validationErrorCode === UNKNOWN_TABLE_ERROR_CODE
     const defaultCta =
         cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
@@ -628,6 +631,13 @@ export function InsightValidationError({
             </h2>
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
+
+            {isUnknownTableError && (
+                <p className="text-sm text-muted max-w-120 mb-2">
+                    The query points at a table this project can't find. Open it below to point the query at a table you
+                    have.
+                </p>
+            )}
 
             {/* For memory-limit errors, lead with the AI debugger but keep the retry/debugger action
                 beside it so users who decline AI consent (or lack AI access) still have a next step.

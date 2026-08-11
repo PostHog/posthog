@@ -510,6 +510,20 @@ class TestResolver(BaseTest):
         self.assertIn("Did you mean:", message)
         self.assertIn("events", message)
 
+    def test_suggest_table_names_dedupes_near_identical_candidates(self):
+        # Revenue analytics views share a long `<source>.<prefix>` stem, so close matches for a
+        # mistyped name are near-identical and used to fill every slot, reading as one table repeated.
+        self.database._view_table_names = [
+            "stripe.revenue_analytics.charge_revenue_view",
+            "stripe.revenue_analytics.charge_revenue_vievv",
+            "stripe.revenue_analytics.charge_revenue_viewx",
+            "stripe.revenue_analytics.subscription_revenue_view",
+        ]
+        suggestions = self.database.suggest_table_names("stripe.revenue_analytics.charge_revenue_vieww")
+        self.assertEqual(len(suggestions), len(set(suggestions)))
+        charge_like = [name for name in suggestions if "charge_revenue_vie" in name]
+        self.assertEqual(len(charge_like), 1, f"near-identical charge views should collapse to one: {suggestions}")
+
     def test_unresolved_field_suggests_close_matches(self):
         # user_id isn't on events, but distinct_id and person_id are close enough to suggest
         with self.assertRaises(QueryError) as ctx:

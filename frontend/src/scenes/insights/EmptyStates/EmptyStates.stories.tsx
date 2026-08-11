@@ -186,6 +186,40 @@ export const MemoryLimitExceeded: Story = {
     },
 }
 
+export const UnknownTableError: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/insights/': () => [
+                    200,
+                    { count: 1, results: [{ ...insight, result: null }] },
+                ],
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'validation_error',
+                            code: 'unknown_table',
+                            detail: 'Unknown table `revenue_analytics.charge`.',
+                        },
+                        { status: 400 }
+                    )
+                },
+            },
+        })
+
+        return <App />
+    },
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr=insight-error-query]',
+        },
+    },
+}
+
 export const EstimatedQueryExecutionTimeTooLong: Story = {
     render: () => {
         useStorybookMocks({

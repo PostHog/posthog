@@ -41,6 +41,19 @@ describe('insight error states', () => {
         })
     })
 
+    it('gives an unknown-table validation error a next action', () => {
+        const { container } = render(
+            <InsightValidationError
+                detail="Unknown table `revenue_analytics.charge`."
+                validationErrorCode="unknown_table"
+                query={{ kind: 'DataTableNode', source: { kind: 'HogQLQuery' } }}
+            />
+        )
+
+        expect(screen.getByText(/point the query at a table you have/i)).toBeTruthy()
+        expect(container.querySelector('[data-attr="insight-error-query"]')).not.toBeNull()
+    })
+
     it('reports "insight error message shown" when a server error renders', () => {
         render(<InsightErrorState title="A server error occurred." queryId="test-query-id" />)
 

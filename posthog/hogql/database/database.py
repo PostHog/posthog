@@ -143,7 +143,7 @@ from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreagg
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
-from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError, UnknownTableError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -647,11 +647,9 @@ class Database(BaseModel):
                 table_name = ".".join(table_name)
             if self.is_table_access_denied(table_name):
                 raise TableAccessDeniedError(table_name) from e
-            suggestions = self._suggest_table_names(table_name)
-            suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
-            raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
+            raise UnknownTableError(table_name, suggestions=self.suggest_table_names(table_name)) from e
 
-    def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
+    def suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
 
         Uses a relatively strict cutoff so common exact-text assertions on
@@ -679,7 +677,18 @@ class Database(BaseModel):
         candidates = {c for c in candidates if c.casefold() != lowered}
         if not candidates:
             return []
-        return difflib.get_close_matches(name, sorted(candidates), n=limit, cutoff=0.7)
+        # Pull a wider pool than needed, then keep only candidates that differ enough from ones
+        # already chosen. Revenue analytics views share a long `<source>.<prefix>` stem, so without
+        # this a cluster of near-identical names fills every slot and reads as one table repeated.
+        ranked = difflib.get_close_matches(name, sorted(candidates), n=limit * 4, cutoff=0.7)
+        suggestions: list[str] = []
+        for candidate in ranked:
+            if any(difflib.SequenceMatcher(None, candidate, chosen).ratio() > 0.9 for chosen in suggestions):
+                continue
+            suggestions.append(candidate)
+            if len(suggestions) >= limit:
+                break
+        return suggestions
 
     def get_all_table_names(self) -> list[str]:
         warehouse_table_names: list[str] = []

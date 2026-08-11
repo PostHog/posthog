@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, UnknownTableError
 
 from posthog.clickhouse.client import (
     execute_async as client,
@@ -305,6 +305,21 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
+    def test_async_query_hogql_error_carries_code_name(self):
+        # HogQL errors (e.g. an unknown table) don't reach the API's ValidationError layer here, so
+        # the code must come from the exception's `code_name` for dashboards to offer a next step.
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=UnknownTableError("made_up_table")):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertEqual(result.error_code, "unknown_table")
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")

@@ -304,6 +304,12 @@ def execute_process_query(
                 codes = err.get_codes()
                 if isinstance(codes, str):
                     query_status.error_code = codes
+            # HogQL errors (e.g. an unknown table) don't reach the API's ValidationError layer here, so
+            # carry their stable `code_name` through directly — clients match on it to offer a next step.
+            if not query_status.error_code:
+                code_name = getattr(err, "code_name", None)
+                if isinstance(code_name, str):
+                    query_status.error_code = code_name
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)
         if not is_user_safe_error:
             # User-safe errors (e.g. a malformed HogQL query) are already returned to the user as a 400,

@@ -367,6 +367,7 @@ function InsightCardInternal(
                     <InsightValidationError
                         detail={validationError}
                         validationErrorCode={extractValidationErrorCode(apiError)}
+                        query={insight.query}
                     />
                 )
             } else if (apiError instanceof ApiError) {

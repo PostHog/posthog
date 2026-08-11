@@ -24,7 +24,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError, UnknownTableError
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -203,7 +203,8 @@ def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: 
         raise QueryError("Database needs to be defined")
 
     if not context.database.has_table(table_chain):
-        raise QueryError(f'Table "{".".join(table_chain)}" does not exist')
+        name = ".".join(table_chain)
+        raise UnknownTableError(name, suggestions=context.database.suggest_table_names(name))
 
     select_node = ast.SelectQuery(
         select=[ast.Field(chain=["*"])],
