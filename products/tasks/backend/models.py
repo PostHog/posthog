@@ -1744,6 +1744,14 @@ class LoopFire(TeamScopedRootMixin):
         return f"Fire {self.fire_key} on loop {self.loop_id}"
 
 
+# `TaskRun.state` key marking that an interactive run has finished a turn and is blocked on its
+# user. Written by the push dispatcher at the same turn-end moments that fire the "needs your
+# input" push, and cleared when the user replies or the run reaches a terminal status. Persisted
+# (rather than left to the live event stream) so a client that was not streaming — the mobile task
+# list, most of all — can still tell which tasks are waiting on a human.
+AWAITING_USER_INPUT_STATE_KEY = "awaiting_user_input"
+
+
 class TaskRun(models.Model):
     class Status(models.TextChoices):
         NOT_STARTED = "not_started", "Not Started"

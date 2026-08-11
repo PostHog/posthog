@@ -32,12 +32,12 @@ from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
-from products.tasks.backend.models import Task, TaskPresence
+from products.tasks.backend.models import AWAITING_USER_INPUT_STATE_KEY, Task, TaskPresence, TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
-    from products.tasks.backend.models import TaskRun, TaskThreadMessage
+    from products.tasks.backend.models import TaskThreadMessage
 
 logger = structlog.get_logger(__name__)
 
@@ -61,27 +61,38 @@ _COOLDOWN_SECONDS: dict[PushKind, int] = {
 
 def notify_task_run_completed(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` finishes successfully."""
+    _record_awaiting_user_input(task_run, False)
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="completed", body=f'"{_task_title(task_run)}" finished')
 
 
 def notify_task_run_failed(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` ends with a failure."""
+    _record_awaiting_user_input(task_run, False)
     _enqueue(task_run, kind="failed", body=f'"{_task_title(task_run)}" failed')
 
 
 def notify_task_run_cancelled(task_run: TaskRun) -> None:
     """Fire a push notification when ``task_run`` is cancelled."""
+    _record_awaiting_user_input(task_run, False)
     _enqueue(task_run, kind="cancelled", body=f'"{_task_title(task_run)}" was cancelled')
 
 
 def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
     """Fire a push notification when an interactive run is waiting for user input."""
+    _record_awaiting_user_input(task_run, True)
     _project_awaiting_input_activity(task_run)
     _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" needs your input')
 
 
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
+    """Fire a push notification when an interactive run finishes a turn.
+
+    Turn end *is* the awaiting-input condition for an interactive run — every caller gates on
+    ``mode == "interactive"`` — so this records the same persisted marker as
+    ``notify_task_run_awaiting_input``.
+    """
+    _record_awaiting_user_input(task_run, True)
     _project_completed_activity(task_run)
     _enqueue(task_run, kind="turn_completed", body=f'"{_task_title(task_run)}" finished')
 
@@ -142,6 +153,28 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
                 kind="thread_message",
                 exc_info=True,
             )
+
+
+def _record_awaiting_user_input(task_run: TaskRun, awaiting: bool) -> None:
+    """Persist (or clear) the awaiting-input marker on the run's state.
+
+    Clients that were never streaming the run — the mobile task list above all — have no other
+    way to learn that an agent stopped and is waiting on a human, so the condition is recorded
+    on the row alongside the push. Goes through ``update_state_atomic`` because run state is
+    written from several independent activities and a read-modify-write here would drop keys.
+
+    Best-effort for the same reason ``_enqueue`` is: this sits on the agent's turn-end and
+    run-completion paths and must never fail them. The in-memory instance is refreshed so a
+    caller that serializes the run right after (e.g. the cancel endpoint) sees the new state.
+    """
+    try:
+        if awaiting:
+            state = TaskRun.update_state_atomic(task_run.id, updates={AWAITING_USER_INPUT_STATE_KEY: True})
+        else:
+            state = TaskRun.update_state_atomic(task_run.id, remove_keys=[AWAITING_USER_INPUT_STATE_KEY])
+        task_run.state = state
+    except Exception:
+        logger.warning("push_dispatcher.awaiting_state_write_failed", run_id=str(task_run.id), exc_info=True)
 
 
 def _project_awaiting_input_activity(task_run: TaskRun) -> None:

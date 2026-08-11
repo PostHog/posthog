@@ -63,6 +63,7 @@ from products.tasks.backend.logic.services.image_builder import (
 )
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
+    AWAITING_USER_INPUT_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -3405,7 +3406,22 @@ def signal_task_run_user_message(
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
+    _clear_awaiting_user_input(run)
     return True
+
+
+def _clear_awaiting_user_input(run: TaskRun) -> None:
+    """Drop the run's awaiting-input marker now that the user has replied.
+
+    Every user-message path funnels through ``signal_task_run_user_message``, so this is the one
+    place the condition ends short of the run terminating (which the push dispatcher clears).
+    Best-effort: a failed marker write must not turn a delivered follow-up into an error for the
+    user, and the next terminal transition clears it anyway.
+    """
+    try:
+        run.state = TaskRun.update_state_atomic(run.id, remove_keys=[AWAITING_USER_INPUT_STATE_KEY])
+    except Exception:
+        logger.warning("Failed to clear awaiting-input marker for task run %s", run.id, exc_info=True)
 
 
 def get_task_run_sandbox_connection(

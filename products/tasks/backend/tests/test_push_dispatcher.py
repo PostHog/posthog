@@ -10,7 +10,8 @@ from prometheus_client import REGISTRY
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.tasks.push_notifications import send_user_push
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.facade.api import signal_task_run_user_message
+from products.tasks.backend.models import AWAITING_USER_INPUT_STATE_KEY, Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
     notify_task_run_awaiting_input,
     notify_task_run_cancelled,
@@ -183,6 +184,85 @@ class TestPushDispatcher(TestCase):
     def test_mark_failed_triggers_push(self, mock_notify):
         self.task_run.mark_failed("nope")
         mock_notify.assert_called_once_with(self.task_run)
+
+    def _run_state(self) -> dict:
+        return TaskRun.objects.get(id=self.task_run.id).state or {}
+
+    @parameterized.expand(
+        [
+            ("awaiting", notify_task_run_awaiting_input),
+            ("turn_completed", notify_task_run_turn_completed),
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_turn_end_persists_awaiting_marker(self, _name, notify_fn, _mock_delay, _flag):
+        """A client that was never streaming the run reads the wait off `latest_run.state`."""
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_fn(self.task_run)
+
+        self.assertIs(self._run_state()[AWAITING_USER_INPUT_STATE_KEY], True)
+        # The caller's in-memory instance is refreshed, so serializing it right after is correct.
+        self.assertIs(self.task_run.state[AWAITING_USER_INPUT_STATE_KEY], True)
+
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_awaiting_marker_preserves_other_state_keys(self, _mock_delay, _flag):
+        self.task_run.state = {"mode": "interactive"}
+        self.task_run.save(update_fields=["state"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_turn_completed(self.task_run)
+
+        self.assertEqual(self._run_state(), {"mode": "interactive", AWAITING_USER_INPUT_STATE_KEY: True})
+
+    @parameterized.expand(
+        [
+            ("completed", notify_task_run_completed),
+            ("failed", notify_task_run_failed),
+            ("cancelled", notify_task_run_cancelled),
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_terminal_notification_clears_awaiting_marker(self, _name, notify_fn, _mock_delay, _flag):
+        self.task_run.state = {"mode": "interactive", AWAITING_USER_INPUT_STATE_KEY: True}
+        self.task_run.save(update_fields=["state"])
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_fn(self.task_run)
+
+        self.assertEqual(self._run_state(), {"mode": "interactive"})
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_user_message_clears_awaiting_marker(self, _mock_signal):
+        """The wait ends the moment the user replies, well before the run terminates."""
+        self.task_run.state = {"mode": "interactive", AWAITING_USER_INPUT_STATE_KEY: True}
+        self.task_run.save(update_fields=["state"])
+
+        result = signal_task_run_user_message(
+            self.task_run.id,
+            self.task.id,
+            self.team.id,
+            content="carry on",
+            artifact_ids=[],
+        )
+
+        self.assertIs(result, True)
+        self.assertEqual(self._run_state(), {"mode": "interactive"})
+
+    @patch(
+        "products.tasks.backend.push_dispatcher.TaskRun.update_state_atomic",
+        side_effect=RuntimeError("postgres is down"),
+    )
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_awaiting_marker_write_failure_still_pushes(self, mock_delay, _flag, _mock_state):
+        """The marker is an extra signal, never a reason to drop the notification."""
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_turn_completed(self.task_run)
+
+        mock_delay.assert_called_once()
 
     @patch("posthog.tasks.push_notifications.send_push_to_user", return_value=2)
     def test_delivery_task_records_expo_acceptance(self, mock_send):
