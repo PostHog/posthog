@@ -14,14 +14,18 @@ DEFAULT_BACKFILL_DAYS = 365
 DEFAULT_METRICS = ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration", "events"]
 
 # Plausible resolves these dimensions against its sessions table and these metrics against its
-# events table, then rejects any query pairing the two with a 400, so a breakdown on one of these
-# dimensions must ask for session metrics only. Both lists are exhaustive as of Plausible v3.2.1:
+# events table, and answers 400 when one of these metrics is requested alongside one of these
+# dimensions. Both sets are complete as transcribed from Plausible v3.2.1:
 # https://github.com/plausible/analytics/blob/v3.2.1/lib/plausible/stats/table_decider.ex
+#
+# Only this direction is enforced below. Plausible rejects the mirror case too — a session metric
+# such as `bounce_rate` alongside an `event:*` dimension — and exempts only `event:page`, which is
+# why `pages` works on the shared metric set. A new `event:*` breakdown needs its own metrics.
 SESSION_SCOPED_DIMENSIONS = frozenset(
     {"visit:entry_page", "visit:entry_page_hostname", "visit:exit_page", "visit:exit_page_hostname"}
 )
-# Revenue metrics only conflict on self-hosted builds, which exempt nothing, but dropping them from
-# a session-scoped breakdown costs nothing either way.
+# Plausible Cloud exempts the two revenue metrics from that check and self-hosted does not, so both
+# are listed. Neither is in DEFAULT_METRICS today.
 EVENT_SCOPED_METRICS = frozenset(
     {"pageviews", "events", "scroll_depth", "time_on_page", "total_revenue", "average_revenue"}
 )
@@ -66,7 +70,8 @@ class PlausibleEndpointConfig:
         if not SESSION_SCOPED_DIMENSIONS.intersection(self.breakdown_dimensions):
             return
         session_metrics = [metric for metric in self.metrics if metric not in EVENT_SCOPED_METRICS]
-        # Plausible requires a non-empty `metrics`, so fail at import rather than per-team at sync.
+        # Plausible rejects an empty `metrics`. This raise reaches the source loader, which skips the
+        # whole connector rather than failing the deploy, so a test pins it instead.
         if not session_metrics:
             raise ValueError(f"{self.name}: no session-scoped metrics remain out of {self.metrics}")
         self.metrics = session_metrics
@@ -100,6 +105,7 @@ PLAUSIBLE_ENDPOINTS: dict[str, PlausibleEndpointConfig] = {
     "utm_terms": PlausibleEndpointConfig(name="utm_terms", breakdown_dimensions=["visit:utm_term"]),
     "utm_contents": PlausibleEndpointConfig(name="utm_contents", breakdown_dimensions=["visit:utm_content"]),
     "pages": PlausibleEndpointConfig(name="pages", breakdown_dimensions=["event:page"]),
+    # Session-scoped, so `__post_init__` narrows these two to the session metrics.
     "entry_pages": PlausibleEndpointConfig(name="entry_pages", breakdown_dimensions=["visit:entry_page"]),
     "exit_pages": PlausibleEndpointConfig(name="exit_pages", breakdown_dimensions=["visit:exit_page"]),
     "countries": PlausibleEndpointConfig(name="countries", breakdown_dimensions=["visit:country"]),
