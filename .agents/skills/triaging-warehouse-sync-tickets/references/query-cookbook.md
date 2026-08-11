@@ -54,6 +54,10 @@ every team's production data, not just the `team_id` you filtered on.
   row, and `_` lets an attacker extract a name character by character. Strip `%` and `_` from `<fragment>`
   before substitution, or avoid the wildcard entirely — the queries below use
   `position(lower('<fragment>') in lower(column))` for exactly this reason.
+- Timestamp placeholders (`<YYYY-MM-DD HH:MM:SS>`) must match
+  `^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$` exactly. Reject anything else instead of
+  interpolating it. Where a relative window works just as well, prefer `now() - INTERVAL n HOUR/DAY`
+  over a manual timestamp string — it isn't ticket-derived text at all, so there's nothing to validate.
 - If you cannot produce a validated value, do not run the query.
 
 ---
@@ -220,7 +224,8 @@ LIMIT 200
 ```
 
 **The full line stream for one run**, once you know roughly when it broke. Note the explicit `'UTC'`,
-which is what makes a window derived from a Postgres timestamp line up.
+which is what makes a window derived from a Postgres timestamp line up. Validate each
+`<YYYY-MM-DD HH:MM:SS>` per the note above before substituting it.
 
 ```sql
 SELECT timestamp, level, message
