@@ -87,6 +87,16 @@ PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "Errors raised while marking an orphaned prewarmed TaskRun FAILED in the prewarmed-queued cleanup sweep",
 )
 
+PREWARMED_TERMINAL_TASK_SWEPT_COUNTER = Counter(
+    "posthog_task_prewarmed_terminal_swept_total",
+    "Empty tasks hidden after their unclaimed prewarmed run reached a terminal status",
+)
+
+PREWARMED_TERMINAL_TASK_ERRORS_COUNTER = Counter(
+    "posthog_task_prewarmed_terminal_errors_total",
+    "Errors raised while hiding empty tasks left by terminal unclaimed prewarmed runs",
+)
+
 STALE_LOCAL_QUEUED_TASK_RUN_COMPLETED_COUNTER = Counter(
     "posthog_task_run_stale_local_queued_completed_total",
     "Idle local (desktop-driven) TaskRuns quietly marked COMPLETED by the stale-queued cleanup sweep",
@@ -249,7 +259,20 @@ def kill_stale_queued_task_runs() -> None:
         PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )
 
-    saturated = len(stale_ids) >= BATCH_SIZE or len(local_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
+    terminal_prewarmed_ids = tasks_facade.get_stale_terminal_prewarmed_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
+    terminal_prewarmed_swept, terminal_prewarmed_errors = _sweep_each(
+        terminal_prewarmed_ids,
+        tasks_facade.soft_delete_unclaimed_prewarm_task,
+        PREWARMED_TERMINAL_TASK_SWEPT_COUNTER,
+        PREWARMED_TERMINAL_TASK_ERRORS_COUNTER,
+    )
+
+    saturated = (
+        len(stale_ids) >= BATCH_SIZE
+        or len(local_ids) >= BATCH_SIZE
+        or len(prewarmed_ids) >= BATCH_SIZE
+        or len(terminal_prewarmed_ids) >= BATCH_SIZE
+    )
     log = logger.warning if saturated else logger.info
     log(
         "kill_stale_queued_task_runs.sweep_done",
@@ -262,6 +285,9 @@ def kill_stale_queued_task_runs() -> None:
         prewarmed_candidates=len(prewarmed_ids),
         prewarmed_swept=prewarmed_swept,
         prewarmed_errors=prewarmed_errors,
+        terminal_prewarmed_candidates=len(terminal_prewarmed_ids),
+        terminal_prewarmed_swept=terminal_prewarmed_swept,
+        terminal_prewarmed_errors=terminal_prewarmed_errors,
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
