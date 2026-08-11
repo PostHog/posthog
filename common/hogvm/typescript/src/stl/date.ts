@@ -48,7 +48,7 @@ export function toUnixTimestamp(input: HogDateTime | HogDate | string, zone?: st
     if (isHogDate(input)) {
         return toHogDateTime(input).dt
     }
-    return DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
+    return (parseDateLike(input, zone) ?? INVALID).toSeconds()
 }
 
 export function fromUnixTimestamp(input: number): HogDateTime {
@@ -70,8 +70,55 @@ export function toTimeZone(input: HogDateTime, zone: string): HogDateTime | HogD
     return { ...input, zone }
 }
 
+/**
+ * The shared "date-like string" grammar, implemented identically by all three HogVMs. The canonical
+ * copy of the spec lives above `parse_datetime_to_seconds` in `rust/common/hogvm/src/stl.rs`;
+ * `common/hogvm/python/stl/date.py` (`_parse_date_like`) is the third. Change all three together.
+ *
+ *     input := WS* date ( SEP time frac? zone? )? WS*
+ *     date  := YYYY "-" MM "-" DD              # extended format only
+ *     SEP   := "T" | "t" | " "
+ *     time  := HH ":" MM ( ":" SS )?
+ *     frac  := ("." | ",") DIGIT{1,9}          # truncated to milliseconds
+ *     zone  := "Z" | "z" | ("+"|"-") HH ( ":"? MM )?
+ *
+ * Luxon's `fromISO` is both too permissive and too strict for this. Too permissive: it accepts
+ * `2024`, `2024-01`, `20240101`, `2024-W05`, `2024-001`, and a time-only `12:30` that silently
+ * resolves to *today's* date — all plausible values of an ordinary string property, and this
+ * coercion is implicit, so a false positive changes the meaning of a comparison the filter author
+ * never marked as a date comparison. Too strict: it rejects `2024-01-01 00:00:00`, the canonical
+ * ClickHouse form that HogQL emits and that Python and Rust both accept — so `toDateTime` on it
+ * returned `{dt: NaN}`. Validating against the grammar first fixes both directions.
+ */
+const DATE_LIKE =
+    /^(\d{4}-\d{2}-\d{2})(?:[Tt ](\d{2}:\d{2}(?::\d{2})?)(?:[.,](\d{1,9}))?(Z|z|[+-]\d{2}(?::?\d{2})?)?)?$/
+
+/** Luxon `DateTime` for a string matching the shared grammar, else null. `zone` applies only to input carrying no zone of its own. */
+export function parseDateLike(input: string, zone?: string): DateTime | null {
+    const match = DATE_LIKE.exec(input.trim())
+    if (!match) {
+        return null
+    }
+    const [, date, time, fraction, offset] = match
+    // Sub-millisecond digits are truncated, not rounded, to match luxon's own precision and Rust's
+    // `timestamp_millis`. Keeping microseconds (as Python's `datetime` does) surfaced as a
+    // `result_mismatch` against the Node baseline.
+    const millis = fraction ? `.${fraction.slice(0, 3).padEnd(3, '0')}` : ''
+    // Normalize to strict ISO so luxon's parser accepts it: `T` separator, uppercase `Z`.
+    const normalized = time ? `${date}T${time}${millis}${offset?.toUpperCase() ?? ''}` : date
+    const dt = DateTime.fromISO(normalized, { zone: zone || 'UTC' })
+    return dt.isValid ? dt : null
+}
+
+// NOTE: unparseable input keeps each VM's *existing* failure mode — here an invalid luxon DateTime
+// (so `.year`/`.toSeconds()` are NaN, as before), while Python raises and Rust errors into a null.
+// Converging those three is a separate change; this only converges *what parses*.
+const INVALID = DateTime.invalid('not a date-like string')
+
 export function toDate(input: string | number): HogDate {
-    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : DateTime.fromISO(input)
+    // Previously `DateTime.fromISO(input)` with no zone, i.e. the *system* zone — same class of
+    // host-dependent bug as Python's, and a day off from `toDateTime` for offsets west of UTC.
+    const dt = typeof input === 'number' ? DateTime.fromSeconds(input) : (parseDateLike(input) ?? INVALID)
     return {
         __hogDate__: true,
         year: dt.year,
@@ -81,7 +128,7 @@ export function toDate(input: string | number): HogDate {
 }
 
 export function toDateTime(input: string | number, zone?: string): HogDateTime {
-    const dt = typeof input === 'number' ? input : DateTime.fromISO(input, { zone: zone || 'UTC' }).toSeconds()
+    const dt = typeof input === 'number' ? input : (parseDateLike(input, zone) ?? INVALID).toSeconds()
     return {
         __hogDateTime__: true,
         dt: dt,
@@ -91,8 +138,7 @@ export function toDateTime(input: string | number, zone?: string): HogDateTime {
 
 /** Epoch seconds for a date-like string, parsed the same way `toDateTime` would, else null. */
 export function dateStringToSeconds(input: string): number | null {
-    const dt = DateTime.fromISO(input, { zone: 'UTC' })
-    return dt.isValid ? dt.toSeconds() : null
+    return parseDateLike(input)?.toSeconds() ?? null
 }
 
 /** Convert from ClickHouse format string to Luxon format string */

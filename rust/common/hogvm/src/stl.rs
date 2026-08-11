@@ -3,13 +3,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use base64::Engine as _;
-use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{
+    DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+};
 use hmac::digest::KeyInit;
 use hmac::{Hmac, Mac};
 use indexmap::IndexMap;
 use md5::Md5;
 use once_cell::sync::Lazy;
 use rand::Rng;
+use regex::Regex;
 use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value as JsonValue};
 use sha1::Sha1;
@@ -1607,32 +1610,94 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     )
 }
 
-const NAIVE_DATETIME_FORMATS: [&str; 2] = ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"];
+/// The shared "date-like string" grammar, implemented identically by all three HogVMs. This is the
+/// canonical copy; `common/hogvm/typescript/src/stl/date.ts` (`parseDateLike`) and
+/// `common/hogvm/python/stl/date.py` (`_parse_date_like`) mirror it and must be changed together.
+///
+/// ```text
+/// input := WS* date ( SEP time frac? zone? )? WS*
+/// date  := YYYY "-" MM "-" DD              # extended format only
+/// SEP   := "T" | "t" | " "
+/// time  := HH ":" MM ( ":" SS )?
+/// frac  := ("." | ",") DIGIT{1,9}          # truncated to milliseconds
+/// zone  := "Z" | "z" | ("+"|"-") HH ( ":"? MM )?
+/// ```
+///
+/// No zone ⇒ UTC (or the explicit `zone` argument when one was passed to `toDateTime`), *never* the
+/// process-local timezone. The result is `f64` epoch seconds at millisecond resolution.
+///
+/// Deliberately rejected everywhere: bare numeric strings, partial dates (`2024`, `2024-01`), the
+/// compact basic format (`20240101`), ISO week (`2024-W05`) and ordinal (`2024-001`) dates, and
+/// time-only strings. Each of the three VMs used to accept some subset of these — only 4 of 13
+/// tested inputs agreed across all three. Because this coercion is *implicit* (it changes the
+/// meaning of comparisons the filter author never marked as date comparisons), the grammar is
+/// deliberately narrow: it covers exactly what HogQL/ClickHouse and PostHog's filter globals emit
+/// (`YYYY-MM-DD`, ClickHouse `YYYY-MM-DD HH:MM:SS`, and JS `YYYY-MM-DDTHH:MM:SS.sssZ`), and every
+/// rejected form is either ambiguous with an ordinary string property or vanishingly rare. A
+/// time-only `12:30` resolving to *today's* date, as luxon did, is the failure mode to avoid.
+static DATE_LIKE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"(?x)
+        ^(\d{4})-(\d{2})-(\d{2})
+        (?:
+            [Tt\x20](\d{2}):(\d{2})(?::(\d{2}))?
+            (?:[.,](\d{1,9}))?
+            (Z|z|[+-]\d{2}(?::?\d{2})?)?
+        )?$",
+    )
+    .expect("date-like grammar is a valid regex")
+});
 
+/// Epoch seconds for a string matching the [`DATE_LIKE`] grammar, else an error.
+///
+/// `zone` (the 2-arg `toDateTime` form) applies only to input that carries no zone of its own; an
+/// explicit offset or `Z` pins the absolute instant regardless.
 pub(crate) fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
-    let input = input.trim();
-    // An explicit offset/`Z` pins the absolute instant regardless of `zone`.
-    if let Ok(dt) = DateTime::parse_from_rfc3339(input) {
-        return Ok(datetime_to_seconds(dt));
-    }
-    for fmt in NAIVE_DATETIME_FORMATS {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(input, fmt) {
-            return naive_to_seconds(naive, zone);
+    let unparseable = || VmError::NativeCallFailed(format!("toDateTime could not parse {input:?}"));
+
+    let caps = DATE_LIKE.captures(input.trim()).ok_or_else(unparseable)?;
+    let num = |i: usize| caps.get(i).map(|m| m.as_str().parse::<u32>().unwrap_or(0));
+
+    // `from_ymd_opt`/`and_hms_milli_opt` reject out-of-range dates and times the regex can't (month
+    // 13, Feb 30, hour 24), so this is the only validation the calendar needs.
+    let date = NaiveDate::from_ymd_opt(
+        caps[1].parse::<i32>().map_err(|_| unparseable())?,
+        num(2).ok_or_else(unparseable)?,
+        num(3).ok_or_else(unparseable)?,
+    )
+    .ok_or_else(unparseable)?;
+    // Sub-millisecond digits are truncated, not rounded: the Node HogVM is the ingestion shadow
+    // baseline and luxon parses to milliseconds, so keeping microseconds surfaced as a
+    // `result_mismatch`. See `datetime_to_seconds`.
+    let millis = caps
+        .get(7)
+        .map(|m| format!("{:0<3}", &m.as_str()[..m.as_str().len().min(3)]))
+        .map_or(Ok(0), |s| s.parse::<u32>())
+        .map_err(|_| unparseable())?;
+    let naive = date
+        .and_hms_milli_opt(
+            num(4).unwrap_or(0),
+            num(5).unwrap_or(0),
+            num(6).unwrap_or(0),
+            millis,
+        )
+        .ok_or_else(unparseable)?;
+
+    match caps.get(8).map(|m| m.as_str()) {
+        // An explicit offset/`Z` pins the absolute instant regardless of `zone`.
+        Some("Z" | "z") => Ok(datetime_to_seconds(naive.and_utc())),
+        Some(offset) => {
+            let sign = if offset.starts_with('-') { -1 } else { 1 };
+            let digits: String = offset[1..].chars().filter(char::is_ascii_digit).collect();
+            let hours: i32 = digits[..2].parse().map_err(|_| unparseable())?;
+            let minutes: i32 = digits.get(2..4).unwrap_or("0").parse().unwrap_or(0);
+            let offset = FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
+                .ok_or_else(unparseable)?;
+            let dt = naive.and_local_timezone(offset).single().ok_or_else(unparseable)?;
+            Ok(datetime_to_seconds(dt))
         }
+        None => naive_to_seconds(naive, zone),
     }
-    if let Some(naive) = NaiveDate::parse_from_str(input, "%Y-%m-%d")
-        .ok()
-        .and_then(|date| date.and_hms_opt(0, 0, 0))
-    {
-        return naive_to_seconds(naive, zone);
-    }
-    // A bare numeric string is unix seconds (e.g. an upstream `toString(<number>)`).
-    if let Ok(seconds) = input.parse::<f64>() {
-        return Ok(seconds);
-    }
-    Err(VmError::NativeCallFailed(format!(
-        "toDateTime could not parse {input:?}"
-    )))
 }
 
 fn naive_to_seconds(naive: NaiveDateTime, zone: Option<&str>) -> Result<f64, VmError> {

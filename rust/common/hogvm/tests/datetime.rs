@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
 const OP_CALL_GLOBAL: i64 = 2;
 const OP_EQ: i64 = 11;
+const OP_NOT_EQ: i64 = 12;
 const OP_GT: i64 = 13;
 const OP_LT: i64 = 15;
 const OP_STRING: i64 = 32;
@@ -59,6 +60,60 @@ fn returning(fragment: &[Value]) -> Vec<Value> {
     bc.extend_from_slice(fragment);
     bc.push(json!(OP_RETURN));
     bc
+}
+
+/// The shared date-like grammar. The canonical spec is above `parse_datetime_to_seconds` in
+/// `src/stl.rs`; the same table is driven by `common/hogvm/python/test/test_date.py` and
+/// `common/hogvm/typescript/src/__tests__/date.test.ts`. All three must agree — before this was
+/// pinned, only 4 of these 22 inputs produced the same answer in all three VMs.
+const ACCEPTED: [(&str, f64); 13] = [
+    ("2024-01-01", 1704067200.0),
+    ("2024-01-01T00:00:00Z", 1704067200.0),
+    ("2024-01-01t00:00:00z", 1704067200.0), // RFC3339 says the designators are case-insensitive
+    ("2024-01-01T00:00:00.000Z", 1704067200.0),
+    ("2024-01-01T00:00:00", 1704067200.0), // naive => UTC, never the host zone
+    ("2024-01-01 00:00:00", 1704067200.0), // the ClickHouse form HogQL emits; luxon alone rejected it
+    ("2024-01-01T00:00", 1704067200.0),
+    ("2024-01-01T00:00:00+05:00", 1704049200.0),
+    ("2024-01-01 00:00:00+05:00", 1704049200.0),
+    ("2024-01-01T00:00:00-0500", 1704085200.0), // offset without the colon
+    ("2024-01-01T00:00:00.123Z", 1704067200.123),
+    ("2024-01-01T00:00:00.123456Z", 1704067200.123), // truncated to ms, not rounded
+    ("  2024-01-01  ", 1704067200.0),
+];
+
+const REJECTED: [&str; 11] = [
+    "2024", // luxon accepted these five as instants; a string property could plausibly hold any
+    "2024-01",
+    "20240101", // Python's `fromisoformat` accepted this and `2024-W05`; the others never did
+    "2024-W05",
+    "2024-001",
+    "12:30",      // luxon resolved this against *today's* date
+    "1700000000", // this VM used to accept a bare numeric string as unix seconds; neither other did
+    "not-a-date",
+    "",
+    "2024-13-01",
+    "2024-02-30",
+];
+
+#[test]
+fn date_like_accept_set_matches_the_shared_grammar() {
+    for (input, expected) in ACCEPTED {
+        let dt = run(returning(&to_datetime(input)));
+        assert_eq!(
+            dt["dt"].as_f64().expect("parsed to a number"),
+            expected,
+            "should accept {input:?}"
+        );
+    }
+    for input in REJECTED {
+        // `err_to_null` turns the parse failure into Null; see below.
+        assert_eq!(
+            run(returning(&to_datetime(input))),
+            Value::Null,
+            "should reject {input:?}"
+        );
+    }
 }
 
 #[test]
@@ -190,6 +245,80 @@ fn bare_field_string_orders_against_a_datetime_by_parsing_it() {
         run(compare(&threshold, &bare_timestamp, OP_GT)),
         Value::Bool(false)
     );
+}
+
+#[test]
+fn bare_field_string_equals_a_datetime_by_parsing_it() {
+    // Regression: ordering got the bare-field string treatment but equality did not, so
+    // `timestamp == toDateTime('…')` was silently false here while the Python/TS VMs said true —
+    // they route all six comparison opcodes through one coercion function. `Eq` and `Gt` must agree
+    // on which operands count as dates.
+    let bare = |s: &str| vec![json!(OP_STRING), json!(s)];
+    let threshold = to_datetime("2026-01-01 00:00:00");
+
+    for (label, string) in [
+        ("naive", "2026-01-01 00:00:00"),
+        ("iso Z", "2026-01-01T00:00:00.000Z"),
+        ("date only", "2026-01-01"),
+    ] {
+        assert_eq!(
+            run(compare(&bare(string), &threshold, OP_EQ)),
+            Value::Bool(true),
+            "{label}: string on the left"
+        );
+        assert_eq!(
+            run(compare(&threshold, &bare(string), OP_EQ)),
+            Value::Bool(true),
+            "{label}: string on the right"
+        );
+        assert_eq!(
+            run(compare(&bare(string), &threshold, OP_NOT_EQ)),
+            Value::Bool(false),
+            "{label}: NotEq is the negation"
+        );
+    }
+
+    // A different instant, and a string the grammar rejects, both stay unequal rather than erroring.
+    assert_eq!(
+        run(compare(&bare("2026-01-02"), &threshold, OP_EQ)),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        run(compare(&bare("not-a-date"), &threshold, OP_EQ)),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn legacy_default_does_not_coerce_string_vs_temporal_eq() {
+    // The bare-field coercion is gated on `with_coercing_comparisons`, so cymbal's rules engine —
+    // which relies on the legacy structural path, and permanently disables a rule on any VmError —
+    // is unaffected by the `eq_op` change above.
+    let bare = vec![json!(OP_STRING), json!("2026-01-01 00:00:00")];
+    let threshold = to_datetime("2026-01-01 00:00:00");
+    assert_eq!(run(compare(&bare, &threshold, OP_EQ)), Value::Bool(true));
+    assert_eq!(
+        run_legacy(compare(&bare, &threshold, OP_EQ)),
+        Value::Bool(false),
+        "legacy: a String is never structurally equal to a HogDateTime object",
+    );
+}
+
+#[test]
+fn in_does_not_coerce_strings_against_temporals() {
+    // Pinning a deliberate gap, not an endorsement: `in` skips the comparison coercion in all three
+    // VMs (TS `Array.includes`, Python `in`, Rust `contains` → structural `equals`), so this is
+    // consistent today. Rust's `contains` is also NOT gated on `coerce_comparisons` and is shared
+    // with `has()` and cymbal, so changing it is a bigger decision than it looks.
+    const OP_ARRAY: i64 = 43;
+    const OP_IN: i64 = 21;
+    let haystack = {
+        let mut bc = to_datetime("2026-01-01 00:00:00");
+        bc.extend_from_slice(&[json!(OP_ARRAY), json!(1)]);
+        bc
+    };
+    let needle = vec![json!(OP_STRING), json!("2026-01-01 00:00:00")];
+    assert_eq!(run(compare(&needle, &haystack, OP_IN)), Value::Bool(false));
 }
 
 #[test]
