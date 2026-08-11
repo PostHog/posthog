@@ -9,7 +9,7 @@ import { useThemeColors } from "@/lib/theme";
 export function DotBackground() {
   const colors = useThemeColors();
   return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Svg width="100%" height="100%">
         <Defs>
           <Pattern id="dots" patternUnits="userSpaceOnUse" width={8} height={8}>

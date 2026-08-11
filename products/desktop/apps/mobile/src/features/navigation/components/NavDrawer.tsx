@@ -382,10 +382,10 @@ export function NavDrawer() {
   if (!isOpen) return null;
 
   return (
-    <View style={StyleSheet.absoluteFillObject}>
+    <View style={StyleSheet.absoluteFill}>
       <View
         style={[
-          StyleSheet.absoluteFillObject,
+          StyleSheet.absoluteFill,
           { backgroundColor: "rgba(0,0,0,0.4)" },
         ]}
       >
