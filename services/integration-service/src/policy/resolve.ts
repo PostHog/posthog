@@ -36,6 +36,20 @@ export interface ResolveResponse {
     missing: string[]
 }
 
+/**
+ * Thrown when this pod holds no credential snapshot.
+ *
+ * Deliberately not answered as an all-`missing` response. A caller treats a missing key as
+ * terminal — the credential was deleted — so answering that way during a cold start or a
+ * lost mount turns an unavailable service into what looks like a deleted credential.
+ */
+export class SnapshotUnavailableError extends Error {
+    constructor() {
+        super('no credential snapshot is loaded')
+        this.name = 'SnapshotUnavailableError'
+    }
+}
+
 export interface ResolveDeps {
     loadSecrets: () => Promise<SecretsSnapshot | null>
     recorder: UsageRecorder
@@ -47,45 +61,46 @@ export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): 
     const served: string[] = []
 
     const snapshot = await deps.loadSecrets()
+    if (!snapshot) {
+        throw new SnapshotUnavailableError()
+    }
 
     for (const key of identity.requestedKeys) {
-        {
-            const provider = providerForKey(key)
-            if (!provider) {
-                missing.push(key)
-                // Constant labels, not the key itself. A key absent from the manifest is a
-                // caller-supplied string, and putting it on a metric would let any holder
-                // of a signing key grow this process's series set without bound. The real
-                // name still reaches the response and the log line, neither of which is a
-                // label.
-                observeResolve(identity, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
-                continue
-            }
-            const resolved = snapshot?.secrets[key]
-            if (!resolved) {
-                missing.push(key)
-                observeResolve(identity, provider, key, 'missing')
-                continue
-            }
+        const provider = providerForKey(key)
+        if (!provider) {
+            missing.push(key)
+            // Constant labels, not the key itself. A key absent from the manifest is a
+            // caller-supplied string, and putting it on a metric would let any holder
+            // of a signing key grow this process's series set without bound. The real
+            // name still reaches the response and the log line, neither of which is a
+            // label.
+            observeResolve(identity, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
+            continue
+        }
+        const resolved = snapshot.secrets[key]
+        if (!resolved) {
+            missing.push(key)
+            observeResolve(identity, provider, key, 'missing')
+            continue
+        }
 
-            const outcome: ResolveOutcome = resolved.state === 'recovery' ? 'recovery' : 'ok'
-            const wire: WireSecret = {
-                state: resolved.state,
-                version_id: resolved.versionId,
-                fetched_at: resolved.fetchedAt,
-            }
-            if (resolved.value !== undefined) {
-                wire.value = resolved.value
-            }
-            if (resolved.previous !== undefined) {
-                wire.previous = resolved.previous
-                previousVersionServedTotal.labels({ provider, key }).inc()
-            }
-            secrets[key] = wire
-            observeResolve(identity, provider, key, outcome)
-            if (outcome === 'ok') {
-                served.push(key)
-            }
+        const outcome: ResolveOutcome = resolved.state === 'recovery' ? 'recovery' : 'ok'
+        const wire: WireSecret = {
+            state: resolved.state,
+            version_id: resolved.versionId,
+            fetched_at: resolved.fetchedAt,
+        }
+        if (resolved.value !== undefined) {
+            wire.value = resolved.value
+        }
+        if (resolved.previous !== undefined) {
+            wire.previous = resolved.previous
+            previousVersionServedTotal.labels({ provider, key }).inc()
+        }
+        secrets[key] = wire
+        observeResolve(identity, provider, key, outcome)
+        if (outcome === 'ok') {
+            served.push(key)
         }
     }
 

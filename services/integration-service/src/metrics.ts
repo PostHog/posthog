@@ -142,4 +142,3 @@ export function observeResolve(
         lastResolvedTimestamp.labels({ provider, key }).set(Date.now() / 1000)
     }
 }
-
