@@ -983,6 +983,9 @@ database "posthog" {
     column "issue_status" {
       type = "String"
     }
+    column "issue_severity" {
+      type = "Nullable(String)"
+    }
     column "assigned_user_id" {
       type = "Nullable(Int64)"
     }
@@ -5279,6 +5282,11 @@ database "posthog" {
     index "minmax_$session_id_uuid" {
       expr        = "`$session_id_uuid`"
       type        = "minmax"
+      granularity = 1
+    }
+    index "bloom_filter_$session_id" {
+      expr        = "nullIf(nullIf(`$session_id`, ''), 'null')"
+      type        = "bloom_filter"
       granularity = 1
     }
     index "minmax_$group_0" {

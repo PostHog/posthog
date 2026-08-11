@@ -623,7 +623,8 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -751,6 +752,7 @@ export const ExternalDataSourceSerializersCreatedViaEnumApi = {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -1911,7 +1913,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -2039,6 +2042,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
@@ -3339,7 +3343,8 @@ export interface ExternalDataSourceCreateApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -3467,6 +3472,7 @@ export interface ExternalDataSourceCreateApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -4841,7 +4847,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -4969,6 +4976,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -6156,7 +6164,8 @@ export interface DatabaseSchemaRequestApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -6284,6 +6293,7 @@ export interface DatabaseSchemaRequestApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -7448,7 +7458,8 @@ export interface DirectConnectionSourceOptionApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -7576,6 +7587,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -8825,7 +8837,8 @@ export interface SourcePreviewRequestApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -8953,6 +8966,7 @@ export interface SourcePreviewRequestApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -10152,7 +10166,8 @@ export interface SourceSetupApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -10280,6 +10295,7 @@ export interface SourceSetupApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -11486,7 +11502,8 @@ export interface SourceCredentialCreateApi {
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
      * * `CosmosDB` - CosmosDB
-     * * `PlanetScale` - PlanetScale
+     * * `PlanetScaleMySQL` - PlanetScaleMySQL
+     * * `PlanetScalePostgres` - PlanetScalePostgres
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -11614,6 +11631,7 @@ export interface SourceCredentialCreateApi {
      * * `FloatApp` - FloatApp
      * * `Flowlu` - Flowlu
      * * `Formbricks` - Formbricks
+     * * `Framer` - Framer
      * * `FreeAgent` - FreeAgent
      * * `Freightview` - Freightview
      * * `Freshcaller` - Freshcaller
@@ -12613,7 +12631,7 @@ export type ExternalDataSchemasCancelCreate400 = {
 
 export type ExternalDataSchemasLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**

@@ -692,7 +692,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -701,11 +701,11 @@ class TestUpdatePersonWithVersionCheck:
             dry_run=False,
         )
 
-        assert success is True
-        assert result_data is not None
-        assert result_data["version"] == 6  # version incremented
-        assert result_data["properties"]["email"] == "test@example.com"
-        assert result_data["properties"]["existing"] == "value"
+        assert result.success is True
+        assert result.updated_person_data is not None
+        assert result.updated_person_data["version"] == 6  # version incremented
+        assert result.updated_person_data["properties"]["email"] == "test@example.com"
+        assert result.updated_person_data["properties"]["existing"] == "value"
 
         # Verify UPDATE was executed
         update_calls = [call for call in cursor.execute.call_args_list if "UPDATE posthog_person" in str(call)]
@@ -755,7 +755,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -764,8 +764,8 @@ class TestUpdatePersonWithVersionCheck:
             dry_run=True,
         )
 
-        assert success is True
-        assert result_data is None  # No data returned for Kafka in dry run
+        assert result.success is True
+        assert result.updated_person_data is None  # No data returned for Kafka in dry run
 
         # Verify UPDATE was NOT executed
         update_calls = [call for call in cursor.execute.call_args_list if "UPDATE posthog_person" in str(call)]
@@ -791,7 +791,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -799,9 +799,9 @@ class TestUpdatePersonWithVersionCheck:
             person_property_diffs=person_diffs,
         )
 
-        assert success is False
-        assert result_data is None
-        assert skip_reason == SkipReason.NOT_FOUND
+        assert result.success is False
+        assert result.updated_person_data is None
+        assert result.skip_reason == SkipReason.NOT_FOUND
 
     @patch("posthog.dags.person_property_reconciliation.fetch_person_properties_from_clickhouse")
     def test_version_mismatch_retry(self, mock_fetch_ch_properties):
@@ -860,7 +860,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -869,12 +869,12 @@ class TestUpdatePersonWithVersionCheck:
             max_retries=3,
         )
 
-        assert success is True
-        assert result_data is not None
-        assert result_data["version"] == 3  # v2 + 1
+        assert result.success is True
+        assert result.updated_person_data is not None
+        assert result.updated_person_data["version"] == 3  # v2 + 1
         # Concurrent change should be preserved, our change should be applied
-        assert result_data["properties"]["other"] == "concurrent_change"
-        assert result_data["properties"]["email"] == "test@example.com"
+        assert result.updated_person_data["properties"]["other"] == "concurrent_change"
+        assert result.updated_person_data["properties"]["email"] == "test@example.com"
 
     def test_exhausted_retries(self):
         """Test failure after exhausting all retries."""
@@ -901,7 +901,7 @@ class TestUpdatePersonWithVersionCheck:
             unset_updates={},
         )
 
-        success, result_data, _backup_created, skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -910,9 +910,9 @@ class TestUpdatePersonWithVersionCheck:
             max_retries=3,
         )
 
-        assert success is False
-        assert result_data is None
-        assert skip_reason == SkipReason.VERSION_CONFLICT
+        assert result.success is False
+        assert result.updated_person_data is None
+        assert result.skip_reason == SkipReason.VERSION_CONFLICT
 
 
 class TestBatchCommits:
@@ -1308,7 +1308,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, result_data, backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -1318,9 +1318,9 @@ class TestBackupFunctionality:
             backup_enabled=False,
         )
 
-        assert success is True
-        assert result_data is not None
-        assert backup_created is False
+        assert result.success is True
+        assert result.updated_person_data is not None
+        assert result.backup_created is False
 
         # Verify backup INSERT was NOT executed
         backup_calls = [
@@ -1359,7 +1359,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, _result_data, backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -1369,8 +1369,8 @@ class TestBackupFunctionality:
             backup_enabled=True,
         )
 
-        assert success is True
-        assert backup_created is True
+        assert result.success is True
+        assert result.backup_created is True
 
     def test_backup_created_false_when_conflict(self):
         """
@@ -1416,7 +1416,7 @@ class TestBackupFunctionality:
             unset_updates={},
         )
 
-        success, _result_data, backup_created, _skip_reason = update_person_with_version_check(
+        result = update_person_with_version_check(
             cursor=cursor,
             job_id="test-job-id",
             team_id=1,
@@ -1426,9 +1426,9 @@ class TestBackupFunctionality:
             backup_enabled=True,
         )
 
-        assert success is True
+        assert result.success is True
         # Key assertion: backup_created should be False because rowcount was 0
-        assert backup_created is False
+        assert result.backup_created is False
 
 
 class TestFilterEventPersonProperties:

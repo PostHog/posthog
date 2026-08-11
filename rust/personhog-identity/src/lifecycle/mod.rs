@@ -11,6 +11,7 @@
 
 pub mod delete;
 pub mod engine;
+pub mod merge;
 pub mod validation;
 
 use std::sync::Arc;
@@ -34,10 +35,10 @@ pub struct PersonHogLifecycleService {
 }
 
 impl PersonHogLifecycleService {
-    pub fn new(engine: Arc<Engine>) -> Self {
+    pub fn new(engine: Arc<Engine>, tables: crate::config::IdentityTables) -> Self {
         Self {
             engine,
-            delete_driver: DeleteDriver,
+            delete_driver: DeleteDriver::new(tables),
         }
     }
 }

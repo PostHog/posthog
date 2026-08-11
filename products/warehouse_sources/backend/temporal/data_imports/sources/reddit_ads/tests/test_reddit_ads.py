@@ -6,7 +6,7 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
+from requests import Request, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -160,6 +160,7 @@ class TestBreakdownReportEndpoints:
         ("campaign_placement_report", "PLACEMENT", "placement"),
         ("campaign_community_report", "COMMUNITY", "community"),
         ("campaign_os_type_report", "OS_TYPE", "os_type"),
+        ("campaign_keyword_report", "KEYWORD", "keyword"),
     ]
 
     @parameterized.expand(BREAKDOWN_TABLES)
@@ -190,6 +191,9 @@ class TestBreakdownReportEndpoints:
             # `OS_TYPE` is a valid breakdown but is not a member of Reddit's `fields` enum — asking for
             # it as a field is rejected and fails the whole report request.
             ("campaign_os_type_report", "OS_TYPE", False),
+            # `KEYWORD`'s membership of the `fields` enum is unconfirmed, so it is requested as a
+            # breakdown only rather than risking a rejected report request.
+            ("campaign_keyword_report", "KEYWORD", False),
         ]
     )
     def test_dimension_is_requested_as_a_field_only_when_reddit_allows_it(
@@ -298,6 +302,30 @@ class TestRedditAdsPaginator:
 
         assert paginator.has_next_page is True
         assert paginator.get_resume_state() == {"next_url": "https://api.reddit.com/page-5"}
+
+    def test_redirect_to_next_url_stops_the_url_from_growing(self) -> None:
+        """The prepared URL must not grow as pages advance.
+
+        The REST client reuses one `Request` across pages and seeds `page.size` in its params.
+        Reddit's `next_url` already carries `page.size`, so without clearing the params `requests`
+        appends `page.size` again on every page and the URL grows until Reddit returns 414.
+        """
+        session = Session()
+        base_url = "https://ads-api.reddit.com/api/v3/ad_accounts/a1/reports"
+        request = Request(method="GET", url=base_url, params={"page.size": 100})
+
+        paginator = RedditAdsPaginator()
+        paginator.init_request(request)
+
+        prepared_urls = [session.prepare_request(request).url or ""]
+        for page in range(2, 6):
+            paginator._next_url = f"{base_url}?page={page}&page.size=100"
+            paginator.update_request(request)
+            prepared_urls.append(session.prepare_request(request).url or "")
+
+        # Each redirect swaps in the next self-contained URL, so `page.size` appears once per page.
+        for url in prepared_urls:
+            assert url.count("page.size") == 1
 
     @parameterized.expand(
         [
