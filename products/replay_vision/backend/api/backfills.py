@@ -23,7 +23,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.replay_vision.backend.billing import observation_credits_for_model
-from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import IN_FLIGHT_STATUSES, ObservationStatus
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import (
@@ -135,7 +134,6 @@ class ReplayScannerBackfillViewSet(
     scope_object = "replay_scanner"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "estimate", "cancel", "resume"]
-    permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerBackfillSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team and scanner.
     queryset = ReplayScannerBackfill.objects.unscoped()
