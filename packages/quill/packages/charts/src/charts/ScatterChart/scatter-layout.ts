@@ -69,12 +69,11 @@ export function resolveXTicks(
     return computeVisibleValueTicks(ticks, xScale, tickFormatter ?? autoFormatterFor(ticks))
 }
 
-interface ScatterChartPrivate {
+/** Brand for the chart-type-private `ChartScales._private` slot. `LineChart` and `Heatmap` do the
+ *  same — the slot exists so each render carries its own layout instead of a side-channel ref that
+ *  strict mode and concurrent rendering can tear. */
+export interface ScatterChartPrivate {
     __scatter: ScatterLayout
-}
-
-export function toScatterPrivate(layout: ScatterLayout): ScatterChartPrivate {
-    return { __scatter: layout }
 }
 
 export function readScatterLayout(scales: ChartScales): ScatterLayout | undefined {

@@ -34,10 +34,9 @@ import {
     readScatterLayout,
     resolveXTicks,
     scatterValueRange,
-    toScatterPrivate,
     xLabelEdgeReserve,
 } from './scatter-layout'
-import type { FlatScatterPoint, ScatterPointPosition } from './scatter-layout'
+import type { FlatScatterPoint, ScatterChartPrivate, ScatterPointPosition } from './scatter-layout'
 import { ScatterTooltip } from './ScatterTooltip'
 import { ScatterXAxisLabels } from './ScatterXAxisLabels'
 import type {
@@ -249,13 +248,15 @@ function ScatterChartInner<Meta = unknown>({
                 x: (label: string) => xByIndex[Number(label)],
                 y: (value: number) => yScale(value),
                 yTicks: () => yScale.ticks?.(yTickCount) ?? [],
-                _private: toScatterPrivate({
-                    xScale,
-                    yScale,
-                    positions,
-                    xTicks: resolveXTicks(xScale, xTickCount, xTickFormatter),
-                    maxRadius,
-                }),
+                _private: {
+                    __scatter: {
+                        xScale,
+                        yScale,
+                        positions,
+                        xTicks: resolveXTicks(xScale, xTickCount, xTickFormatter),
+                        maxRadius,
+                    },
+                } satisfies ScatterChartPrivate,
             }
         },
         [
