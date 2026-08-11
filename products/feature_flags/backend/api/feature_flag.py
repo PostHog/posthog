@@ -3104,7 +3104,9 @@ class FeatureFlagViewSet(
             # through the manager that excludes deleted rows rather than via the FK accessor,
             # which would happily return a deleted dashboard and skip regenerating it.
             usage_dashboard = (
-                Dashboard.objects.filter(id=feature_flag.usage_dashboard_id).first()
+                Dashboard.objects.filter(
+                    id=feature_flag.usage_dashboard_id, team__project_id=self.team.project_id
+                ).first()
                 if feature_flag.usage_dashboard_id
                 else None
             )
