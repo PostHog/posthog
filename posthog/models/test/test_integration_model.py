@@ -1502,6 +1502,18 @@ class TestPosthogConnectIntegration(BaseTest):
             mock_post.assert_not_called()
 
     @patch("posthog.models.integration.requests.post")
+    def test_integration_from_oauth_response_without_code_raises_validation_error(self, mock_post):
+        # A provider can redirect back without a code (user cancelled, or a silent failure). The key
+        # is then absent, and a bracket lookup would 500 instead of surfacing a retry message.
+        with self.settings(**self.connect_settings):
+            state = urlencode({"next": "/", "token": "tok", "region": "EU"})
+            with pytest.raises(ValidationError):
+                OauthIntegration.integration_from_oauth_response(
+                    "posthog", self.team.id, self.user, {"state": state}
+                )
+            mock_post.assert_not_called()
+
+    @patch("posthog.models.integration.requests.post")
     def test_refresh_access_token_uses_persisted_region(self, mock_post):
         with self.settings(**self.connect_settings):
             integration = Integration.objects.create(

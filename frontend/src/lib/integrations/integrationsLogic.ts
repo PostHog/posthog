@@ -945,6 +945,17 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
+            // Some providers redirect back with neither an error nor a code (the user cancelled, or
+            // the attempt failed silently). Without a code there is nothing to exchange, so tell the
+            // user to retry instead of POSTing an empty code and surfacing a generic failure.
+            if (!code) {
+                lemonToast.error(
+                    "That connection attempt didn't come back with an authorization code. Please retry the connection."
+                )
+                router.actions.replace(replaceUrl)
+                return
+            }
+
             // Stripe marketplace installs redirect here without a PostHog-minted state, so we
             // can't verify the callback against a CSRF cookie. Without that, an attacker could
             // capture their own Connect-OAuth callback URL and trick a logged-in PostHog admin

@@ -85,6 +85,23 @@ describe('integrationsLogic — handleOauthCallback', () => {
         document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
     })
 
+    it('does not create the integration when the callback comes back without a code', async () => {
+        // A provider can redirect back with neither an error nor a code (the user cancelled, or a
+        // silent failure). There is nothing to exchange, so the callback must redirect back instead
+        // of POSTing an empty code and 500-ing on the server.
+        document.cookie = 'ph_oauth_state=csrf-tok'
+        const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+        await expectLogic(logic, () => {
+            logic.actions.handleOauthCallback('slack' as IntegrationKind, { state })
+        }).toFinishAllListeners()
+
+        expect(createSpy).not.toHaveBeenCalled()
+        expect(router.values.location.pathname).toBe('/project/228502/settings/project-integrations')
+
+        document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+    })
+
     describe('integration create team scoping', () => {
         let requestedTeamIds: string[]
 

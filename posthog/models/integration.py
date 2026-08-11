@@ -1391,6 +1391,13 @@ class OauthIntegration:
     def integration_from_oauth_response(
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
+        # Providers redirect back without a code when the user cancels or the attempt fails. The
+        # key is then absent, so guard once for every provider branch instead of a 500 on params["code"].
+        if not params.get("code"):
+            raise ValidationError(
+                "That connection attempt didn't come back with an authorization code. Please retry the connection."
+            )
+
         region: str | None = None
         if kind == "posthog":
             # The target region was stashed in state at authorize time; the token exchange must hit
