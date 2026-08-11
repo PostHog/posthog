@@ -110,6 +110,7 @@ import type {
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
+    TaskSearchResultApi,
     TaskSessionResponseApi,
     TaskSessionSyncResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
@@ -127,6 +128,7 @@ import type {
     TasksRunsListParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
+    TasksSearchRetrieveParams,
     TasksSlackThreadContextRetrieveParams,
     TasksSummariesCreateParams,
     TasksThreadMessagesListParams,
@@ -2466,6 +2468,37 @@ export const tasksRepositoryReadinessRetrieve = async (
     options?: RequestInit
 ): Promise<RepositoryReadinessResponseApi> => {
     return apiMutator<RepositoryReadinessResponseApi>(getTasksRepositoryReadinessRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksSearchRetrieveUrl = (projectId: string, params: TasksSearchRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/search/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * @summary Search tasks, pull requests, artifacts, and spaces
+ */
+export const tasksSearchRetrieve = async (
+    projectId: string,
+    params: TasksSearchRetrieveParams,
+    options?: RequestInit
+): Promise<TaskSearchResultApi[]> => {
+    return apiMutator<TaskSearchResultApi[]>(getTasksSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
