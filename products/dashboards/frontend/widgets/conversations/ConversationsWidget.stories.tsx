@@ -7,10 +7,13 @@ import { WidgetCardBody } from '../../components/WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../../components/WidgetCard/WidgetCardHeader'
 import {
     mockMoreOverlay,
+    withConversationsProjectState,
     widgetStorybookParameters,
     widgetTileFrameDecorator,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
+import { WidgetRuntimeAvailabilityGuard } from '../../components/WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
+import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { ConversationsWidget } from './ConversationsWidget'
 import { ConversationsWidgetTileFilters } from './ConversationsWidgetTileFilters'
@@ -19,6 +22,8 @@ const CATALOG = getDashboardWidgetCatalogEntry('conversations_recent_tickets')!
 const DEFAULT_CONFIG = CATALOG.defaultConfig as Record<string, unknown>
 
 function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
+    const { isAvailable } = useWidgetAvailability(CATALOG.availability)
+
     return (
         <WidgetCard className="h-full">
             <WidgetCardHeader
@@ -35,13 +40,17 @@ function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(DashboardPlacement.Dashboard, false)}
                 moreButtonOverlay={mockMoreOverlay}
             />
-            <ConversationsWidgetTileFilters
-                tileId={props.tileId}
-                config={props.config}
-                onUpdateConfig={props.onUpdateConfig}
-            />
+            {isAvailable ? (
+                <ConversationsWidgetTileFilters
+                    tileId={props.tileId}
+                    config={props.config}
+                    onUpdateConfig={props.onUpdateConfig}
+                />
+            ) : null}
             <WidgetCardBody>
-                <ConversationsWidget {...props} />
+                <WidgetRuntimeAvailabilityGuard availability={CATALOG.availability}>
+                    <ConversationsWidget {...props} />
+                </WidgetRuntimeAvailabilityGuard>
             </WidgetCardBody>
         </WidgetCard>
     )
@@ -78,12 +87,32 @@ const ticket = {
     requester_email: 'jordan@example.com',
     sla_due_at: '2026-05-28T09:55:00Z',
 }
-export const Populated: Story = { args: { result: { results: [ticket], hasMore: true, totalCount: 12 } } }
+export const Populated: Story = {
+    decorators: [withConversationsProjectState(true)],
+    args: { result: { results: [ticket], hasMore: true, totalCount: 12 } },
+}
 export const Loading: Story = {
+    decorators: [withConversationsProjectState(true)],
     args: { loading: true },
     parameters: {
         testOptions: { waitForLoadersToDisappear: false },
     },
 }
-export const Empty: Story = { args: { result: { results: [] } } }
-export const Error: Story = { args: { error: 'Request failed' } }
+export const Empty: Story = {
+    decorators: [withConversationsProjectState(true)],
+    args: { result: { results: [] } },
+}
+export const Error: Story = {
+    decorators: [withConversationsProjectState(true)],
+    args: { error: 'Request failed' },
+}
+export const SetupUnavailable: Story = {
+    decorators: [withConversationsProjectState(false)],
+    parameters: {
+        docs: {
+            description: {
+                story: 'Uses the Support availability guard when Support is disabled for the project.',
+            },
+        },
+    },
+}
