@@ -80,7 +80,7 @@ const NavDrawerContent = memo(function NavDrawerContent({
   const pathname = usePathname();
   const themeColors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { tasks } = useTasks({ originProduct: "user_created" });
+  const { tasks } = useTasks();
   const { archivedTasks, unarchive } = useArchivedTasksStore();
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 

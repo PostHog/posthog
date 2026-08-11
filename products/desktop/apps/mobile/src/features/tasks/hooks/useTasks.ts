@@ -49,6 +49,23 @@ export function getTaskPollingInterval(
     : false;
 }
 
+/**
+ * Tasks shown in mobile lists. Desktop-local runs are always hidden (mobile
+ * can't act on them). When no explicit origin filter is applied, automation
+ * tasks are hidden too — they have their own tab and would show up twice.
+ * Everything else mirrors desktop, which applies no origin filter at all.
+ */
+export function filterListedTasks(
+  tasks: readonly Task[],
+  originProduct?: string,
+): Task[] {
+  return tasks.filter(
+    (task) =>
+      task.latest_run?.environment !== "local" &&
+      (originProduct !== undefined || task.origin_product !== "automation"),
+  );
+}
+
 export function useTasks(filters?: {
   repository?: string;
   originProduct?: string;
@@ -70,10 +87,9 @@ export function useTasks(filters?: {
       getTaskPollingInterval(query.state.data as Task[] | undefined),
   });
 
-  // Mobile never runs tasks locally — hide desktop-only local runs so the
-  // mobile list mirrors what's actually shareable across devices.
-  const cloudTasks = (query.data ?? []).filter(
-    (task) => task.latest_run?.environment !== "local",
+  const cloudTasks = filterListedTasks(
+    query.data ?? [],
+    filters?.originProduct,
   );
 
   const filteredTasks = filterAndSortTasks(

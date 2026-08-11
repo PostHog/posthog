@@ -17,7 +17,7 @@ export default function TasksScreen() {
   const insets = useSafeAreaInsets();
   const readyRef = useRef(true);
   const filterMenu = useTaskFilterMenu();
-  const { tasks } = useTasks({ originProduct: "user_created" });
+  const { tasks } = useTasks();
   const archivedTasks = useArchivedTasksStore((s) => s.archivedTasks);
   const hasActiveTasks = useMemo(
     () => tasks.some((task) => !(task.id in archivedTasks)),

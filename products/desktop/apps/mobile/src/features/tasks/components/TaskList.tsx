@@ -99,9 +99,7 @@ export function TaskList({
   onCreateTask,
   contentInsetTop = 0,
 }: TaskListProps) {
-  const { tasks, isLoading, error, refetch } = useTasks({
-    originProduct: "user_created",
-  });
+  const { tasks, isLoading, error, refetch } = useTasks();
   const {
     error: integrationsError,
     hasGithubIntegration,
