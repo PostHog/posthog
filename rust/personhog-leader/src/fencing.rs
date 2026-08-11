@@ -166,6 +166,9 @@ struct PartitionFence {
     /// epoch once the pod's claim is confirmed.
     unusable: AtomicBool,
     commit_timeout: Duration,
+    /// Clone of the map's repair nudge; a condemnation must be able to
+    /// announce itself from wherever the commit task discovers it.
+    repair_nudge: Option<Arc<Notify>>,
 }
 
 impl PartitionFence {
@@ -182,6 +185,15 @@ impl PartitionFence {
                 partition,
                 reason, "changelog producer left unusable; awaiting re-acquisition"
             );
+            // The only way back is a heal on a convergence to Serving, and
+            // the reconcile tick that would otherwise carry it is seconds
+            // away — writes bounce for that whole gap. The nudge lets the
+            // coordination loop run its repair pass now; Notify stores
+            // the permit, so a nudge landing before the loop listens is
+            // not lost.
+            if let Some(nudge) = &self.repair_nudge {
+                nudge.notify_one();
+            }
         }
     }
 
@@ -416,6 +428,11 @@ pub struct FencedChangelogProducers {
     /// and report a failed drain.
     settle_budget: Duration,
     partitions: DashMap<u32, Arc<PartitionFence>>,
+    /// Nudged on condemnation, so the coordination loop can run a
+    /// repair pass now instead of on its next reconcile tick. Carries no
+    /// payload: the pass re-derives what needs converging, the same way
+    /// the tick does. `None` leaves repair to the tick alone.
+    repair_nudge: Option<Arc<Notify>>,
     /// Outcomes a test stages for the next produce on a partition.
     ///
     /// The uncertain outcomes need a broker fault landing inside a
@@ -461,9 +478,19 @@ impl FencedChangelogProducers {
             window,
             settle_budget,
             partitions: DashMap::new(),
+            repair_nudge: None,
             #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
         }
+    }
+
+    /// Announce condemnations on `nudge`, so the coordination loop can
+    /// run a repair pass immediately instead of on its next reconcile
+    /// tick. The listening end is [`PodHandle::
+    /// with_repair_nudge`](personhog_coordination::pod::PodHandle).
+    pub fn with_repair_nudge(mut self, nudge: Arc<Notify>) -> Self {
+        self.repair_nudge = Some(nudge);
+        self
     }
 
     /// Take the partition's fence: create the transactional producer and
@@ -502,8 +529,16 @@ impl FencedChangelogProducers {
             panic_next_commit: AtomicBool::new(false),
             unusable: AtomicBool::new(false),
             commit_timeout: self.commit_timeout,
+            repair_nudge: self.repair_nudge.clone(),
         });
-        self.partitions.insert(partition, Arc::clone(&installed));
+        if let Some(replaced) = self.partitions.insert(partition, Arc::clone(&installed)) {
+            // The heal path installs over a still-present condemned
+            // fence, and by then the commit task has usually dropped its
+            // clones — making this insert the last reference and its
+            // drop a blocking librdkafka destroy. Send it to the
+            // blocking pool like every other eviction site.
+            drop_fence_off_worker(replaced);
+        }
         Ok(installed)
     }
 
@@ -1014,16 +1049,42 @@ enum WindowVerdict {
 /// record at the same number behind one that may be committed. Reporting
 /// it as merely indeterminate throws away the ownership answer the router
 /// bounces on. `FencedUncertain` is both.
+/// Every reason production code passes to `condemn`, in one place so the
+/// preregistration below cannot drift from the call sites: a reason
+/// missing here first appears as a brand-new series mid-incident instead
+/// of rising from zero.
+const CONDEMN_REASONS: [&str; 6] = [
+    "abort_fenced",
+    "abort_failed",
+    "commit_fenced",
+    "commit_indeterminate",
+    "commit_task_lost",
+    "committer_unwound",
+];
+
 /// Why a window's outcome leaves the producer unusable, if it does.
 ///
 /// Extracted so the arrow *into* the condemned state is reachable: the
 /// tests could reach the aftermath through a staging hook, but the branch
 /// that decides it could be deleted outright with the suite still green,
 /// and it is the only path in production that ever sets the flag.
-fn condemn_reason(outcome: CommitOutcome) -> Option<&'static str> {
+///
+/// A dead producer carries two very different stories, split by
+/// `fenced`: a producer fenced by a newer owner's init lost the epoch (a
+/// handoff, a heal, a zombie being cut off — coordination working), while
+/// an abort that failed on a producer nobody fenced means the broker
+/// could not be reached in time (an infrastructure excursion). The panel
+/// reading this label has to tell those apart without the logs.
+fn condemn_reason(outcome: CommitOutcome, fenced: bool) -> Option<&'static str> {
     match outcome {
         CommitOutcome::Aborted => None,
+        CommitOutcome::AbortedProducerDead if fenced => Some("abort_fenced"),
         CommitOutcome::AbortedProducerDead => Some("abort_failed"),
+        // A commit killed by a newer owner's init reports librdkafka's
+        // fatal class and lands here, not in AbortedProducerDead — the
+        // fenced split must cover this arm or every deploy-shaped
+        // condemnation reads as a broker excursion.
+        CommitOutcome::Unknown if fenced => Some("commit_fenced"),
         CommitOutcome::Unknown => Some("commit_indeterminate"),
     }
 }
@@ -1213,10 +1274,10 @@ async fn commit_window_after(
         Ok(Err((e, outcome))) => {
             histogram!("personhog_leader_fence_commit_ms", "outcome" => "failed")
                 .record(commit_start.elapsed().as_secs_f64() * 1000.0);
-            if let Some(reason) = condemn_reason(outcome) {
+            let fenced_now = is_fenced(&e) || producer_fenced(fence.producer.inner());
+            if let Some(reason) = condemn_reason(outcome, fenced_now) {
                 fence.condemn(partition, reason);
             }
-            let fenced_now = is_fenced(&e) || producer_fenced(fence.producer.inner());
             let verdict = window_verdict(outcome, fenced_now);
             if verdict == WindowVerdict::FencedUncertain {
                 counter!(
@@ -1320,10 +1381,16 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     // can swallow the first burst between scrapes.
     counter!("personhog_leader_fence_healed_total").increment(0);
     counter!("personhog_leader_fence_heal_abandoned_total").increment(0);
-    for reason in ["abort_failed", "commit_indeterminate", "commit_task_lost"] {
+    for reason in CONDEMN_REASONS {
         counter!("personhog_leader_fence_condemned_total", "reason" => reason).increment(0);
     }
     counter!("personhog_leader_fence_commit_retries_total").increment(0);
+    // The coordination loop's repair-pass counter fires exclusively
+    // mid-incident, exactly when a first-increment series would be
+    // swallowed between scrapes.
+    for outcome in ["run", "suppressed"] {
+        counter!("personhog_coordination_repair_passes_total", "outcome" => outcome).increment(0);
+    }
     counter!("personhog_leader_kafka_produce_errors_total").increment(0);
     for partition in 0..partitions {
         let p = partition.to_string();
@@ -1338,6 +1405,7 @@ pub fn preregister_fencing_metrics(partitions: u32) {
             "partition" => p.clone()
         )
         .increment(0);
+
         counter!(
             "personhog_leader_fence_commit_indeterminate_total",
             "partition" => p.clone()
@@ -1484,15 +1552,55 @@ mod tests {
     /// that cannot serve one, for the life of the process.
     #[test]
     fn a_producer_that_cannot_begin_another_window_is_condemned() {
-        assert_eq!(condemn_reason(CommitOutcome::Aborted), None);
+        for fenced in [false, true] {
+            assert_eq!(condemn_reason(CommitOutcome::Aborted, fenced), None);
+        }
         assert_eq!(
-            condemn_reason(CommitOutcome::AbortedProducerDead),
-            Some("abort_failed")
+            condemn_reason(CommitOutcome::Unknown, true),
+            Some("commit_fenced")
         );
         assert_eq!(
-            condemn_reason(CommitOutcome::Unknown),
+            condemn_reason(CommitOutcome::Unknown, false),
             Some("commit_indeterminate")
         );
+        // The same dead producer, split by what killed it: an epoch lost
+        // to a newer owner is coordination working, an abort nobody
+        // fenced failing is the broker unreachable — the operator's first
+        // question, answered from the series alone.
+        assert_eq!(
+            condemn_reason(CommitOutcome::AbortedProducerDead, true),
+            Some("abort_fenced")
+        );
+        assert_eq!(
+            condemn_reason(CommitOutcome::AbortedProducerDead, false),
+            Some("abort_failed")
+        );
+    }
+
+    /// A condemn reason absent from the preregistration list first
+    /// appears as a new series mid-incident instead of rising from zero.
+    #[test]
+    fn every_condemn_reason_is_preregistered() {
+        for outcome in [
+            CommitOutcome::Aborted,
+            CommitOutcome::AbortedProducerDead,
+            CommitOutcome::Unknown,
+        ] {
+            for fenced in [false, true] {
+                if let Some(reason) = condemn_reason(outcome, fenced) {
+                    assert!(
+                        CONDEMN_REASONS.contains(&reason),
+                        "condemn_reason produced {reason:?}, missing from CONDEMN_REASONS"
+                    );
+                }
+            }
+        }
+        for direct in ["commit_task_lost", "committer_unwound"] {
+            assert!(
+                CONDEMN_REASONS.contains(&direct),
+                "direct condemn call site uses {direct:?}, missing from CONDEMN_REASONS"
+            );
+        }
     }
 
     #[test]
