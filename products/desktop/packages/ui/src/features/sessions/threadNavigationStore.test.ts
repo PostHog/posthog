@@ -48,11 +48,15 @@ describe("useThreadScrollRequest", () => {
     expect(jump).toHaveBeenCalledTimes(2);
   });
 
-  it("retries jumps while older rows settle", () => {
+  it("retries prepared jumps while older rows settle", () => {
     vi.useFakeTimers();
+    const prepareForJump = vi.fn();
     const jump = vi.fn();
     renderHook(() =>
-      useThreadScrollRequest("task-1", jump, { settleFrames: 2 }),
+      useThreadScrollRequest("task-1", jump, {
+        settleFrames: 2,
+        prepareForJump,
+      }),
     );
 
     act(() => {
@@ -65,5 +69,9 @@ describe("useThreadScrollRequest", () => {
     act(() => vi.runAllTimers());
 
     expect(jump).toHaveBeenCalledTimes(3);
+    expect(prepareForJump).toHaveBeenCalledTimes(3);
+    expect(prepareForJump.mock.invocationCallOrder[0]).toBeLessThan(
+      jump.mock.invocationCallOrder[0],
+    );
   });
 });

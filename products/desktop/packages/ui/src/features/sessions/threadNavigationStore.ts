@@ -47,13 +47,18 @@ export const useThreadNavigationStore = create<ThreadNavigationStore>()(
 export function useThreadScrollRequest(
   taskId: string | undefined,
   jumpToMessage: (messageId: string) => void,
-  { settleFrames = 0 }: { settleFrames?: number } = {},
+  {
+    settleFrames = 0,
+    prepareForJump,
+  }: { settleFrames?: number; prepareForJump?: () => void } = {},
 ): void {
   const requestedMessageId = useThreadNavigationStore((state) =>
     taskId ? state.scrollRequests[taskId] : null,
   );
   const jumpRef = useRef(jumpToMessage);
   jumpRef.current = jumpToMessage;
+  const prepareForJumpRef = useRef(prepareForJump);
+  prepareForJumpRef.current = prepareForJump;
   const frameRef = useRef<number | null>(null);
   const cancelSettle = useCallback(() => {
     if (frameRef.current === null) return;
@@ -68,6 +73,7 @@ export function useThreadScrollRequest(
     cancelSettle();
     let framesRemaining = settleFrames;
     const jump = () => {
+      prepareForJumpRef.current?.();
       jumpRef.current(requestedMessageId);
       if (framesRemaining <= 0) {
         frameRef.current = null;
