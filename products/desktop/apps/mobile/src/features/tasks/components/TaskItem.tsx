@@ -1,4 +1,5 @@
 import { Text } from "@components/text";
+import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import type { Task } from "@posthog/shared";
 import { differenceInHours, format, formatDistanceToNow } from "date-fns";
 import {
@@ -169,7 +170,7 @@ function TaskItemComponent({
             numberOfLines={2}
             ellipsizeMode="tail"
           >
-            {task.description}
+            {xmlToPlainText(task.description)}
           </Text>
         ) : null}
       </View>

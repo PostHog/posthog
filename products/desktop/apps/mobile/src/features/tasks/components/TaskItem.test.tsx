@@ -246,6 +246,24 @@ describe("TaskItem", () => {
     },
   );
 
+  it("renders composer pseudo-tags in the description as readable text", () => {
+    const task = makeTask();
+    task.description =
+      'review <file path="/Users/vasco/repo/src/a.ts" /> for <github_pr number="12" title="Ship it" url="https://github.com/org/repo/pull/12" />';
+    const renderer = render(task);
+
+    const description = renderer.root.findAll(
+      (node) =>
+        String(node.type) === "Text" &&
+        typeof node.props.children === "string" &&
+        node.props.children.startsWith("review "),
+    )[0];
+
+    expect(description.props.children).toBe(
+      "review @src/a.ts for @#12 - Ship it",
+    );
+  });
+
   it("dims the title of a desktop-local task", () => {
     const local = titleNode(render(makeTask({ environment: "local" })));
     const cloud = titleNode(render(makeTask({ environment: "cloud" })));
