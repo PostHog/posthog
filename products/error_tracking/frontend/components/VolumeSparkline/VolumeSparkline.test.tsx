@@ -55,6 +55,8 @@ describe('VolumeSparkline', () => {
             expect(onRangeSelect).toHaveBeenCalledWith(data[1].date, new Date(data[3].date.getTime() + BUCKET_MS))
         })
 
+        // Pins quill's contract of normalizing the drag indices before invoking the callback —
+        // the component itself no longer orders them.
         it('produces the same range when the drag direction is reversed', () => {
             const onRangeSelect = jest.fn()
             const data = buildData()
@@ -63,6 +65,17 @@ describe('VolumeSparkline', () => {
             dragSelection(wrapper, 3, 1, data.length)
 
             expect(onRangeSelect).toHaveBeenCalledWith(data[1].date, new Date(data[3].date.getTime() + BUCKET_MS))
+        })
+
+        it('does not fire when every bucket carries the same timestamp (placeholder data)', () => {
+            const onRangeSelect = jest.fn()
+            const date = new Date('2024-01-01T00:00:00.000Z')
+            const data: SparklineData = [0, 1, 2, 3, 4].map(() => ({ date, value: 0 }))
+            const wrapper = renderChart({ data, onRangeSelect })
+
+            dragSelection(wrapper, 1, 3, data.length)
+
+            expect(onRangeSelect).not.toHaveBeenCalled()
         })
 
         it('does not fire when no handler is passed', () => {
@@ -74,16 +87,28 @@ describe('VolumeSparkline', () => {
     })
 
     describe('spike clicks', () => {
-        it('fires onSpikeClick when a flagged bucket is clicked', () => {
+        it('fires onSpikeClick with the viewport cursor position when a flagged bucket is clicked', () => {
             const onSpikeClick = jest.fn()
             const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
-            const wrapper = renderChart({ data, onSpikeClick })
+            const { container } = render(
+                <VolumeSparkline
+                    sparklineKey={SPARKLINE_KEY}
+                    data={data}
+                    layout="detailed"
+                    xAxis="full"
+                    onSpikeClick={onSpikeClick}
+                />
+            )
+            const wrapper = getHogChart(container).element
 
             hoverAtIndex(wrapper, 2, data.length)
+            // On the outer container, past the chart's own wrapper-level handlers, so the hover
+            // index survives — this is the viewport position the popover should anchor to.
+            fireEvent.mouseMove(container.firstElementChild as HTMLElement, { clientX: 123, clientY: 45 })
             fireEvent.click(wrapper)
 
             expect(onSpikeClick).toHaveBeenCalledTimes(1)
-            expect(onSpikeClick).toHaveBeenCalledWith(data[2], expect.any(Number), expect.any(Number))
+            expect(onSpikeClick).toHaveBeenCalledWith(data[2], 123, 45)
         })
 
         it('does not fire onSpikeClick for an ordinary (non-spike) bucket', () => {
@@ -108,6 +133,38 @@ describe('VolumeSparkline', () => {
             fireEvent.click(wrapper)
 
             expect(onSpikeClick).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('bar hover reporting', () => {
+        it('publishes the hovered bin to the logic', () => {
+            const data = buildData()
+            const wrapper = renderChart({ data })
+
+            hoverAtIndex(wrapper, 2, data.length)
+
+            expect(errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY }).values.hoverSelection).toEqual({
+                kind: 'bin',
+                index: 2,
+                datum: data[2],
+            })
+        })
+
+        it('clears the hover when the chart unmounts', () => {
+            // Keep the logic alive past the chart teardown, like a parent still rendering from it.
+            const logic = errorTrackingVolumeSparklineLogic({ sparklineKey: SPARKLINE_KEY })
+            const unmountLogic = logic.mount()
+            const data = buildData()
+            const { container, unmount } = render(
+                <VolumeSparkline sparklineKey={SPARKLINE_KEY} data={data} layout="detailed" xAxis="full" />
+            )
+            hoverAtIndex(getHogChart(container).element, 2, data.length)
+            expect(logic.values.hoverSelection).not.toBeNull()
+
+            unmount()
+
+            expect(logic.values.hoverSelection).toBeNull()
+            unmountLogic()
         })
     })
 

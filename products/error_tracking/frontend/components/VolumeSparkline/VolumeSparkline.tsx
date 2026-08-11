@@ -1,8 +1,9 @@
-import { useActions } from 'kea'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useRef } from 'react'
 
 import {
     type ChartMargins,
+    createXAxisTickCallback,
     type DateRangeZoomData,
     type PointClickData,
     type Series,
@@ -13,8 +14,8 @@ import {
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { resolveVariableColor } from 'lib/charts/utils/color'
-import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
 import { EVENT_LABEL_BAR_GAP, EVENT_LABEL_HEIGHT, EventMarkers } from './EventMarkers'
@@ -48,12 +49,6 @@ const LAYOUTS = {
 
 const COMPACT_MARGINS = { left: 0, right: 0, top: 2, bottom: 2 }
 
-/** Half an axis label, so the first one isn't clipped at the plot's left edge. */
-const EDGE_LABEL_RESERVE = 24
-
-const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000
-const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000
-
 export type VolumeSparklineProps = {
     data: SparklineData
     layout: VolumeSparklineLayout
@@ -76,10 +71,10 @@ export function VolumeSparkline({
     onSpikeClick,
 }: VolumeSparklineProps): JSX.Element {
     const theme = useChartTheme()
-    const { setHoveredBin, setHoveredEvent } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { timezone } = useValues(teamLogic)
+    const { setHoveredEvent } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
     // Quill reports clicks relative to its wrapper; the spike popover anchors in viewport coords.
     const cursorRef = useRef({ x: 0, y: 0 })
-    const [eventHovered, setEventHovered] = useState(false)
 
     const dates = useMemo(() => data.map((datum) => datum.date), [data])
     const labels = useMemo(() => dates.map((date) => date.toISOString()), [dates])
@@ -89,9 +84,8 @@ export function VolumeSparkline({
             {
                 key: SERIES_KEY,
                 label: 'Occurrences',
-                // Canvas can't resolve `var(--…)`. Safe to resolve once — these hold the same
-                // value in light and dark.
-                color: resolveVariableColor(BAR_COLOR),
+                // Canvas can't resolve `var(--…)`; `BAR_COLOR` is already a hex literal.
+                color: BAR_COLOR,
                 data: data.map((datum) => datum.value),
                 bars: data.map((datum) =>
                     datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color), hatch: true } : {}
@@ -103,15 +97,19 @@ export function VolumeSparkline({
 
     const showAxis = xAxis !== 'none'
     const eventLabelReserve = events.length > 0 ? EVENT_LABEL_HEIGHT + EVENT_LABEL_BAR_GAP : undefined
-    // Only built when ticks actually render; quill ignores it on a hidden axis.
-    const tickFormatter = useMemo(() => (xAxis === 'full' ? buildTickFormatter(dates) : undefined), [dates, xAxis])
+    // Quill's own tick callback: project-timezone labels at the granularity it infers from the
+    // bucket spacing, deduped per period. Only built when ticks actually render.
+    const tickFormatter = useMemo(
+        () => (xAxis === 'full' ? createXAxisTickCallback({ timezone, allDays: labels }) : undefined),
+        [labels, timezone, xAxis]
+    )
 
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
             minBarSize: LAYOUTS[layout].minBarSize,
             barCornerRadius: LAYOUTS[layout].barCornerRadius,
             bandPadding: LAYOUTS[layout].bandPadding,
-            margins: resolveMargins(layout, xAxis, eventLabelReserve),
+            margins: resolveMargins(layout, eventLabelReserve),
             xAxis: { hide: xAxis !== 'full', tickFormatter },
             yAxis: { hide: true },
             showAxisLines: { x: showAxis, y: false },
@@ -124,23 +122,26 @@ export function VolumeSparkline({
         [layout, xAxis, showAxis, eventLabelReserve, tickFormatter]
     )
 
-    const onDateRangeZoom = useMemo(
-        () =>
-            onRangeSelect && data.length >= 2
-                ? ({ startIndex, endIndex }: DateRangeZoomData) => {
-                      const [from, to] = startIndex <= endIndex ? [startIndex, endIndex] : [endIndex, startIndex]
-                      const start = data[from]?.date
-                      const end = data[to]?.date
-                      if (!start || !end) {
-                          return
-                      }
-                      // The selection covers whole buckets, so the range runs to the end of the last one.
-                      const bucketMs = data[1].date.getTime() - data[0].date.getTime()
-                      onRangeSelect(start, new Date(end.getTime() + bucketMs))
-                  }
-                : undefined,
-        [data, onRangeSelect]
-    )
+    const onDateRangeZoom = useMemo(() => {
+        if (!onRangeSelect || data.length < 2) {
+            return undefined
+        }
+        // Zero when the data is a placeholder filled with a single timestamp (see
+        // `generateFallbackData`) — a drag would select an empty range.
+        const bucketMs = data[1].date.getTime() - data[0].date.getTime()
+        if (bucketMs <= 0) {
+            return undefined
+        }
+        return ({ startIndex, endIndex }: DateRangeZoomData) => {
+            const start = data[startIndex]?.date
+            const end = data[endIndex]?.date
+            if (!start || !end) {
+                return
+            }
+            // The selection covers whole buckets, so the range runs to the end of the last one.
+            onRangeSelect(start, new Date(end.getTime() + bucketMs))
+        }
+    }, [data, onRangeSelect])
 
     // Only wired when a spike exists: `onPointClick` sets a pointer cursor chart-wide, which
     // would mask the drag-select crosshair.
@@ -159,14 +160,6 @@ export function VolumeSparkline({
         [data, hasSpikes, onSpikeClick]
     )
 
-    const onEventHover = useCallback(
-        (event: SparklineEvent<string> | null) => {
-            setEventHovered(!!event)
-            setHoveredEvent(event)
-        },
-        [setHoveredEvent]
-    )
-
     return (
         <div
             className={cn('h-full w-full min-h-0 min-w-0 flex flex-col', LAYOUTS[layout].padding, className)}
@@ -183,77 +176,43 @@ export function VolumeSparkline({
                 onPointClick={onPointClick}
                 dataAttr="error-tracking-volume-sparkline"
             >
-                <HoverReporter data={data} paused={eventHovered} onHoverBin={setHoveredBin} />
-                {events.length > 0 && <EventMarkers events={events} dates={dates} onHover={onEventHover} />}
+                <HoverReporter sparklineKey={sparklineKey} data={data} />
+                {events.length > 0 && <EventMarkers events={events} dates={dates} onHover={setHoveredEvent} />}
             </TimeSeriesBarChart>
         </div>
     )
 }
 
-/** A chart child because `useChartHover` only works inside the chart. `paused` yields to an event
- *  marker's hover, which writes the same logic field. */
-function HoverReporter({
-    data,
-    paused,
-    onHoverBin,
-}: {
-    data: SparklineData
-    paused: boolean
-    onHoverBin: (payload: { index: number; datum: SparklineDatum } | null) => void
-}): null {
+/** A chart child because `useChartHover` only works inside the chart. Yields to an event marker's
+ *  hover (which writes the same logic field), reading it here rather than in the chart host so
+ *  mousemove-driven re-renders stay contained to this null-rendering component. */
+function HoverReporter({ sparklineKey, data }: { sparklineKey: string; data: SparklineData }): null {
     const { hoverIndex } = useChartHover()
+    const { hoverSelection } = useValues(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const { setHoveredBin } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
+    const paused = hoverSelection?.kind === 'event'
 
     useEffect(() => {
         if (paused) {
             return
         }
         const datum = data[hoverIndex]
-        onHoverBin(hoverIndex >= 0 && datum ? { index: hoverIndex, datum } : null)
-    }, [hoverIndex, paused, data, onHoverBin])
+        setHoveredBin(hoverIndex >= 0 && datum ? { index: hoverIndex, datum } : null)
+    }, [hoverIndex, paused, data, setHoveredBin])
 
     // Reset on unmount so a parent still mounted after the chart tears down doesn't keep showing
     // the last hovered bucket (mirrors quill's own `Sparkline.tsx` `HoverWatcher`).
-    useEffect(() => () => onHoverBin(null), [onHoverBin])
+    useEffect(() => () => setHoveredBin(null), [setHoveredBin])
 
     return null
 }
 
-/** Plot insets. The right edge is left to the chart's own computed margin, which already reserves
- *  enough for the widest label at the real axis font; a flat override here would just reintroduce
- *  the clipping it prevents. The left override stays because `hideYAxis` short-circuits the chart's
- *  own left margin to a collapsed axis width, without an edge reserve. */
-function resolveMargins(
-    layout: VolumeSparklineLayout,
-    xAxis: VolumeSparklineXAxisMode,
-    eventLabelReserve: number | undefined
-): Partial<ChartMargins> | undefined {
+/** Plot insets. The left and right edges are left to the chart's own computed margins, which
+ *  reserve enough for the widest axis label at the real axis font; a flat override here would just
+ *  reintroduce the clipping they prevent. */
+function resolveMargins(layout: VolumeSparklineLayout, eventLabelReserve: number | undefined): Partial<ChartMargins> {
     if (layout === 'compact') {
         return COMPACT_MARGINS
     }
-    return {
-        top: eventLabelReserve,
-        left: xAxis === 'full' ? EDGE_LABEL_RESERVE : undefined,
-    }
-}
-
-/** Axis ticks in the browser's timezone, at the coarsest granularity the range allows, keeping only
- *  the first bucket of each distinct label so a multi-bucket day is labelled once (quill then thins
- *  whatever still overlaps). Dedupes on a full-precision key rather than the displayed text — the
- *  displayed text alone repeats past its format's period (e.g. 'HH:mm' past 24h), which would
- *  wrongly collapse every later occurrence to `null`. */
-function buildTickFormatter(dates: Date[]): (value: string, index: number) => string | null {
-    const spanMs = dates.length > 1 ? dates[dates.length - 1].getTime() - dates[0].getTime() : 0
-    const format = spanMs <= TWO_DAYS_MS ? 'HH:mm' : spanMs <= ONE_YEAR_MS ? 'MMM DD' : 'MMM YYYY'
-
-    const seen = new Set<string>()
-    const ticks = dates.map((date) => {
-        const uniqueKey = dayjs(date).format('YYYY-MM-DD HH:mm')
-        if (seen.has(uniqueKey)) {
-            return null
-        }
-        seen.add(uniqueKey)
-        return dayjs(date).format(format)
-    })
-
-    return (_value, index) => ticks[index] ?? null
+    return { top: eventLabelReserve }
 }

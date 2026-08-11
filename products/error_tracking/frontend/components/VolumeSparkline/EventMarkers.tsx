@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useChartLayout } from '@posthog/quill-charts'
 
@@ -11,6 +11,7 @@ export const EVENT_LABEL_BAR_GAP = 10
 export const EVENT_LABEL_HEIGHT = 20
 const EVENT_LABEL_MIN_GAP = 2
 const ANCHOR_RADIUS = 6
+const DEFAULT_EVENT_COLOR = 'black'
 
 export type EventMarkersProps = {
     events: SparklineEvent<string>[]
@@ -20,9 +21,14 @@ export type EventMarkersProps = {
 }
 
 /** DOM positioned off `useChartLayout()`, so an event can sit between two buckets — quill's band
- *  scale only resolves whole labels. */
-export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX.Element | null {
-    const { scales, dimensions, labels } = useChartLayout()
+ *  scale only resolves whole labels. Memoized: it renders inside the chart host, whose props are
+ *  stable across the hover-driven re-renders `useChartLayout` deliberately doesn't cause. */
+export const EventMarkers = memo(function EventMarkers({
+    events,
+    dates,
+    onHover,
+}: EventMarkersProps): JSX.Element | null {
+    const { scales, dimensions, labels, theme } = useChartLayout()
     const labelRefs = useRef<(HTMLDivElement | null)[]>([])
     const [halfWidths, setHalfWidths] = useState<number[] | null>(null)
 
@@ -62,17 +68,33 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
         [events, positionAt]
     )
 
-    // Pill widths aren't known until laid out. Runs on every render, not just on the deps, to catch
-    // a width shifting for an unlisted reason (a webfont loading); the updater below bails if equal.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
-    useLayoutEffect(() => {
+    // Pill widths aren't known until laid out.
+    const measurePills = useCallback(() => {
         const measured = labelRefs.current.slice(0, events.length).map((node) => (node?.offsetWidth ?? 0) / 2)
         setHalfWidths((previous) =>
             previous && previous.length === measured.length && previous.every((w, i) => w === measured[i])
                 ? previous
                 : measured
         )
-    })
+    }, [events.length])
+
+    const pillTexts = useMemo(() => events.map((event) => event.payload).join('\u0000'), [events])
+    useLayoutEffect(() => {
+        measurePills()
+    }, [measurePills, pillTexts, plotWidth])
+
+    // A webfont arriving after first paint changes pill widths without any prop changing.
+    useEffect(() => {
+        let cancelled = false
+        document.fonts?.ready.then(() => {
+            if (!cancelled) {
+                measurePills()
+            }
+        })
+        return () => {
+            cancelled = true
+        }
+    }, [measurePills])
 
     const labelCenters = useMemo(() => {
         if (!halfWidths || halfWidths.length !== anchors.length) {
@@ -98,7 +120,7 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
                     if (anchorX < plotLeft || anchorX > plotRight) {
                         return null
                     }
-                    const color = event.color || 'black'
+                    const color = event.color || DEFAULT_EVENT_COLOR
                     return (
                         <g key={event.id}>
                             <line
@@ -109,11 +131,12 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
                                 stroke={color}
                                 strokeWidth={2}
                             />
+                            {/* The dot is a knockout against the chart surface, not literally white. */}
                             <circle
                                 cx={anchorX}
                                 cy={plotBottom}
                                 r={ANCHOR_RADIUS}
-                                fill="white"
+                                fill={theme.backgroundColor ?? 'white'}
                                 stroke={color}
                                 strokeWidth={2}
                             />
@@ -136,7 +159,7 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
                         // Hidden at its anchor until measured, so no unspread frame is visible.
                         left: labelCenters ? labelCenters[index] - (halfWidths?.[index] ?? 0) : anchors[index],
                         visibility: labelCenters ? 'visible' : 'hidden',
-                        backgroundColor: event.color || 'black',
+                        backgroundColor: event.color || DEFAULT_EVENT_COLOR,
                         pointerEvents: 'auto',
                     }}
                     onMouseEnter={() => handleHover(event)}
@@ -147,4 +170,4 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
             ))}
         </>
     )
-}
+})

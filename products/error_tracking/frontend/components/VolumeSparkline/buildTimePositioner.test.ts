@@ -6,21 +6,27 @@ describe('buildTimePositioner', () => {
     const HOUR_MS = 60 * 60 * 1000
     const dates = [0, 1, 2, 3].map((i) => new Date(i * HOUR_MS))
     const labels = dates.map((d) => d.toISOString())
-    const scaleX = (label: string): number | undefined => {
-        const index = labels.indexOf(label)
-        return index === -1 ? undefined : 10 + index * 20
-    }
+    // `Map.get` already yields `undefined` for an unresolved label.
+    const positions = new Map(labels.map((label, index) => [label, 10 + index * 20]))
+    const scaleX = (label: string): number | undefined => positions.get(label)
 
-    it('places an event exactly between two bucket starts at the midpoint', () => {
+    it.each([
+        {
+            // Left edges are x=0 and x=20, so halfway in time between them lands at x=30.
+            name: 'places an event exactly between two bucket starts at the midpoint',
+            time: dates[1].getTime() + HOUR_MS / 2,
+            expected: 30,
+        },
+        {
+            name: 'extrapolates for an event before the first bucket',
+            time: dates[0].getTime() - HOUR_MS,
+            expected: -20,
+        },
+    ])('$name', ({ time, expected }) => {
         const positionAt = buildTimePositioner(dates, labels, scaleX)
         expect(positionAt).not.toBeNull()
-        // Left edges are x=0 and x=20, so halfway in time between them lands at x=30.
-        expect(positionAt?.(dates[1].getTime() + HOUR_MS / 2)).toBe(30)
-    })
-
-    it('extrapolates for an event before the first bucket', () => {
-        const positionAt = buildTimePositioner(dates, labels, scaleX)
-        expect(positionAt?.(dates[0].getTime() - HOUR_MS)).toBe(-20)
+        const position = positionAt!
+        expect(position(time)).toBe(expected)
     })
 
     it.each([
