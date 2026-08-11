@@ -41,6 +41,7 @@ import { logger } from "@/lib/logger";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
 import { getReportRepository } from "../api";
+import { inboxCardViewBottomInset } from "../cardViewLayout";
 import { useDismissReport } from "../hooks/useInboxReports";
 import { useDismissedReportsStore } from "../stores/dismissedReportsStore";
 import { useInboxStore } from "../stores/inboxStore";
@@ -48,6 +49,17 @@ import { ActionabilityBadge, PriorityBadge, StatusBadge } from "./ReportBadges";
 import { SwipeableReportCard } from "./SwipeableReportCard";
 
 const log = logger.scope("tinder-view");
+
+/** Vertical px between each card in the stack — cards behind sit lower. */
+const STACK_OFFSET = 12;
+/** How many cards of the deck are rendered at once. */
+const MAX_VISIBLE = 3;
+/**
+ * The deepest card hangs `STACK_OFFSET * (MAX_VISIBLE - 1)` px below the deck
+ * container, so the deck reserves exactly that much space beneath itself for
+ * the stack to bleed into without colliding with the hint row.
+ */
+const STACK_BLEED = STACK_OFFSET * (MAX_VISIBLE - 1);
 
 // ─── Empty state ───
 
@@ -291,8 +303,10 @@ export function TinderView({
     }
   }, [reports, currentIndex, repoMap]);
 
-  const STACK_OFFSET = 12; // px between each stacked card
-  const MAX_VISIBLE = 3;
+  // The deck ends where the toggle pill's clearance begins; the hint row is the
+  // last thing in flow above it. The parent screen has already padded the top
+  // past the header fade, so the whole view sits between the two chrome bands.
+  const bottomInset = inboxCardViewBottomInset(insets.bottom);
 
   return (
     <View className="flex-1">
@@ -308,8 +322,14 @@ export function TinderView({
           <EmptyState />
         </View>
       ) : (
-        <View className="flex-1 px-4 pt-2 pb-4">
-          <View className="relative flex-[0.9]">
+        <View
+          className="flex-1 px-4 pt-2"
+          style={{ paddingBottom: bottomInset }}
+        >
+          <View
+            className="relative flex-1"
+            style={{ marginBottom: STACK_BLEED }}
+          >
             {reports
               .slice(currentIndex, currentIndex + MAX_VISIBLE)
               .reverse()
@@ -330,7 +350,9 @@ export function TinderView({
               })}
           </View>
 
-          {/* Which way is which, before the first drag teaches it. */}
+          {/* Which way is which, before the first drag teaches it. Anchored to
+              the bottom of the view — the container's paddingBottom keeps it
+              clear of the safe area and the floating toggle pill. */}
           <View className="mt-3 flex-row items-center justify-between px-1">
             <View className="flex-row items-center gap-1.5">
               <ArrowLeft size={13} color={themeColors.gray[9]} weight="bold" />
@@ -344,9 +366,13 @@ export function TinderView({
         </View>
       )}
 
-      {/* Error display */}
+      {/* Error display — floats in the same band as the toast rather than
+          appending to the deck's flow, where it would land under the pill. */}
       {error && (
-        <View className="mx-4 mb-4 rounded-lg bg-status-error/10 px-3 py-2">
+        <View
+          className="absolute inset-x-4 rounded-lg bg-status-error/10 px-3 py-2"
+          style={{ bottom: bottomInset }}
+        >
           <Text className="text-[13px] text-status-error">{error}</Text>
         </View>
       )}
@@ -361,7 +387,7 @@ export function TinderView({
           }}
           disabled={toast.pending}
           className="elevation-4 absolute inset-x-4 flex-row items-center justify-between rounded-2xl bg-status-success px-5 py-4 shadow-lg active:opacity-80"
-          style={{ bottom: insets.bottom + 76 }}
+          style={{ bottom: bottomInset }}
         >
           <View className="min-w-0 flex-1">
             <Text className="font-semibold text-[15px] text-white">

@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useActiveProjectName } from "@/features/auth";
 import { MenuButton } from "@/features/navigation/components/MenuButton";
 import { toRgba, useThemeColors } from "@/lib/theme";
+import { inboxHeaderFadeHeight } from "../cardViewLayout";
 import { LiveDot } from "./LiveDot";
 
 interface FloatingInboxHeaderProps {
@@ -35,7 +36,8 @@ export function FloatingInboxHeader({
   const themeColors = useThemeColors();
   const projectName = useActiveProjectName();
 
-  const fadeHeight = insets.top + 80;
+  // Shared with the card view, which has to lay itself out below this.
+  const fadeHeight = inboxHeaderFadeHeight(insets.top);
 
   return (
     <View

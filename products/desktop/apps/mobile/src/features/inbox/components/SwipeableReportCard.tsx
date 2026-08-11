@@ -148,7 +148,14 @@ export function SwipeableReportCard({
     >
       {/* Intent stamps — corner-mounted and tilted, so the card says what
           letting go will do before it happens. Accept sits on the left, the
-          edge that leads a rightward swipe; dismiss mirrors it. */}
+          edge that leads a rightward swipe; dismiss mirrors it.
+
+          Geometry: the deck starts at `inboxHeaderFadeHeight(insets.top)` plus
+          the container's 8pt top padding, so a stamp's box top is 20pt (top-5)
+          into the card. A ~134x48 box rotated 12° lifts its leading corner by
+          (134/2)·sin12° − (48/2)·(1 − cos12°) ≈ 13pt, leaving ~15pt between the
+          highest painted pixel and the bottom of the header fade. Lowering
+          `top-5` further, or raising the fade, eats that margin. */}
       <Animated.View
         className="absolute top-5 left-4 z-10 rounded-lg border-2 border-status-success bg-status-success/15 px-3 py-1.5"
         style={{ opacity: acceptOpacity, transform: [{ rotate: "-12deg" }] }}
