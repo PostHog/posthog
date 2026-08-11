@@ -51,8 +51,9 @@ export type MarkdownNotebookVisualGroup =
           index: number
       }
 
-/** Blocks that share a card with the text-like blocks around them. Components, tables, and
- * dividers always stand alone, so they never need a `startsGroup` boundary. */
+/** Blocks that open a card of their own and share it with the text-like blocks that follow.
+ * Components, tables, and dividers never open one, so they need no `startsGroup` boundary.
+ * A table can still join a card an earlier block opened, see `tableJoinsTextGroup`. */
 export function isTextGroupNode(node: NotebookBlockNode | undefined): boolean {
     return (
         !!node && (isTextBlockNode(node) || node.type === 'list' || node.type === 'code' || isPromptComponentNode(node))
@@ -83,9 +84,19 @@ export function getMarkdownNotebookVisualGroups(
         return isTextGroupNode(nodes[nextIndex])
     }
 
+    // A table written between paragraphs reads as part of that passage, so it joins the card the
+    // text above it opened. A table that carries a card boundary (an insert-menu or MCP insert),
+    // or that follows a standalone block, keeps its own row instead of becoming a card that holds
+    // nothing but a table.
+    const tableJoinsTextGroup = (index: number): boolean =>
+        nodes[index].type === 'table' && !!currentTextGroup && !nodes[index].startsGroup
+
     nodes.forEach((node, index) => {
         const shouldBreakTextGroupForInsertMenu = node.id === insertMenuNodeId && !isPromptComponentNode(node)
-        if ((isTextGroupNode(node) || commentJoinsTextGroup(index)) && !shouldBreakTextGroupForInsertMenu) {
+        if (
+            (isTextGroupNode(node) || commentJoinsTextGroup(index) || tableJoinsTextGroup(index)) &&
+            !shouldBreakTextGroupForInsertMenu
+        ) {
             if (node.startsGroup) {
                 currentTextGroup = null
             }

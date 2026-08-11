@@ -462,7 +462,8 @@ class TestShouldPauseScheduleForTimeout:
 
 
 class TestNodeSuspension:
-    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag):
+    @pytest.mark.parametrize("enforced", [True, False])
+    async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag, enforced):
         from posthog.temporal.data_modeling.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
@@ -476,6 +477,154 @@ class TestNodeSuspension:
         job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
         jobs.append(job)
 
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.utils.is_suspension_enforced", return_value=enforced
+        ):
+            suspended = await maybe_suspend_node_for_engine(
+                node_id=str(anode.id),
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                saved_query_id=asaved_query.id,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                reason="boom",
+                job_id=str(job.id),
+            )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
+        await database_sync_to_async(job.refresh_from_db)()
+        assert ("has been suspended" in job.error) is enforced
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for j in jobs:
+            await database_sync_to_async(j.delete)()
+
+    @pytest.mark.parametrize(
+        "aborted_error",
+        [
+            "Code: 202. DB::Exception: Too many simultaneous queries",
+            "Cannot connect to host ch-offline.example.com:8443",
+            "Abandoned: the materialization workflow is no longer running",
+            "QueueEmpty: Application error",
+            "Preempted: a new DAG run started before this job completed",
+        ],
+    )
+    async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=aborted_error)
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason=aborted_error,
+            job_id=str(jobs[-1].id),
+        )
+
+        assert suspended is False
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
+    @pytest.mark.parametrize("identifier", ["Preempted", "QueueEmpty"])
+    async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
+        self, ateam, anode, asaved_query, adag, identifier
+    ):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        error = f"Code: 47. DB::Exception: Missing columns: '{identifier}' while processing query"
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=error)
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason=error,
+            job_id=str(jobs[-1].id),
+        )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
+    @pytest.mark.parametrize(
+        "memory_error",
+        [
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Memory limit (for query) exceeded",
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: (total) memory limit exceeded",
+            "ClickHouseMemoryLimitExceededError: Code: 241. DB::Exception: Query memory limit exceeded",
+        ],
+    )
+    async def test_suspends_when_the_query_exhausts_memory(self, ateam, anode, asaved_query, adag, memory_error):
+        from posthog.temporal.data_modeling.activities.utils import (
+            CONSECUTIVE_FAILURES_TO_SUSPEND,
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
+
+        jobs = [
+            await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=memory_error)
+            for _ in range(CONSECUTIVE_FAILURES_TO_SUSPEND)
+        ]
+
+        suspended = await maybe_suspend_node_for_engine(
+            node_id=str(anode.id),
+            team_id=ateam.pk,
+            dag_id=str(adag.id),
+            saved_query_id=asaved_query.id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            reason=memory_error,
+            job_id=str(jobs[-1].id),
+        )
+
+        assert suspended is True
+        await database_sync_to_async(anode.refresh_from_db)()
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+
+        # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
+        for job in jobs:
+            await database_sync_to_async(job.delete)()
+
+    async def test_infrastructure_failure_breaks_a_customer_streak(self, ateam, anode, asaved_query, adag):
+        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
+
+        jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(4)]
+        jobs.append(
+            await _make_job(
+                ateam, asaved_query, DataModelingJob.Status.FAILED, error="Code: 202. Too many simultaneous queries"
+            )
+        )
+        job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
+        jobs.append(job)
+
         suspended = await maybe_suspend_node_for_engine(
             node_id=str(anode.id),
             team_id=ateam.pk,
@@ -486,12 +635,9 @@ class TestNodeSuspension:
             job_id=str(job.id),
         )
 
-        assert suspended is True
+        assert suspended is False
         await database_sync_to_async(anode.refresh_from_db)()
-        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
-        assert is_node_suspended(anode, DataModelingJobEngine.DUCKGRES) is False
-        await database_sync_to_async(job.refresh_from_db)()
-        assert "has been suspended" in job.error
+        assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is False
 
         # DataModelingJob.team is SET_NULL, so it survives the ateam fixture's team teardown.
         for j in jobs:

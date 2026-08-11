@@ -2,7 +2,9 @@ import {
   buildChannelItems,
   type ChannelItemModel,
   type ChannelItemOwner,
+  type ChannelSessionFacts,
 } from "@posthog/core/canvas/channelItems";
+import type { WorkspaceMode } from "@posthog/shared";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -17,7 +19,10 @@ import {
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
+import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
+import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
+import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -65,6 +70,31 @@ export function useChannelItems(channelId: string): {
     client,
   });
 
+  // What the filters ask about beyond the task itself: a live session's
+  // permission prompt, when you last looked, and where the workspace is. The
+  // session map is the sidebar's own subscription, which ignores the streamed
+  // events a turn fires and only wakes on the fields a row reads.
+  const sessions = useSidebarSessionMap();
+  const { timestamps } = useTaskViewed();
+  const { data: workspaces } = useWorkspaces();
+  const sessionFacts = useMemo<ChannelSessionFacts>(() => {
+    const needsInputTaskIds = new Set<string>();
+    for (const [taskId, session] of sessions) {
+      if ((session.pendingPermissions?.size ?? 0) > 0) {
+        needsInputTaskIds.add(taskId);
+      }
+    }
+    const workspaceModeByTaskId = new Map<string, WorkspaceMode>();
+    for (const [taskId, workspace] of Object.entries(workspaces ?? {})) {
+      if (workspace.mode) workspaceModeByTaskId.set(taskId, workspace.mode);
+    }
+    return {
+      needsInputTaskIds,
+      viewedTimestamps: timestamps,
+      workspaceModeByTaskId,
+    };
+  }, [sessions, timestamps, workspaces]);
+
   const meUuid = currentUser?.uuid ?? null;
   const me = useMemo<ChannelItemOwner>(() => ({ uuid: meUuid }), [meUuid]);
   // Only a uuid establishes identity — ownership compares uuids, so a viewer
@@ -93,9 +123,11 @@ export function useChannelItems(channelId: string): {
       // The personal channel is yours — but don't filter until we know
       // who you are, or #me flashes everyone's items on a cold load.
       ownedBy: isPersonal && viewerKnown ? me : null,
+      sessionFacts,
     });
   }, [
     identityKnown,
+    sessionFacts,
     dashboards,
     feedTasks,
     filedTaskRecords,
