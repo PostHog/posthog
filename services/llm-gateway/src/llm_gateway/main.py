@@ -79,9 +79,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()
-        # Stays None when neither branch below runs, which happens when the client disconnects and
-        # the request task is cancelled. Those requests get no status code, so logging one would
-        # invent a response the client never received.
+        # CancelledError is a BaseException, so it escapes the except below and leaves this None.
+        # A request cancelled that way never produced a status code, so logging one would invent a
+        # response the client never received.
         status_code: int | None = None
 
         try:
