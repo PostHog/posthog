@@ -44,6 +44,7 @@ pub enum Rpc {
     Fence,
     Fold,
     Release,
+    PropertyPush,
 }
 
 /// A person's live fence in the simulated leader.
@@ -534,6 +535,9 @@ impl PropertyWriter for SimLeader {
         &self,
         request: UpdatePersonPropertiesRequest,
     ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        if let Some(status) = self.take_scripted(Rpc::PropertyPush, request.person_id) {
+            return Err(status);
+        }
         if let Some(fence) = self.fence_for(request.person_id) {
             return Err(fenced_status(&fence));
         }

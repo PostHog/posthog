@@ -1818,3 +1818,203 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
 
     h.ctx.cleanup().await.expect("cleanup");
 }
+
+#[tokio::test]
+async fn a_move_limited_source_skips_while_the_rest_merge_through_the_rpc() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-limit-target")
+        .await;
+    let small = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-limit-small")
+        .await;
+    let big = h.ctx.insert_person_with_distinct_id("rpc-limit-big").await;
+    h.add_distinct_id(big, "rpc-limit-big-2").await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "rpc-limit-target",
+        &["rpc-limit-small", "rpc-limit-big"],
+        Uuid::now_v7(),
+    );
+    request.move_limit = Some(1);
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![
+            ("rpc-limit-small".to_string(), MergeSourceOutcome::Merged),
+            (
+                "rpc-limit-big".to_string(),
+                MergeSourceOutcome::SkippedMoveLimit
+            ),
+        ]
+    );
+    assert_eq!(response.survivor.as_ref().expect("survivor").id, target);
+    let (small_deleted, _, _) = h.person_state(small).await;
+    assert!(small_deleted);
+    let (big_deleted, _, _) = h.person_state(big).await;
+    assert!(!big_deleted, "a move-limited source must stay untouched");
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_identified_source_aborts_through_the_rpc_with_no_survivor() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let _target = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-ident-target")
+        .await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-ident-source")
+        .await;
+    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+
+    let op_id = Uuid::now_v7();
+    let request = rpc_request(
+        h.ctx.team_id,
+        "rpc-ident-target",
+        &["rpc-ident-source"],
+        op_id,
+    );
+    let response = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect("an aborted op still answers OK")
+        .into_inner();
+
+    // The skip is an answer, not an error — and an aborted op carries no
+    // survivor document.
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(
+            "rpc-ident-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+    assert!(response.survivor.is_none());
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(!source_deleted);
+
+    // The abort is recorded: a retry reproduces the answer instead of
+    // re-running classification.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry succeeds")
+        .into_inner();
+    assert!(retry.survivor.is_none());
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![(
+            "rpc-ident-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn allow_identified_sources_merges_an_identified_source() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-dang-target")
+        .await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-dang-source")
+        .await;
+    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "rpc-dang-target",
+        &["rpc-dang-source"],
+        Uuid::now_v7(),
+    );
+    request.allow_identified_sources = true;
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("merge succeeds")
+        .into_inner();
+
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("rpc-dang-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    assert_eq!(response.survivor.as_ref().expect("survivor").id, target);
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(source_deleted);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_failed_property_push_errors_the_call_and_the_retry_settles() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("rpc-pushfail-target")
+        .await;
+    h.add_distinct_id(target, "rpc-pushfail-alias").await;
+
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "rpc-pushfail-target",
+        &["rpc-pushfail-alias"],
+        op_id,
+    );
+    request.event_set = serde_json::to_vec(&json!({"plan": "pro"})).unwrap();
+    h.leader.fail_next(
+        Rpc::PropertyPush,
+        target,
+        Status::unavailable("leader down"),
+    );
+
+    // The push failure must fail the whole call — never an OK response
+    // whose properties silently went nowhere.
+    let status = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect_err("a failed push fails the call");
+    assert_eq!(status.code(), Code::Unavailable);
+    let op_count: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
+        .bind(op_id)
+        .fetch_one(&h.ctx.pool)
+        .await
+        .unwrap();
+    assert_eq!(op_count, 0);
+
+    // The retry re-classifies and settles the same pairs.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry succeeds")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![(
+            "rpc-pushfail-alias".to_string(),
+            MergeSourceOutcome::NoopSamePerson
+        )]
+    );
+    assert_eq!(retry.survivor.as_ref().expect("survivor").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
