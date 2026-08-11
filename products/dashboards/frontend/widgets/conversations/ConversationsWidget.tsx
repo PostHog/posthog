@@ -91,19 +91,19 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
             to={urls.supportTicketDetail(ticket.ticket_number)}
             target="_blank"
             subtle
-            className="flex items-start gap-3 border-b border-primary px-3 py-2.5 text-current hover:bg-fill-highlight-100 hover:text-current"
+            className="border-b border-primary px-3 py-2.5 text-current hover:bg-fill-highlight-100 hover:text-current"
         >
-            <Tooltip title={channelLabel}>
-                <span className="mt-1 size-4 shrink-0 text-muted [&>svg]:size-4">
-                    {channelIcon[ticket.channel_source]}
-                </span>
-            </Tooltip>
-            <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="min-w-0 space-y-0.5">
                 <div className="flex min-w-0 items-center gap-2">
                     <span className="truncate font-semibold" title={requesterName(ticket)}>
                         {requesterName(ticket)}
                     </span>
                     <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
+                    <Tooltip title={channelLabel}>
+                        <span className="size-3.5 shrink-0 text-muted [&>svg]:size-3.5">
+                            {channelIcon[ticket.channel_source]}
+                        </span>
+                    </Tooltip>
                     <TZLabel time={ticket.updated_at} className="ml-auto shrink-0 text-xs text-muted" />
                 </div>
                 <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
