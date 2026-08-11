@@ -645,11 +645,19 @@ def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
 
+def _create_public_task_channel(team: Team, label: str):
+    Channel = apps.get_model("tasks", "Channel")
+
+    with team_scope(team.pk):
+        return Channel.objects.create(team=team, name=f"channel_{label}")
+
+
 def _create_task(team: Team, label: str):
     Task = apps.get_model("tasks", "Task")
 
     return Task.objects.create(
         team=team,
+        channel=_create_public_task_channel(team, f"task_{label}"),
         title=f"task_{label}",
         description="x",
         origin_product=Task.OriginProduct.USER_CREATED,
@@ -657,11 +665,10 @@ def _create_task(team: Team, label: str):
 
 
 def _create_canvas(team: Team, label: str):
-    Channel = apps.get_model("tasks", "Channel")
     Canvas = apps.get_model("canvas", "Canvas")
 
     with team_scope(team.pk):
-        channel = Channel.objects.create(team=team, name=f"channel_for_canvas_{label}")
+        channel = _create_public_task_channel(team, f"canvas_{label}")
         return Canvas.objects.create(team=team, channel=channel, name=f"canvas_{label}")
 
 
@@ -671,6 +678,7 @@ def _create_task_run(team: Team, label: str):
 
     task = Task.objects.create(
         team=team,
+        channel=_create_public_task_channel(team, f"run_{label}"),
         title=f"task_for_run_{label}",
         description="x",
         origin_product=Task.OriginProduct.USER_CREATED,
@@ -819,6 +827,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("source_schemas", _create_source_schema),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("_task_public_channels", _create_public_task_channel),
     ("tags", _create_tag),
     ("task_runs", _create_task_run),
     ("tasks", _create_task),
@@ -942,6 +951,7 @@ class TestSystemTablesCanvasDeletedExclusion(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.canvases"), context, dialect="clickhouse")
         assert "system__canvases.deleted" in query
+        assert "system___task_public_channels" in query
         assert f"equals(system__canvases.team_id, {self.team.pk})" in query
 
 
@@ -975,6 +985,7 @@ class TestSystemTablesTaskInternalExclusion(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
         query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse")
         assert "system__tasks.internal" in query
+        assert "system___task_public_channels" in query
         assert f"equals(system__tasks.team_id, {self.team.pk})" in query
 
 
@@ -985,9 +996,11 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
     def test_internal_tasks_excluded(self):
         Task = apps.get_model("tasks", "Task")
+        channel = _create_public_task_channel(self.team, "internal-exclusion")
 
         regular_task = Task.objects.create(
             team=self.team,
+            channel=channel,
             title="regular",
             description="x",
             origin_product=Task.OriginProduct.USER_CREATED,
@@ -995,6 +1008,7 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
         )
         internal_task = Task.objects.create(
             team=self.team,
+            channel=channel,
             title="internal",
             description="x",
             origin_product=Task.OriginProduct.USER_CREATED,
@@ -1006,6 +1020,73 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_private_and_unfiled_task_resources_are_excluded(self):
+        Channel = apps.get_model("tasks", "Channel")
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        Canvas = apps.get_model("canvas", "Canvas")
+
+        with team_scope(self.team.pk):
+            public_channel = Channel.objects.create(team=self.team, name="public-space")
+            private_channel = Channel.objects.create(
+                team=self.team,
+                name=Channel.PERSONAL_CHANNEL_NAME,
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=self.user,
+            )
+            deleted_channel = Channel.objects.create(team=self.team, name="deleted-space", deleted=True)
+            public_canvas = Canvas.objects.create(team=self.team, channel=public_channel, name="public")
+            Canvas.objects.create(team=self.team, channel=private_channel, name="private")
+            Canvas.objects.create(team=self.team, channel=deleted_channel, name="deleted")
+
+        public_task = Task.objects.create(
+            team=self.team,
+            channel=public_channel,
+            created_by=self.user,
+            title="public",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        private_task = Task.objects.create(
+            team=self.team,
+            channel=private_channel,
+            created_by=self.user,
+            title="private",
+            description="x",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        unfiled_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="unfiled",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        deleted_channel_task = Task.objects.create(
+            team=self.team,
+            channel=deleted_channel,
+            created_by=self.user,
+            title="deleted space",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        public_run = TaskRun.objects.create(task=public_task, team=self.team)
+        TaskRun.objects.create(task=private_task, team=self.team)
+        TaskRun.objects.create(task=unfiled_task, team=self.team)
+        TaskRun.objects.create(task=deleted_channel_task, team=self.team)
+
+        task_response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team, user=self.user)
+        run_response = execute_hogql_query("SELECT id FROM system.task_runs", team=self.team, user=self.user)
+        canvas_response = execute_hogql_query("SELECT id FROM system.canvases", team=self.team, user=self.user)
+
+        assert {str(row[0]) for row in task_response.results} == {str(public_task.id)}
+        assert {str(row[0]) for row in run_response.results} == {str(public_run.id)}
+        assert {str(row[0]) for row in canvas_response.results} == {str(public_canvas.id)}
 
 
 class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
