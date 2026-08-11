@@ -2159,7 +2159,11 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             expect(normalizeMessage(message, 'assistant')).toEqual([{ role: 'user', content: 'Hi' }])
         })
 
-        it('normalizes tool_call_response parts into tool messages', () => {
+        it.each([
+            ['the semconv response key', { response: 'Sunny, 25°C' }],
+            ['the pre-rename result key', { result: 'Sunny, 25°C' }],
+            ['both keys, preferring response', { response: 'Sunny, 25°C', result: 'stale' }],
+        ])('normalizes tool_call_response parts into tool messages from %s', (_label, resultFields) => {
             const message = {
                 role: 'user',
                 parts: [
@@ -2167,7 +2171,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                         type: 'tool_call_response',
                         id: 'call_abc',
                         name: 'get_weather',
-                        result: 'Sunny, 25°C',
+                        ...resultFields,
                     },
                 ],
             }
@@ -2177,7 +2181,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ])
         })
 
-        it('stringifies non-string tool_call_response results', () => {
+        it.each(['response', 'result'])('stringifies non-string tool_call_response %s values', (field) => {
             const message = {
                 role: 'user',
                 parts: [
@@ -2185,7 +2189,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
                         type: 'tool_call_response',
                         id: 'call_1',
                         name: 'get_data',
-                        result: { temperature: 25, unit: 'C' },
+                        [field]: { temperature: 25, unit: 'C' },
                     },
                 ],
             }

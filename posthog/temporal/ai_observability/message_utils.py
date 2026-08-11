@@ -62,8 +62,10 @@ def _flatten_parts_message(msg: dict) -> list[dict]:
     conversation the trace view renders:
     - `{"type": "text", "content": ...}` parts join into the message's `content`
     - `{"type": "tool_call", "id", "name", "arguments"}` parts become `tool_calls`
-    - each `{"type": "tool_call_response", "id", "result"}` part becomes its own
-      follow-up `role: "tool"` message so the existing `tool[<id>]:` correlation applies
+    - each `{"type": "tool_call_response", "id", "response"}` part becomes its own
+      follow-up `role: "tool"` message so the existing `tool[<id>]:` correlation applies.
+      The GenAI semconv renamed this field from `result` to `response`, and producers on
+      either version are in the wild, so both keys are read with `response` winning
     - `reasoning` and other non-text parts are dropped, matching the trace view
 
     Like the recipe, this only applies to dicts with a string `role` alongside the
@@ -98,10 +100,12 @@ def _flatten_parts_message(msg: dict) -> list[dict]:
                 }
             )
         elif part_type == "tool_call_response":
-            result = part.get("result", "")
-            if not isinstance(result, str):
-                result = json.dumps(result, default=str)
-            tool_results.append({"role": "tool", "content": result, "tool_call_id": part.get("id")})
+            tool_response = part.get("response")
+            if tool_response is None:
+                tool_response = part.get("result", "")
+            if not isinstance(tool_response, str):
+                tool_response = json.dumps(tool_response, default=str)
+            tool_results.append({"role": "tool", "content": tool_response, "tool_call_id": part.get("id")})
 
     primary = {key: value for key, value in msg.items() if key != "parts"}
     if text_chunks:

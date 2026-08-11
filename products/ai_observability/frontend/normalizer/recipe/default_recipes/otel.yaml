@@ -1,6 +1,7 @@
 # OTel parts format: `{role, parts: [...]}`. text parts become content,
 # tool_call parts become tool_calls, and each tool_call_response part spawns its
-# own follow-up tool message.
+# own follow-up tool message. The GenAI semconv renamed the tool result field
+# from `result` to `response`, so both keys are read with `response` winning.
 #
 # `if_empty: ~` drops the primary only when followups exist, so a message whose
 # parts produce nothing at all still emits one empty-content message (legacy parity).
@@ -40,4 +41,7 @@ rules:
                 role: tool
                 toolCallId: $.id
                 content:
-                    stringify: $.result
+                    stringify:
+                        coalesce:
+                            - $.response
+                            - $.result
