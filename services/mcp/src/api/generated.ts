@@ -39010,6 +39010,8 @@ export namespace Schemas {
       start_url?: string | null;
       summary?: string | null;
       summary_outcome?: SummaryOutcome | null;
+      /** The effective access level the current user has for this recording. Only returned when fetching a single recording. */
+      user_access_level?: AccessControlLevel | null;
       /** Whether this recording has been viewed by you already. */
       viewed: boolean;
       /** user ids of other users who have viewed this recording */
