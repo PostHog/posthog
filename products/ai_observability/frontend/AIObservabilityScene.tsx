@@ -75,6 +75,11 @@ const SENTIMENT_DATE_OPTIONS = dateMapping.filter(({ values }) =>
     values.some((value) => SENTIMENT_DATE_VALUES.has(value))
 )
 
+// "All time" resolves to the earliest event of any type, floored at 2015, not the earliest AI
+// event. On the dashboard that spreads every trend tile across thousands of daily buckets and the
+// charts fail to load, so the overview offers bounded ranges only.
+const DASHBOARD_DATE_OPTIONS = dateMapping.filter(({ values }) => !values.includes('all'))
+
 const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolean }): JSX.Element => {
     const { dashboardDateFilter, dateFilter, shouldFilterTestAccounts, propertyFilters, activeTab } =
         useValues(aiObservabilitySharedLogic)
@@ -91,7 +96,13 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
                 dateFrom={dateFrom}
                 dateTo={dateTo}
                 onChange={setDates}
-                dateOptions={activeTab === 'sentiment' ? SENTIMENT_DATE_OPTIONS : undefined}
+                dateOptions={
+                    activeTab === 'sentiment'
+                        ? SENTIMENT_DATE_OPTIONS
+                        : activeTab === 'dashboard'
+                          ? DASHBOARD_DATE_OPTIONS
+                          : undefined
+                }
                 showRollingRangePicker={activeTab !== 'sentiment'}
                 showCustomRangeOptions={activeTab !== 'sentiment'}
             />

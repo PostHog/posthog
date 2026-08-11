@@ -1,5 +1,11 @@
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 
+# The overview must count the same event family the Traces and Generations tabs read, not
+# `$ai_generation` alone. A project that sends spans and traces but no generations still has
+# traces to show. Match by prefix so new `$ai_*` events count automatically, the same approach
+# the setup detector uses.
+AI_EVENT_FAMILY_FILTER = {"type": "hogql", "key": "event like '$ai_%'"}
+
 
 def get_ai_observability_default_template() -> DashboardTemplate:
     """Default dashboard template for AI observability."""
@@ -18,15 +24,15 @@ def get_ai_observability_default_template() -> DashboardTemplate:
                         "kind": "TrendsQuery",
                         "series": [
                             {
-                                "event": "$ai_generation",
-                                "name": "$ai_generation",
+                                "event": None,
+                                "name": "AI events",
                                 "kind": "EventsNode",
                                 "math": "hogql",
                                 "math_hogql": "COUNT(DISTINCT properties.$ai_trace_id)",
                             }
                         ],
                         "dateRange": {"date_from": "-7d"},
-                        "properties": [],
+                        "properties": [AI_EVENT_FAMILY_FILTER],
                         "filterTestAccounts": False,
                     },
                 },
@@ -45,19 +51,14 @@ def get_ai_observability_default_template() -> DashboardTemplate:
                         "kind": "TrendsQuery",
                         "series": [
                             {
-                                "event": "$ai_generation",
-                                "name": "$ai_generation",
+                                "event": None,
+                                "name": "AI events",
                                 "kind": "EventsNode",
                                 "math": "dau",
                             }
                         ],
                         "dateRange": {"date_from": "-7d"},
-                        "properties": [
-                            {
-                                "type": "hogql",
-                                "key": "distinct_id != properties.$ai_trace_id",
-                            }
-                        ],
+                        "properties": [AI_EVENT_FAMILY_FILTER],
                         "filterTestAccounts": False,
                     },
                 },
@@ -130,12 +131,7 @@ def get_ai_observability_default_template() -> DashboardTemplate:
                             "decimalPlaces": 2,
                         },
                         "dateRange": {"date_from": "-7d"},
-                        "properties": [
-                            {
-                                "type": "hogql",
-                                "key": "distinct_id != properties.$ai_trace_id",
-                            }
-                        ],
+                        "properties": [],
                         "filterTestAccounts": False,
                     },
                 },
