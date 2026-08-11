@@ -45,6 +45,7 @@ from posthog.models.team.team import Team
 
 from products.autoresearch.backend.dataset.labeling import (
     _build_population_conditions,
+    _build_population_kind_conditions,
     _identified_users_and_clause,
     build_inference_features_sql,
     build_target_condition,
@@ -401,18 +402,23 @@ def _fetch_population_distinct_ids(
     write person properties outside the configured population.
 
     Supports person and event property types with common operators (exact, is_not,
-    icontains, not_icontains, gt/gte/lt/lte, is_set, is_not_set).
+    icontains, not_icontains, gt/gte/lt/lte, is_set, is_not_set), and semantic
+    population kinds from templates (compiled via _build_population_kind_conditions;
+    an uncompilable kind raises rather than widening the population).
     """
     properties = (population or {}).get("properties", [])
     parts, values = _build_population_conditions(properties)
+    compiled_kind = _build_population_kind_conditions(population)
+    parts.extend(compiled_kind.where_parts)
+    values.update(compiled_kind.values)
     identified_clause = _identified_users_and_clause()
 
     # Nothing to enforce: no population filter and identified-only disabled.
     if not parts and not identified_clause:
         return None
 
-    values["_lookback"] = lookback_days
-    where_clause = f"timestamp >= now() - toIntervalDay({{_lookback}})"
+    values["lookback"] = lookback_days
+    where_clause = f"timestamp >= now() - toIntervalDay({{lookback}})"
     if parts:
         where_clause += " AND " + " AND ".join(parts)
     where_clause += identified_clause

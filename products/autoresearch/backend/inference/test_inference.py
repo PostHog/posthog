@@ -346,6 +346,55 @@ class TestFetchPopulationDistinctIds(BaseTest):
                 lookback_days=30,
             )
 
+    @parameterized.expand(
+        [
+            (
+                "ever_performed_event",
+                {"kind": "ever_performed_event", "event": "downloaded_file"},
+                ["person_id IN (SELECT DISTINCT person_id FROM events WHERE event = {popk_event}"],
+            ),
+            (
+                "active_not_performed_target",
+                {"kind": "active_not_performed_target", "active_within_days": 30, "event": "downloaded_file"},
+                ["person_id NOT IN (SELECT DISTINCT person_id FROM events WHERE event = {popk_event}"],
+            ),
+            (
+                "performed_event_within_days",
+                {"kind": "performed_event_within_days", "days": 30, "event": "downloaded_file"},
+                ["toIntervalDay({popk_days})"],
+            ),
+        ]
+    )
+    @patch("products.autoresearch.backend.inference.scoring.HogQLQueryRunner")
+    def test_population_kind_restricts_query(
+        self, _name: str, population: dict, expected_fragments: list[str], mock_runner_cls: MagicMock
+    ):
+        # Template populations carry semantic kind specs; the in-process scoring path
+        # must compile them or a template pipeline silently scores all identified users.
+        mock_result = MagicMock()
+        mock_result.results = [("person-1",)]
+        mock_runner_cls.return_value.run.return_value = mock_result
+
+        allowed = _fetch_population_distinct_ids(team=self.team, population=population, lookback_days=30)
+
+        assert allowed == frozenset({"person-1"})
+        sent_query = mock_runner_cls.call_args.kwargs["query"]
+        for fragment in expected_fragments:
+            assert fragment in sent_query.query
+        assert sent_query.values["lookback"] == 30
+
+    @patch("products.autoresearch.backend.inference.scoring.HogQLQueryRunner")
+    def test_uncompilable_population_kind_fails_closed(self, mock_runner_cls: MagicMock):
+        # A kind spec missing a required key must raise before any query runs —
+        # widening to "all identified users" is the failure mode being prevented.
+        with self.assertRaises(ValueError):
+            _fetch_population_distinct_ids(
+                team=self.team,
+                population={"kind": "ever_performed_event"},
+                lookback_days=30,
+            )
+        mock_runner_cls.assert_not_called()
+
 
 class TestAnchorsRecipeQueries(BaseTest):
     _FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS events_total FROM {anchors} a GROUP BY a.person_id"
