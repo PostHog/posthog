@@ -52,8 +52,13 @@ else:
 # Frames get a dedicated bucket in cloud (its own 1-day TTL, and a least-privilege grant so the
 # ClickHouse writer identity can PutObject there without access to the general object store).
 # Falls back to OBJECT_STORAGE_BUCKET so dev / CI / self-hosted work with no extra config.
+#
+# There is deliberately no region knob beside it. ClickHouse writes the object and the app
+# presigns it, and the app's presigning client is built once from OBJECT_STORAGE_REGION — so a
+# frames-only region would put the write in one region and the SigV4 credential scope in
+# another, and AWS would reject every presigned fetch. The bucket is per product; the region is
+# per deployment.
 NOTEBOOKS_FRAME_STORE_S3_BUCKET = os.getenv("NOTEBOOKS_FRAME_STORE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
-NOTEBOOKS_FRAME_STORE_S3_REGION = os.getenv("NOTEBOOKS_FRAME_STORE_S3_REGION") or OBJECT_STORAGE_REGION
 
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET

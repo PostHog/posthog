@@ -413,12 +413,15 @@ def _frame_s3_url(key: str) -> str:
     virtual-hosted HTTPS URL. Reusing OBJECT_STORAGE_ENDPOINT directly would break prod (it is
     empty there → a scheme-less URL CH rejects) and mis-route dev (it may be an app-only host
     CH can't reach), which is why this has its own NOTEBOOKS_FRAME_STORE_S3_ENDPOINT knob.
+
+    The region is OBJECT_STORAGE_REGION, not a frames-specific one: whatever region this write
+    lands in is the region the app's presigning client signs the read with.
     """
     bucket = settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET
     endpoint = settings.NOTEBOOKS_FRAME_STORE_S3_ENDPOINT
     if endpoint:
         return f"{endpoint}/{bucket}/{key}"
-    return f"https://{bucket}.s3.{settings.NOTEBOOKS_FRAME_STORE_S3_REGION}.amazonaws.com/{key}"
+    return f"https://{bucket}.s3.{settings.OBJECT_STORAGE_REGION}.amazonaws.com/{key}"
 
 
 def _insert_into_s3_sql(printed_sql: str, key: str) -> tuple[str, dict[str, object]]:

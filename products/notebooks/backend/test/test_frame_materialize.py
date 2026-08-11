@@ -282,10 +282,12 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         # The prod branch that dev/CI never exercises: an empty CH endpoint (cluster reaches AWS
         # via IAM role) must yield a virtual-hosted HTTPS URL and NO inline credentials — not a
         # scheme-less `/bucket/key` from concatenating an empty endpoint (which CH rejects).
+        # The region is OBJECT_STORAGE_REGION on purpose: the app presigns the read with that
+        # same region, and a frames-only region would sign the URL under a scope AWS rejects.
         with self.settings(
             NOTEBOOKS_FRAME_STORE_S3_ENDPOINT="",
             NOTEBOOKS_FRAME_STORE_S3_BUCKET="ph-frames",
-            NOTEBOOKS_FRAME_STORE_S3_REGION="eu-west-1",
+            OBJECT_STORAGE_REGION="eu-west-1",
             OBJECT_STORAGE_ACCESS_KEY_ID="should-be-ignored",
             OBJECT_STORAGE_SECRET_ACCESS_KEY="should-be-ignored",
         ):
