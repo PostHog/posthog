@@ -1,8 +1,5 @@
-// Configuration, read from the environment once at boot and validated there.
-//
-// Anything missing that the service cannot safely run without exits the process rather
-// than failing later on a request path. A credential service that silently starts with no
-// secret mount is worse than one that refuses to start.
+// Configuration, read from the environment once at boot. Anything missing or malformed
+// that the service cannot safely run without fails the boot rather than a request later.
 
 import { getEnv } from './env.js'
 import { logger } from './logging.js'
@@ -22,7 +19,7 @@ export interface Config {
 
     /** Directory the Kubernetes Secret is mounted at. */
     secretsDir: string
-    /** From the chart\'s `psql:` harness. Unset disables usage recording (local dev). */
+    /** From the chart's `psql:` harness. Unset disables usage recording (local dev). */
     databaseUrl: string | undefined
 
     /** How often to re-read the mount. Kubelet updates it in roughly 60-90s. */
@@ -44,7 +41,12 @@ function intFromEnv(key: Parameters<typeof getEnv>[0], fallback: number): number
         return fallback
     }
     const parsed = Number.parseInt(raw, 10)
-    return Number.isNaN(parsed) ? fallback : parsed
+    // Fail loudly rather than default: a malformed reload interval silently falling back
+    // would run a cadence the operator did not set.
+    if (Number.isNaN(parsed)) {
+        throw new Error(`${key} is not a number: ${JSON.stringify(raw)}`)
+    }
+    return parsed
 }
 
 export function loadConfig(): Config {
@@ -64,8 +66,8 @@ export function loadConfig(): Config {
         secretsDir: getEnv('INTEGRATION_SERVICE_SECRETS_DIR') ?? '/etc/integration-secrets',
         databaseUrl: getEnv('INTEGRATION_SERVICE_DATABASE_URL'),
 
-        // Shorter than kubelet\'s own sync so a rotation is visible within about a minute
-        // of the mount changing. Reading a handful of small files is cheap.
+        // Shorter than kubelet's own sync so a rotation is visible within about a minute
+        // of the mount changing.
         reloadSeconds: intFromEnv('INTEGRATION_SERVICE_RELOAD_SECONDS', 30),
         usageFlushMs: intFromEnv('INTEGRATION_SERVICE_USAGE_FLUSH_MS', 10000),
         retentionDays: intFromEnv('INTEGRATION_SERVICE_RETENTION_DAYS', 9),
@@ -88,10 +90,8 @@ export function loadConfig(): Config {
         if (!config.databaseUrl) {
             missing.push('INTEGRATION_SERVICE_DATABASE_URL')
         }
-        // /metrics carries no credential values, but it does carry
-        // integration_secret_resolve_total{deployment,product,provider,key} — a precise
-        // map of which deployment reads which credential. Leaving it open by default made
-        // that a decision nobody took; requiring the token makes exposing it deliberate.
+        // /metrics carries no credential values, but the resolve counter is a precise map
+        // of which deployment reads which credential, so exposing it must be deliberate.
         if (!config.metricsToken) {
             missing.push('INTEGRATION_SERVICE_METRICS_TOKEN')
         }
@@ -99,10 +99,8 @@ export function loadConfig(): Config {
             logger.error('config:missing_required', { missing })
             process.exit(1)
         }
-        // Only ever meant for pointing local dev and tests at a mock. Honoured in
-        // production it is a fail-open in the one module written to fail closed: it skips
-        // IRSA for static throwaway credentials and sends the S3 client, the only AWS
-        // client left, at whatever that URL serves. See aws/credentials.ts.
+        // A mock-only escape hatch: honoured in production it would skip IRSA and point
+        // the S3 client at whatever the URL serves. See aws/credentials.ts.
         if (config.awsEndpoint) {
             logger.error('config:aws_endpoint_override_in_production', { endpoint: config.awsEndpoint })
             process.exit(1)

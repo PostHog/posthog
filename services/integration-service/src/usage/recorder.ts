@@ -1,14 +1,9 @@
-// Per-key, per-deployment usage counters, held in Postgres.
+// Per-key, per-deployment usage counters, held in Postgres. They answer "who actually
+// reads this credential, and have they picked up the new value", the two questions a
+// rotation turns on.
 //
-// This answers "who actually reads this credential, and have they picked up the new value"
-// — the two questions a rotation turns on. Prometheus carries the same signal, but
-// per-replica and per-region, and the secrets UI runs in the internal cluster. Rolling it
-// up here means the UI reads one S3 object instead of querying metrics across clusters.
-//
-// Writes are batched in memory and flushed on a timer rather than issued per read. Callers
-// no longer cache, so every credential read reaches this service; an upsert per read would
-// put a write on the hot path for no benefit. A crash loses at most one flush interval of
-// counts, which is acceptable for usage totals and does not affect `last_seen` materially.
+// Writes are batched in memory and flushed on a timer, since an upsert per read would put
+// a write on the hot path. A crash loses at most one flush interval of counts.
 //
 // No credential value ever reaches this module. It stores key NAMES, deployment names,
 // counts and timestamps.
@@ -18,8 +13,15 @@ import type { Pool } from 'pg'
 import { logger } from '../lib/logging.js'
 
 interface Pending {
+    key: string
+    deployment: string
     reads: number
     lastSeen: number
+}
+
+// Composite lookup key. Never parsed back apart: the fields travel on the Pending entry.
+function pendingId(key: string, deployment: string): string {
+    return `${key}|${deployment}`
 }
 
 /** Truncate to the hour, so a rolling window is a sum over a small number of rows. */
@@ -51,13 +53,12 @@ export class UsageRecorder {
         }
         const at = this.now()
         for (const key of servedKeys) {
-            const field = `${key}|${deployment}`
-            const entry = this.pending.get(field)
+            const entry = this.pending.get(pendingId(key, deployment))
             if (entry) {
                 entry.reads += 1
                 entry.lastSeen = Math.max(entry.lastSeen, at)
             } else {
-                this.pending.set(field, { reads: 1, lastSeen: at })
+                this.pending.set(pendingId(key, deployment), { key, deployment, reads: 1, lastSeen: at })
             }
         }
     }
@@ -78,10 +79,9 @@ export class UsageRecorder {
         const buckets: Date[] = []
         const reads: number[] = []
         const lastSeen: Date[] = []
-        for (const [field, entry] of batch) {
-            const sep = field.lastIndexOf('|')
-            keys.push(field.slice(0, sep))
-            deployments.push(field.slice(sep + 1))
+        for (const entry of batch.values()) {
+            keys.push(entry.key)
+            deployments.push(entry.deployment)
             buckets.push(hourBucket(entry.lastSeen))
             reads.push(entry.reads)
             lastSeen.push(new Date(entry.lastSeen))
@@ -112,11 +112,12 @@ export class UsageRecorder {
     }
 
     /**
-     * Reads inside the window, and last-seen across all time.
+     * Reads inside the window, and last-seen across all time. The two come from different
+     * tables on purpose: window-filtering last-seen would drop a deployment that reads a
+     * key less often than the window out of the retirement verdict entirely. See the note
+     * on integration_secret_last_seen.
      *
-     * The two come from different tables on purpose. Window-filtering last-seen would drop
-     * a deployment that reads a key less often than the window out of the retirement
-     * verdict entirely — see the note on integration_secret_last_seen.
+     * Map keys are `key|deployment`, the shape buildUsageMap consumes.
      */
     async summarize(hours: number): Promise<{
         reads: Map<string, number>

@@ -1,25 +1,16 @@
-// Postgres — the service's durable state.
+// Postgres holds the usage counters and the version-observation log, never a credential.
+// Durability matters: losing a stale reader's row flips the retirement verdict to "safe"
+// while that reader is still on the old value.
 //
-// This holds usage counters and the version-observation log. It deliberately does NOT hold
-// credentials: those arrive on the mounted secret and never leave process memory.
-//
-// Durability is the point, not tidiness. The counters decide whether an old credential is
-// safe to retire, and losing a row changes that answer in the UNSAFE direction: drop a
-// stale reader's record while keeping a fresh one, and the stale reader disappears, so the
-// verdict flips to "safe" while that reader is still on the old value. A cache with an
-// eviction policy cannot be trusted with an input to that decision.
-//
-// The DSN comes from the `psql:` harness in the posthog-app chart, which also stands up
-// PgBouncer. That means transaction pooling, so nothing here may rely on session state:
-// no LISTEN/NOTIFY, no session-scoped settings, no server-side named prepared statements.
-// Plain parameterised queries are what node-postgres sends by default.
+// The DSN goes through PgBouncer in transaction mode, so nothing here may rely on session
+// state: no LISTEN/NOTIFY, no session-scoped settings, no server-side named prepared
+// statements.
 
 import { Pool } from 'pg'
 
 import { logger } from '../lib/logging.js'
 
-// Idempotent DDL, applied at boot. Two tables with no foreign keys and no history to
-// migrate does not justify a migration runner yet; revisit if the schema grows a third.
+// Idempotent DDL, applied at boot. Three small tables do not justify a migration runner.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS integration_secret_usage (
     secret_key  text        NOT NULL,
@@ -33,13 +24,9 @@ CREATE TABLE IF NOT EXISTS integration_secret_usage (
 CREATE INDEX IF NOT EXISTS integration_secret_usage_bucket_idx
     ON integration_secret_usage (bucket);
 
--- Last-seen, separate from the bucketed counts and never pruned.
---
--- safeToRetirePrevious has to consider every deployment known to read a key, not only
--- those active inside the rolling window: a consumer that reads less often than the window
--- would otherwise drop out of the verdict, and one read from an active caller could
--- declare the previous value retirable while that consumer is still on it. Keeping this
--- out of the bucketed table is what makes "known to read" mean all time.
+-- Last-seen, separate from the bucketed counts and never pruned: safeToRetirePrevious has
+-- to consider every deployment known to read a key, however rarely it reads, and keeping
+-- this out of the bucketed table is what makes "known to read" mean all time.
 CREATE TABLE IF NOT EXISTS integration_secret_last_seen (
     secret_key text        NOT NULL,
     deployment text        NOT NULL,
@@ -49,12 +36,26 @@ CREATE TABLE IF NOT EXISTS integration_secret_last_seen (
 
 -- When this content first appeared, agreed across replicas and surviving a restart. A
 -- mounted secret carries no AWS version, so first-observation is what "the value changed
--- at" means now.
+-- at" means.
 CREATE TABLE IF NOT EXISTS integration_secret_version (
     content_hash      text        PRIMARY KEY,
     first_observed_at timestamptz NOT NULL DEFAULT now()
 );
 `
+
+/**
+ * Apply the schema, retrying once. `CREATE TABLE IF NOT EXISTS` from replicas booting
+ * together can still race Postgres's catalog inserts and fail; by the second attempt the
+ * winner's tables exist and the statements no-op.
+ */
+export async function applySchema(pool: Pool): Promise<void> {
+    try {
+        await pool.query(SCHEMA)
+    } catch (err) {
+        logger.warn('db:schema_apply_retry', { error: err instanceof Error ? err.message : String(err) })
+        await pool.query(SCHEMA)
+    }
+}
 
 export async function createPool(dsn: string): Promise<Pool> {
     const pool = new Pool({
@@ -64,16 +65,14 @@ export async function createPool(dsn: string): Promise<Pool> {
         connectionTimeoutMillis: 5_000,
     })
     pool.on('error', (err: Error) => logger.error('db:pool_error', { error: err.message }))
-    await pool.query(SCHEMA)
+    await applySchema(pool)
     return pool
 }
 
 /**
- * Record that this content hash exists and return when it was first seen anywhere.
- *
- * ON CONFLICT DO NOTHING then RETURNING would give null for a hash we already know, so the
- * insert and the read are separate statements. Both are trivial against a table with one
- * row per rotation.
+ * Record that this content hash exists and return when it was first seen anywhere. The
+ * insert and the read are separate statements because ON CONFLICT DO NOTHING with
+ * RETURNING answers null for a hash we already know.
  */
 export async function observeVersion(pool: Pool, contentHash: string): Promise<string | null> {
     await pool.query(`INSERT INTO integration_secret_version (content_hash) VALUES ($1) ON CONFLICT DO NOTHING`, [

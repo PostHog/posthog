@@ -49,6 +49,20 @@ describe('usage recorder', () => {
         expect(counts?.params[3]).toEqual([5])
     })
 
+    // Guards the typed pending entries: key and deployment reach the write as the exact
+    // strings recorded, not whatever a string parse of a composite id yields.
+    it('flushes the exact key and deployment even when a name contains the separator', async () => {
+        const { pool, calls } = fakePool()
+        const recorder = new UsageRecorder({ pool })
+
+        recorder.record('oddly|named-deployment', [KEY])
+        await recorder.flush()
+
+        const counts = calls.find((c) => c.sql.includes('integration_secret_usage'))
+        expect(counts?.params[0]).toEqual([KEY])
+        expect(counts?.params[1]).toEqual(['oddly|named-deployment'])
+    })
+
     it('records last-seen separately from the bucketed counts', async () => {
         const { pool, calls } = fakePool()
         const recorder = new UsageRecorder({ pool })
