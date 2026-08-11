@@ -7,3 +7,7 @@ It can be removed when the pull request is closed.
 ## Timeline check
 
 This update creates a second commit for the pull request timeline.
+
+## Final verification
+
+This update creates a third commit for the pull request timeline.
