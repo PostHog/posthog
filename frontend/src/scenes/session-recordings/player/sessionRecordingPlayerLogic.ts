@@ -236,6 +236,24 @@ export function stripRrwebScriptShims(html: string): string {
     return html.replace(NOSCRIPT_BLOCK_RE, '')
 }
 
+function escapeHtmlAttribute(value: string): string {
+    return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+/**
+ * Turn the replay iframe's captured markup into a standalone document for the heatmap iframe.
+ *
+ * `htmlElementMarkup` must be `documentElement.outerHTML` so the `<html>` tag and its attributes
+ * (framework classes, `lang`, `dir`) survive. Prepending a doctype keeps the page out of quirks
+ * mode, and a `<base>` lets any relative URL resolve against the recorded page.
+ */
+export function buildHeatmapSnapshotDocument(htmlElementMarkup: string, url: string | undefined): string {
+    const withBase = url
+        ? htmlElementMarkup.replace(/(<head\b[^>]*>)/i, `$1<base href="${escapeHtmlAttribute(url)}">`)
+        : htmlElementMarkup
+    return `<!DOCTYPE html>${withBase}`
+}
+
 const SNAPSHOT_REJECTION_PROBLEM = {
     too_large: 'This part of the recording is too large to use as a heatmap background.',
     storage_failed: "Couldn't save this moment as a heatmap background.",
@@ -3105,13 +3123,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         openHeatmap: () => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
-            const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
+            const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.outerHTML
             const resolution = values.resolution
             if (!rawIframeHtml || !resolution) {
                 return
             }
 
-            const html = stripRrwebScriptShims(rawIframeHtml)
+            const html = buildHeatmapSnapshotDocument(stripRrwebScriptShims(rawIframeHtml), values.currentURL)
             const htmlChars = html.length
             if (htmlChars > MAX_REPLAY_IFRAME_HTML_CHARS) {
                 rejectHeatmapSnapshot('too_large', htmlChars)

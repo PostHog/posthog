@@ -25,7 +25,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    buildHeatmapSnapshotDocument,
+    findNewEvents,
+    findSegmentForTimestamp,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -138,6 +143,29 @@ describe('stripRrwebScriptShims', () => {
         expect(output).toContain('<title>t</title>')
         expect(output).toContain('<main><p>kept</p></main>')
         expect(countTag(output, 'noscript')).toBe(0)
+    })
+})
+
+describe('buildHeatmapSnapshotDocument', () => {
+    it('prepends a doctype and keeps the <html> tag with its attributes', () => {
+        const markup = '<html lang="en" dir="ltr" class="theme-dark"><head></head><body></body></html>'
+        const output = buildHeatmapSnapshotDocument(markup, 'https://example.com/docs')
+        expect(output.startsWith('<!DOCTYPE html>')).toBe(true)
+        expect(output).toContain('<html lang="en" dir="ltr" class="theme-dark">')
+    })
+
+    it('injects a <base> so relative URLs resolve against the recorded page', () => {
+        const markup = '<html><head><title>t</title></head><body></body></html>'
+        const output = buildHeatmapSnapshotDocument(markup, 'https://example.com/pricing')
+        expect(output).toContain('<base href="https://example.com/pricing">')
+    })
+
+    it('escapes the base href and omits the base when no URL is known', () => {
+        const markup = '<html><head></head><body></body></html>'
+        expect(buildHeatmapSnapshotDocument(markup, 'https://example.com/?a=1&b="x"')).toContain(
+            '<base href="https://example.com/?a=1&amp;b=&quot;x&quot;">'
+        )
+        expect(buildHeatmapSnapshotDocument(markup, undefined)).not.toContain('<base')
     })
 })
 
