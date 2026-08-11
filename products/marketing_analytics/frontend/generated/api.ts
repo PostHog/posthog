@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ApplySetupOpsApi,
+    ApplySetupOpsResponseApi,
     ConversionGoalWriteApi,
     ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
@@ -28,6 +30,27 @@ import type {
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
+
+export const getMarketingAnalyticsApplySetupOpsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/apply_setup_ops/`
+}
+
+/**
+ * Apply one or more setup operations from the setup plan, atomically. Either every operation lands or none does — a partially-applied batch has no well-defined undo. Returns `undo_ops`, computed from the pre-change state, which can be POSTed back to reverse the batch. Only send `apply` payloads returned by setup_plan.
+ * @summary Apply setup operations
+ */
+export const marketingAnalyticsApplySetupOpsCreate = async (
+    projectId: string,
+    applySetupOpsApi: ApplySetupOpsApi,
+    options?: RequestInit
+): Promise<ApplySetupOpsResponseApi> => {
+    return apiMutator<ApplySetupOpsResponseApi>(getMarketingAnalyticsApplySetupOpsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applySetupOpsApi),
+    })
+}
 
 export const getMarketingAnalyticsConversionGoalsRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/marketing_analytics/conversion_goals/`
