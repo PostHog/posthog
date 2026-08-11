@@ -1247,6 +1247,37 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('unmounting during an in-flight load', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('abandons the load instead of failing on unmounted values reads', async () => {
+            let resolveList: (value: unknown) => void = () => {}
+            const listSpy = jest.spyOn(api.recordings, 'list').mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        resolveList = resolve
+                    }) as ReturnType<typeof api.recordings.list>
+            )
+
+            const embeddedLogic = sessionRecordingsPlaylistLogic({ logicKey: 'unmount-mid-load' })
+            embeddedLogic.mount()
+
+            // afterMount kicks off a load; wait for it to get past the debounce and issue the request
+            while (listSpy.mock.calls.length === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+
+            embeddedLogic.unmount()
+            resolveList({ results: [], has_next: false })
+
+            await expectLogic(embeddedLogic)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['loadSessionRecordingsFailure'])
+        })
+    })
+
     describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({

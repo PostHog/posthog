@@ -1003,14 +1003,16 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     const response = await api.recordings.list(params)
                     const loadTimeMs = performance.now() - startTime
 
+                    // Embedded playlists (experiment tabs, person pages) unmount freely while this
+                    // request is in flight, and `values` reads throw after unmount — bail before them.
+                    breakpoint()
+
                     actions.reportRecordingsListFetched(
                         loadTimeMs,
                         values.filters,
                         defaultRecordingDurationFilter,
                         props.analyticsSource
                     )
-
-                    breakpoint()
 
                     return {
                         has_next:
