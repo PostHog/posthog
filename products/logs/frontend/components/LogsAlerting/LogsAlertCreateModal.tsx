@@ -34,8 +34,15 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
     const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
     const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
-    const configurationCannotAdvanceReason = nameError ?? (!hasLogFilter ? 'Add at least one log filter.' : undefined)
-    const steps = buildLogsAlertWizardSteps({ alertForm, pendingNotifications, configurationCannotAdvanceReason })
+    const filterError = hasLogFilter ? undefined : 'Add at least one log filter.'
+    const configurationCannotAdvanceReason = nameError ?? filterError
+    const steps = buildLogsAlertWizardSteps({
+        alertForm,
+        pendingNotifications,
+        configurationCannotAdvanceReason,
+        nameError,
+        filterError,
+    })
 
     return (
         <BindLogic logic={logsAlertFormLogic} props={formLogicProps}>
@@ -65,10 +72,14 @@ function buildLogsAlertWizardSteps({
     alertForm,
     pendingNotifications,
     configurationCannotAdvanceReason,
+    nameError,
+    filterError,
 }: {
     alertForm: LogsAlertFormType
     pendingNotifications: PendingLogsAlertNotification[]
     configurationCannotAdvanceReason: string | undefined
+    nameError: string | undefined
+    filterError: string | undefined
 }): AlertWizardStep[] {
     return [
         {
@@ -79,8 +90,8 @@ function buildLogsAlertWizardSteps({
             cannotAdvanceReason: configurationCannotAdvanceReason,
             content: (
                 <div className="max-w-2xl space-y-5">
-                    <AlertEditorFormDetails nameError={configurationCannotAdvanceReason} />
-                    <LogsAlertFilters />
+                    <AlertEditorFormDetails nameError={nameError} />
+                    <LogsAlertFilters filterError={filterError} />
                 </div>
             ),
         },

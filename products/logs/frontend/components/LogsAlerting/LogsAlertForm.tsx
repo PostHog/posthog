@@ -117,7 +117,7 @@ export function LogsAlertForm(): JSX.Element {
     )
 }
 
-export function LogsAlertFilters(): JSX.Element {
+export function LogsAlertFilters({ filterError }: { filterError?: string }): JSX.Element {
     const { alertForm } = useValues(logsAlertFormLogic)
     const { setAlertFormValue } = useActions(logsAlertFormLogic)
     const handleFilterGroupChange = useCallback(
@@ -128,6 +128,7 @@ export function LogsAlertFilters(): JSX.Element {
     return (
         <div className="space-y-3">
             <h4 className="m-0">Filters</h4>
+            {filterError ? <LemonField.Error error={filterError} /> : null}
             <div className="grid max-w-3xl gap-3 md:grid-cols-2">
                 <LemonField name="severityLevels" label="Severity">
                     <SeverityLevelsFilter
