@@ -19,8 +19,11 @@ from posthog.tasks.alerts.detector import (
     _date_range_override_for_detector,
     _extract_sub_detector_scores,
     _prepare_series,
+    _seasonal_min_samples,
+    deseasonalize_enabled,
 )
 from posthog.tasks.alerts.detectors import get_detector
+from posthog.tasks.alerts.detectors.preprocessing import deseasonalize
 from posthog.tasks.alerts.trends import (
     TrendResult,
     _has_breakdown,
@@ -61,7 +64,10 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
+    min_samples = max(
+        _compute_min_samples_for_detector(detector_config) + 1,
+        _seasonal_min_samples(detector_config, query.interval),
+    )
     is_non_time_series = _is_non_time_series_trend(query)
     already_complete = query_excludes_incomplete_periods(query)
     has_breakdown = _has_breakdown(query)
@@ -111,6 +117,15 @@ def extract_detector_series(
     return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval)
 
 
+def _detector_input(data: np.ndarray, series: ComparableSeries, detector_config: dict[str, Any]) -> np.ndarray:
+    """Return the array the detector scores. When the alert opted into a seasonal baseline, the raw
+    values are deseasonalized; otherwise they are scored as-is. The raw ``data`` stays untouched for
+    breach messages and charts, and the residual keeps the same indexing, so triggered indices map to dates."""
+    if deseasonalize_enabled(detector_config):
+        return deseasonalize(data, [p.date for p in series.points])
+    return data
+
+
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:
     """Map triggered indices to their date strings, skipping points that carry no date."""
     return [date for i in triggered_indices if i < len(series.points) and (date := series.points[i].date) is not None]
@@ -149,8 +164,8 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
 
     if result.is_breakdown:
         for bd_index, s in enumerate(result.series):
-            data = np.array([p.value for p in s.points])
-            detection = get_detector(detector_config).detect(data)
+            data = np.array([p.value for p in s.points], dtype=float)
+            detection = get_detector(detector_config).detect(_detector_input(data, s, detector_config))
             if detection.is_anomaly:
                 current_value = float(data[-1])
                 return AlertEvaluationResult(
@@ -165,8 +180,8 @@ def evaluate_with_detector(result: ExtractionResult, detector_config: dict[str, 
         return AlertEvaluationResult(value=None, breaches=[], interval=interval_value)
 
     s = result.series[0]
-    data = np.array([p.value for p in s.points])
-    detection = get_detector(detector_config).detect(data)
+    data = np.array([p.value for p in s.points], dtype=float)
+    detection = get_detector(detector_config).detect(_detector_input(data, s, detector_config))
 
     breaches: list[str] = []
     if detection.is_anomaly:
@@ -315,7 +330,8 @@ def _sim_from_series(
     series: ComparableSeries, detector_config: dict[str, Any], detector_type_str: str
 ) -> dict[str, Any]:
     """Score a single extracted series with detect_batch and shape it for the simulation chart."""
-    detection = get_detector(detector_config).detect_batch(np.array([p.value for p in series.points]))
+    data = np.array([p.value for p in series.points], dtype=float)
+    detection = get_detector(detector_config).detect_batch(_detector_input(data, series, detector_config))
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)
 

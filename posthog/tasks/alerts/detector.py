@@ -28,6 +28,35 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
 # (e.g. alerts saved before this field was introduced).
 DETECTOR_DEFAULT_WINDOW = 30
 
+# How many points make up one weekly cycle at each interval. Deseasonalization needs several
+# whole weeks of history so each (weekday, hour) bucket holds more than one sample; intervals
+# absent here carry no sub-period weekly cycle to remove.
+SEASON_LENGTHS: dict[IntervalType, int] = {
+    IntervalType.HOUR: 24 * 7,
+    IntervalType.DAY: 7,
+}
+
+# Weeks of history to fetch so the seasonal baseline has repeated samples per bucket.
+MIN_SEASONS_FOR_PROFILE = 2
+
+
+def deseasonalize_enabled(detector_config: dict[str, Any]) -> bool:
+    """Whether the alert opted into a seasonal baseline. Single-detector-only: the flag lives on
+    the top-level ``preprocessing`` block, which ensemble configs do not carry."""
+    return bool((detector_config.get("preprocessing") or {}).get("deseasonalize"))
+
+
+def _seasonal_min_samples(detector_config: dict[str, Any], interval: IntervalType | None) -> int:
+    """Extra history the seasonal baseline needs, or 0 when it is off or the interval has no weekly cycle."""
+    if not deseasonalize_enabled(detector_config):
+        return 0
+    season_length = SEASON_LENGTHS.get(interval, 0) if interval is not None else 0
+    if season_length == 0:
+        return 0
+    window = detector_config.get("window") or DETECTOR_DEFAULT_WINDOW
+    return MIN_SEASONS_FOR_PROFILE * season_length + window
+
+
 # Maximum number of breakdown values to evaluate with a detector.
 # Matches the default breakdown_limit in the query layer (25).
 MAX_DETECTOR_BREAKDOWN_VALUES = 25

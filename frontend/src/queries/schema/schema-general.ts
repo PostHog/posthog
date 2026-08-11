@@ -6048,6 +6048,8 @@ export interface PreprocessingConfig {
     smooth_n?: integer
     /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
     lags_n?: integer
+    /** Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false) */
+    deseasonalize?: boolean
 }
 
 export interface ZScoreDetectorConfig {

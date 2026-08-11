@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -5,10 +6,12 @@ import pytest
 import numpy as np
 from parameterized import parameterized
 
-from posthog.tasks.alerts.detector import _compute_min_samples_for_detector
+from posthog.schema import IntervalType
+
+from posthog.tasks.alerts.detector import _compute_min_samples_for_detector, _seasonal_min_samples
 from posthog.tasks.alerts.detectors.base import DetectionResult
 from posthog.tasks.alerts.detectors.ensemble import EnsembleDetector
-from posthog.tasks.alerts.detectors.preprocessing import moving_average
+from posthog.tasks.alerts.detectors.preprocessing import deseasonalize, moving_average
 from posthog.tasks.alerts.detectors.pyod_detectors.copod import COPODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.ecod import ECODDetector
 from posthog.tasks.alerts.detectors.pyod_detectors.hbos import HBOSDetector
@@ -323,6 +326,92 @@ class TestMovingAverageSmoothing:
 
         assert cliff_index in result.triggered_indices
         assert cliff_index + 2 not in result.triggered_indices
+
+
+def _weekly_hourly_series(weeks: int, weekend_level: float, weekday_level: float) -> tuple[np.ndarray, list[str]]:
+    """Build an hourly series with a weekly cycle: low on weekends, high on weekdays.
+
+    Starts on a Monday so weekday/weekend buckets are unambiguous. Returns (values, timestamps)."""
+    start = datetime(2026, 8, 3, 0, 0, 0)  # a Monday
+    values: list[float] = []
+    timestamps: list[str] = []
+    for hour in range(weeks * 7 * 24):
+        moment = start + timedelta(hours=hour)
+        values.append(weekend_level if moment.weekday() >= 5 else weekday_level)
+        timestamps.append(moment.strftime("%Y-%m-%d %H:%M:%S"))
+    return np.array(values, dtype=float), timestamps
+
+
+class TestDeseasonalize:
+    def test_normal_weekly_cycle_reads_as_anomaly_only_before_deseasonalizing(self) -> None:
+        # The reported false positive: a level detector trained on a quiet weekend flags the first
+        # busy weekday as a regime shift. Deseasonalizing scores each point against the same hour on
+        # the same weekday, so the cycle flattens and no longer trips the detector.
+        values, timestamps = _weekly_hourly_series(weeks=3, weekend_level=10.0, weekday_level=100.0)
+        detector = ZScoreDetector({"threshold": 0.9, "window": 30})
+
+        raw_triggered = detector.detect_batch(values).triggered_indices
+        residual_triggered = detector.detect_batch(deseasonalize(values, timestamps)).triggered_indices
+
+        assert len(raw_triggered) > 0
+        assert residual_triggered == []
+
+    def test_genuine_spike_survives_deseasonalizing(self) -> None:
+        # Deseasonalizing must not blunt a real spike: a scripted bulk-creation hour still stands out
+        # against its own (weekday, hour) baseline.
+        values, timestamps = _weekly_hourly_series(weeks=3, weekend_level=10.0, weekday_level=100.0)
+        spike_index = len(values) - 1
+        values[spike_index] = 900.0
+        detector = ZScoreDetector({"threshold": 0.9, "window": 30})
+
+        residual_triggered = detector.detect_batch(deseasonalize(values, timestamps)).triggered_indices
+
+        assert spike_index in residual_triggered
+
+    def test_sparse_bucket_falls_back_to_global_median(self) -> None:
+        # A bucket with a single sample must not subtract its own value (which would zero it out and
+        # hide a spike); it falls back to the global median instead.
+        values = np.array([10.0, 10.0, 10.0, 500.0])
+        timestamps = [
+            "2026-08-03 00:00:00",  # Mon 00:00
+            "2026-08-10 00:00:00",  # Mon 00:00 (same bucket)
+            "2026-08-17 00:00:00",  # Mon 00:00 (same bucket)
+            "2026-08-04 09:00:00",  # Tue 09:00 (lone bucket)
+        ]
+
+        residuals = deseasonalize(values, timestamps)
+
+        assert residuals[3] == 500.0 - float(np.median(values))
+
+    @parameterized.expand(
+        [
+            ("length_mismatch", ["2026-08-03 00:00:00"]),
+            ("unparseable", ["not-a-date", "also-bad", "still-bad"]),
+        ]
+    )
+    def test_returns_data_unchanged_when_timestamps_unusable(self, _name: str, timestamps: list[str]) -> None:
+        values = np.array([1.0, 2.0, 3.0])
+        np.testing.assert_array_equal(deseasonalize(values, timestamps), values)
+
+
+class TestSeasonalMinSamples:
+    @parameterized.expand(
+        [
+            ("hourly", IntervalType.HOUR, 2 * 24 * 7 + 30),
+            ("daily", IntervalType.DAY, 2 * 7 + 30),
+            ("weekly_has_no_subcycle", IntervalType.WEEK, 0),
+            ("no_interval", None, 0),
+        ]
+    )
+    def test_lookback_covers_repeated_seasons_when_enabled(
+        self, _name: str, interval: IntervalType | None, expected: int
+    ) -> None:
+        config = {"type": "zscore", "window": 30, "preprocessing": {"deseasonalize": True}}
+        assert _seasonal_min_samples(config, interval) == expected
+
+    def test_no_extra_lookback_when_disabled(self) -> None:
+        config = {"type": "zscore", "window": 30, "preprocessing": {"diffs_n": 1}}
+        assert _seasonal_min_samples(config, IntervalType.HOUR) == 0
 
 
 class TestPyODDetectors:

@@ -6228,6 +6228,13 @@ class PreprocessingConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    deseasonalize: bool | None = Field(
+        default=None,
+        description=(
+            "Subtract a day-of-week and hour-of-day baseline before detection, so a"
+            " normal weekly cycle is not read as a level shift (default: false)"
+        ),
+    )
     diffs_n: int | None = Field(
         default=None,
         description=("Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"),

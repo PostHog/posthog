@@ -1,5 +1,5 @@
 import { IconInfo, IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSegmentedButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
@@ -812,12 +812,18 @@ function PreprocessingSection({
     const preprocessing = config.preprocessing ?? {}
     const isMultivariate = MULTIVARIATE_DETECTORS.has(config.type)
     const hasPreprocessing =
-        (preprocessing.diffs_n ?? 0) > 0 || (preprocessing.smooth_n ?? 0) > 0 || (preprocessing.lags_n ?? 0) > 0
+        (preprocessing.diffs_n ?? 0) > 0 ||
+        (preprocessing.smooth_n ?? 0) > 0 ||
+        (preprocessing.lags_n ?? 0) > 0 ||
+        !!preprocessing.deseasonalize
 
     const updatePreprocessing = (updates: Partial<PreprocessingConfig>): void => {
         const newPreprocessing = { ...preprocessing, ...updates }
         const isEmpty =
-            newPreprocessing.diffs_n == null && newPreprocessing.smooth_n == null && newPreprocessing.lags_n == null
+            newPreprocessing.diffs_n == null &&
+            newPreprocessing.smooth_n == null &&
+            newPreprocessing.lags_n == null &&
+            !newPreprocessing.deseasonalize
         onChange({ ...config, preprocessing: isEmpty ? undefined : newPreprocessing } as SingleDetectorConfig)
     }
 
@@ -837,6 +843,7 @@ function PreprocessingSection({
                                             ? `smoothing (${preprocessing.smooth_n})`
                                             : null,
                                         (preprocessing.lags_n ?? 0) > 0 ? `${preprocessing.lags_n} lags` : null,
+                                        preprocessing.deseasonalize ? 'deseasonalized' : null,
                                     ]
                                         .filter(Boolean)
                                         .join(', ')}
@@ -881,6 +888,20 @@ function PreprocessingSection({
                                     />
                                 </div>
                             </div>
+                            <LemonSwitch
+                                checked={!!preprocessing.deseasonalize}
+                                onChange={(checked) => updatePreprocessing({ deseasonalize: checked || undefined })}
+                                label={
+                                    <span className="flex items-center gap-1">
+                                        Deseasonalize
+                                        <Tooltip title="Score each point against the same hour on the same weekday, so a normal weekly cycle - quiet weekends, busy weekday mornings - is not read as a level shift. Needs a few weeks of history.">
+                                            <IconInfo className="text-muted text-base" />
+                                        </Tooltip>
+                                    </span>
+                                }
+                                bordered
+                                fullWidth
+                            />
                             {isMultivariate && (
                                 <div>
                                     <Label

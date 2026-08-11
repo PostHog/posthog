@@ -1,3 +1,6 @@
+from collections import defaultdict
+from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -37,6 +40,57 @@ def preprocess_data(data: np.ndarray, config: dict[str, Any] | None) -> np.ndarr
         result = create_lag_features(result, n_lags)
 
     return result
+
+
+def _parse_timestamp(timestamp: str | None) -> datetime | None:
+    if not isinstance(timestamp, str):
+        return None
+    try:
+        return datetime.fromisoformat(timestamp)
+    except ValueError:
+        return None
+
+
+def deseasonalize(
+    data: np.ndarray,
+    timestamps: Sequence[str | None],
+    *,
+    min_bucket_samples: int = 2,
+) -> np.ndarray:
+    """Subtract a day-of-week and hour-of-day baseline from a time series.
+
+    Each point is grouped by its (weekday, hour) bucket, and that bucket's median level is
+    subtracted from it. A point is then scored against the same hour on the same weekday
+    rather than against the raw level, so a normal weekly cycle - quiet weekends, busy
+    weekday mornings - no longer reads as a level shift while a genuine spike still stands out.
+
+    Daily points all share hour 0, so the bucket reduces to the weekday alone.
+
+    A bucket with fewer than ``min_bucket_samples`` points falls back to the global median, so
+    a sparse bucket cannot zero out a real spike. If timestamps are missing, mismatched, or
+    unparseable, the data is returned unchanged so detection still runs.
+    """
+    values = data.astype(float)
+    if len(values) != len(timestamps):
+        return values
+
+    keyed: list[tuple[tuple[int, int], float]] = []
+    buckets: dict[tuple[int, int], list[float]] = defaultdict(list)
+    for timestamp, value in zip(timestamps, values):
+        moment = _parse_timestamp(timestamp)
+        if moment is None:
+            return values
+        key = (moment.weekday(), moment.hour)
+        keyed.append((key, value))
+        buckets[key].append(value)
+
+    global_baseline = float(np.median(values))
+    baseline = {
+        key: (float(np.median(bucket_values)) if len(bucket_values) >= min_bucket_samples else global_baseline)
+        for key, bucket_values in buckets.items()
+    }
+
+    return np.array([value - baseline[key] for key, value in keyed], dtype=float)
 
 
 def first_difference(data: np.ndarray) -> np.ndarray:

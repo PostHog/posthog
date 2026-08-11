@@ -37548,6 +37548,10 @@
             "additionalProperties": false,
             "description": "Preprocessing transforms applied to the time series before detection",
             "properties": {
+                "deseasonalize": {
+                    "description": "Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)",
+                    "type": "boolean"
+                },
                 "diffs_n": {
                     "$ref": "#/definitions/integer",
                     "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
