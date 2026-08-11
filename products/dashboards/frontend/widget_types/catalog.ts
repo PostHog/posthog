@@ -88,7 +88,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     experiments: 'Experiments',
     surveys: 'Surveys',
     logs: 'Logs',
-    conversations: 'Conversations',
+    conversations: 'Support',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -196,9 +196,9 @@ export const DASHBOARD_WIDGET_CATALOG = {
         },
         availability: {
             requirement: 'conversations_enabled',
-            unavailableTitle: 'Conversations is not enabled',
-            unavailableReason: 'Enable Conversations for this project to see recent tickets on your dashboard.',
-            setupActionLabel: 'Set up Conversations',
+            unavailableTitle: 'Support is not enabled',
+            unavailableReason: 'Enable Support for this project to see recent tickets on your dashboard.',
+            setupActionLabel: 'Set up Support',
             docsHref: 'https://posthog.com/docs/conversations',
         },
     },

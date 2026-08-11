@@ -6,7 +6,7 @@ import { EditConversationsWidgetModal } from './EditConversationsWidgetModal'
 
 const CATALOG = getDashboardWidgetCatalogEntry('conversations_recent_tickets')!
 const meta: Meta<typeof EditConversationsWidgetModal> = {
-    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Conversations/Recent tickets/Widget settings',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Support/Recent tickets/Widget settings',
     component: EditConversationsWidgetModal,
     parameters: { layout: 'fullscreen', ...widgetStorybookParameters },
     args: {

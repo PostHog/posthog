@@ -48,7 +48,7 @@ function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
 }
 
 const meta: Meta<typeof StoryTile> = {
-    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Conversations/Recent tickets',
+    title: 'Products/Dashboards/Dashboard Widgets/Widget types/Support/Recent tickets',
     component: StoryTile,
     parameters: { layout: 'padded', ...widgetStorybookParameters },
     decorators: widgetTileFrameDecorator,

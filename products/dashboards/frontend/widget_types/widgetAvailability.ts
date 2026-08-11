@@ -36,7 +36,7 @@ export const WIDGET_AVAILABILITY_PRESENTATION: Record<WidgetAvailabilityRequirem
             settingsUrl: urls.settings('environment-replay'),
         },
         conversations_enabled: {
-            productName: 'Conversations',
+            productName: 'Support',
             productKey: ProductKey.CONVERSATIONS,
             thingName: 'support ticket',
             settingsUrl: urls.supportTickets(),
