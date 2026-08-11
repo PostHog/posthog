@@ -1,5 +1,6 @@
 """Activities for evaluation reports workflow."""
 
+import time
 import datetime as dt
 from collections import defaultdict
 from typing import TYPE_CHECKING, NamedTuple
@@ -18,6 +19,8 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
     COUNT_TRIGGER_QUERY_WIDTH,
 )
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
@@ -277,6 +280,7 @@ def _check_count_triggered_eval_reports_batch(
         assert since is not None
         survivors[report.team_id].append((report_id, report, since))
 
+    deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
     for entries in survivors.values():
         team = entries[0][1].team
         # Sort by `since` before capping the per-query width, so entries sharing a chunk
@@ -297,6 +301,7 @@ def _check_count_triggered_eval_reports_batch(
                     for report_id, report, since in chunk
                 ],
                 until=now,
+                deadline=deadline,
             )
             for report_id, report, _since in chunk:
                 assert report.trigger_threshold is not None
@@ -358,6 +363,7 @@ def _count_eval_results_for_reports(
     team: "Team",
     entries: list[_CountEntry],
     until: dt.datetime,
+    max_execution_time: int,
 ) -> dict[str, int]:
     """Count `$ai_evaluation` events for many reports in a single ClickHouse query.
 
@@ -414,7 +420,7 @@ def _count_eval_results_for_reports(
             query=query,
             team=team,
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS),
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
         )
 
     rows = result.results or []
@@ -428,6 +434,7 @@ def _count_eval_results_for_reports_with_split_retry(
     team: "Team",
     entries: list[_CountEntry],
     until: dt.datetime,
+    deadline: float | None = None,
 ) -> dict[str, int]:
     """Run the batched count query, halving the chunk and retrying narrower if ClickHouse
     can't finish it inside its own execution-time budget.
@@ -435,15 +442,30 @@ def _count_eval_results_for_reports_with_split_retry(
     A `ClickHouseQueryTimeOut` on a width-N query means N countIf columns over that team's
     event volume don't fit the budget — replaying the identical query would just time out
     again. Splitting also narrows each half's own `since`-sorted window independently.
+
+    Every attempt draws on one shared wall-clock budget (`deadline`, in `time.monotonic()`
+    seconds), capping its own execution time by what remains, so the whole split tree
+    concludes before the activity's own timeout. Once the remainder can't fund a meaningful
+    query, the timeout surfaces and the activity fails cleanly instead of being killed
+    mid-split by Temporal.
     """
+    if deadline is None:
+        deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
+    budget = min(COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS, int(deadline - time.monotonic()))
+    if budget < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
+        raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
     try:
-        return _count_eval_results_for_reports(team, entries, until=until)
+        return _count_eval_results_for_reports(team, entries, until=until, max_execution_time=budget)
     except ClickHouseQueryTimeOut:
         if len(entries) == 1:
             raise
         midpoint = len(entries) // 2
-        counts = _count_eval_results_for_reports_with_split_retry(team, entries[:midpoint], until=until)
-        counts.update(_count_eval_results_for_reports_with_split_retry(team, entries[midpoint:], until=until))
+        counts = _count_eval_results_for_reports_with_split_retry(
+            team, entries[:midpoint], until=until, deadline=deadline
+        )
+        counts.update(
+            _count_eval_results_for_reports_with_split_retry(team, entries[midpoint:], until=until, deadline=deadline)
+        )
         return counts
 
 

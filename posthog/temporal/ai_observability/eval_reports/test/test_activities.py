@@ -26,6 +26,10 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     run_eval_report_agent_activity,
     store_report_run_activity,
 )
+from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
+    COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS,
+)
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent, EvalReportMetrics
 from posthog.temporal.ai_observability.eval_reports.types import (
     RunEvalReportAgentInput,
@@ -654,6 +658,25 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         with patch("posthog.hogql.query.execute_hogql_query", side_effect=ClickHouseQueryTimeOut()):
             with self.assertRaises(ClickHouseQueryTimeOut):
                 _count_eval_results_for_reports_with_split_retry(self.team, self._entries(1), until=timezone.now())
+
+    def test_stops_splitting_once_shared_budget_is_exhausted(self):
+        # A first attempt that burns nearly the whole wall-clock budget must not be followed
+        # by narrower retries: if each half drew a fresh budget instead of sharing the
+        # deadline, the split tree could outlive the activity timeout again.
+        clock = [0.0]
+
+        def timeout_burning_budget(*args, **kwargs):
+            clock[0] += COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS - COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS + 1
+            raise ClickHouseQueryTimeOut()
+
+        with (
+            patch("time.monotonic", side_effect=lambda: clock[0]),
+            patch("posthog.hogql.query.execute_hogql_query", side_effect=timeout_burning_budget) as execute_hogql_query,
+        ):
+            with self.assertRaises(ClickHouseQueryTimeOut):
+                _count_eval_results_for_reports_with_split_retry(self.team, self._entries(4), until=timezone.now())
+
+        self.assertEqual(execute_hogql_query.call_count, 1)
 
 
 class TestPeriodForScheduledReport(BaseTest):
