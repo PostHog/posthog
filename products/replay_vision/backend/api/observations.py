@@ -651,15 +651,19 @@ class ReplayObservationFilter(django_filters.FilterSet):
             return queryset
         return _annotate_output_number(queryset, "score", _SCORE_FILTER_ALIAS)
 
+    # Both bounds look up the annotation `_scored` adds, via a literal key in a `**` dict: a plain
+    # keyword can't be used because django-stubs resolves those against the model's real fields.
+    # The key is spelled out rather than built from `_SCORE_FILTER_ALIAS` so no variable reaches a
+    # filter lookup; rename the alias and these two have to move with it.
     def _filter_min_score(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: float
     ) -> QuerySet[ReplayObservation]:
-        return self._scored(queryset).filter(**{f"{_SCORE_FILTER_ALIAS}__gte": value})
+        return self._scored(queryset).filter(**{"_filter_score__gte": value})
 
     def _filter_max_score(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: float
     ) -> QuerySet[ReplayObservation]:
-        return self._scored(queryset).filter(**{f"{_SCORE_FILTER_ALIAS}__lte": value})
+        return self._scored(queryset).filter(**{"_filter_score__lte": value})
 
     def _filter_tags(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
