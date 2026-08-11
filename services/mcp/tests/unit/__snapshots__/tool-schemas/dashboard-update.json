@@ -1057,6 +1057,18 @@
                                                 },
                                                 "type": "array"
                                             },
+                                            "savedViewId": {
+                                                "anyOf": [
+                                                    {
+                                                        "maxLength": 12,
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit."
+                                            },
                                             "search": {
                                                 "default": "",
                                                 "description": "Search requester name or email, ticket subject, message text, or ticket number.",
