@@ -219,7 +219,8 @@ describe("ActivityTimeline events and comments", () => {
     );
   }
 
-  it("writes the reason on a failed run, so nobody has to open the transcript", () => {
+  it("keeps the failure reason one click away, not on the row", () => {
+    // Rows are collapsed so the panel reads as a timeline; the detail is what opening is for.
     renderRows({
       timeline: [
         threadMessage("m1", "run_failed", {
@@ -228,6 +229,9 @@ describe("ActivityTimeline events and comments", () => {
         }),
       ],
     });
+
+    expect(screen.queryByText(/Command failed: pnpm build/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Run failed/ }));
 
     expect(screen.getByText(/Command failed: pnpm build/)).toBeInTheDocument();
   });
@@ -248,8 +252,13 @@ describe("ActivityTimeline events and comments", () => {
     expect(screen.getByText(/Agent started run 2/)).toBeInTheDocument();
   });
 
-  it("keeps the anchor with the comment it points at", () => {
+  it("keeps the anchor with the comment it points at, once opened", () => {
     renderRows({ commentThreads: [commentThread()], commentsEnabled: true });
+
+    expect(
+      screen.queryByText(/every event should also go to the activity panel/),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /commented on/ }));
 
     expect(
       screen.getByText(/every event should also go to the activity panel/),

@@ -238,12 +238,12 @@ describe("ActivityPanel", () => {
       />
     );
     const view = render(panel());
-    expect(screen.getByText("Loading timeline")).toBeInTheDocument();
+    expect(screen.getByLabelText("Loading timeline")).toBeInTheDocument();
 
     loaded.thread = true;
     view.rerender(panel());
     // Comments haven't answered yet, so drawing now would show a partial timeline.
-    expect(screen.getByText("Loading timeline")).toBeInTheDocument();
+    expect(screen.getByLabelText("Loading timeline")).toBeInTheDocument();
 
     loaded.comments = true;
     view.rerender(panel());
@@ -253,6 +253,6 @@ describe("ActivityPanel", () => {
     loaded.thread = false;
     view.rerender(panel());
     expect(screen.getByText("timeline body")).toBeInTheDocument();
-    expect(screen.queryByText("Loading timeline")).toBeNull();
+    expect(screen.queryByLabelText("Loading timeline")).toBeNull();
   });
 });

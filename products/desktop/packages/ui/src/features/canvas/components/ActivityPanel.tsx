@@ -1,4 +1,5 @@
 import {
+  ArrowDownIcon,
   ArrowSquareOutIcon,
   CaretRightIcon,
   XIcon,
@@ -226,11 +227,42 @@ function ActivityConversation({
   }, [acknowledgeCommentsTabOpen, commentFocus, tab, taskId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when rendered thread content changes
+  // Within this much of the bottom still counts as "watching the end", so a row arriving
+  // mid-poll keeps following. Wide enough to survive a partially scrolled last row.
+  const AT_BOTTOM_SLACK_PX = 48;
+  const [hasNewerBelow, setHasNewerBelow] = useState(false);
+  const scrollToLatest = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    node.scrollTo({ top: node.scrollHeight });
+    setHasNewerBelow(false);
+  }, []);
+  const onScroll = useCallback(() => {
+    const node = scrollRef.current;
+    if (!node) return;
+    const atBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight <=
+      AT_BOTTOM_SLACK_PX;
+    if (atBottom) setHasNewerBelow(false);
+  }, []);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the end when rendered content changes
   useEffect(() => {
     // Only the timeline reads bottom-up; the other tabs put what matters on top.
     if (tab !== "timeline") return;
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const node = scrollRef.current;
+    if (!node) return;
+    // Poll after poll, this ran on every refetch and yanked the panel to the bottom while
+    // someone was reading further up. Follow the end only for a reader already at it, and
+    // offer the jump to everyone else.
+    const atBottom =
+      node.scrollHeight - node.scrollTop - node.clientHeight <=
+      AT_BOTTOM_SLACK_PX;
+    if (atBottom) {
+      node.scrollTo({ top: node.scrollHeight });
+      setHasNewerBelow(false);
+      return;
+    }
+    setHasNewerBelow(true);
   }, [timeline, events.length, agentStatus?.phase, tab]);
 
   const showComposer = tab === "timeline";
@@ -285,12 +317,26 @@ function ActivityConversation({
           <TaskCard task={task} channelId={channelId} inThread />
         </div>
       )}
-      <div
-        ref={scrollRef}
-        aria-busy={!timelineReady}
-        className="flex-1 overflow-y-auto"
-      >
-        {body()}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scrollRef}
+          onScroll={onScroll}
+          aria-busy={!timelineReady}
+          className="flex-1 overflow-y-auto"
+        >
+          {body()}
+        </div>
+        {tab === "timeline" && hasNewerBelow && (
+          <Button
+            variant="default"
+            size="sm"
+            className="-translate-x-1/2 absolute bottom-2 left-1/2 z-20 shadow-md"
+            onClick={scrollToLatest}
+          >
+            <ArrowDownIcon size={12} />
+            New activity
+          </Button>
+        )}
       </div>
 
       {showComposer && agentStatus && <AgentStatusLine status={agentStatus} />}

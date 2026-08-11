@@ -34,7 +34,7 @@ import {
 } from "@posthog/ui/features/canvas/components/activityRows";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import {
-  ThreadArtifactRow,
+  ThreadArtifactCard,
   ThreadMessageRow,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
@@ -313,23 +313,23 @@ export function ActivityTimeline({
           />
         );
       case "event": {
-        // Canvases and pull requests already have a card row; the rest read as one line.
+        // A canvas or pull request announcement keeps its card, but as the row's detail:
+        // every row in the panel opens the same way.
         const artifactRow = messageRows.get(row.message.id);
-        if (artifactRow?.kind === "artifact") {
-          return (
-            <ThreadArtifactRow
-              artifact={artifactRow.artifact}
-              createdAt={row.message.created_at}
-              openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
-            />
-          );
-        }
         return (
           <ActivityEventRow
             event={row.event}
             timestamp={row.message.created_at}
             runCount={runCount}
             runOrdinal={row.runOrdinal}
+            detail={
+              artifactRow?.kind === "artifact" ? (
+                <ThreadArtifactCard
+                  artifact={artifactRow.artifact}
+                  openInPlaceTaskId={canOpenInPlace ? task.id : undefined}
+                />
+              ) : undefined
+            }
           />
         );
       }
@@ -350,13 +350,7 @@ export function ActivityTimeline({
       case "comment_state": {
         const thread = threadsById.get(row.thread.id);
         if (!thread) return null;
-        return (
-          <CommentStateRow
-            thread={thread}
-            state={row.state}
-            onSelect={focusThread(thread)}
-          />
-        );
+        return <CommentStateRow thread={thread} state={row.state} />;
       }
       case "run_status":
         return <RunStatusRow status={row.status} timestamp={task.updated_at} />;

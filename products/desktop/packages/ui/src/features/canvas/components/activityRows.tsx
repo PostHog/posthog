@@ -9,6 +9,7 @@
 import {
   ArrowRightIcon,
   ArrowsClockwiseIcon,
+  CaretRightIcon,
   CheckCircleIcon,
   FileTextIcon,
   GitPullRequestIcon,
@@ -21,14 +22,7 @@ import {
   type ActivityEvent,
   prLabel,
 } from "@posthog/core/canvas/activityEvents";
-import {
-  cn,
-  Empty,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-  Spinner,
-} from "@posthog/quill";
+import { Button, cn, Skeleton } from "@posthog/quill";
 import type {
   TaskCommentThreadSummary,
   UserBasic,
@@ -36,51 +30,73 @@ import type {
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
-/** A gutter node, a line of copy and a timestamp, at the same size as every other row's
- *  copy: only the icon distinguishes a lifecycle row from its neighbours. */
+/** One row: a gutter node, a line of copy, a timestamp, and optionally a detail block the
+ *  row hides until it is opened.
+ *
+ *  Collapsed by default so the panel reads as a timeline rather than a wall of content.
+ *  A row with no detail is inert — no chevron, no hover target, nothing to click. */
 export function TimelineRow({
   gutter,
   children,
   timestamp,
-  onSelect,
+  detail,
+  defaultOpen = false,
   ariaLabel,
 }: {
   gutter: ReactNode;
   children: ReactNode;
   timestamp: string;
-  onSelect?: () => void;
+  /** Shown when the row is opened. Absent means there is nothing more to say. */
+  detail?: ReactNode;
+  defaultOpen?: boolean;
   ariaLabel?: string;
 }) {
-  const activation = onSelect
-    ? {
-        role: "button" as const,
-        tabIndex: 0,
-        "aria-label": ariaLabel,
-        onClick: onSelect,
-        onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          onSelect();
-        },
-      }
-    : {};
+  const [open, setOpen] = useState(defaultOpen);
+  const hasDetail = detail !== undefined && detail !== null;
+  const header = (
+    <div className="flex min-w-0 items-baseline gap-1.5 text-[13px] leading-5">
+      <span className="min-w-0 truncate">{children}</span>
+      <ThreadTimestamp dateTime={timestamp} />
+      {hasDetail && (
+        <CaretRightIcon
+          size={11}
+          aria-hidden
+          className={cn(
+            "ml-auto shrink-0 self-center text-muted-foreground opacity-0 transition-all group-hover:opacity-100",
+            open && "rotate-90 opacity-100",
+          )}
+        />
+      )}
+    </div>
+  );
   return (
     <div
       className={cn(
         "group flex items-start gap-2 rounded-md py-2 pr-2 pl-2 transition-colors",
-        onSelect &&
-          "cursor-pointer hover:bg-gray-3 focus-visible:bg-gray-3 focus-visible:outline-none",
+        hasDetail &&
+          "cursor-pointer focus-within:bg-gray-3 hover:bg-gray-3 has-[:focus-visible]:bg-gray-3",
       )}
-      {...activation}
     >
       <div className="flex w-10 shrink-0 justify-center">{gutter}</div>
       <div className="min-w-0 flex-1 pt-0.5">
-        <div className="flex min-w-0 items-baseline gap-1.5 text-[13px] leading-5">
-          <span className="min-w-0 truncate">{children}</span>
-          <ThreadTimestamp dateTime={timestamp} />
-        </div>
+        {hasDetail ? (
+          <>
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={ariaLabel}
+              className="w-full text-left focus-visible:outline-none"
+              onClick={() => setOpen((current) => !current)}
+            >
+              {header}
+            </button>
+            {open && <div className="mt-1.5">{detail}</div>}
+          </>
+        ) : (
+          header
+        )}
       </div>
     </div>
   );
@@ -95,18 +111,20 @@ function IconBubble({ children }: { children: ReactNode }) {
 }
 
 const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
-  run_started: <PlayIcon size={12} weight="fill" className="text-blue-9" />,
-  run_failed: <XCircleIcon size={14} weight="fill" className="text-red-9" />,
+  run_started: <PlayIcon size={12} weight="fill" className="text-blue-11" />,
+  run_failed: <XCircleIcon size={14} weight="fill" className="text-red-11" />,
   awaiting_input: (
-    <WarningIcon size={13} weight="fill" className="text-warning" />
+    <WarningIcon size={13} weight="fill" className="text-amber-11" />
   ),
-  artifact_created: <FileTextIcon size={13} className="text-violet-9" />,
-  artifact_revised: <ArrowsClockwiseIcon size={12} className="text-violet-9" />,
-  canvas_created: <FileTextIcon size={13} className="text-violet-9" />,
-  pr_created: <GitPullRequestIcon size={13} className="text-gray-11" />,
-  pr_merged: <GitPullRequestIcon size={13} className="text-violet-9" />,
-  pr_closed: <GitPullRequestIcon size={13} className="text-red-9" />,
-  message_forwarded: <ArrowRightIcon size={12} className="text-blue-9" />,
+  artifact_created: <FileTextIcon size={13} className="text-violet-11" />,
+  artifact_revised: (
+    <ArrowsClockwiseIcon size={12} className="text-violet-11" />
+  ),
+  canvas_created: <FileTextIcon size={13} className="text-violet-11" />,
+  pr_created: <GitPullRequestIcon size={13} className="text-gray-12" />,
+  pr_merged: <GitPullRequestIcon size={13} className="text-violet-11" />,
+  pr_closed: <GitPullRequestIcon size={13} className="text-red-11" />,
+  message_forwarded: <ArrowRightIcon size={12} className="text-blue-11" />,
 };
 
 /** The sentence an event reads as. Written so a person skimming the panel learns what
@@ -117,38 +135,13 @@ function eventLabel(
   runOrdinal: number,
 ): ReactNode {
   switch (event.kind) {
-    case "run_started": {
-      const details = [
-        event.payload.environment,
-        event.payload.branch || null,
-      ].filter(Boolean);
-      return (
-        <>
-          {/* A run number only helps once a task has run more than once. */}
-          {runCount > 1
-            ? `Agent started run ${runOrdinal}`
-            : "Agent started work"}
-          {details.length > 0 && (
-            <span className="text-muted-foreground">
-              {" "}
-              · {details.join(" · ")}
-            </span>
-          )}
-        </>
-      );
-    }
+    case "run_started":
+      // A run number only helps once a task has run more than once.
+      return runCount > 1
+        ? `Agent started run ${runOrdinal}`
+        : "Agent started work";
     case "run_failed":
-      return event.payload.errorSummary ? (
-        <>
-          Run failed
-          <span className="text-muted-foreground">
-            {" "}
-            · {event.payload.errorSummary}
-          </span>
-        </>
-      ) : (
-        "Run failed"
-      );
+      return "Run failed";
     case "awaiting_input":
       return "Agent needs input";
     case "artifact_created":
@@ -205,12 +198,57 @@ function eventLabel(
   }
 }
 
+/** What an event has to say beyond its headline, or nothing. */
+function eventDetail(event: ActivityEvent): ReactNode {
+  switch (event.kind) {
+    case "run_failed":
+      return event.payload.errorSummary ? (
+        <DetailBlock>{event.payload.errorSummary}</DetailBlock>
+      ) : null;
+    case "run_started": {
+      const details = [
+        event.payload.environment,
+        event.payload.branch || null,
+      ].filter(Boolean);
+      return details.length > 0 ? (
+        <DetailBlock>{details.join(" · ")}</DetailBlock>
+      ) : null;
+    }
+    case "artifact_created":
+    case "artifact_revised":
+      return (
+        <DetailBlock>
+          {event.payload.name}
+          <span className="text-muted-foreground">
+            {" "}
+            · v{event.payload.version}
+          </span>
+        </DetailBlock>
+      );
+    case "pr_created":
+    case "pr_merged":
+    case "pr_closed":
+      return <DetailBlock>{event.payload.prUrl}</DetailBlock>;
+    default:
+      return null;
+  }
+}
+
+/** The shared shape of an opened row's content: one quoted block, indented to the copy. */
+export function DetailBlock({ children }: { children: ReactNode }) {
+  return (
+    <div className="break-words rounded-md border-border border-l-2 bg-gray-2 px-2.5 py-1.5 text-[12.5px]">
+      {children}
+    </div>
+  );
+}
+
 export function ActivityEventRow({
   event,
   timestamp,
   runCount,
   runOrdinal = 1,
-  onSelect,
+  detail,
 }: {
   event: ActivityEvent;
   timestamp: string;
@@ -218,13 +256,15 @@ export function ActivityEventRow({
   runCount: number;
   /** Which run this row starts, counted over the feed rather than stamped by the backend. */
   runOrdinal?: number;
-  onSelect?: () => void;
+  /** Supplied by the caller for events that carry a card (a canvas, a pull request);
+   *  otherwise the row derives its own from the payload. */
+  detail?: ReactNode;
 }) {
   return (
     <TimelineRow
       gutter={<IconBubble>{EVENT_ICONS[event.kind]}</IconBubble>}
       timestamp={timestamp}
-      onSelect={onSelect}
+      detail={detail ?? eventDetail(event)}
     >
       {eventLabel(event, runCount, runOrdinal)}
     </TimelineRow>
@@ -246,9 +286,13 @@ export function RunStatusRow({
       gutter={
         <IconBubble>
           {succeeded ? (
-            <CheckCircleIcon size={14} weight="fill" className="text-green-9" />
+            <CheckCircleIcon
+              size={14}
+              weight="fill"
+              className="text-green-11"
+            />
           ) : (
-            <XCircleIcon size={14} weight="fill" className="text-red-9" />
+            <XCircleIcon size={14} weight="fill" className="text-red-11" />
           )}
         </IconBubble>
       }
@@ -264,8 +308,9 @@ function participantNames(participants: UserBasic[]): string {
 }
 
 /**
- * One comment thread. The anchor's quoted selection travels with the row, because a
- * comment without the text it points at is just a notification.
+ * One comment thread, collapsed to who commented on what. Opening it shows the anchor's
+ * quoted selection and the comment itself, because a comment without the text it points at
+ * is just a notification — and a button to open the thread where it lives.
  */
 export function CommentRow({
   thread,
@@ -281,60 +326,49 @@ export function CommentRow({
   const name = userDisplayName(author);
   const verb = isMentioned ? "mentioned you on" : "commented on";
   return (
-    <div
-      className={cn(
-        "group flex items-start gap-2 rounded-md py-2 pr-2 pl-2 transition-colors",
-        onSelect &&
-          "cursor-pointer hover:bg-gray-3 focus-visible:bg-gray-3 focus-visible:outline-none",
-      )}
-      {...(onSelect
-        ? {
-            role: "button" as const,
-            tabIndex: 0,
-            onClick: onSelect,
-            onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-              if (event.key !== "Enter" && event.key !== " ") return;
-              event.preventDefault();
-              onSelect();
-            },
-          }
-        : {})}
-    >
-      <div className="flex w-10 shrink-0 justify-center">
-        {/* Decorative: the author's name is written beside it. */}
-        <div aria-hidden>
-          <UserAvatar user={author} size="sm" className="sticky top-2" />
+    <TimelineRow
+      gutter={
+        // Decorative: the author's name is written beside it.
+        <div
+          aria-hidden
+          className="relative z-10 rounded-full ring-4 ring-gray-1"
+        >
+          <UserAvatar user={author} size="sm" />
         </div>
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-baseline gap-1.5 text-[13px] leading-5">
-          <span className="min-w-0 truncate">
-            <span className="font-medium">{name}</span>{" "}
-            <span className="text-muted-foreground">{verb}</span>{" "}
-            <span className="font-medium">{thread.target.name}</span>
-          </span>
-          <ThreadTimestamp dateTime={thread.last_activity_at} />
-        </div>
-        <div className="mt-1.5 space-y-1 rounded-md border-border border-l-2 bg-gray-2 px-2.5 py-1.5">
-          {thread.selected_text && (
-            <div className="truncate text-[12.5px] text-muted-foreground italic">
-              “{thread.selected_text}”
+      }
+      timestamp={thread.last_activity_at}
+      detail={
+        <div className="space-y-1.5">
+          <DetailBlock>
+            {thread.selected_text && (
+              <div className="mb-1 truncate text-muted-foreground italic">
+                “{thread.selected_text}”
+              </div>
+            )}
+            <div className="whitespace-pre-wrap break-words">
+              {thread.content}
+            </div>
+          </DetailBlock>
+          {thread.reply_count > 0 && (
+            <div className="truncate text-[12.5px] text-muted-foreground">
+              {thread.reply_count}{" "}
+              {thread.reply_count === 1 ? "reply" : "replies"}
+              {thread.participants.length > 0 &&
+                ` · ${participantNames(thread.participants)}`}
             </div>
           )}
-          <div className="line-clamp-2 whitespace-pre-wrap break-words text-[12.5px]">
-            {thread.content}
-          </div>
+          {onSelect && (
+            <Button variant="default" size="sm" onClick={onSelect}>
+              Open thread
+            </Button>
+          )}
         </div>
-        {thread.reply_count > 0 && (
-          <div className="mt-1 truncate text-[12.5px] text-muted-foreground">
-            {thread.reply_count}{" "}
-            {thread.reply_count === 1 ? "reply" : "replies"}
-            {thread.participants.length > 0 &&
-              ` · ${participantNames(thread.participants)}`}
-          </div>
-        )}
-      </div>
-    </div>
+      }
+    >
+      <span className="font-medium">{name}</span>{" "}
+      <span className="text-muted-foreground">{verb}</span>{" "}
+      <span className="font-medium">{thread.target.name}</span>
+    </TimelineRow>
   );
 }
 
@@ -343,11 +377,9 @@ export function CommentRow({
 export function CommentStateRow({
   thread,
   state,
-  onSelect,
 }: {
   thread: TaskCommentThreadSummary;
   state: string;
-  onSelect?: () => void;
 }) {
   const author = thread.state_event?.author ?? null;
   const resolved = state === "resolved";
@@ -356,18 +388,21 @@ export function CommentStateRow({
       gutter={
         <IconBubble>
           {resolved ? (
-            <CheckCircleIcon size={14} weight="fill" className="text-green-9" />
+            <CheckCircleIcon
+              size={14}
+              weight="fill"
+              className="text-green-11"
+            />
           ) : (
             <WarningCircleIcon
               size={14}
               weight="fill"
-              className="text-warning"
+              className="text-amber-11"
             />
           )}
         </IconBubble>
       }
       timestamp={thread.state_event?.created_at ?? thread.last_activity_at}
-      onSelect={onSelect}
     >
       {author ? (
         <span className="font-medium">{userDisplayName(author)}</span>
@@ -380,17 +415,41 @@ export function CommentStateRow({
   );
 }
 
-/** Shown once, on the panel's first draw. The timeline never returns to it: a loader over
- *  rows that are already on screen reads as the content disappearing. */
+/** Shown once, on the panel's first draw: the timeline's own shape rather than a spinner,
+ *  so the panel doesn't change size or layout when the rows arrive. It never returns —
+ *  a loader over rows already on screen reads as the content disappearing. */
 export function ActivityLoadingState() {
   return (
-    <Empty className="h-full border-0">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          <Spinner />
-        </EmptyMedia>
-        <EmptyTitle>Loading timeline</EmptyTitle>
-      </EmptyHeader>
-    </Empty>
+    // role=status so a screen reader hears the wait; a bare div can't carry the label.
+    <div
+      className="relative px-1 py-2"
+      role="status"
+      aria-label="Loading timeline"
+    >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute top-6 bottom-6 left-8 w-px bg-border"
+      />
+      <div className="relative z-10">
+        {/* Widths vary so the block reads as copy rather than a progress bar. */}
+        {[36, 52, 44, 60, 40].map((width, index) => (
+          <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length decorative placeholder
+            key={index}
+            className="flex items-start gap-2 py-2 pr-2 pl-2"
+          >
+            <div className="flex w-10 shrink-0 justify-center">
+              <Skeleton className="size-6 rounded-full ring-4 ring-gray-1" />
+            </div>
+            <div className="min-w-0 flex-1 pt-1">
+              <Skeleton
+                className="h-3 rounded"
+                style={{ width: `${width}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
