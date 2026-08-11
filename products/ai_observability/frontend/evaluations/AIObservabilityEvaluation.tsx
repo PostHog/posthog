@@ -737,7 +737,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                             onChange={setTrueIsPass}
                                                         />
                                                         <span className="text-muted text-sm">
-                                                            {evaluation.output_config.true_is_pass ?? true
+                                                            {(evaluation.output_config.true_is_pass ?? true)
                                                                 ? 'A true result counts as a pass'
                                                                 : 'A true result counts as a fail (detector-style)'}
                                                         </span>

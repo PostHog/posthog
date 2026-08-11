@@ -362,9 +362,6 @@ export interface llmEvaluationLogicActions {
     setAllowsNA: (allowsNA: boolean) => {
         allowsNA: boolean
     }
-    setTrueIsPass: (trueIsPass: boolean) => {
-        trueIsPass: boolean
-    }
     setEvaluationDescription: (description: string) => {
         description: string
     }
@@ -404,6 +401,9 @@ export interface llmEvaluationLogicActions {
     }
     setTriggerConditions: (conditions: EvaluationConditionSet[]) => {
         conditions: EvaluationConditionSet[]
+    }
+    setTrueIsPass: (trueIsPass: boolean) => {
+        trueIsPass: boolean
     }
     testHogOnSample: (_?: void) => void
     testHogOnSampleFailure: (
