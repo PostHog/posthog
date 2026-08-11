@@ -1,13 +1,23 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { LemonBadge, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { stripMarkdown } from 'lib/utils/markdown'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
+import {
+    AssigneeDisplay,
+    AssigneeResolver,
+    AssigneeSelect,
+    type TicketAssignee,
+} from 'products/conversations/frontend/components/Assignee'
 import { channelIcon } from 'products/conversations/frontend/components/Channels/ChannelsTag'
 import { SlaDisplay } from 'products/conversations/frontend/components/SlaDisplay'
 import { channelOptions, type TicketChannel } from 'products/conversations/frontend/types'
@@ -21,6 +31,7 @@ import {
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { parseConversationsWidgetConfig } from './conversationsWidgetConfigValidation'
+import { conversationsWidgetLogic } from './conversationsWidgetLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -51,12 +62,18 @@ function ticketTitle(ticket: ConversationsWidgetTicket): string {
     return ticket.email_subject || ticket.last_message_text || `Ticket #${ticket.ticket_number}`
 }
 
-function assigneeName(ticket: ConversationsWidgetTicket): string | null {
-    return ticket.assignee?.user?.name ?? ticket.assignee?.role?.name ?? null
+function ticketAssignee(ticket: ConversationsWidgetTicket): TicketAssignee {
+    if (ticket.assignee?.user) {
+        return { type: 'user', id: ticket.assignee.user.id }
+    }
+    if (ticket.assignee?.role) {
+        return { type: 'role', id: ticket.assignee.role.id }
+    }
+    return null
 }
 
-function requesterName(ticket: ConversationsWidgetTicket): string {
-    return ticket.requester_name || ticket.requester_email
+function ticketAssigneeName(ticket: ConversationsWidgetTicket): string | null {
+    return ticket.assignee?.user?.name ?? ticket.assignee?.role?.name ?? null
 }
 
 function statusTagType(status: string): 'success' | 'primary' | 'default' {
@@ -82,54 +99,120 @@ function priorityTagType(priority: string): 'danger' | 'caution' | 'warning' | '
     return 'default'
 }
 
-function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket }): JSX.Element {
-    const assignee = assigneeName(ticket)
+function ConversationsWidgetRow({
+    ticket,
+    canMutateTickets,
+}: {
+    ticket: ConversationsWidgetTicket
+    canMutateTickets: boolean
+}): JSX.Element {
+    const { ticketAssignmentLoadingId } = useValues(conversationsWidgetLogic)
+    const { assignTicket } = useActions(conversationsWidgetLogic)
+    const assignee = ticketAssignee(ticket)
+    const assigneeName = ticketAssigneeName(ticket)
+    const isAssignmentLoading = ticketAssignmentLoadingId === ticket.id
     const channelLabel = channelOptions.find((option) => option.value === ticket.channel_source)?.label
     return (
-        <Link
-            to={urls.supportTicketDetail(ticket.ticket_number)}
-            target="_blank"
-            subtle
-            className="border-b border-primary px-3 py-2.5 text-current hover:bg-fill-highlight-100 hover:text-current"
-        >
-            <div className="min-w-0 space-y-0.5">
-                <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate font-semibold" title={requesterName(ticket)}>
-                        {requesterName(ticket)}
-                    </span>
-                    <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
-                    <div className="ml-auto flex shrink-0 items-center gap-2">
-                        <Tooltip title={channelLabel}>
-                            <span className="flex size-3.5 items-center justify-center text-muted [&>svg]:size-3.5">
-                                {channelIcon[ticket.channel_source]}
-                            </span>
-                        </Tooltip>
-                        <TZLabel time={ticket.updated_at} className="w-20 text-right text-xs text-muted" />
+        <div className="border-b border-primary px-3 py-3 hover:bg-fill-highlight-100">
+            <Link
+                to={urls.supportTicketDetail(ticket.ticket_number)}
+                target="_blank"
+                subtle
+                className="block text-current hover:text-current"
+            >
+                <div className="min-w-0 space-y-1.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <PersonDisplay
+                            person={{
+                                distinct_id: ticket.requester_email,
+                                properties: {
+                                    name: ticket.requester_name ?? ticket.requester_email,
+                                    email: ticket.requester_email,
+                                },
+                            }}
+                            withIcon="sm"
+                            noLink
+                            noPopover
+                            displayName={ticket.requester_name ?? ticket.requester_email}
+                            className="min-w-0 truncate font-semibold"
+                        />
+                        <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
+                        <div className="ml-auto flex shrink-0 items-center gap-2">
+                            <Tooltip title={channelLabel}>
+                                <span className="flex size-3.5 items-center justify-center text-muted [&>svg]:size-3.5">
+                                    {channelIcon[ticket.channel_source]}
+                                </span>
+                            </Tooltip>
+                            <span className="text-xs text-muted">Updated</span>
+                            <TZLabel
+                                time={ticket.updated_at}
+                                showPopover={false}
+                                className="w-20 text-right text-xs text-muted"
+                            />
+                        </div>
                     </div>
-                </div>
-                <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-                    <span
-                        className={cn('truncate', ticket.unread_team_count > 0 && 'font-medium text-primary')}
-                        title={ticketTitle(ticket)}
-                    >
-                        {stripMarkdown(ticketTitle(ticket))}
-                    </span>
-                    {ticket.unread_team_count > 0 ? (
-                        <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
+                    <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
+                        <span
+                            className={cn('truncate', ticket.unread_team_count > 0 && 'font-medium text-primary')}
+                            title={ticketTitle(ticket)}
+                        >
+                            {stripMarkdown(ticketTitle(ticket))}
+                        </span>
+                        {ticket.unread_team_count > 0 ? (
+                            <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
+                        ) : null}
+                    </div>
+                    {ticket.sla_due_at ? (
+                        <div className="text-xs text-muted">
+                            SLA due <SlaDisplay slaDueAt={ticket.sla_due_at} showPopover={false} className="text-xs" />
+                        </div>
                     ) : null}
                 </div>
-                <div className="flex min-w-0 items-center gap-2 text-xs text-muted">
-                    {assignee ? <span className="truncate">Assigned to {assignee}</span> : <span>Unassigned</span>}
-                </div>
-                <div className="flex items-center gap-1">
+            </Link>
+            <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-1">
                     {ticket.priority ? (
                         <LemonTag type={priorityTagType(ticket.priority)}>{ticket.priority}</LemonTag>
                     ) : null}
                     <LemonTag type={statusTagType(ticket.status)}>{ticket.status.replace('_', ' ')}</LemonTag>
-                    {ticket.sla_due_at ? <SlaDisplay slaDueAt={ticket.sla_due_at} className="ml-auto text-xs" /> : null}
+                </div>
+                <div onClick={(event) => event.stopPropagation()}>
+                    {canMutateTickets ? (
+                        <AssigneeSelect
+                            assignee={assignee}
+                            onChange={(nextAssignee) => assignTicket(ticket.id, nextAssignee)}
+                            disabledReason={isAssignmentLoading ? 'Updating assignee...' : undefined}
+                        >
+                            {(resolvedAssignee, isOpen) => (
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    active={isOpen}
+                                    sideIcon={<IconChevronDown />}
+                                    loading={isAssignmentLoading}
+                                >
+                                    <AssigneeDisplay
+                                        assignee={resolvedAssignee}
+                                        size="xsmall"
+                                        placeholder={assigneeName ?? 'Unassigned'}
+                                    />
+                                </LemonButton>
+                            )}
+                        </AssigneeSelect>
+                    ) : (
+                        <AssigneeResolver assignee={assignee}>
+                            {({ assignee: resolvedAssignee }) => (
+                                <AssigneeDisplay
+                                    assignee={resolvedAssignee}
+                                    size="xsmall"
+                                    placeholder={assigneeName ?? 'Unassigned'}
+                                />
+                            )}
+                        </AssigneeResolver>
+                    )}
                 </div>
             </div>
-        </Link>
+        </div>
     )
 }
 
@@ -138,7 +221,7 @@ function ConversationsWidgetLoadingState(): JSX.Element {
         <WidgetCardContent>
             <div className="flex flex-col" aria-busy aria-label="Loading tickets">
                 {Array.from({ length: 4 }, (_, index) => (
-                    <div key={index} className="space-y-1 border-b border-primary px-3 py-2.5" aria-hidden>
+                    <div key={index} className="space-y-1.5 border-b border-primary px-3 py-3" aria-hidden>
                         <div className="flex items-center gap-2">
                             <LemonSkeleton className="h-4 w-28" />
                             <LemonSkeleton className="h-3 w-8" />
@@ -148,15 +231,15 @@ function ConversationsWidgetLoadingState(): JSX.Element {
                             <LemonSkeleton className="h-4 w-3/5" />
                             <LemonSkeleton className="size-4 rounded-full" />
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                             <LemonSkeleton className="h-3 w-24" />
                         </div>
-                        <div className="flex items-center gap-1">
-                            <div className="ml-auto flex items-center gap-1">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1">
                                 <LemonSkeleton className="h-5 w-12 rounded" />
                                 <LemonSkeleton className="h-5 w-10 rounded" />
-                                <LemonSkeleton className="h-3 w-16" />
                             </div>
+                            <LemonSkeleton className="h-5 w-16 rounded" />
                         </div>
                     </div>
                 ))}
@@ -166,11 +249,14 @@ function ConversationsWidgetLoadingState(): JSX.Element {
 }
 
 export function ConversationsWidget({
+    tileId,
     result,
     loading,
     error,
     config,
     onRefresh,
+    onRefreshData,
+    canMutateConversationsTickets = false,
 }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ConversationsWidgetResult | null | undefined
     const tickets = payload?.results ?? []
@@ -218,11 +304,15 @@ export function ConversationsWidget({
         )
     }
     return (
-        <>
+        <BindLogic logic={conversationsWidgetLogic} props={{ tileId, onRefreshData }}>
             <WidgetCardContent>
                 <div className="flex flex-col">
                     {tickets.map((ticket) => (
-                        <ConversationsWidgetRow key={ticket.id} ticket={ticket} />
+                        <ConversationsWidgetRow
+                            key={ticket.id}
+                            ticket={ticket}
+                            canMutateTickets={canMutateConversationsTickets}
+                        />
                     ))}
                 </div>
             </WidgetCardContent>
@@ -236,6 +326,6 @@ export function ConversationsWidget({
                     dataAttr="conversations-widget-count"
                 />
             </WidgetContentFooter>
-        </>
+        </BindLogic>
     )
 }

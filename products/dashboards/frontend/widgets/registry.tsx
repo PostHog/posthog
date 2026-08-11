@@ -198,6 +198,8 @@ export type DashboardWidgetComponentProps = {
     ) => void
     /** Error tracking list only — status/assignee controls when false stay read-only. */
     canMutateErrorTrackingIssues?: boolean
+    /** Support list only — assignee controls when false stay read-only. */
+    canMutateConversationsTickets?: boolean
     onUpdateConfig?: (config: Record<string, unknown>) => void | Promise<void>
 }
 

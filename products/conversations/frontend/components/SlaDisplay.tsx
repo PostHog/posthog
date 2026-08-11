@@ -6,9 +6,11 @@ import { dayjs } from 'lib/dayjs'
 export function SlaDisplay({
     slaDueAt,
     className,
+    showPopover = true,
 }: {
     slaDueAt?: string | null
     className?: string
+    showPopover?: boolean
 }): JSX.Element | null {
     if (!slaDueAt) {
         return null
@@ -22,6 +24,7 @@ export function SlaDisplay({
     return (
         <TZLabel
             time={due}
+            showPopover={showPopover}
             className={clsx(
                 'font-medium',
                 {

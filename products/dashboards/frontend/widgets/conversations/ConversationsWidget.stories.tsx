@@ -150,7 +150,7 @@ const tickets: ConversationsWidgetTicket[] = [
 ]
 export const Populated: Story = {
     decorators: [withConversationsProjectState(true)],
-    args: { result: { results: tickets, hasMore: true, totalCount: 12 } },
+    args: { canMutateConversationsTickets: true, result: { results: tickets, hasMore: true, totalCount: 12 } },
 }
 export const SavedView: Story = {
     decorators: [withConversationsProjectState(true)],

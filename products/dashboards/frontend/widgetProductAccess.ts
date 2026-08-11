@@ -25,3 +25,7 @@ export function userHasDashboardWidgetProductAccess(productAccess: DashboardWidg
 export function userCanMutateErrorTrackingIssuesOnDashboard(canEditDashboard: boolean): boolean {
     return canEditDashboard || userHasAccess(AccessControlResourceType.ErrorTracking, AccessControlLevel.Editor)
 }
+
+export function userCanMutateConversationsTicketsOnDashboard(canEditDashboard: boolean): boolean {
+    return canEditDashboard || userHasAccess(AccessControlResourceType.Ticket, AccessControlLevel.Editor)
+}
