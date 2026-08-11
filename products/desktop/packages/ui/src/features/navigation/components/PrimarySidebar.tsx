@@ -64,6 +64,13 @@ import {
 
 const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
+const trackNav = (item: SidebarNavItem) =>
+  track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
+    item,
+    in_more: false,
+    layout: "channels",
+  });
+
 /** One dot however many items — the row's job is "there is something in here". */
 function AttentionDot({
   count,
@@ -207,13 +214,6 @@ export function PrimarySidebar() {
     destination?.kind === "space" ? destination.channelId : null;
   const isActivity = search.panel === "activity";
   const isHome = pathname === "/website" && !isActivity;
-
-  const trackNav = (item: SidebarNavItem) =>
-    track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
-      item,
-      in_more: false,
-      layout: "channels",
-    });
 
   const onSpaceClick = (channel: Channel) => {
     if (activeSpaceId === channel.id && !isActivity) {

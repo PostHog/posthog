@@ -63,6 +63,9 @@ const cnHeaderButton = (active: boolean) =>
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
 
+const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
+  placeTaskInCommandCenter(taskId, taskTitle);
+
 function RecentSectionHeader({
   searchOpen,
   onToggleSearch,
@@ -311,9 +314,6 @@ export function ChannelSessionsList({ channelId }: { channelId: string }) {
   // The one section, which only exists once there are items — but its header
   // stays while the list is narrowed, so you can undo whatever emptied it.
   const showRecent = listState === "ready";
-
-  const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
-    placeTaskInCommandCenter(taskId, taskTitle);
 
   const taskRow = (item: (typeof items)[number]) => (
     <ChannelItemRow
