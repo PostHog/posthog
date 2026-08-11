@@ -1,6 +1,6 @@
 import { Theme } from "@radix-ui/themes";
-import { act, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   featureFlags: new Map<string, boolean>(),
@@ -44,13 +44,11 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 
 // The sidebar's children each mount their own query stack; this suite is about
 // the shell's own decisions, so they're stubbed out.
-vi.mock("@posthog/ui/features/canvas/components/ChannelNav", () => ({
-  ChannelNav: () => null,
+vi.mock("@posthog/ui/features/navigation/components/PrimarySidebar", () => ({
+  PrimarySidebar: () => <div data-testid="primary-sidebar" />,
 }));
-vi.mock("@posthog/ui/features/canvas/components/ChannelSidebar", () => ({
-  ChannelSidebar: ({ channelId }: { channelId: string }) => (
-    <div data-testid="channel-sidebar">{channelId}</div>
-  ),
+vi.mock("@posthog/ui/features/navigation/components/SecondaryPanel", () => ({
+  SecondaryPanel: () => <div data-testid="secondary-panel" />,
 }));
 vi.mock("@posthog/ui/features/canvas/components/ChannelsList", () => ({
   ChannelsList: () => <div data-testid="channels-list" />,
@@ -82,10 +80,6 @@ vi.mock("@tanstack/react-router", () => ({
 
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
-import {
-  showChannelList,
-  useChannelPaneStore,
-} from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsSidebar } from "./ChannelsSidebar";
@@ -122,138 +116,7 @@ describe("ChannelsSidebar", () => {
     mocks.track.mockClear();
     mocks.routeChannelId = undefined;
     useCurrentChannelStore.setState({ currentChannelId: null });
-    useChannelPaneStore.setState({ pane: "channel" });
     useSidebarStore.setState({ channelsEnabled: false, open: true });
-  });
-
-  // The sidebar is a two-pane slider: the channel list, and the channel you're
-  // in. Both stay mounted, so "which one is showing" is the offscreen pane
-  // being inert rather than unmounted.
-  describe("the channel-list slider", () => {
-    const listIsInteractive = () =>
-      !screen.getByTestId("channels-list").parentElement?.hasAttribute("inert");
-
-    beforeEach(() => {
-      mocks.channelsLayout = true;
-      mocks.channels = [ME, ENG];
-    });
-
-    it("rests on the channel you're in", () => {
-      mocks.routeChannelId = ENG.id;
-      renderSidebar();
-      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ENG.id);
-      expect(listIsInteractive()).toBe(false);
-    });
-
-    // Browsing the list is a sidebar move, not a navigation: the channel stays
-    // scoped, so the main pane keeps showing what it was showing.
-    it("shows the list on the way back, without leaving the channel", () => {
-      mocks.routeChannelId = ENG.id;
-      renderSidebar();
-
-      act(() => showChannelList());
-
-      expect(listIsInteractive()).toBe(true);
-      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
-    });
-
-    // Opening a channel from anywhere — a deep link, a mention, ⌘1-9 — has to
-    // land on the channel even if the list was left open.
-    it("follows the route back into a channel", () => {
-      mocks.routeChannelId = ENG.id;
-      const { rerender } = renderSidebar();
-      act(() => showChannelList());
-
-      mocks.routeChannelId = ME.id;
-      rerender(
-        <Theme>
-          <ChannelsSidebar />
-        </Theme>,
-      );
-
-      expect(listIsInteractive()).toBe(false);
-      expect(screen.getByTestId("channel-sidebar").textContent).toBe(ME.id);
-    });
-
-    it("stays on the list while no channel resolves", () => {
-      mocks.channels = [ENG];
-      renderSidebar();
-      expect(listIsInteractive()).toBe(true);
-      expect(screen.queryByTestId("channel-sidebar")).toBeNull();
-    });
-
-    // A trackpad swipe reaches the panes as a horizontal wheel. Right (negative
-    // deltaX, the platform "back" direction) leaves the channel; left returns to
-    // the one still scoped.
-    describe("swiping", () => {
-      // Wheel deltas within one gesture arrive back to back; a pause between
-      // them is what ends it. Fake timers let a test say which it's sending.
-      const wheel = (deltaX: number, deltaY = 0) =>
-        act(() => {
-          screen.getByTestId("channels-list").dispatchEvent(
-            new WheelEvent("wheel", {
-              deltaX,
-              deltaY,
-              bubbles: true,
-              cancelable: true,
-            }),
-          );
-        });
-      const pause = () => act(() => void vi.advanceTimersByTime(500));
-
-      beforeEach(() => {
-        vi.useFakeTimers();
-        mocks.routeChannelId = ENG.id;
-      });
-      afterEach(() => vi.useRealTimers());
-
-      it("goes back to the list and forward into the channel", () => {
-        renderSidebar();
-
-        wheel(-80);
-        expect(listIsInteractive()).toBe(true);
-        // The channel is browsed away from, not left.
-        expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
-
-        pause();
-        wheel(80);
-        expect(listIsInteractive()).toBe(false);
-      });
-
-      // One flick is dozens of small deltas, so the distance has to add up
-      // across them rather than be read off any one event.
-      it("adds a gesture's deltas up", () => {
-        renderSidebar();
-        wheel(-20);
-        expect(listIsInteractive()).toBe(false);
-        wheel(-20);
-        wheel(-20);
-        expect(listIsInteractive()).toBe(true);
-      });
-
-      it("ignores a mostly-vertical wheel", () => {
-        renderSidebar();
-        wheel(-80, -200);
-        expect(listIsInteractive()).toBe(false);
-      });
-
-      it("forgets a nudge once the gesture ends", () => {
-        renderSidebar();
-        wheel(-30);
-        pause();
-        wheel(-30);
-        expect(listIsInteractive()).toBe(false);
-      });
-
-      // The momentum tail of one flick keeps delivering deltas; read as fresh
-      // travel they'd swipe straight back to where the flick started.
-      it("does not let one flick's momentum swipe twice", () => {
-        renderSidebar();
-        wheel(-80);
-        wheel(200);
-        expect(listIsInteractive()).toBe(true);
-      });
-    });
   });
 
   describe("the Archived row", () => {
@@ -342,7 +205,6 @@ describe("ChannelsSidebar", () => {
       mocks.channels = [ENG];
       renderSidebar();
       expect(useCurrentChannelStore.getState().currentChannelId).toBeNull();
-      expect(screen.queryByTestId("channel-sidebar")).toBeNull();
     });
 
     // A stale id from a previous project must not be rendered as a channel.

@@ -46,6 +46,10 @@ import {
   useIsDashboardEditing,
 } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
+import {
+  RightPanel,
+  RightPanelButtons,
+} from "@posthog/ui/features/navigation/components/RightPanel";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { useCommentsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import {
@@ -389,13 +393,37 @@ export function WebsiteLayout() {
   const showToolbar =
     Boolean(channelId) && (isDashboardsGrid || isDashboardDetail);
 
+  const navigate = useNavigate();
+  // Under the new chrome the header band always carries the right-panel
+  // buttons, and an open session gets a close that returns to its space.
+  const rightControls = spacesLayout ? (
+    <Flex align="center" gap="1" className="shrink-0">
+      {channelTask && <TaskHeaderActions task={channelTask} />}
+      {channelTask && channelId && (
+        <Button
+          variant="default"
+          size="icon-sm"
+          aria-label="Close session"
+          onClick={() =>
+            void navigate({ to: "/website/$channelId", params: { channelId } })
+          }
+        >
+          <XIcon size={14} />
+        </Button>
+      )}
+      <RightPanelButtons />
+    </Flex>
+  ) : null;
+
   return (
     <Flex direction="column" height="100%" overflow="hidden">
       {/* Title bar for non-canvas views: every channel scene (task detail,
           new task, CONTEXT.md) pushes its "# channel / leaf" breadcrumb into
           the header store, as do channel-less mirrored pages (Home, Skills, …).
-          Hidden when the canvas toolbar is showing (grid / a single canvas). */}
-      {!showToolbar && headerContent && (
+          Hidden when the canvas toolbar is showing (grid / a single canvas).
+          Under the new chrome the band renders even without header content so
+          the right-panel buttons are always there. */}
+      {!showToolbar && (headerContent || spacesLayout) && (
         <Flex
           align="center"
           gap="2"
@@ -408,7 +436,10 @@ export function WebsiteLayout() {
           >
             {headerContent}
           </Flex>
-          {channelTask && <TaskHeaderActions task={channelTask} />}
+          {!spacesLayout && channelTask && (
+            <TaskHeaderActions task={channelTask} />
+          )}
+          {rightControls}
         </Flex>
       )}
 
@@ -440,13 +471,19 @@ export function WebsiteLayout() {
               trailing={<NewCanvasMenu channelId={channelId} />}
             />
           )}
+          {rightControls}
         </Flex>
       )}
-      <Box flexGrow="1" overflow="hidden">
-        <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
-          <Outlet />
-        </MentionAvailabilityProvider>
-      </Box>
+      <Flex flexGrow="1" overflow="hidden">
+        <Box flexGrow="1" overflow="hidden" className="min-w-0">
+          <MentionAvailabilityProvider disabledReason={mentionsDisabledReason}>
+            <Outlet />
+          </MentionAvailabilityProvider>
+        </Box>
+        {/* One panel at a time under the header band: artifacts, comments, or
+            the session's changes, as a push column. */}
+        {spacesLayout && <RightPanel />}
+      </Flex>
       {/* Warm-iframe pool for canvases. Mounted once here so it persists across
           every in-space navigation; overlays itself onto the active canvas's
           placeholder and stays warm-but-hidden otherwise. */}

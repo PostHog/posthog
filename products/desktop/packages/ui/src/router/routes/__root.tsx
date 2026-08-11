@@ -47,6 +47,10 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
+import {
+  NAV_PANEL_SEARCH_KEYS,
+  validateNavPanelSearch,
+} from "@posthog/ui/features/navigation/navPanelSearch";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
 import {
@@ -85,6 +89,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   createRootRoute,
   Outlet,
+  retainSearchParams,
   useCanGoBack,
   useRouter,
   useRouterState,
@@ -105,6 +110,13 @@ const WINDOWS_TITLEBAR_INSET = 140;
 
 export const Route = createRootRoute({
   component: RootLayout,
+  // The chrome's panel state (secondary panel, its tab, the right panel) is
+  // root-level search state so it survives every in-app navigation — widths
+  // stay in stores. Retained so a plain navigate doesn't silently drop it.
+  validateSearch: validateNavPanelSearch,
+  search: {
+    middlewares: [retainSearchParams([...NAV_PANEL_SEARCH_KEYS])],
+  },
 });
 
 function RootLayout() {

@@ -14,6 +14,7 @@ import { logger } from "../../../shell/logger";
 import { useArchiveTask } from "../../archive/useArchiveTask";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
+import { useChannelsLayout } from "../../canvas/hooks/useChannelsLayout";
 import { useMarkTaskActivityRead } from "../../canvas/hooks/useMarkTaskActivityRead";
 import {
   LazyCloudReviewPage as CloudReviewPage,
@@ -265,8 +266,12 @@ export function TaskDetail({
   const isCloud =
     workspace?.mode === "cloud" || task.latest_run?.environment === "cloud";
 
-  const isReviewOpen = reviewMode !== "closed";
-  const isExpanded = reviewMode === "expanded";
+  // Inside the channels chrome the review renders in the shared right panel
+  // (WebsiteLayout), so the in-task pane stands down there.
+  const channelsLayout = useChannelsLayout();
+  const inChannelChrome = channelsLayout && Boolean(channelId);
+  const isReviewOpen = !inChannelChrome && reviewMode !== "closed";
+  const isExpanded = !inChannelChrome && reviewMode === "expanded";
 
   useEffect(() => {
     if (isReviewOpen) return;

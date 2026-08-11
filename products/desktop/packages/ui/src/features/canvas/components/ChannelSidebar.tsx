@@ -242,13 +242,12 @@ function listStateOf({
 }
 
 /**
- * The channel pane of the sidebar slider: the way back to the channel list,
- * the channel's sections, then its pinned and recent tasks & canvases.
+ * The channel's searchable, filterable session list — pinned first, then
+ * recents. Shared by the legacy channel pane below and the space panel in the
+ * new chrome, so the two surfaces list sessions identically.
  */
-export function ChannelSidebar({ channelId }: { channelId: string }) {
-  const navigate = useNavigate();
+export function ChannelSessionsList({ channelId }: { channelId: string }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
 
   const { items, actions, me, isLoading, channelMissing } =
     useChannelItems(channelId);
@@ -276,7 +275,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     : createdByFilter;
   const filtersActive = createdBy !== "anyone" || statusFilter !== null;
 
-  const base = `/website/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
   // navigating doesn't rebuild the list.
   const activeKey = useMemo(() => {
@@ -356,6 +354,92 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     />
   );
 
+  return (
+    <div
+      aria-busy={isLoading}
+      className="scroll-mask-4 h-full overflow-y-auto px-2 pb-2"
+    >
+      {listState === "loading" && <ChannelItemsSkeleton />}
+
+      {listState === "unavailable" && (
+        <Empty className="border-0 py-6">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <PackageIcon size={18} />
+            </EmptyMedia>
+            <EmptyTitle>Space unavailable</EmptyTitle>
+            <EmptyDescription>
+              It may have been deleted, or belong to another project.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
+
+      {showRecent && (
+        <>
+          <RecentSectionHeader
+            searchOpen={searchOpen}
+            onToggleSearch={() => {
+              if (searchOpen) setQuery("");
+              setSearchOpen(!searchOpen);
+            }}
+            query={query}
+            onQueryChange={setQuery}
+            createdByFilter={createdBy}
+            onCreatedByChange={setCreatedByFilter}
+            showCreatedBy={!isPersonalChannel}
+            statusFilter={statusFilter}
+            onStatusChange={setStatusFilter}
+            filtersActive={filtersActive}
+          />
+          {recentItems.length > 0 ? (
+            <div className="flex flex-col gap-px">
+              {recentItems.map(taskRow)}
+            </div>
+          ) : (
+            <Empty className="border-0 py-6">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <MagnifyingGlass size={18} />
+                </EmptyMedia>
+                <EmptyTitle>No matches</EmptyTitle>
+                <EmptyDescription>
+                  Try a different search or clear the filters.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </>
+      )}
+
+      {listState === "empty" && (
+        <Empty className="border-0 py-6">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <ChatsCircleIcon size={18} />
+            </EmptyMedia>
+            <EmptyTitle>Nothing here yet</EmptyTitle>
+            <EmptyDescription>
+              Tasks and canvases you create in this space show up here.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The channel pane of the sidebar slider: the way back to the channel list,
+ * the channel's sections, then its pinned and recent tasks & canvases.
+ */
+export function ChannelSidebar({ channelId }: { channelId: string }) {
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+
+  const base = `/website/${channelId}`;
+
   // Label comes from the shared space-page table, so a sidebar row and the
   // header breadcrumb for the same page can never disagree. No icon: this is a
   // four-row list of words, and glyphs here only compete with the status dots
@@ -429,77 +513,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
       {/* Relative so the FAB can float over the list. */}
       <div className="relative mt-2 min-h-0 flex-1">
-        <div
-          aria-busy={isLoading}
-          className="scroll-mask-4 h-full overflow-y-auto px-2 pb-2"
-        >
-          {listState === "loading" && <ChannelItemsSkeleton />}
-
-          {listState === "unavailable" && (
-            <Empty className="border-0 py-6">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <PackageIcon size={18} />
-                </EmptyMedia>
-                <EmptyTitle>Space unavailable</EmptyTitle>
-                <EmptyDescription>
-                  It may have been deleted, or belong to another project.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-
-          {showRecent && (
-            <>
-              <RecentSectionHeader
-                searchOpen={searchOpen}
-                onToggleSearch={() => {
-                  if (searchOpen) setQuery("");
-                  setSearchOpen(!searchOpen);
-                }}
-                query={query}
-                onQueryChange={setQuery}
-                createdByFilter={createdBy}
-                onCreatedByChange={setCreatedByFilter}
-                showCreatedBy={!isPersonalChannel}
-                statusFilter={statusFilter}
-                onStatusChange={setStatusFilter}
-                filtersActive={filtersActive}
-              />
-              {recentItems.length > 0 ? (
-                <div className="flex flex-col gap-px">
-                  {recentItems.map(taskRow)}
-                </div>
-              ) : (
-                <Empty className="border-0 py-6">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <MagnifyingGlass size={18} />
-                    </EmptyMedia>
-                    <EmptyTitle>No matches</EmptyTitle>
-                    <EmptyDescription>
-                      Try a different search or clear the filters.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              )}
-            </>
-          )}
-
-          {listState === "empty" && (
-            <Empty className="border-0 py-6">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <ChatsCircleIcon size={18} />
-                </EmptyMedia>
-                <EmptyTitle>Nothing here yet</EmptyTitle>
-                <EmptyDescription>
-                  Tasks and canvases you create in this space show up here.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
-        </div>
+        <ChannelSessionsList channelId={channelId} />
         <ChannelsFab channelId={channelId} />
       </div>
     </div>
