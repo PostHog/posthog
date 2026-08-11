@@ -50,6 +50,12 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
     channels: [{ id: "chan-1", name: "project-bluebird" }],
   }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
+  useChannelStarMutations: () => ({
+    star: vi.fn(),
+    unstar: vi.fn(),
+  }),
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboard,
   useDashboardMutations: () => ({}),
