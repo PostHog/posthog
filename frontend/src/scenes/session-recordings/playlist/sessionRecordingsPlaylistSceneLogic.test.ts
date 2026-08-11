@@ -96,6 +96,29 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
     })
 
     describe('update playlist', () => {
+        it('does not send filters when saving a collection with no explicit properties', async () => {
+            let capturedBody: Record<string, any> | undefined
+            useMocks({
+                patch: {
+                    '/api/projects/:team/session_recording_playlists/:id': async ({ request }) => {
+                        capturedBody = (await request.json()) as Record<string, any>
+                        return [200, { updated_playlist: 'blah' }]
+                    },
+                },
+            })
+
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['getPlaylistSuccess'])
+            // The loaded collection populates values.filters, the state that used to leak into the PATCH
+            expect(logic.values.filters).not.toBeNull()
+
+            await expectLogic(logic, () => {
+                logic.actions.updatePlaylist()
+            }).toDispatchActions(['updatePlaylistSuccess'])
+
+            expect(capturedBody).not.toHaveProperty('filters')
+        })
+
         it('set new filter then update playlist', () => {
             logic.mount()
 
