@@ -1268,11 +1268,6 @@ export interface PatchedChannelUpdateApi {
     repositories?: string[]
 }
 
-export interface ChannelDeleteConflictApi {
-    /** Why the space cannot be deleted. */
-    detail: string
-}
-
 /**
  * The task currently generating this channel's CONTEXT.md, or null.
  */
@@ -4254,7 +4249,7 @@ export type TaskMentionsListParams = {
 
 export type TasksListParams = {
     /**
-     * Local development only. With ph_debug=true, list all project tasks for debugging. Ignored outside local development.
+     * Staff-only. When true, list every task on the team regardless of creator or channel, bypassing the per-user visibility filter. Ignored for non-staff users.
      */
     all_team_tasks?: boolean
     /**

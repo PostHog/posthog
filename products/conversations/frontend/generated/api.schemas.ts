@@ -159,7 +159,10 @@ export type ConversationTaskApiJsonSchema = { [key: string]: unknown } | null
 /**
  * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
  * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
- * avoids presigning a log URL per conversation. Task data follows the task's space visibility.
+ * avoids presigning a log URL per conversation.
+ *
+ * Read access here follows the conversation (the share-by-link unit), not per-creator task
+ * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
  */
 export interface ConversationTaskApi {
     id: string

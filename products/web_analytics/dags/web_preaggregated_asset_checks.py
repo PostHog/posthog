@@ -1,5 +1,4 @@
 import time
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -227,16 +226,9 @@ def log_query_sql(
         context.log.warning(f"Failed to log {query_name}: {e}")
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
-class AccuracyCheckConfig:
-    tolerance_percentage: float
-    days_back: int
-    team_id: int
-    date_from: str
-    date_to: str
-
-
-def setup_accuracy_check_config(context: AssetCheckExecutionContext, check_name: str) -> AccuracyCheckConfig:
+def setup_accuracy_check_config(
+    context: AssetCheckExecutionContext, check_name: str
+) -> tuple[float, int, int, str, str]:
     full_run_config = cast(dict[str, Any], context.run.run_config)
     run_config = cast(dict[str, Any], full_run_config.get("ops", {}).get(check_name, {}).get("config", {}))
     tolerance_percentage = float(run_config.get("tolerance_pct", DEFAULT_TOLERANCE_PCT))
@@ -248,24 +240,12 @@ def setup_accuracy_check_config(context: AssetCheckExecutionContext, check_name:
     date_from = start_date.strftime("%Y-%m-%d")
     date_to = end_date.strftime("%Y-%m-%d")
 
-    return AccuracyCheckConfig(
-        tolerance_percentage=tolerance_percentage,
-        days_back=days_back,
-        team_id=team_id,
-        date_from=date_from,
-        date_to=date_to,
-    )
-
-
-@dataclass(frozen=True, kw_only=True, slots=True)
-class AccuracyCheckRunners:
-    pre_aggregated: WebOverviewQueryRunner
-    regular: WebOverviewQueryRunner
+    return tolerance_percentage, days_back, team_id, date_from, date_to
 
 
 def create_runners_for_accuracy_check(
     team: Team, date_from: str, date_to: str, use_v2_tables: bool = False
-) -> AccuracyCheckRunners:
+) -> tuple[WebOverviewQueryRunner, WebOverviewQueryRunner]:
     query_fn = lambda: WebOverviewQuery(
         dateRange=DateRange(date_from=date_from, date_to=date_to),
         properties=[],
@@ -283,43 +263,40 @@ def create_runners_for_accuracy_check(
         modifiers=HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=False, convertToProjectTimezone=False),
     )
 
-    return AccuracyCheckRunners(pre_aggregated=runner_pre_agg, regular=runner_regular)
+    return runner_pre_agg, runner_regular
 
 
 def execute_accuracy_check(
+    runner_pre_agg: WebOverviewQueryRunner,
+    runner_regular: WebOverviewQueryRunner,
+    team_id: int,
+    date_from: str,
+    date_to: str,
     context: AssetCheckExecutionContext,
+    tolerance_percentage: float,
     table_version: str,
-    *,
-    runners: AccuracyCheckRunners,
-    config: AccuracyCheckConfig,
 ) -> tuple[bool, dict[str, Any]]:
     """Execute accuracy check between pre-aggregated and regular query runners."""
     try:
-        context.log.info(f"Running {table_version} accuracy check for team {config.team_id}")
+        context.log.info(f"Running {table_version} accuracy check for team {team_id}")
 
         log_query_sql(
-            runners.pre_aggregated,
-            f"Pre-aggregated SQL ({table_version})",
-            context,
-            runners.pre_aggregated.team,
-            use_pre_agg=True,
+            runner_pre_agg, f"Pre-aggregated SQL ({table_version})", context, runner_pre_agg.team, use_pre_agg=True
         )
-        log_query_sql(
-            runners.regular, f"Regular SQL ({table_version})", context, runners.regular.team, use_pre_agg=False
-        )
+        log_query_sql(runner_regular, f"Regular SQL ({table_version})", context, runner_regular.team, use_pre_agg=False)
 
         context.log.info(f"About to execute pre-aggregated query ({table_version})")
         start_time = time.time()
-        pre_agg_response = runners.pre_aggregated.calculate()
+        pre_agg_response = runner_pre_agg.calculate()
         pre_agg_execution_time = time.time() - start_time
 
         context.log.info(f"About to execute regular query ({table_version})")
         start_time = time.time()
-        regular_response = runners.regular.calculate()
+        regular_response = runner_regular.calculate()
         regular_execution_time = time.time() - start_time
 
         context.log.info(
-            f"Query execution completed for team {config.team_id} ({table_version}), pre-agg time: {pre_agg_execution_time}, regular time: {regular_execution_time}"
+            f"Query execution completed for team {team_id} ({table_version}), pre-agg time: {pre_agg_execution_time}, regular time: {regular_execution_time}"
         )
 
         # Convert results to dict for easier comparison
@@ -330,13 +307,13 @@ def execute_accuracy_check(
         regular_metrics = results_to_dict(regular_response.results)
 
         comparison_data: dict[str, Any] = {
-            "team_id": config.team_id,
-            "date_from": config.date_from,
-            "date_to": config.date_to,
+            "team_id": team_id,
+            "date_from": date_from,
+            "date_to": date_to,
             "table_version": table_version,
             "metrics": {},
             "all_within_tolerance": True,
-            "tolerance_pct": config.tolerance_percentage,
+            "tolerance_pct": tolerance_percentage,
             "timing": {"pre_aggregated": pre_agg_execution_time, "regular": regular_execution_time},
         }
 
@@ -353,7 +330,7 @@ def execute_accuracy_check(
                 within_tolerance = pre_agg_value == 0
             else:
                 percentage_difference = abs(pre_agg_value - regular_value) / regular_value * 100
-                within_tolerance = percentage_difference <= config.tolerance_percentage
+                within_tolerance = percentage_difference <= tolerance_percentage
 
             comparison_data["metrics"][metric_name] = {
                 "pre_aggregated": pre_agg_value,
@@ -369,20 +346,17 @@ def execute_accuracy_check(
 
     except Exception as e:
         logger.error(
-            f"Error comparing web overview metrics ({table_version})",
-            team_id=config.team_id,
-            error=str(e),
-            exc_info=True,
+            f"Error comparing web overview metrics ({table_version})", team_id=team_id, error=str(e), exc_info=True
         )
         return False, {
-            "team_id": config.team_id,
+            "team_id": team_id,
             "error": str(e),
-            "date_from": config.date_from,
-            "date_to": config.date_to,
+            "date_from": date_from,
+            "date_to": date_to,
             "table_version": table_version,
             "metrics": {},
             "all_within_tolerance": False,
-            "tolerance_pct": config.tolerance_percentage,
+            "tolerance_pct": tolerance_percentage,
             "timing": {"pre_aggregated": 0.0, "regular": 0.0},
         }
 
@@ -464,7 +438,7 @@ def run_accuracy_check_for_version(
         )
 
     try:
-        config = setup_accuracy_check_config(context, check_name)
+        tolerance_percentage, days_back, team_id, date_from, date_to = setup_accuracy_check_config(context, check_name)
     except Exception as e:
         context.log.exception(f"Failed to setup accuracy check config: {e}")
         return AssetCheckResult(
@@ -476,24 +450,26 @@ def run_accuracy_check_for_version(
     get_query_tags().with_dagster(dagster_tags(context))
 
     try:
-        team = Team.objects.get(id=config.team_id)
+        team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        context.log.exception(f"Team {config.team_id} not found")
+        context.log.exception(f"Team {team_id} not found")
         return AssetCheckResult(
             passed=False,
-            description=f"Team {config.team_id} does not exist",
-            metadata={"error": MetadataValue.text(f"Team {config.team_id} not found")},
+            description=f"Team {team_id} does not exist",
+            metadata={"error": MetadataValue.text(f"Team {team_id} not found")},
         )
     except Exception as e:
-        context.log.exception(f"Database error while fetching team {config.team_id}: {e}")
+        context.log.exception(f"Database error while fetching team {team_id}: {e}")
         return AssetCheckResult(
             passed=False,
-            description=f"Database error for team {config.team_id}",
+            description=f"Database error for team {team_id}",
             metadata={"error": MetadataValue.text(str(e))},
         )
 
     try:
-        runners = create_runners_for_accuracy_check(team, config.date_from, config.date_to, use_v2_tables=use_v2_tables)
+        runner_pre_agg, runner_regular = create_runners_for_accuracy_check(
+            team, date_from, date_to, use_v2_tables=use_v2_tables
+        )
     except Exception as e:
         context.log.exception(f"Failed to create query runners for {table_version}: {e}")
         return AssetCheckResult(
@@ -504,30 +480,27 @@ def run_accuracy_check_for_version(
 
     try:
         is_valid, comparison_data = execute_accuracy_check(
-            context,
-            table_version,
-            runners=runners,
-            config=config,
+            runner_pre_agg, runner_regular, team_id, date_from, date_to, context, tolerance_percentage, table_version
         )
         timing = comparison_data.get("timing", {})
         context.log.info(
             f"{table_version.upper()} check - Valid?: {is_valid}. Pre-agg: {timing.get('pre_aggregated', 0):.2f}s, Regular: {timing.get('regular', 0):.2f}s"
         )
     except Exception as e:
-        context.log.exception(f"Failed to run {table_version} accuracy check for team {config.team_id}: {str(e)}")
+        context.log.exception(f"Failed to run {table_version} accuracy check for team {team_id}: {str(e)}")
         comparison_data = {
-            "team_id": config.team_id,
+            "team_id": team_id,
             "error": str(e),
-            "date_from": config.date_from,
-            "date_to": config.date_to,
+            "date_from": date_from,
+            "date_to": date_to,
             "table_version": table_version,
             "skipped": True,
-            "tolerance_pct": config.tolerance_percentage,
+            "tolerance_pct": tolerance_percentage,
             "all_within_tolerance": False,
             "metrics": {},
         }
 
-    return create_accuracy_check_result(comparison_data, config.team_id, table_version)
+    return create_accuracy_check_result(comparison_data, team_id, table_version)
 
 
 # Team selection check for web_pre_aggregated_* tables

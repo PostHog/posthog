@@ -8,39 +8,6 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * * `setup_tab` - setup_tab
- * * `apply_all_safe` - apply_all_safe
- * * `mcp` - mcp
- */
-export type ApplySetupOpsSourceEnumApi = (typeof ApplySetupOpsSourceEnumApi)[keyof typeof ApplySetupOpsSourceEnumApi]
-
-export const ApplySetupOpsSourceEnumApi = {
-    SetupTab: 'setup_tab',
-    ApplyAllSafe: 'apply_all_safe',
-    Mcp: 'mcp',
-} as const
-
-export interface ApplySetupOpsApi {
-    /** Operations to apply, in order. Send `apply` payloads returned verbatim by setup_plan — never hand-craft one. Navigate-only ops (open_oauth, open_source_wizard, open_settings, fix_platform_urls) are rejected: they describe something a browser or a human does. */
-    ops: unknown[]
-    /** Where the request came from, recorded in the activity log
-     *
-     * * `setup_tab` - setup_tab
-     * * `apply_all_safe` - apply_all_safe
-     * * `mcp` - mcp */
-    source?: ApplySetupOpsSourceEnumApi
-}
-
-export interface ApplySetupOpsResponseApi {
-    /** The operations that were applied */
-    applied: unknown[]
-    /** Operations that reverse this batch, in the order they should be sent. Computed server-side from the pre-change state — POST them back to undo. */
-    undo_ops: unknown[]
-    /** The config as it now stands */
-    marketing_analytics_config: unknown
-}
-
-/**
  * * `EventsNode` - EventsNode
  * * `ActionsNode` - ActionsNode
  * * `DataWarehouseNode` - DataWarehouseNode

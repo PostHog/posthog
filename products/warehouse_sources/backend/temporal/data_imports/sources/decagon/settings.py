@@ -228,34 +228,6 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         # live account; config diffs can carry sensitive settings content.
         should_sync_default=False,
     ),
-    # /team/api/members is the roster that resolves the user ids other Decagon tables
-    # reference. One unpaginated request; members carry no timestamp, so the table is
-    # unpartitioned and full refresh only. show_invite_status is requested so pending
-    # invites land too (a complete roster); the `access` param is not sent in case it
-    # filters rather than annotates. Rows are staff email addresses, so the table is a
-    # deliberate opt-in.
-    "team_members": DecagonEndpointConfig(
-        name="team_members",
-        path="/team/api/members",
-        data_key="members",
-        primary_keys=["id"],
-        incremental_fields=[],
-        pagination="single",
-        extra_params={"show_invite_status": "true"},
-        should_sync_default=False,
-    ),
-    # /watchtower/all lists Decagon's QA/evaluation jobs with their rubrics and
-    # configuration, the context needed to interpret any quality scoring. One unpaginated
-    # request, full refresh; rubric/prompt/outputs/config land as free-form JSON.
-    "watchtower_jobs": DecagonEndpointConfig(
-        name="watchtower_jobs",
-        path="/watchtower/all",
-        data_key="jobs",
-        primary_keys=["id"],
-        incremental_fields=[],
-        pagination="single",
-        partition_key="created_at",
-    ),
 }
 
 ENDPOINTS = tuple(DECAGON_ENDPOINTS.keys())
