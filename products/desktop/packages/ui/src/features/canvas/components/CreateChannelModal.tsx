@@ -377,6 +377,10 @@ export function CreateChannelModal({
               <DialogTitle>
                 Create a {spacesLayout ? "space" : "channel"}
               </DialogTitle>
+              <DialogDescription>
+                Create a {spacesLayout ? "space" : "channel"} to keep related
+                work and context together.
+              </DialogDescription>
             </DialogHeader>
 
             <DialogBody className="flex max-h-[55vh] flex-col gap-4">
@@ -399,6 +403,9 @@ export function CreateChannelModal({
                     }
                   }}
                 />
+                <FieldDescription>
+                  Names use lowercase letters, numbers, and hyphens.
+                </FieldDescription>
                 {nameError ? (
                   <FieldError>{nameError}</FieldError>
                 ) : (
