@@ -454,7 +454,8 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                             priority: 'critical',
                             assignee: null,
                             updated_at: '2026-05-26T13:58:00Z',
-                            last_message_text: "I can't invite a teammate to our project",
+                            last_message_text:
+                                "I can't invite a teammate to our project. The invite link opens, but the page returns to the project settings without adding them.",
                             unread_team_count: 1,
                             email_subject: null,
                             requester_name: 'Jordan Lee',
@@ -514,7 +515,8 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                             priority: 'low',
                             assignee: { user: { id: 2, name: 'Alex Kim' }, role: null },
                             updated_at: '2026-05-25T11:20:00Z',
-                            last_message_text: 'We are still evaluating the new billing flow.',
+                            last_message_text:
+                                'We are still evaluating the new billing flow. Can you explain how usage limits apply when several teams send events to the same project?',
                             unread_team_count: 2,
                             email_subject: 'Question about usage limits',
                             requester_name: 'Pat Garcia',
