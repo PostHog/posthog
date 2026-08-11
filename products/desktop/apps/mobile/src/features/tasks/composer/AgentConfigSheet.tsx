@@ -1,4 +1,5 @@
 import { Text } from "@components/text";
+import type { ComposerModelOption } from "@posthog/core/task-detail/composerControls";
 import type { Adapter, SupportedReasoningEffort } from "@posthog/shared";
 import {
   ArrowCounterClockwise,
@@ -10,7 +11,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, Switch, View } from "react-native";
 import { SheetContainer } from "@/components/SheetContainer";
 import { useThemeColors } from "@/lib/theme";
-import type { AgentPreset, ContextWindow, MobileModelOption } from "./options";
+import type { AgentPreset, ContextWindow } from "./options";
 
 const ADAPTER_LABELS: Record<Adapter, string> = {
   claude: "Claude Code",
@@ -27,7 +28,7 @@ interface AgentConfigSheetProps {
   fastMode: boolean;
   presets: AgentPreset[];
   reasoningOptions: ReadonlyArray<{ value: string; name: string }>;
-  modelOptions: MobileModelOption[];
+  modelOptions: ComposerModelOption[];
   fastModeAvailable: boolean;
   contextWindowAvailable: boolean;
   canChangeAdapter: boolean;

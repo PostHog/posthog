@@ -3,6 +3,7 @@ import {
   DEFAULT_CLAUDE_EXECUTION_MODE,
   getAvailableModesForAdapter,
 } from "@posthog/core/sessions/executionModes";
+import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
 import { resolveCloudComposerModelChange } from "@posthog/core/task-detail/composerModelPolicy";
 import {
   type Adapter,
@@ -61,7 +62,6 @@ import {
   DEFAULT_CONTEXT_WINDOW,
   filterKimiModelConfigOptions,
   getMobileExecutionModes,
-  getModelConfigOption,
 } from "@/features/tasks/composer/options";
 import { RepositoryPickerInline } from "@/features/tasks/composer/RepositoryPickerInline";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";

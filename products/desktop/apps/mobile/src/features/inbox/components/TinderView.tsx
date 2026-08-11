@@ -3,6 +3,7 @@ import {
   formatSignalReportSummaryMarkdown,
   inboxStatusLabel,
 } from "@posthog/core/inbox/reportPresentation";
+import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
 import type {
   SignalReport,
   SignalReportPriority,
@@ -26,7 +27,6 @@ import {
 } from "react-native-safe-area-context";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
-import { getModelConfigOption } from "@/features/tasks/composer/options";
 import { useCloudTaskConfigOptions } from "@/features/tasks/hooks/useCloudTaskConfigOptions";
 import type {
   CreateTaskOptions,

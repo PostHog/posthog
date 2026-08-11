@@ -8,7 +8,6 @@ import {
   filterKimiModelConfigOptions,
   filterKimiModelOption,
   getAgentPresets,
-  getComposerModelOptions,
   getMiddlePreset,
   getMobileExecutionModes,
   resolveComposerPrimaryAction,
@@ -25,23 +24,6 @@ const kimiModelOption: CloudTaskConfigOption = {
   options: [
     { value: DEFAULT_GATEWAY_MODEL, name: "Claude Opus 4.8" },
     { value: KIMI, name: "Kimi K3" },
-  ],
-  category: "model",
-  description: "Choose a model",
-};
-
-const modelOption: CloudTaskConfigOption = {
-  id: "model",
-  name: "Model",
-  type: "select",
-  currentValue: DEFAULT_GATEWAY_MODEL,
-  options: [
-    { value: DEFAULT_GATEWAY_MODEL, name: "Claude Opus 4.8" },
-    {
-      value: "claude-fable-5",
-      name: "Claude Fable 5",
-      _meta: restrictedModelMeta(),
-    },
   ],
   category: "model",
   description: "Choose a model",
@@ -64,23 +46,6 @@ describe("mobile composer options", () => {
         },
       ]).map((mode) => mode.id),
     ).toEqual(["plan"]);
-  });
-
-  it("adapts live model options for the mobile picker", () => {
-    expect(getComposerModelOptions(modelOption)).toEqual([
-      {
-        value: DEFAULT_GATEWAY_MODEL,
-        label: "Claude Opus 4.8",
-        description: undefined,
-        disabled: false,
-      },
-      {
-        value: "claude-fable-5",
-        label: "Claude Fable 5",
-        description: undefined,
-        disabled: true,
-      },
-    ]);
   });
 
   describe("filterKimiModelOption", () => {

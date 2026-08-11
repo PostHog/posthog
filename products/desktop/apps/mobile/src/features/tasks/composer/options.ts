@@ -1,4 +1,5 @@
 import type { ModeInfo } from "@posthog/core/sessions/executionModes";
+import type { ComposerPrimaryAction } from "@posthog/core/task-detail/composerControls";
 import {
   type CloudComposerSelection,
   resolveCloudComposerAdapterChange,
@@ -23,27 +24,12 @@ export interface AgentPreset {
   effortLabel: string;
 }
 
-export interface MobileModelOption {
-  value: string;
-  label: string;
-  description?: string;
-  disabled: boolean;
-}
-
 export function getMobileExecutionModes(
   modes: readonly ModeInfo[],
 ): ModeInfo[] {
   return modes.filter(
     (mode) => mode.id !== "bypassPermissions" && mode.id !== "full-access",
   );
-}
-
-export function getModelConfigOption(
-  configOptions: readonly CloudTaskConfigOption[],
-): CloudTaskConfigOption {
-  const option = configOptions.find((item) => item.category === "model");
-  if (!option) throw new Error("Cloud task model configuration is unavailable");
-  return option;
 }
 
 /**
@@ -83,24 +69,6 @@ export function filterKimiModelConfigOptions(
   return configOptions.map((option) =>
     option.category === "model" ? filterKimiModelOption(option, false) : option,
   );
-}
-
-export function getComposerModelOptions(
-  modelOption: CloudTaskConfigOption,
-): MobileModelOption[] {
-  return modelOption.options.map((option) => ({
-    value: option.value,
-    label: option.name,
-    description: option.description,
-    disabled: isRestrictedModelOption(option._meta),
-  }));
-}
-
-export function getConfigOptionLabel(
-  options: ReadonlyArray<{ value: string; name: string }>,
-  value: string | undefined,
-): string | undefined {
-  return options.find((option) => option.value === value)?.name ?? value;
 }
 
 /**
@@ -159,13 +127,13 @@ export function resolveHarnessSwitchSelection(
   return { ...base, model: middle.model, reasoning: middle.effort };
 }
 
-export type ComposerPrimaryAction =
-  | "send"
-  | "stop"
-  | "mic"
-  | "mic-stop"
-  | "disabled";
-
+/**
+ * Mobile's own precedence, deliberately different from
+ * `@posthog/core/task-detail/composerControls`: recording wins over stopping
+ * the run. On a phone the mic button is the composer's primary control and a
+ * held recording must always be endable with the same tap, whereas on desktop
+ * an in-flight run takes priority.
+ */
 export function resolveComposerPrimaryAction({
   hasContent,
   disabled,

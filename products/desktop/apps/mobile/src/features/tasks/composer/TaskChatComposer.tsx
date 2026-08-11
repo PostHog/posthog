@@ -1,5 +1,6 @@
 import { Text } from "@components/text";
 import { DEFAULT_CLAUDE_EXECUTION_MODE } from "@posthog/core/sessions/executionModes";
+import { getModelConfigOption } from "@posthog/core/task-detail/composerControls";
 import type { CloudComposerSelection } from "@posthog/core/task-detail/composerModelPolicy";
 import { resolveCloudComposerModelChange } from "@posthog/core/task-detail/composerModelPolicy";
 import {
@@ -52,7 +53,6 @@ import type { PendingAttachment } from "./attachments/types";
 import {
   type ContextWindow,
   filterKimiModelConfigOptions,
-  getModelConfigOption,
   resolveComposerPrimaryAction,
 } from "./options";
 import { Pill } from "./Pill";
