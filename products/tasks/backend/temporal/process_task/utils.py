@@ -1335,9 +1335,9 @@ def upgrade_run_to_user_authorship(
     task = task_run.task
     if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
         return None
-    # `github_user_integration` is a single FK on the task, shared by all of its runs, so only the
-    # creator's install may land there — a thread participant's would become the identity other
-    # runs of this task resolve. The cloud path refuses the same case outright.
+    # Promotion is only for the creator. A thread participant's connection would retarget a run
+    # they don't own, and later turns by a creator without one would then resolve to nothing
+    # instead of the bot fallback they had. The cloud path refuses the same case outright.
     if task.created_by_id != actor_user.id:
         return None
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
@@ -1345,25 +1345,18 @@ def upgrade_run_to_user_authorship(
     if is_caller_token_run(str(task_run.id), state):
         return None
 
-    user_github_integration = resolve_user_github_integration_for_task(task, actor_user=actor_user, allow_refresh=False)
-    if not user_github_integration_is_usable(user_github_integration):
+    # Nothing is pinned to the task: `Task.github_user_integration` only disambiguates *which*
+    # install to use when a user has several, and token resolution finds this one on its own by
+    # scoping to the repository. Writing it would put per-actor credential state on a row shared
+    # by every run of the task, for no gain.
+    if not user_github_integration_is_usable(
+        resolve_user_github_integration_for_task(task, actor_user=actor_user, allow_refresh=False)
+    ):
         return None
 
-    # One transaction: a task pointed at an install while its run is still bot-authored would let
-    # the bot fallback mint from that install before the mode catches up.
-    with transaction.atomic():
-        # Point the task at the install before the mode flips: token resolution reads the FK, and
-        # a run left as USER with no recorded integration resolves nothing.
-        if (
-            user_github_integration is not None
-            and task.github_user_integration_id != user_github_integration.integration.id
-        ):
-            task.github_user_integration = user_github_integration.integration
-            task.save(update_fields=["github_user_integration", "updated_at"])
-
-        promoted_state = TaskRunModel.update_state_atomic(
-            task_run.id, updates={"pr_authorship_mode": PrAuthorshipMode.USER.value}
-        )
+    promoted_state = TaskRunModel.update_state_atomic(
+        task_run.id, updates={"pr_authorship_mode": PrAuthorshipMode.USER.value}
+    )
     logger.info(
         "run_promoted_to_user_authorship",
         extra={"run_id": str(task_run.id), "task_id": str(task.id), "user_id": actor_user.id},

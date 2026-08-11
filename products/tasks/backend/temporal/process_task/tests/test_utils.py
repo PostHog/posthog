@@ -1271,7 +1271,8 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task_run.refresh_from_db()
         self.task.refresh_from_db()
         assert self.task_run.state["pr_authorship_mode"] == "user"
-        assert self.task.github_user_integration_id is not None
+        # Per-actor credential state stays off the shared task row.
+        assert self.task.github_user_integration_id is None
 
     def test_the_state_passed_in_is_left_untouched(self) -> None:
         self.connect_personal_github()
