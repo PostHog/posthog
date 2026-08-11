@@ -10,11 +10,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { QrScanModal, type QrScanResult } from "@/components/QrScanModal";
-import {
-  type CloudRegion,
-  ProjectSelectSheet,
-  useAuthStore,
-} from "@/features/auth";
+import { type CloudRegion, useAuthStore } from "@/features/auth";
+import { resolvePostLoginTarget } from "@/features/auth/lib/postLoginTarget";
 import {
   ANALYTICS_EVENTS,
   type SignInFailureReason,
@@ -52,7 +49,6 @@ export default function AuthScreen() {
   const [scannerVisible, setScannerVisible] = useState(false);
 
   const { loginWithOAuth, loginWithPersonalApiKey } = useAuthStore();
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const analytics = useAnalytics();
 
   const trackSignInStarted = (method: SignInMethod) => {
@@ -83,17 +79,8 @@ export default function AuthScreen() {
     });
   };
 
-  // After successful sign-in, resume the originally-requested deep link if
-  // there was one, otherwise drop into the default tab. Guards against `next`
-  // pointing back at /auth (which would loop) or being a non-local URL.
   const navigateAfterLogin = useCallback(() => {
-    const target =
-      typeof next === "string" &&
-      next.startsWith("/") &&
-      !next.startsWith("/auth")
-        ? next
-        : "/(tabs)/tasks";
-    router.replace(target);
+    router.replace(resolvePostLoginTarget(next));
   }, [next]);
 
   const handleQrScan = async (result: QrScanResult) => {
@@ -154,9 +141,14 @@ export default function AuthScreen() {
       await loginWithOAuth(selectedRegion);
       trackSignInCompleted("oauth");
       // With one scoped project there is nothing to choose; otherwise let the
-      // user pick instead of silently landing on scoped_teams[0].
+      // user pick instead of silently landing on scoped_teams[0]. The picker
+      // carries `next` so it can finish the deep link that started the login.
       if (useAuthStore.getState().scopedTeams.length > 1) {
-        setProjectPickerOpen(true);
+        router.replace(
+          typeof next === "string"
+            ? { pathname: "/select-project", params: { next } }
+            : "/select-project",
+        );
       } else {
         navigateAfterLogin();
       }
@@ -320,16 +312,6 @@ export default function AuthScreen() {
         visible={scannerVisible}
         onClose={() => setScannerVisible(false)}
         onScan={handleQrScan}
-      />
-      {/* onClose fires after a selection and on plain dismissal alike.
-          Dismissing keeps the default (first scoped project). */}
-      <ProjectSelectSheet
-        open={projectPickerOpen}
-        title="Choose a project"
-        onClose={() => {
-          setProjectPickerOpen(false);
-          navigateAfterLogin();
-        }}
       />
     </SafeAreaView>
   );

@@ -114,6 +114,10 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       <Stack.Screen name="auth" options={{ headerShown: false }} />
       <Stack.Screen name="index" options={{ headerShown: false }} />
 
+      {/* Post-login project picker — a full page, not a modal: it is a step
+          in the sign-in flow, so there is nothing behind it to dismiss to. */}
+      <Stack.Screen name="select-project" options={{ headerShown: false }} />
+
       {/* Tinder-style inbox review */}
       <Stack.Screen name="review" options={{ headerShown: false }} />
 
