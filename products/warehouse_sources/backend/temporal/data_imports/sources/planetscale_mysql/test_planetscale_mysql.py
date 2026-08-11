@@ -5,26 +5,26 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscale import (
-    PlanetScaleSourceConfig,
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
+    PlanetScaleMySQLSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.planetscale import (
-    PlanetScaleImplementation,
+from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
+    PlanetScaleMySQLImplementation,
 )
 
 _CONNECT_TARGET = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale.planetscale."
+    "products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql."
     "_connect_with_transient_retry"
 )
 
 
 def _config(port: int | str = 3306) -> MySQLSourceConfig:
-    # The runtime config for this source is the generated `PlanetScaleSourceConfig`; the driver
+    # The runtime config for this source is the generated `PlanetScaleMySQLSourceConfig`; the driver
     # signatures are typed against the MySQL one it structurally matches. It deliberately has no
     # `using_ssl` or `ssh_tunnel` field, which is what these tests exercise.
     return cast(
         MySQLSourceConfig,
-        PlanetScaleSourceConfig(
+        PlanetScaleMySQLSourceConfig(
             host="aws.connect.psdb.cloud",
             database="my-database",
             user="user",
@@ -40,7 +40,7 @@ def _connect(config: MySQLSourceConfig, **kwargs: Any):
     connection = mock.MagicMock()
     with mock.patch(_CONNECT_TARGET) as connect:
         connect.return_value.__enter__.return_value = connection
-        with PlanetScaleImplementation().connect(config, **kwargs) as opened:
+        with PlanetScaleMySQLImplementation().connect(config, **kwargs) as opened:
             assert opened is connection
         yield connect.call_args.args[0]
 

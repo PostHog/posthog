@@ -64,6 +64,11 @@ def _split_table(table: pa.Table, *, offset_limit: int, bytes_limit: int) -> lis
 class Batcher:
     _buffer: list[Any]
     _buffer_size_bytes: int
+    _table_buffer: list[pa.Table]
+    _table_buffer_rows: int
+    _table_buffer_bytes: int
+    _table_buffer_schema: Optional[pa.Schema]
+    _coalesce_tables: bool
     _ready: deque[pa.Table]
     _logger: FilteringBoundLogger
     _chunk_size: int
@@ -84,6 +89,7 @@ class Batcher:
         source_type: Optional[str] = None,
         team_id: Optional[int] = None,
         schema_name: Optional[str] = None,
+        coalesce_tables: bool = False,
     ) -> None:
         self._logger = logger
 
@@ -97,9 +103,19 @@ class Batcher:
         self._source_type = source_type
         self._team_id = team_id
         self._schema_name = schema_name
+        # Off by default because coalescing delays when a yielded table becomes a durable batch:
+        # sources that checkpoint resume state or delete upstream staging right after yielding
+        # (ResumableSource implementations, the webhook S3 path) rely on yield => persisted and
+        # would lose data across a crash if their tables sat in this buffer. Only enable for
+        # sources with no such dependency.
+        self._coalesce_tables = coalesce_tables
 
         self._buffer = []
         self._buffer_size_bytes = 0
+        self._table_buffer = []
+        self._table_buffer_rows = 0
+        self._table_buffer_bytes = 0
+        self._table_buffer_schema = None
         self._ready = deque()
 
     def _set_ready(self, table: pa.Table) -> None:
@@ -117,7 +133,9 @@ class Batcher:
         report_buffer_bytes(payload_bytes)
         if self._source_type is not None:
             # The materialised table is the true in-memory peak (an unbounded source yields one giant
-            # list -> one giant table here, before the split into bounded chunks).
+            # list -> one giant table here, before the split into bounded chunks). With table
+            # coalescing this is the whole coalesced batch, not one source yield; the buffered input
+            # tables it was concatenated from share its buffers, so it still measures the real peak.
             record_table_stats(
                 source_type=self._source_type,
                 stage="batcher",
@@ -137,6 +155,89 @@ class Batcher:
             )
         self._ready = deque(chunks)
 
+    def _batch_table(self, table: pa.Table) -> None:
+        """Buffer `table` and flush the accumulated buffer once `_chunk_size` / `_chunk_size_bytes`
+        is reached, so a source's per-yield fetch size doesn't dictate batch granularity (a driver
+        fetching 10k rows per Arrow table would otherwise emit one queue batch per fetch).
+
+        Bytes are counted as each table arrives, and a table that would push the buffer past
+        `_chunk_size_bytes` flushes the buffer *before* joining it, so buffered payload never
+        exceeds the byte cap unless a single table does on its own. With the default caps
+        (200 MiB chunk vs 256 MiB max table) the flushed batch stays under `_max_table_bytes`,
+        so `_split_table` doesn't undo the coalescing, and accumulation memory stays bounded on
+        pods where memory is the constraint.
+        """
+        table_bytes = table_payload_bytes(table)
+
+        if not self._table_buffer:
+            self._start_table_buffer(table, table_bytes)
+            self._flush_table_buffer_if_full()
+            return
+
+        unified_schema = self._unify_schema_or_none(table.schema)
+        would_overflow = (
+            self._table_buffer_rows + table.num_rows > self._chunk_size
+            or self._table_buffer_bytes + table_bytes > self._chunk_size_bytes
+        )
+        if unified_schema is None or would_overflow:
+            if unified_schema is None:
+                self._logger.info(
+                    "batcher_flush_on_schema_drift",
+                    buffered_rows=self._table_buffer_rows,
+                    incoming_rows=table.num_rows,
+                )
+            # `_set_ready` replaces `_ready` wholesale, so only one flush can happen per
+            # `batch()` call; the incoming table waits in a fresh buffer until the next
+            # call (or `get_table` at end of stream) flushes it.
+            self._flush_table_buffer()
+            self._start_table_buffer(table, table_bytes)
+            return
+
+        self._table_buffer.append(table)
+        self._table_buffer_rows += table.num_rows
+        self._table_buffer_bytes += table_bytes
+        self._table_buffer_schema = unified_schema
+        self._flush_table_buffer_if_full()
+
+    def _unify_schema_or_none(self, schema: pa.Schema) -> Optional[pa.Schema]:
+        """Permissively unify `schema` with the buffered schema, or None if they can't be merged.
+
+        Permissive promotion (nullability, new columns, numeric widening) matches how
+        `S3BatchWriter.write_batch` already unifies schemas across batches, so coalescing doesn't
+        reject drift the writer would have accepted. Non-promotable drift (e.g. int64 vs string)
+        returns None and the caller flushes, yielding the same per-table failure surface the
+        writer had.
+        """
+        assert self._table_buffer_schema is not None
+        try:
+            return pa.unify_schemas([self._table_buffer_schema, schema], promote_options="permissive")
+        except (pa.ArrowInvalid, pa.ArrowTypeError):
+            return None
+
+    def _start_table_buffer(self, table: pa.Table, table_bytes: int) -> None:
+        self._table_buffer = [table]
+        self._table_buffer_rows = table.num_rows
+        self._table_buffer_bytes = table_bytes
+        self._table_buffer_schema = table.schema
+
+    def _flush_table_buffer_if_full(self) -> None:
+        if self._table_buffer_rows >= self._chunk_size or self._table_buffer_bytes >= self._chunk_size_bytes:
+            self._flush_table_buffer()
+
+    def _flush_table_buffer(self) -> None:
+        if len(self._table_buffer) == 1:
+            table = self._table_buffer[0]
+        else:
+            # Zero-copy for matching schemas (the output table references the buffered chunks);
+            # only columns needing promotion are cast, so the flush doesn't double peak memory
+            # in the common no-drift case.
+            table = pa.concat_tables(self._table_buffer, promote_options="permissive")
+        self._table_buffer = []
+        self._table_buffer_rows = 0
+        self._table_buffer_bytes = 0
+        self._table_buffer_schema = None
+        self._set_ready(table)
+
     def _estimate_size(self, obj: Any) -> int:
         if isinstance(obj, dict):
             return sys.getsizeof(obj) + sum(self._estimate_size(k) + self._estimate_size(v) for k, v in obj.items())
@@ -148,6 +249,11 @@ class Batcher:
     def batch(self, item: list[Any] | dict | pa.Table) -> None:
         if self._ready:
             raise Exception("Batcher already has a table ready to yield. Call get_table() before batching more items.")
+
+        # Mirror of the pa.Table guard below: buffered tables and buffered rows can't be merged
+        # into one batch, so mixing them would silently reorder or drop data on flush.
+        if self._table_buffer and not isinstance(item, pa.Table):
+            raise Exception("Cannot batch list/dict rows while pa.Tables are buffered; call get_table() first")
 
         if isinstance(item, list):
             if len(self._buffer) > 0:
@@ -176,12 +282,15 @@ class Batcher:
             self._logger.debug(f"Processing buffer (dict). Length of buffer = {len(self._buffer)}")
             self._set_ready(table_from_py_list(self._buffer))
         elif isinstance(item, pa.Table):
-            # A pa.Table is self-contained and bypasses the buffer. Clearing the buffer
+            # A pa.Table never joins the list/dict buffer. Clearing the buffer
             # below would silently drop any rows accumulated from earlier list/dict
             # items, so treat a non-empty buffer here as a programming error rather than
             # losing data. (In practice sources emit only one item type, never a mix.)
             if self._buffer:
                 raise Exception("Cannot batch a pa.Table while list/dict rows are buffered; call get_table() first")
+            if self._coalesce_tables:
+                self._batch_table(item)
+                return
             self._set_ready(item)
         else:
             raise Exception(f"Unhandled item type: {item.__class__.__name__}")
@@ -194,7 +303,7 @@ class Batcher:
 
     def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
         if include_incomplete_chunk:
-            return len(self._ready) > 0 or len(self._buffer) > 0
+            return len(self._ready) > 0 or len(self._buffer) > 0 or len(self._table_buffer) > 0
 
         return len(self._ready) > 0
 
@@ -204,6 +313,12 @@ class Batcher:
             self._set_ready(table_from_py_list(self._buffer))
             self._buffer = []
             self._buffer_size_bytes = 0
+
+        # End-of-stream flush of a partial Arrow buffer, matching the list/dict path above;
+        # dropping it would lose every row batched since the last full chunk.
+        if not self._ready and len(self._table_buffer) > 0:
+            self._logger.debug(f"Processing leftover table buffer. Buffered tables = {len(self._table_buffer)}")
+            self._flush_table_buffer()
 
         if self._ready:
             return self._ready.popleft()
