@@ -86,7 +86,7 @@ jobs:
 
             - name: Format check
               working-directory: services/integration-service
-              run: pnpm exec oxfmt --check 'src/**/*.ts' 'tests/**/*.ts' 'scripts/**/*.ts'
+              run: pnpm format:check
 
             - name: Build
               working-directory: services/integration-service
