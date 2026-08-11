@@ -15,7 +15,10 @@ import {
   OfflineBanner,
 } from "@/components/OfflineBanner";
 import { useAuthStore } from "@/features/auth";
-import { setupNotificationResponseListener } from "@/features/notifications/lib/notifications";
+import {
+  resolveNotificationProjectSwitch,
+  setupNotificationResponseListener,
+} from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { PendingPromptRecovery } from "@/features/tasks/components/PendingPromptRecovery";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -51,21 +54,26 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
       // Pushes are per-user, not per-project, so a tap can target a task in
       // a project other than the active one. Switch first (informing the
       // user), or explain why the task can't be opened at all.
-      if (teamId != null) {
-        const { projectId, setProjectId } = useAuthStore.getState();
-        if (teamId !== projectId) {
-          if (!setProjectId(teamId)) {
-            Alert.alert(
-              "Can't open task",
-              "This task belongs to a project your login isn't authorized for. Log out and back in to grant access to it.",
-            );
-            return;
-          }
-          Alert.alert(
-            "Switched project",
-            "This task lives in a different project, so the app switched to it.",
-          );
-        }
+      const { projectId, setProjectId, scopedTeams, isLoading } =
+        useAuthStore.getState();
+      const decision = resolveNotificationProjectSwitch({
+        teamId,
+        projectId,
+        scopedTeams,
+        isLoading,
+      });
+      if (decision.action === "blocked") {
+        Alert.alert(
+          "Can't open task",
+          "This task belongs to a project your login isn't authorized for. Log out and back in to grant access to it.",
+        );
+        return;
+      }
+      if (decision.action === "switch" && setProjectId(decision.teamId)) {
+        Alert.alert(
+          "Switched project",
+          "This task lives in a different project, so the app switched to it.",
+        );
       }
       router.push(path);
     });

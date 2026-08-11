@@ -51,18 +51,18 @@ export function getTaskPollingInterval(
 
 /**
  * Tasks shown in mobile lists. Desktop-local runs are always hidden (mobile
- * can't act on them). When no explicit origin filter is applied, automation
- * tasks are hidden too — they have their own tab and would show up twice.
+ * can't act on them). Automation tasks are hidden unless a caller asks for
+ * them — they have their own tab and would show up twice in the main list.
  * Everything else mirrors desktop, which applies no origin filter at all.
  */
 export function filterListedTasks(
   tasks: readonly Task[],
-  originProduct?: string,
+  includeAutomation = false,
 ): Task[] {
   return tasks.filter(
     (task) =>
       task.latest_run?.environment !== "local" &&
-      (originProduct !== undefined || task.origin_product !== "automation"),
+      (includeAutomation || task.origin_product !== "automation"),
   );
 }
 
@@ -79,18 +79,26 @@ export function useTasks(filters?: {
     createdBy: currentUser?.id,
   };
 
+  // An explicit origin filter means the caller (e.g. the automations tab)
+  // wants exactly what the server returned.
+  const includeAutomation = filters?.originProduct !== undefined;
+
   const query = useQuery({
     queryKey: taskKeys.list(queryFilters),
     queryFn: () => getPostHogApiClient().getTasks(queryFilters),
     enabled: !!projectId && !!oauthAccessToken && !!currentUser?.id,
+    // Poll on what the list actually shows — a hidden task (automation, or a
+    // desktop-local run) with an active run must not pin the 5s interval.
     refetchInterval: (query) =>
-      getTaskPollingInterval(query.state.data as Task[] | undefined),
+      getTaskPollingInterval(
+        filterListedTasks(
+          (query.state.data as Task[] | undefined) ?? [],
+          includeAutomation,
+        ),
+      ),
   });
 
-  const cloudTasks = filterListedTasks(
-    query.data ?? [],
-    filters?.originProduct,
-  );
+  const cloudTasks = filterListedTasks(query.data ?? [], includeAutomation);
 
   const filteredTasks = filterAndSortTasks(
     cloudTasks,

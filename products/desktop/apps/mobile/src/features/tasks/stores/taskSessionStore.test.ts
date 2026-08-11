@@ -39,11 +39,13 @@ vi.mock("@/lib/posthogApiClient", () => ({
   getPostHogApiClient: () => ({ getTask: mockGetTask }),
 }));
 
+import { presentLocalNotification } from "@/features/notifications/lib/notifications";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { runTaskInCloud } from "../api";
 import { useMessageQueueStore } from "./messageQueueStore";
 import {
   mapTerminalStatus,
+  maybePresentLocalNotification,
   type TaskSession,
   useTaskSessionStore,
 } from "./taskSessionStore";
@@ -60,6 +62,28 @@ function seedSession(overrides: Partial<TaskSession> = {}): void {
   };
   useTaskSessionStore.setState({ sessions: { "run-1": session } });
 }
+
+describe("maybePresentLocalNotification", () => {
+  it("stamps the active project on the notification payload", () => {
+    usePreferencesStore.setState({ pushNotificationsEnabled: true });
+    seedSession({ taskRunId: "run-team", taskId: "task-team" });
+    useTaskSessionStore.setState((s) => ({
+      sessions: { "run-team": s.sessions["run-1"] },
+      focusedTaskId: null,
+    }));
+
+    maybePresentLocalNotification({
+      taskRunId: "run-team",
+      kind: "turn_complete",
+    });
+
+    expect(presentLocalNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { taskId: "task-team", taskRunId: "run-team", teamId: 2 },
+      }),
+    );
+  });
+});
 
 describe("mapTerminalStatus", () => {
   it.each([

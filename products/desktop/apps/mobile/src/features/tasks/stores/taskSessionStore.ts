@@ -80,7 +80,7 @@ const lastNotificationAt = new Map<string, number>();
 // the target task, so this client-side maybePresentLocalNotification stays
 // as-is (it's only the OS fanout path we're improving).
 
-function maybePresentLocalNotification(args: {
+export function maybePresentLocalNotification(args: {
   taskRunId: string;
   kind: LocalNotificationKind;
 }): void {

@@ -161,11 +161,19 @@ describe("useTasks", () => {
       ]);
     });
 
-    it("keeps automation tasks when they are explicitly requested", () => {
-      const tasks = [{ ...baseTask, origin_product: "automation" }];
+    it.each([
+      { includeAutomation: true, expected: 1 },
+      { includeAutomation: false, expected: 0 },
+    ])(
+      "automation tasks kept only when requested (includeAutomation: $includeAutomation)",
+      ({ includeAutomation, expected }) => {
+        const tasks = [{ ...baseTask, origin_product: "automation" }];
 
-      expect(filterListedTasks(tasks, "automation")).toHaveLength(1);
-    });
+        expect(filterListedTasks(tasks, includeAutomation)).toHaveLength(
+          expected,
+        );
+      },
+    );
 
     it("always hides desktop-local runs", () => {
       const tasks = [

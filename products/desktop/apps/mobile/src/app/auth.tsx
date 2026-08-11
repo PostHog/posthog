@@ -12,10 +12,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { QrScanModal, type QrScanResult } from "@/components/QrScanModal";
 import {
   type CloudRegion,
+  ProjectSelectSheet,
   useAuthStore,
-  useProjectsQuery,
 } from "@/features/auth";
-import { SelectSheet } from "@/features/tasks/composer/SelectSheet";
 import {
   ANALYTICS_EVENTS,
   type SignInFailureReason,
@@ -52,14 +51,7 @@ export default function AuthScreen() {
   const [devProjectId, setDevProjectId] = useState("");
   const [scannerVisible, setScannerVisible] = useState(false);
 
-  const {
-    loginWithOAuth,
-    loginWithPersonalApiKey,
-    setProjectId,
-    scopedTeams,
-    projectId: activeProjectId,
-  } = useAuthStore();
-  const { data: projects } = useProjectsQuery();
+  const { loginWithOAuth, loginWithPersonalApiKey } = useAuthStore();
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const analytics = useAnalytics();
 
@@ -329,22 +321,15 @@ export default function AuthScreen() {
         onClose={() => setScannerVisible(false)}
         onScan={handleQrScan}
       />
-      <SelectSheet
+      {/* onClose fires after a selection and on plain dismissal alike.
+          Dismissing keeps the default (first scoped project). */}
+      <ProjectSelectSheet
         open={projectPickerOpen}
         title="Choose a project"
-        value={activeProjectId != null ? String(activeProjectId) : ""}
-        onChange={(value) => setProjectId(Number(value))}
-        // Fires after a selection and on plain dismissal alike. Dismissing
-        // keeps the default (first scoped project); changeable in Settings.
         onClose={() => {
           setProjectPickerOpen(false);
           navigateAfterLogin();
         }}
-        options={scopedTeams.map((id) => ({
-          value: String(id),
-          label: projects?.find((p) => p.id === id)?.name || `Project ${id}`,
-          description: String(id),
-        }))}
       />
     </SafeAreaView>
   );

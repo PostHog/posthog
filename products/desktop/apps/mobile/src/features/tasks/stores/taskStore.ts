@@ -27,28 +27,25 @@ export interface TaskComposerConfig {
   reasoning?: SupportedReasoningEffort;
   contextWindow?: ContextWindow;
   fastMode?: boolean;
-  /** ISO timestamp of the last local edit. Lets the task screen prefer the
-   *  server-recorded run config when a run (possibly started on another
-   *  device) is newer than this device's selection. */
-  updatedAt?: string;
+  /** The latest run id the user had in view when they made this pick. Lets
+   *  the task screen prefer the server-recorded run config when a new run
+   *  (possibly started on another device) has appeared since — an identity
+   *  comparison, deliberately not wall clocks, so device clock skew can't
+   *  flip the precedence. */
+  lastSeenRunId?: string;
 }
 
 /**
  * True when the latest run's config (recorded server-side at run start) is
- * fresher than this device's local composer selection — e.g. the task was
- * re-run from desktop with a different model after the local pick was made.
- * Configs saved before this field existed count as stale.
+ * fresher than this device's local composer selection — i.e. a run the local
+ * pick has not seen yet exists, e.g. the task was re-run from desktop with a
+ * different model. Configs saved before this field existed count as stale.
  */
 export function isRunConfigNewer(
-  runCreatedAt: string | null | undefined,
-  localUpdatedAt: string | undefined,
+  latestRunId: string | null | undefined,
+  lastSeenRunId: string | undefined,
 ): boolean {
-  if (!runCreatedAt) return false;
-  const runTime = Date.parse(runCreatedAt);
-  if (Number.isNaN(runTime)) return false;
-  if (!localUpdatedAt) return true;
-  const localTime = Date.parse(localUpdatedAt);
-  return Number.isNaN(localTime) || runTime > localTime;
+  return !!latestRunId && latestRunId !== lastSeenRunId;
 }
 
 interface TaskUIState {
@@ -102,7 +99,6 @@ export const useTaskStore = create<TaskUIState>()(
             [taskId]: {
               ...state.composerConfigByTaskId[taskId],
               ...config,
-              updatedAt: new Date().toISOString(),
             },
           },
         })),

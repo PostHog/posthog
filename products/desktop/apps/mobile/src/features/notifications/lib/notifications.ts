@@ -123,6 +123,33 @@ export async function presentLocalNotification(args: {
   }
 }
 
+export type NotificationProjectSwitch =
+  | { action: "navigate" }
+  | { action: "switch"; teamId: number }
+  | { action: "blocked" };
+
+/**
+ * Decides what a notification tap should do about the active project.
+ * An unhydrated auth store (still loading, or no scoped teams yet) must NOT
+ * be treated as a permission denial: cold-start taps race auth hydration,
+ * and dropping the navigation with a wrong "not authorized" alert is worse
+ * than the pre-teamId behavior of just navigating.
+ */
+export function resolveNotificationProjectSwitch(args: {
+  teamId: number | undefined;
+  projectId: number | null;
+  scopedTeams: readonly number[];
+  isLoading: boolean;
+}): NotificationProjectSwitch {
+  const { teamId, projectId, scopedTeams, isLoading } = args;
+  if (teamId == null || isLoading || scopedTeams.length === 0) {
+    return { action: "navigate" };
+  }
+  if (teamId === projectId) return { action: "navigate" };
+  if (scopedTeams.includes(teamId)) return { action: "switch", teamId };
+  return { action: "blocked" };
+}
+
 function parseTeamId(value: unknown): number | undefined {
   const parsed =
     typeof value === "number"

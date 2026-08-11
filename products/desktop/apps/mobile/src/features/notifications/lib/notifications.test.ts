@@ -11,7 +11,10 @@ vi.mock("expo-notifications", () => ({
 vi.mock("react-native", () => ({ Platform: { OS: "ios" } }));
 
 import type * as Notifications from "expo-notifications";
-import { extractTapPayload } from "./notifications";
+import {
+  extractTapPayload,
+  resolveNotificationProjectSwitch,
+} from "./notifications";
 
 function responseWithData(
   data: Record<string, unknown> | undefined,
@@ -54,3 +57,47 @@ describe("extractTapPayload", () => {
 function responseTap(data: Record<string, unknown> | undefined) {
   return extractTapPayload(responseWithData(data));
 }
+
+describe("resolveNotificationProjectSwitch", () => {
+  const base = {
+    teamId: 7 as number | undefined,
+    projectId: 2 as number | null,
+    scopedTeams: [2, 7] as readonly number[],
+    isLoading: false,
+  };
+
+  it.each([
+    {
+      name: "switches to a scoped foreign project",
+      args: base,
+      expected: { action: "switch", teamId: 7 },
+    },
+    {
+      name: "navigates when already on the target project",
+      args: { ...base, projectId: 7 },
+      expected: { action: "navigate" },
+    },
+    {
+      name: "blocks an out-of-scope project",
+      args: { ...base, scopedTeams: [2] },
+      expected: { action: "blocked" },
+    },
+    {
+      name: "navigates for legacy payloads without a teamId",
+      args: { ...base, teamId: undefined },
+      expected: { action: "navigate" },
+    },
+    {
+      name: "never blocks while auth is still loading",
+      args: { ...base, isLoading: true, scopedTeams: [] },
+      expected: { action: "navigate" },
+    },
+    {
+      name: "never blocks before scoped teams hydrate",
+      args: { ...base, scopedTeams: [] },
+      expected: { action: "navigate" },
+    },
+  ])("$name", ({ args, expected }) => {
+    expect(resolveNotificationProjectSwitch(args)).toEqual(expected);
+  });
+});

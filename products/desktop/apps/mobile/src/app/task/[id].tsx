@@ -69,6 +69,7 @@ import {
 import { useTaskSessionStore } from "@/features/tasks/stores/taskSessionStore";
 import {
   isRunConfigNewer,
+  type TaskComposerConfig,
   useTaskStore,
 } from "@/features/tasks/stores/taskStore";
 import { confirmStopRun } from "@/features/tasks/utils/archiveGuard";
@@ -183,11 +184,12 @@ export default function TaskDetailScreen() {
   const [initialComposerMessage, setInitialComposerMessage] = useState<
     string | undefined
   >();
-  // A run started after the local pick (possibly from another device) carries
-  // the fresher config — prefer its recorded values over the stale local ones.
+  // A run the local pick hasn't seen (possibly started from another device)
+  // carries the fresher config — prefer its recorded values over stale local
+  // ones.
   const runConfigIsNewer = isRunConfigNewer(
-    task?.latest_run?.created_at,
-    composerConfig?.updatedAt,
+    task?.latest_run?.id,
+    composerConfig?.lastSeenRunId,
   );
   const composerAdapter: Adapter =
     task?.latest_run?.runtime_adapter &&
@@ -566,22 +568,34 @@ export default function TaskDetailScreen() {
     [taskId],
   );
 
+  // Every local pick records the run it was made against, so a run that
+  // appears later (possibly started on another device) supersedes it via
+  // isRunConfigNewer — an identity check, immune to device clock skew.
+  const latestRunId = task?.latest_run?.id;
+  const updateComposerConfig = useCallback(
+    (config: Partial<TaskComposerConfig>) => {
+      if (!taskId) return;
+      setComposerConfig(taskId, { ...config, lastSeenRunId: latestRunId });
+    },
+    [taskId, setComposerConfig, latestRunId],
+  );
+
   const handleModeChange = useCallback(
     (value: ExecutionMode) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { mode: value });
+      updateComposerConfig({ mode: value });
       // Push to the live cloud session so the next turn uses the new mode.
       // Silently ignore failures — value is already persisted locally and
       // will be replayed if the user resumes from a terminal state.
       setConfigOption(taskId, "mode", value).catch(() => {});
     },
-    [taskId, setComposerConfig, setConfigOption],
+    [taskId, updateComposerConfig, setConfigOption],
   );
 
   const handleAdapterChange = useCallback(
     (selection: CloudComposerSelection) => {
       if (!taskId) return;
-      setComposerConfig(taskId, {
+      updateComposerConfig({
         ...selection,
         contextWindow: DEFAULT_CONTEXT_WINDOW,
         fastMode: false,
@@ -590,22 +604,22 @@ export default function TaskDetailScreen() {
         .getState()
         .resetLastUsedAgentConfig(selection.mode, selection.reasoning);
     },
-    [taskId, setComposerConfig],
+    [taskId, updateComposerConfig],
   );
 
   const handleModelChange = useCallback(
     (value: string) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { model: value });
+      updateComposerConfig({ model: value });
       setConfigOption(taskId, "model", value).catch(() => {});
     },
-    [taskId, setComposerConfig, setConfigOption],
+    [taskId, updateComposerConfig, setConfigOption],
   );
 
   const handleReasoningChange = useCallback(
     (value: SupportedReasoningEffort) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { reasoning: value });
+      updateComposerConfig({ reasoning: value });
       setConfigOption(
         taskId,
         getCloudReasoningConfigOptionId(composerAdapter),
@@ -613,25 +627,25 @@ export default function TaskDetailScreen() {
       ).catch(() => {});
       usePreferencesStore.getState().setLastUsedReasoningEffort(value);
     },
-    [taskId, composerAdapter, setComposerConfig, setConfigOption],
+    [taskId, composerAdapter, updateComposerConfig, setConfigOption],
   );
 
   const handleContextWindowChange = useCallback(
     (value: ContextWindow) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { contextWindow: value });
+      updateComposerConfig({ contextWindow: value });
       usePreferencesStore.getState().setLastUsedContextWindow(value);
     },
-    [taskId, setComposerConfig],
+    [taskId, updateComposerConfig],
   );
 
   const handleFastModeChange = useCallback(
     (value: boolean) => {
       if (!taskId) return;
-      setComposerConfig(taskId, { fastMode: value });
+      updateComposerConfig({ fastMode: value });
       usePreferencesStore.getState().setLastUsedFastMode(value);
     },
-    [taskId, setComposerConfig],
+    [taskId, updateComposerConfig],
   );
 
   const handleStop = useCallback(() => {

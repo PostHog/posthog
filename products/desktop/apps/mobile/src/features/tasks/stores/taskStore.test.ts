@@ -13,41 +13,40 @@ import { isRunConfigNewer, useTaskStore } from "./taskStore";
 describe("isRunConfigNewer", () => {
   it.each([
     {
-      name: "run after local edit",
-      run: "2026-08-11T10:00:00Z",
-      local: "2026-08-11T09:00:00Z",
+      name: "a run the local pick has not seen",
+      run: "run-2",
+      seen: "run-1",
       expected: true,
     },
     {
-      name: "run before local edit",
-      run: "2026-08-11T08:00:00Z",
-      local: "2026-08-11T09:00:00Z",
+      name: "the run the local pick was made against",
+      run: "run-1",
+      seen: "run-1",
       expected: false,
     },
     {
-      name: "legacy local config without timestamp counts as stale",
-      run: "2026-08-11T08:00:00Z",
-      local: undefined,
+      name: "legacy local config without a seen run counts as stale",
+      run: "run-1",
+      seen: undefined,
       expected: true,
     },
-    { name: "no run", run: undefined, local: undefined, expected: false },
-    {
-      name: "unparseable run timestamp",
-      run: "not-a-date",
-      local: "2026-08-11T09:00:00Z",
-      expected: false,
-    },
-  ])("$name -> $expected", ({ run, local, expected }) => {
-    expect(isRunConfigNewer(run, local)).toBe(expected);
+    { name: "no run at all", run: undefined, seen: undefined, expected: false },
+    { name: "null run id", run: null, seen: "run-1", expected: false },
+  ])("$name -> $expected", ({ run, seen, expected }) => {
+    expect(isRunConfigNewer(run, seen)).toBe(expected);
   });
 });
 
 describe("setComposerConfig", () => {
-  it("stamps updatedAt on every write", () => {
-    useTaskStore.getState().setComposerConfig("task-1", { model: "opus" });
+  it("merges partial updates without dropping the seen run id", () => {
+    const { setComposerConfig } = useTaskStore.getState();
+    setComposerConfig("task-1", { model: "opus", lastSeenRunId: "run-1" });
+    setComposerConfig("task-1", { reasoning: "high" });
 
-    const saved = useTaskStore.getState().composerConfigByTaskId["task-1"];
-    expect(saved.model).toBe("opus");
-    expect(Date.parse(saved.updatedAt ?? "")).not.toBeNaN();
+    expect(useTaskStore.getState().composerConfigByTaskId["task-1"]).toEqual({
+      model: "opus",
+      reasoning: "high",
+      lastSeenRunId: "run-1",
+    });
   });
 });
