@@ -4,6 +4,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import {
     CyclotronJobInvocationGlobals,
     EventPropertyFilter,
+    FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     SurveyEventName,
@@ -13,7 +14,7 @@ import {
 
 import {
     alignGlobalsWithNotificationFilter,
-    buildLastSurveyResponseQueries,
+    buildLastSurveyResponseQuery,
     getDefaultSurveyMessage,
     remapSurveyResponseProperties,
 } from './surveyNotificationModalLogic'
@@ -73,13 +74,12 @@ describe('surveyNotificationModalLogic', () => {
     })
 
     it.each([NEW_SURVEY.id, ''])('returns no query when building a last-response lookup for survey id "%s"', (id) => {
-        expect(buildLastSurveyResponseQueries(id, null)).toEqual([])
+        expect(buildLastSurveyResponseQuery(id, null)).toBeNull()
     })
 
     it('builds a last-response events query scoped to the survey when the notification has no filters', () => {
-        const queries = buildLastSurveyResponseQueries('survey-abc', null)
-        expect(queries).toHaveLength(1)
-        expect(queries[0]).toMatchObject({
+        const query = buildLastSurveyResponseQuery('survey-abc', null)
+        expect(query).toMatchObject({
             kind: NodeKind.EventsQuery,
             select: ['*', 'person'],
             limit: 1,
@@ -87,7 +87,7 @@ describe('surveyNotificationModalLogic', () => {
             orderBy: ['timestamp DESC'],
             events: [SurveyEventName.SENT, SurveyEventName.DISMISSED],
         })
-        expect(queries[0].fixedProperties).toEqual([
+        expect(query?.fixedProperties).toEqual([
             {
                 key: SurveyEventProperties.SURVEY_ID,
                 type: PropertyFilterType.Event,
@@ -97,7 +97,7 @@ describe('surveyNotificationModalLogic', () => {
         ])
     })
 
-    it('carries each notification event filter into its own last-response lookup', () => {
+    it('requires the last response to match one of the notification event filters', () => {
         const completedFilter: EventPropertyFilter = {
             key: SurveyEventProperties.SURVEY_COMPLETED,
             type: PropertyFilterType.Event,
@@ -110,26 +110,55 @@ describe('surveyNotificationModalLogic', () => {
             value: 8,
             operator: PropertyOperator.GreaterThanOrEqual,
         }
+        const globalFilter: EventPropertyFilter = {
+            key: '$browser',
+            type: PropertyFilterType.Event,
+            value: 'Chrome',
+            operator: PropertyOperator.Exact,
+        }
 
-        const queries = buildLastSurveyResponseQueries('survey-abc', {
+        const query = buildLastSurveyResponseQuery('survey-abc', {
             events: [
                 { id: SurveyEventName.SENT, type: 'events', properties: [completedFilter, ratingFilter] },
                 { id: SurveyEventName.DISMISSED, type: 'events', properties: [] },
             ],
+            properties: [globalFilter],
             filter_test_accounts: true,
         })
 
-        expect(queries.map((query) => query.event)).toEqual([SurveyEventName.SENT, SurveyEventName.DISMISSED])
-        expect(queries[0].filterTestAccounts).toBe(true)
-        expect(queries[0].fixedProperties).toEqual([
+        expect(query?.event).toBeUndefined()
+        expect(query?.events).toBeUndefined()
+        expect(query?.filterTestAccounts).toBe(true)
+        expect(query?.fixedProperties).toEqual([
             {
                 key: SurveyEventProperties.SURVEY_ID,
                 type: PropertyFilterType.Event,
                 value: 'survey-abc',
                 operator: PropertyOperator.Exact,
             },
-            completedFilter,
-            ratingFilter,
+            {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    completedFilter,
+                                    ratingFilter,
+                                    { type: PropertyFilterType.HogQL, key: "event = 'survey sent'" },
+                                ],
+                            },
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: "event = 'survey dismissed'" }],
+                            },
+                        ],
+                    },
+                    { type: FilterLogicalOperator.And, values: [globalFilter] },
+                ],
+            },
         ])
     })
 

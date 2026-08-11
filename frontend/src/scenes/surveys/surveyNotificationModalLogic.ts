@@ -31,17 +31,22 @@ import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     CyclotronJobFiltersType,
     CyclotronJobInvocationGlobals,
     CyclotronJobTestInvocationResult,
     EventPropertyFilter,
     EventType,
+    FilterLogicalOperator,
     HogFunctionTemplateType,
     HogFunctionType,
     IntegrationType,
     PersonType,
     PropertyFilterType,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
     PropertyOperator,
     Survey,
     SurveyEventName,
@@ -268,22 +273,55 @@ function buildTemplateGlobals(survey: SurveyNotificationContext): CyclotronJobIn
 }
 
 /**
- * One lookup per event the notification triggers on, each carrying that event's own property
- * filters. Anything less would fetch a response the notification would never have sent for
- * (a partial `survey sent`, a rating below the configured threshold), and the test would be
- * skipped with no way for the user to tell why.
+ * The events the notification would fire on, as an OR of one AND-group per event, which is the
+ * same shape the full destination editor uses to list matching events (`matchingFilters` in
+ * `hogFunctionConfigurationLogic`).
+ */
+function buildNotificationMatchGroup(filters: CyclotronJobFiltersType | null): PropertyGroupFilter | null {
+    const events = filters?.events ?? []
+    if (events.length === 0) {
+        return null
+    }
+
+    const eventGroups: PropertyGroupFilterValue = {
+        type: FilterLogicalOperator.Or,
+        values: events.map((event) => ({
+            type: FilterLogicalOperator.And,
+            values: [
+                ...((event.properties ?? []) as AnyPropertyFilter[]),
+                { type: PropertyFilterType.HogQL, key: hogql`event = ${event.id}` },
+            ],
+        })),
+    }
+    const globalProperties = (filters?.properties ?? []) as AnyPropertyFilter[]
+
+    return {
+        type: FilterLogicalOperator.And,
+        values: [
+            eventGroups,
+            ...(globalProperties.length > 0
+                ? [{ type: FilterLogicalOperator.And, values: globalProperties } as PropertyGroupFilterValue]
+                : []),
+        ],
+    }
+}
+
+/**
+ * The newest response the notification would actually have fired on. Selecting on anything less
+ * hands the test an event the notification rejects (a partial `survey sent`, a rating below the
+ * configured threshold), and the test is skipped with no way for the user to tell why.
  *
  * Only the top-level filters are read. `buildHogFunctionInvocations` evaluates those for every
  * function, and additionally requires a mapping to match when the function has mappings, so an
  * event that fails them is rejected outright. Survey notifications carry no mappings, so this
  * is exact for anything this modal creates.
  */
-export function buildLastSurveyResponseQueries(
+export function buildLastSurveyResponseQuery(
     surveyId: string,
     filters: CyclotronJobFiltersType | null
-): EventsQuery[] {
+): EventsQuery | null {
     if (!surveyId || surveyId === NEW_SURVEY.id) {
-        return []
+        return null
     }
 
     // Saved filters already scope by survey, but a hand-edited one may not, and pulling another
@@ -294,34 +332,21 @@ export function buildLastSurveyResponseQueries(
         value: surveyId,
         operator: PropertyOperator.Exact,
     }
-    const baseQuery: EventsQuery = {
+    const matchGroup = buildNotificationMatchGroup(filters)
+
+    return {
         kind: NodeKind.EventsQuery,
         select: ['*', 'person'],
         after: '-90d',
         orderBy: ['timestamp DESC'],
         limit: 1,
+        filterTestAccounts: filters?.filter_test_accounts,
+        events: matchGroup ? undefined : [SurveyEventName.SENT, SurveyEventName.DISMISSED],
+        fixedProperties: matchGroup ? [surveyIdProperty, matchGroup] : [surveyIdProperty],
         modifiers: {
             personsOnEventsMode: 'person_id_no_override_properties_on_events',
         },
     }
-
-    const events = filters?.events ?? []
-    if (events.length === 0) {
-        return [
-            {
-                ...baseQuery,
-                events: [SurveyEventName.SENT, SurveyEventName.DISMISSED],
-                fixedProperties: [surveyIdProperty],
-            },
-        ]
-    }
-
-    return events.map((event) => ({
-        ...baseQuery,
-        event: event.id,
-        filterTestAccounts: filters?.filter_test_accounts,
-        fixedProperties: [surveyIdProperty, ...(event.properties ?? []), ...(filters?.properties ?? [])],
-    }))
 }
 
 type LastSurveyResponseResult =
@@ -386,35 +411,22 @@ export function alignGlobalsWithNotificationFilter(
     }
 }
 
-async function fetchLastSurveyResponseGlobals(queries: EventsQuery[]): Promise<LastSurveyResponseResult> {
-    if (queries.length === 0) {
+async function fetchLastSurveyResponseGlobals(query: EventsQuery | null): Promise<LastSurveyResponseResult> {
+    if (!query) {
         return { status: 'empty' }
     }
-    // One branch erroring shouldn't cost us a real response another branch already found.
-    const settled = await Promise.allSettled(queries.map((query) => performQuery(query)))
-    if (settled.every((result) => result.status === 'rejected')) {
-        return { status: 'failed' }
-    }
-
-    let latest: { event: EventType; person: PersonType } | null = null
-    for (const result of settled) {
-        if (result.status !== 'fulfilled') {
-            continue
-        }
-        const row = result.value?.results?.[0]
+    try {
+        const response = await performQuery(query)
+        const row = response?.results?.[0]
         const event = row?.[0] as EventType | undefined
         const person = row?.[1] as PersonType | undefined
         if (!event || !person) {
-            continue
+            return { status: 'empty' }
         }
-        if (!latest || Date.parse(event.timestamp ?? '') > Date.parse(latest.event.timestamp ?? '')) {
-            latest = { event, person }
-        }
+        return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(event, person) }
+    } catch {
+        return { status: 'failed' }
     }
-    if (!latest) {
-        return { status: 'empty' }
-    }
-    return { status: 'ok', globals: convertToHogFunctionInvocationGlobals(latest.event, latest.person) }
 }
 
 async function buildSurveyNotificationPayload({
@@ -1309,7 +1321,7 @@ export const surveyNotificationModalLogic = kea<surveyNotificationModalLogicType
                     let usingSample = source === 'sample'
                     if (source === 'last_response') {
                         const lookup = await fetchLastSurveyResponseGlobals(
-                            buildLastSurveyResponseQueries(values.survey.id, filters)
+                            buildLastSurveyResponseQuery(values.survey.id, filters)
                         )
                         if (lookup.status === 'ok') {
                             globals = lookup.globals
