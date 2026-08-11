@@ -5335,11 +5335,10 @@ const api = {
 
     signalUserAutonomy: {
         async get(userId: string | '@me' = '@me'): Promise<SignalUserAutonomyConfig | null> {
-            // The endpoint now returns 200 + null when no config is saved; the 404 branch is a
-            // fallback for an older backend mid-deploy. Both mean "no config"; other errors rethrow.
             try {
                 return await new ApiRequest().signalUserAutonomy(userId).get()
             } catch (error: any) {
+                // 404 = no config yet (user hasn't opted in). Treat as null.
                 if (error?.status === 404) {
                     return null
                 }
