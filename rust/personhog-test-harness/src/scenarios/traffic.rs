@@ -29,6 +29,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
@@ -300,71 +301,115 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 /// personhog charts follow: `app.kubernetes.io/name` equals the release
 /// (and namespace) name, and `component=app` excludes the pgbouncer
 /// sidecars sharing the namespace.
-/// The advisory-lock key electing the chaos singleton. Arbitrary and
-/// fixed: every bed instance in an environment competes for this one
-/// key on the persons database.
-const CHAOS_LOCK_KEY: i64 = 0x0070_6863_6861_6f73;
+/// The lease TTL bounding both sides of the chaos election: a dead
+/// holder's claim expires within this window, and a live holder that
+/// cannot confirm its lease for this long stops running chaos.
+const CHAOS_LEASE_TTL: Duration = Duration::from_secs(30);
 
-/// Session-scoped chaos election. The winner holds a dedicated Postgres
-/// session for the process lifetime and runs chaos; losers retry on a
-/// slow cadence. A lost session releases the lock server-side, so the
-/// holder demotes itself when its heartbeat fails rather than killing
-/// pods alongside a new winner.
+/// Lease-backed chaos election on the coordination etcd. The winner
+/// claims `{prefix}chaos_leader` under a lease it keeps alive; losers
+/// retry on a slow cadence. Without etcd endpoints there is nothing to
+/// elect against, so a single instance is assumed and chaos runs
+/// directly.
 async fn chaos_singleton(args: &TrafficArgs, shutdown: Arc<AtomicBool>) {
-    use sqlx::Connection;
     const RETRY: Duration = Duration::from_secs(30);
 
+    let Some(endpoints) = args.chaos_etcd_endpoints.clone() else {
+        tracing::warn!("chaos enabled without etcd endpoints; running unelected");
+        gauge!("personhog_traffic_chaos_enabled").set(1.0);
+        chaos::run(chaos_config(args), shutdown).await;
+        return;
+    };
+
     while !shutdown.load(Ordering::SeqCst) {
-        let mut conn = match sqlx::postgres::PgConnection::connect(&args.persons_db_url).await {
-            Ok(conn) => conn,
-            Err(error) => {
-                tracing::warn!(%error, "chaos lock connection failed; retrying");
-                tokio::time::sleep(RETRY).await;
-                continue;
-            }
-        };
-        match try_acquire_chaos_lock(&mut conn).await {
-            Ok(true) => {
-                gauge!("personhog_traffic_chaos_enabled").set(1.0);
-                tracing::info!("chaos lock acquired; this instance runs chaos");
-                let chaos = chaos::run(chaos_config(args), shutdown.clone());
-                tokio::pin!(chaos);
-                let mut probe = tokio::time::interval(Duration::from_secs(15));
-                probe.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    tokio::select! {
-                        _ = &mut chaos => break,
-                        _ = probe.tick() => {
-                            let alive = sqlx::query_scalar::<_, i32>("SELECT 1")
-                                .fetch_one(&mut conn)
-                                .await
-                                .is_ok();
-                            if !alive {
-                                tracing::warn!("chaos lock session lost; demoting to candidate");
-                                break;
-                            }
-                        }
-                    }
-                }
-                gauge!("personhog_traffic_chaos_enabled").set(0.0);
-            }
-            Ok(false) => {
-                tokio::time::sleep(RETRY).await;
-            }
-            Err(error) => {
-                tracing::warn!(%error, "chaos lock probe failed; retrying");
-                tokio::time::sleep(RETRY).await;
-            }
+        if let Err(error) = campaign(args, &endpoints, &shutdown).await {
+            tracing::warn!(%error, "chaos election attempt failed; retrying");
         }
+        tokio::time::sleep(RETRY).await;
     }
 }
 
-async fn try_acquire_chaos_lock(conn: &mut sqlx::postgres::PgConnection) -> anyhow::Result<bool> {
-    let held = sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_lock($1)")
-        .bind(CHAOS_LOCK_KEY)
-        .fetch_one(conn)
-        .await?;
-    Ok(held)
+/// One election attempt: claim the leader key, and while the claim
+/// holds, run chaos. Returns after losing the campaign, demoting, or
+/// shutdown; the caller paces the next attempt.
+async fn campaign(args: &TrafficArgs, endpoints: &str, shutdown: &Arc<AtomicBool>) -> Result<()> {
+    let store = EtcdStore::connect(StoreConfig {
+        endpoints: endpoints.split(',').map(String::from).collect(),
+        prefix: args.chaos_etcd_prefix.clone(),
+    })
+    .await
+    .context("connecting to etcd for the chaos election")?;
+    let key = format!("{}chaos_leader", store.prefix());
+
+    let lease_id = store.grant_lease(CHAOS_LEASE_TTL.as_secs() as i64).await?;
+    if !store
+        .put_if_absent(&key, b"held".to_vec(), lease_id)
+        .await?
+    {
+        store.revoke_lease(lease_id).await.ok();
+        return Ok(());
+    }
+
+    gauge!("personhog_traffic_chaos_enabled").set(1.0);
+    tracing::info!("chaos leadership claimed; this instance runs chaos");
+    let result = hold_and_run(args, &store, lease_id, shutdown).await;
+    gauge!("personhog_traffic_chaos_enabled").set(0.0);
+    // Free the key immediately on a clean exit so a successor need not
+    // wait out the TTL. Best-effort: expiry covers an unreachable etcd.
+    store.revoke_lease(lease_id).await.ok();
+    result
+}
+
+/// Runs chaos while keepalives confirm the lease, demoting only on
+/// lease loss, never on a stream blip: chaos itself bounces etcd
+/// members, so the holder's keepalive stream breaking is expected and
+/// is answered by rebuilding the stream on the same lease. Two facts
+/// end the hold early. A keepalive answered with TTL 0 means etcd
+/// expired the lease, and the key with it: a successor may already
+/// hold the claim, so chaos must stop now. No confirmed keepalive for
+/// a full TTL (on this pod's clock, counted from the last
+/// confirmation) means the lease may have expired unobserved; the
+/// local deadline fires no later than etcd's, so the hold ends before
+/// a successor can start.
+async fn hold_and_run(
+    args: &TrafficArgs,
+    store: &EtcdStore,
+    lease_id: i64,
+    shutdown: &Arc<AtomicBool>,
+) -> Result<()> {
+    let chaos = chaos::run(chaos_config(args), shutdown.clone());
+    tokio::pin!(chaos);
+    let (mut keeper, mut stream) = store.keep_alive(lease_id).await?;
+    let mut last_confirmed = Instant::now();
+    let mut tick = tokio::time::interval(CHAOS_LEASE_TTL / 3);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            _ = &mut chaos => return Ok(()),
+            _ = tick.tick() => {
+                if last_confirmed.elapsed() >= CHAOS_LEASE_TTL {
+                    tracing::warn!("chaos lease unconfirmed past TTL; demoting");
+                    return Ok(());
+                }
+                if keeper.keep_alive().await.is_err() {
+                    if let Ok(rebuilt) = store.keep_alive(lease_id).await {
+                        (keeper, stream) = rebuilt;
+                    }
+                    continue;
+                }
+                match tokio::time::timeout(Duration::from_secs(5), stream.message()).await {
+                    Ok(Ok(Some(resp))) if resp.ttl() > 0 => last_confirmed = Instant::now(),
+                    Ok(Ok(Some(_))) => {
+                        tracing::warn!("chaos lease expired; demoting");
+                        return Ok(());
+                    }
+                    // Stream end, error, or timeout: not loss; the
+                    // deadline above governs.
+                    _ => {}
+                }
+            }
+        }
+    }
 }
 
 /// Delete the epoch's pool through the saga and account for every
@@ -580,32 +625,41 @@ async fn shutdown_signal() {
 mod tests {
     use super::*;
 
-    /// Needs the CI gate's Postgres; run explicitly with `--ignored`.
+    /// Needs the CI gate's etcd; run explicitly with `--ignored`.
     #[tokio::test]
-    #[ignore = "needs a local persons database"]
-    async fn chaos_lock_is_exclusive_per_session_and_freed_on_disconnect() {
-        use sqlx::Connection;
-        let url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-            "postgres://posthog:posthog@localhost:5432/posthog_persons".to_string()
-        });
-        let mut holder = sqlx::postgres::PgConnection::connect(&url).await.unwrap();
-        let mut contender = sqlx::postgres::PgConnection::connect(&url).await.unwrap();
-
-        assert!(try_acquire_chaos_lock(&mut holder).await.unwrap());
-        assert!(!try_acquire_chaos_lock(&mut contender).await.unwrap());
-
-        // Closing the holder's session releases the lock server-side.
-        holder.close().await.unwrap();
-        let freed = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                if try_acquire_chaos_lock(&mut contender).await.unwrap() {
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+    #[ignore = "needs a local etcd"]
+    async fn chaos_claim_is_exclusive_and_freed_by_lease_revoke() {
+        let endpoints =
+            std::env::var("ETCD_ENDPOINTS").unwrap_or_else(|_| "http://localhost:2379".to_string());
+        let store = EtcdStore::connect(StoreConfig {
+            endpoints: endpoints.split(',').map(String::from).collect(),
+            prefix: "/personhog-harness-test/".to_string(),
         })
-        .await;
-        assert!(freed.is_ok(), "lock not released after holder disconnect");
+        .await
+        .unwrap();
+        // A per-run key: a crashed prior run's claim lives only as long
+        // as its lease, but a fresh key avoids waiting that out.
+        let key = format!("{}chaos_leader_{}", store.prefix(), Uuid::new_v4());
+
+        let holder = store.grant_lease(30).await.unwrap();
+        let contender = store.grant_lease(30).await.unwrap();
+        assert!(store
+            .put_if_absent(&key, b"a".to_vec(), holder)
+            .await
+            .unwrap());
+        assert!(!store
+            .put_if_absent(&key, b"b".to_vec(), contender)
+            .await
+            .unwrap());
+
+        // Revoking the holder's lease deletes the key with it, freeing
+        // the claim immediately.
+        store.revoke_lease(holder).await.unwrap();
+        assert!(store
+            .put_if_absent(&key, b"b".to_vec(), contender)
+            .await
+            .unwrap());
+        store.revoke_lease(contender).await.unwrap();
     }
 
     #[test]
