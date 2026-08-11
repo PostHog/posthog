@@ -8,7 +8,7 @@ import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
 
 import { PathCleaningFilter } from '~/types'
 
-import { isValidPathCleaningRegex } from './pathCleaningUtils'
+import { pathCleaningRegexError } from './pathCleaningUtils'
 import { PathRegexModal } from './PathRegexModal'
 
 interface PathCleanFilterItem {
@@ -22,7 +22,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: String(filter.alias) })
 
     const regex = filter.regex ?? ''
-    const isInvalidRegex = !isValidPathCleaningRegex(regex)
+    const regexError = pathCleaningRegexError(regex)
 
     return (
         <>
@@ -45,13 +45,13 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ transform: CSS.Translate.toString(transform), transition }}
             >
-                <Tooltip title={isInvalidRegex ? 'NOTE: Invalid Regex, will be skipped' : null}>
+                <Tooltip title={regexError}>
                     <LemonSnack
                         type="pill"
                         onClick={onChange ? () => setVisible(!visible) : undefined}
                         onClose={onRemove}
                         title={`${filter.regex} is mapped to ${filter.alias}`}
-                        className={clsx({ 'border border-accent': isInvalidRegex })}
+                        className={clsx({ 'border border-accent': regexError !== null })}
                     >
                         <span className="inline-flex items-center">
                             <span className="font-mono text-accent text-xs">{filter.regex ?? '(Empty)'}</span>

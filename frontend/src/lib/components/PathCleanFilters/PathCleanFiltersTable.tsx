@@ -24,7 +24,7 @@ import { PathCleaningFilter } from '~/types'
 
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { parseAliasToReadable } from './PathCleanFilterItem'
-import { ensureFilterOrder, isValidPathCleaningRegex, updateFilterOrder } from './pathCleaningUtils'
+import { ensureFilterOrder, pathCleaningRegexError, updateFilterOrder } from './pathCleaningUtils'
 import { PathRegexModal } from './PathRegexModal'
 
 export interface PathCleanFiltersTableProps {
@@ -47,7 +47,8 @@ function SortableRow({ filter, index, onEdit, onRemove, disabledReason }: Sortab
     })
 
     const regex = filter.regex ?? ''
-    const isInvalidRegex = !isValidPathCleaningRegex(regex)
+    const regexError = pathCleaningRegexError(regex)
+    const isInvalidRegex = regexError !== null
 
     const style = {
         transform: CSS.Transform.toString(transform),
@@ -89,7 +90,7 @@ function SortableRow({ filter, index, onEdit, onRemove, disabledReason }: Sortab
                 </td>
                 <td className="py-1 px-2 w-12 text-center text-muted font-medium text-sm">{index + 1}</td>
                 <td className="py-1 px-2 min-w-0">
-                    <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : regex}>
+                    <Tooltip title={regexError ?? regex}>
                         <code
                             className={clsx(
                                 'font-mono text-xs px-1 py-0.5 rounded bg-accent-light text-accent block truncate',
