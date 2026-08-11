@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconChevronDown } from '@posthog/icons'
@@ -60,6 +61,9 @@ function ConversationsWidgetRow({
     const assigneeName = ticketAssigneeName(ticket)
     const isAssignmentLoading = ticketAssignmentLoadingId === ticket.id
     const channelLabel = channelOptions.find((option) => option.value === ticket.channel_source)?.label
+    const captureTicketOpened = (): void => {
+        posthog.capture('support ticket opened from recent ticket list')
+    }
     return (
         <div className="border-b border-primary px-3 py-3 hover:bg-fill-highlight-100">
             <div className="flex min-w-0 items-center gap-2">
@@ -68,6 +72,7 @@ function ConversationsWidgetRow({
                     target="_blank"
                     subtle
                     className="min-w-0 flex-1 text-current hover:text-current"
+                    onClick={captureTicketOpened}
                 >
                     <div className="flex min-w-0 items-center gap-2">
                         <PersonDisplay
@@ -135,6 +140,7 @@ function ConversationsWidgetRow({
                 target="_blank"
                 subtle
                 className="mt-1.5 block min-w-0 text-current hover:text-current"
+                onClick={captureTicketOpened}
             >
                 <div className="flex min-w-0 items-start gap-2 text-sm text-muted">
                     <span
