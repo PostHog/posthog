@@ -811,6 +811,8 @@ class KernelRuntimeService:
         runtime.status = KernelRuntime.Status.RUNNING
         runtime.last_used_at = timezone.now()
         runtime.sandbox_id = sandbox.id
+        runtime.sandbox_idle_timeout_seconds = sandbox_config.idle_timeout_seconds
+        runtime.sandbox_ttl_seconds = sandbox_config.ttl_seconds
         runtime.save(
             update_fields=[
                 "kernel_id",
@@ -819,6 +821,8 @@ class KernelRuntimeService:
                 "status",
                 "last_used_at",
                 "sandbox_id",
+                "sandbox_idle_timeout_seconds",
+                "sandbox_ttl_seconds",
             ]
         )
 

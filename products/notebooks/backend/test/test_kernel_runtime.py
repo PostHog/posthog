@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -21,6 +22,7 @@ from products.notebooks.backend.kernel_runtime import (
     build_notebook_sandbox_config,
 )
 from products.notebooks.backend.models import KernelRuntime, Notebook
+from products.notebooks.backend.presentation.views.notebook import _kernel_reached_a_deadline
 
 
 class _DummyLock:
@@ -527,3 +529,56 @@ class TestKernelRuntimeService(BaseTest):
         assert outputs == expected_outputs
         assert payloads == expected_payloads
         assert parser.buffer == ""
+
+
+class TestKernelDeadlineClassification(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "a_raised_setting_hides_no_idle_reap",
+                {"sandbox_idle_timeout_seconds": 1800, "sandbox_ttl_seconds": 7200},
+                {"minutes_idle": 40, "minutes_old": 40},
+                12 * 60 * 60,
+                True,
+            ),
+            (
+                "a_raised_setting_hides_no_lifetime_reap",
+                {"sandbox_idle_timeout_seconds": 1800, "sandbox_ttl_seconds": 7200},
+                {"minutes_idle": 10, "minutes_old": 180},
+                12 * 60 * 60,
+                True,
+            ),
+            (
+                "a_lowered_setting_invents_no_reap",
+                {"sandbox_idle_timeout_seconds": 12 * 60 * 60, "sandbox_ttl_seconds": 12 * 60 * 60},
+                {"minutes_idle": 20, "minutes_old": 20},
+                600,
+                False,
+            ),
+            (
+                "a_row_with_no_recorded_clocks_reads_the_notebook",
+                {"sandbox_idle_timeout_seconds": None, "sandbox_ttl_seconds": None},
+                {"minutes_idle": 40, "minutes_old": 40},
+                1800,
+                True,
+            ),
+        ]
+    )
+    def test_kernel_reached_a_deadline(
+        self,
+        _name: str,
+        recorded_clocks: dict[str, int | None],
+        elapsed: dict[str, int],
+        notebook_timeout_seconds: int,
+        expected: bool,
+    ) -> None:
+        notebook = Notebook.objects.create(team=self.team, kernel_idle_timeout_seconds=notebook_timeout_seconds)
+        runtime = KernelRuntime(
+            team=self.team,
+            notebook_short_id=notebook.short_id,
+            created_at=timezone.now() - timedelta(minutes=elapsed["minutes_old"]),
+            last_used_at=timezone.now() - timedelta(minutes=elapsed["minutes_idle"]),
+            **recorded_clocks,
+        )
+
+        assert _kernel_reached_a_deadline(runtime, build_notebook_sandbox_config(notebook)) is expected

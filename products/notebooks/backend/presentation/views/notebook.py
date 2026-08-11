@@ -425,17 +425,18 @@ ALLOWED_KERNEL_IDLE_TIMEOUT_SECONDS = [600, 1800, 3600, 10800, 21600, 43200]
 def _kernel_reached_a_deadline(runtime: KernelRuntime, sandbox_config: SandboxConfig) -> bool:
     # Modal reaps a sandbox on two separate clocks: idle since the last cell run, and lifetime
     # since creation. Either one makes a vanished sandbox a timeout rather than a plain stop.
+    # Judge the sandbox by the clocks it was created with rather than by the notebook's current
+    # settings, which only reach a kernel on a restart. `sandbox_config` is the fallback for rows
+    # that predate the recorded columns.
+    idle_timeout_seconds = runtime.sandbox_idle_timeout_seconds or sandbox_config.idle_timeout_seconds
+    ttl_seconds = runtime.sandbox_ttl_seconds or sandbox_config.ttl_seconds
     if (
         runtime.last_used_at
-        and sandbox_config.idle_timeout_seconds
-        and now() >= runtime.last_used_at + timedelta(seconds=sandbox_config.idle_timeout_seconds)
+        and idle_timeout_seconds
+        and now() >= runtime.last_used_at + timedelta(seconds=idle_timeout_seconds)
     ):
         return True
-    return bool(
-        runtime.created_at
-        and sandbox_config.ttl_seconds
-        and now() >= runtime.created_at + timedelta(seconds=sandbox_config.ttl_seconds)
-    )
+    return bool(runtime.created_at and ttl_seconds and now() >= runtime.created_at + timedelta(seconds=ttl_seconds))
 
 
 class NotebookKernelConfigSerializer(serializers.Serializer):

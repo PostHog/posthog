@@ -170,6 +170,12 @@ class KernelRuntime(UUIDTModel):
     kernel_pid = models.IntegerField(null=True, blank=True)
     connection_file = models.TextField(null=True, blank=True)
     sandbox_id = models.CharField(max_length=128, null=True, blank=True)
+    # The two reap clocks this sandbox was created with. A notebook's kernel settings can change
+    # while the kernel runs, and a change only reaches a sandbox on the next start, so the
+    # notebook's current values do not say when this one dies. Null when the row predates the
+    # columns, which is why readers fall back to the notebook's config.
+    sandbox_idle_timeout_seconds = models.IntegerField(null=True, blank=True)
+    sandbox_ttl_seconds = models.IntegerField(null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
     server_url = models.TextField(null=True, blank=True)
     server_connect_token = models.TextField(null=True, blank=True)
