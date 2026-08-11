@@ -368,6 +368,25 @@ describe('featureFlagsStaffToolsLogic', () => {
             })
         })
 
+        it("surfaces the server's reason when the write is rejected", async () => {
+            // The endpoint refuses an override on an environment team, and the dialog's numeric
+            // bounds can't catch that. A bare `catch` would replace this with the generic failure
+            // message, leaving the operator no way to tell a refusal from a network blip.
+            useMocks({
+                post: {
+                    [SET_URL]: () => [
+                        400,
+                        { type: 'validation_error', code: 'invalid', detail: 'Team 5 is an environment of project 3.' },
+                    ],
+                },
+            })
+
+            logic.actions.setMaxFeatureFlagsOverride(5, 500)
+            await expectLogic(logic).toDispatchActions(['teamConfigMutationSettled'])
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Team 5 is an environment of project 3.')
+        })
+
         it('only sends one mutation request when double-submitted for the same team', async () => {
             const handleSet = jest.fn(() => [200, { team_id: 5, minimal_flag_called_events: true }])
             useMocks({ post: { [SET_URL]: handleSet } })

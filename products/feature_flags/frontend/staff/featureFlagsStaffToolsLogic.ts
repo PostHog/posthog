@@ -517,8 +517,10 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                 const teamConfig = await featureFlagsStaffTeamConfigSetCreate({ team_id: teamId, ...body })
                 actions.teamConfigMutationSucceeded(teamConfig)
                 lemonToast.success(`Updated team ${teamId}'s ${settingLabel}.`)
-            } catch {
-                lemonToast.error(`Failed to update team ${teamId}'s ${settingLabel}.`)
+            } catch (error: any) {
+                // The endpoint refuses an override on an environment team, which the dialog's
+                // client-side bounds can't catch, so surface the server's reason when there is one.
+                lemonToast.error(error.detail || `Failed to update team ${teamId}'s ${settingLabel}.`)
             } finally {
                 inFlight.delete(teamId)
                 actions.teamConfigMutationSettled(teamId)

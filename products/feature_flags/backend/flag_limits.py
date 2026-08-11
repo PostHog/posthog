@@ -4,14 +4,6 @@ from posthog.models.team import Team
 
 from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
 
-# Ceiling on a staff-granted override. The global default exists to bound the flag-definitions
-# blob and the flags service's in-memory flag set, so an unbounded grant would reintroduce the
-# memory risk the limit was added for. This assumes MAX_FEATURE_FLAGS_PER_TEAM stays below it:
-# raising that env var past this value would leave staff able only to lower a team's limit.
-# A constant rather than a setting because it feeds the mutation serializer's max_value, which
-# drf-spectacular bakes into api.zod.ts as a literal.
-MAX_FEATURE_FLAGS_OVERRIDE_CEILING = 20_000
-
 
 def resolve_max_feature_flags(override: int | None) -> int:
     """Effective flag-count cap for a team, given its stored override."""

@@ -18,12 +18,14 @@ from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.flag_limits import (
-    MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
     get_max_feature_flags_override_for_team,
     resolve_max_feature_flags,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    TeamFeatureFlagsConfig,
+)
 
 logger = structlog.get_logger(__name__)
 

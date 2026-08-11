@@ -13,9 +13,11 @@ from products.feature_flags.backend.api.staff_team_config import (
     MAX_TEAM_IDS_PER_QUERY,
     StaffTeamConfigMutationSerializer,
 )
-from products.feature_flags.backend.flag_limits import MAX_FEATURE_FLAGS_OVERRIDE_CEILING
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.models.team_feature_flags_config import TeamFeatureFlagsConfig
+from products.feature_flags.backend.models.team_feature_flags_config import (
+    MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    TeamFeatureFlagsConfig,
+)
 
 LIST_URL = "/api/feature_flags_staff_team_config/"
 SET_URL = "/api/feature_flags_staff_team_config/set/"

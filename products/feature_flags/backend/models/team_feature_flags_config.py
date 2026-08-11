@@ -1,11 +1,22 @@
 import logging
 
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from posthog.models.team.extensions import register_team_extension_signal
 
 logger = logging.getLogger(__name__)
+
+# Ceiling on a staff-granted max_feature_flags_override. The global default exists to bound the
+# flag-definitions blob and the flags service's in-memory flag set, so an unbounded grant would
+# reintroduce the memory risk the limit was added for. This assumes MAX_FEATURE_FLAGS_PER_TEAM
+# stays below it: raising that env var past this value would leave staff able only to lower a
+# team's limit. A constant rather than a setting because it feeds the mutation serializer's
+# max_value, which drf-spectacular bakes into api.zod.ts as a literal, and the CHECK constraint
+# below, which a migration has to name at a fixed value.
+# Lives here rather than in flag_limits.py so the model can bound its own field: flag_limits
+# imports this module, so the constant has to sit on the lower side of that edge.
+MAX_FEATURE_FLAGS_OVERRIDE_CEILING = 20_000
 
 
 class TeamFeatureFlagsConfig(models.Model):
@@ -36,11 +47,27 @@ class TeamFeatureFlagsConfig(models.Model):
     # Raises or lowers this team's flag-count cap. Null means no override, falling back to the
     # global settings.MAX_FEATURE_FLAGS_PER_TEAM. Resolved by
     # products/feature_flags/backend/flag_limits.py, and read only when a flag is created.
-    # MinValueValidator is defense in depth for management commands and Django admin, since the
-    # staff API uses a plain Serializer that never calls full_clean(); its real bounds live there.
+    # The validators only fire under full_clean() (a Django admin ModelForm), which no writer
+    # uses today; the CHECK constraint below is what actually holds the bounds on every path,
+    # including a management command that writes the field directly.
     max_feature_flags_override = models.PositiveIntegerField(
-        null=True, blank=True, default=None, validators=[MinValueValidator(1)]
+        null=True,
+        blank=True,
+        default=None,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_FEATURE_FLAGS_OVERRIDE_CEILING)],
     )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                name="max_feature_flags_override_in_range",
+                condition=models.Q(max_feature_flags_override__isnull=True)
+                | models.Q(
+                    max_feature_flags_override__gte=1,
+                    max_feature_flags_override__lte=MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+                ),
+            )
+        ]
 
 
 register_team_extension_signal(TeamFeatureFlagsConfig, logger=logger)
