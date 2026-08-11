@@ -36,9 +36,22 @@ export function CLIAuthorize(): JSX.Element {
         missingErrorTrackingScopes,
         missingEndpointsScopes,
         missingAgentScopes,
+        authorizeHasErrors,
+        authorizeErrors,
     } = useValues(cliAuthorizeLogic)
     const { setAuthorizeValue, setScopeRadioValue, setSearchTerm, setScopePreset, resetScopes } =
         useActions(cliAuthorizeLogic)
+
+    // Surface why a submit can't go through, so the button explains itself instead of silently
+    // swallowing clicks (e.g. after a backend invalid_scope error leaves a stuck scopes error).
+    const submitDisabledReason = authorizeHasErrors
+        ? ([
+              authorizeErrors.userCode,
+              authorizeErrors.organizationId,
+              authorizeErrors.projectId,
+              authorizeErrors.scopes,
+          ].find((error): error is string => typeof error === 'string') ?? 'Fix the errors above to continue')
+        : undefined
 
     return (
         <BridgePage view="login">
@@ -246,6 +259,7 @@ export function CLIAuthorize(): JSX.Element {
                             fullWidth
                             center
                             loading={isAuthorizeSubmitting}
+                            disabledReason={submitDisabledReason}
                             size="large"
                             icon={<IconCode />}
                         >

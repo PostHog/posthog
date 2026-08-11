@@ -357,11 +357,15 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         filteredScopes: [
             (s) => [s.searchTerm],
             (searchTerm: string): APIScope[] => {
+                // Hide scopes this flow always rejects (unprivileged-excluded, like llm_gateway):
+                // the backend validates against UNPRIVILEGED_SCOPES, so selecting one only produces
+                // an invalid_scope error the user can't resolve from the picker.
+                const selectableScopes = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
                 const search = searchTerm.trim().toLowerCase()
                 if (!search) {
-                    return API_SCOPES
+                    return selectableScopes
                 }
-                return API_SCOPES.filter(
+                return selectableScopes.filter(
                     (scope) =>
                         scope.key.toLowerCase().includes(search) || scope.objectPlural.toLowerCase().includes(search)
                 )
@@ -467,6 +471,12 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                     return
                 }
                 actions.loadProjects(payload.value)
+            }
+            // kea-forms keeps a manual error until resetForm/setManualErrors/touchField, never on
+            // setFormValue. Clear a stale scopes rejection when the selection changes so the form
+            // becomes submittable again after a backend invalid_scope error.
+            if (payload.name === 'scopes' && values.authorizeManualErrors?.scopes) {
+                actions.setAuthorizeManualErrors({ ...values.authorizeManualErrors, scopes: undefined })
             }
         },
         setScopePreset: ({ preset }) => {

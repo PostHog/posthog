@@ -146,4 +146,38 @@ describe('cliAuthorizeLogic', () => {
             'One or more selected scopes are not permitted. Try choosing a different preset.'
         )
     })
+
+    it('clears a stuck invalid_scope error once the scope selection changes', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+        logic.actions.setAuthorizeValues({
+            userCode: 'ABCD-1234',
+            organizationId: 'org-id',
+            projectId: 1,
+            scopes: ['llm_gateway:read'],
+        })
+        jest.spyOn(api, 'create').mockRejectedValueOnce(
+            new ApiError(undefined, 400, undefined, {
+                error: 'invalid_scope',
+                error_description: 'llm_gateway:read is not permitted',
+            })
+        )
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAuthorize()
+        }).toDispatchActions(['submitAuthorizeFailure'])
+        expect(logic.values.authorizeErrors.scopes).toBeTruthy()
+
+        // Picking a different preset must make the form submittable again.
+        logic.actions.setScopePreset('error_tracking')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.authorizeErrors.scopes).toBeUndefined()
+    })
+
+    it('never offers scopes this flow always rejects (unprivileged-excluded)', async () => {
+        router.actions.push('/cli/authorize', { code: 'ABCD-1234' })
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filteredScopes.some((scope) => scope.key === 'llm_gateway')).toBe(false)
+        expect(logic.values.filteredScopes.every((scope) => !scope.unprivilegedExcluded)).toBe(true)
+    })
 })
