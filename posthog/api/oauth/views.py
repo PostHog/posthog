@@ -56,7 +56,7 @@ from posthog.api.oauth.client_assertion import (
     resolve_client_assertion,
     verify_client_assertion,
 )
-from posthog.api.oauth.client_auth import verify_client_secret
+from posthog.api.oauth.client_auth import client_credentials_from_basic_auth, verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
@@ -1611,7 +1611,7 @@ class OAuthTokenView(TokenView):
         if request.content_type == "application/json" and request.body:
             try:
                 json_data = json.loads(request.body)
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 self._capture_token_rejected("unknown", "", "invalid_request")
                 return JsonResponse(
                     {"error": "invalid_request", "error_description": "Invalid JSON payload"},
@@ -1842,7 +1842,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             if not token_to_introspect and request.content_type == "application/json" and request.body:
                 try:
                     token_to_introspect = json.loads(request.body).get("token")
-                except (json.JSONDecodeError, ValueError):
+                except (json.JSONDecodeError, ValueError, RecursionError):
                     pass
 
         return bool(bearer_token and token_to_introspect and bearer_token == token_to_introspect)
@@ -1866,8 +1866,25 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             return True, request
         return super().verify_request(request)
 
-    @staticmethod
-    def get_token_response(token_value=None):
+    def _client_credentials_client_id(self, request) -> str | None:
+        """The client_id that authenticated this request via client credentials, or None.
+
+        None means the request reached us through the bearer-token path instead (self-
+        introspection or the `introspection` scope): ClientProtectedResourceMixin.dispatch
+        only sets `resource_owner` on that path, since a successful `authenticate_client`
+        (the client-credentials path) skips it entirely. The client_id is read back rather
+        than re-verified, because dispatch already proved this request holds a valid secret
+        for it.
+        """
+        if hasattr(request, "resource_owner"):
+            return None
+
+        credentials = client_credentials_from_basic_auth(request)
+        if credentials is not None:
+            return credentials[0]
+        return request.POST.get("client_id") or None
+
+    def get_token_response(self, request, token_value=None):
         """
         RFC 7662 Token Introspection response.
 
@@ -1882,6 +1899,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         if not token_value:
             return JsonResponse({"active": False}, status=200)
 
+        credential_client_id = self._client_credentials_client_id(request)
+
         # Try access token first (indexed lookup via token_checksum)
         token_checksum = hashlib.sha256(token_value.encode("utf-8")).hexdigest()
         try:
@@ -1890,6 +1909,11 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             access_token = None
 
         if access_token:
+            # A client-credentials caller may only introspect its own tokens. Being
+            # confidential is not a meaningful barrier on its own, since /oauth/register/
+            # issues a confidential client_id and secret to anyone who asks.
+            if credential_client_id and getattr(access_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
             # RFC 7662 Section 2.2: expired tokens MUST return {"active": false}
             if not access_token.is_valid():
                 return JsonResponse({"active": False}, status=200)
@@ -1914,6 +1938,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             refresh_token = None
 
         if refresh_token:
+            if credential_client_id and getattr(refresh_token.application, "client_id", None) != credential_client_id:
+                return JsonResponse({"active": False}, status=200)
             # Refresh tokens lack scope and exp fields on AbstractRefreshToken,
             # so we only return the fields that are available
             data = {
@@ -1934,7 +1960,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
         Get the token from the URL parameters.
         URL: https://example.com/introspect?token=mF_9.B5f-4.1JqM
         """
-        return self.get_token_response(request.GET.get("token", None))
+        return self.get_token_response(request, request.GET.get("token", None))
 
     def post(self, request, *args, **kwargs):
         """
@@ -1947,9 +1973,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             try:
                 json_data = json.loads(request.body)
                 token = json_data.get("token")
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError, RecursionError):
                 pass
-        return self.get_token_response(token)
+        return self.get_token_response(request, token)
 
 
 class OAuthConnectDiscoveryInfoView(ConnectDiscoveryInfoView):
