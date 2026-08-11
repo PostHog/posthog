@@ -200,6 +200,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
             unavailableReason: 'Enable Support for this project to see recent tickets on your dashboard.',
             setupActionLabel: 'Set up Support',
             docsHref: 'https://posthog.com/docs/conversations',
+            compactSetupPrompt: true,
         },
     },
     error_tracking_list: {

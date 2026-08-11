@@ -54,6 +54,8 @@ export type WidgetAvailabilityConfig = {
     setupActionLabel: string
     /** Optional docs link for a secondary CTA. */
     docsHref?: string
+    /** Use compact spacing when the setup prompt must fit a short widget tile. */
+    compactSetupPrompt?: boolean
 }
 
 export type WidgetAvailabilityStatus = {
