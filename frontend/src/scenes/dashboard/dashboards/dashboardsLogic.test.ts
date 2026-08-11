@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -17,6 +18,10 @@ import { initKeaTests } from '~/test/init'
 import { AppContext, DashboardType, UserBasicType } from '~/types'
 
 import dashboardJson from '../__mocks__/dashboard.json'
+
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: { error: jest.fn(), warning: jest.fn(), success: jest.fn() },
+}))
 
 let dashboardId = 1234
 const dashboard = (extras: Partial<DashboardType>): DashboardType => {
@@ -66,6 +71,7 @@ describe('dashboardsLogic', () => {
     ]
 
     beforeEach(async () => {
+        jest.clearAllMocks()
         window.POSTHOG_APP_CONTEXT = { current_user: MOCK_DEFAULT_USER } as unknown as AppContext
 
         useMocks({
@@ -124,14 +130,30 @@ describe('dashboardsLogic', () => {
             ])
         })
 
+        it('ignores a moved shortcut, which only points at the dashboard', async () => {
+            const before = dashboardsModel.values.rawDashboards
+            projectTreeDataLogic.actions.movedItem(
+                {
+                    id: 'fs-4',
+                    type: 'dashboard',
+                    ref: String(dashboardId),
+                    path: 'Marketing/A',
+                    shortcut: true,
+                } as any,
+                'Marketing/A',
+                'Revenue/A'
+            )
+            expect(dashboardsModel.values.rawDashboards).toBe(before)
+        })
+
         it('ignores moves of other item types', async () => {
-            await expectLogic(logic, () => {
-                projectTreeDataLogic.actions.movedItem(
-                    { id: 'fs-2', type: 'insight', ref: '5', path: 'Marketing/An insight' } as any,
-                    'Marketing/An insight',
-                    'Revenue/An insight'
-                )
-            }).toNotHaveDispatchedActions(['patchDashboardFolders', 'reparentDashboardFolders'])
+            const before = dashboardsModel.values.rawDashboards
+            projectTreeDataLogic.actions.movedItem(
+                { id: 'fs-2', type: 'insight', ref: String(dashboardId), path: 'Marketing/An insight' } as any,
+                'Marketing/An insight',
+                'Revenue/An insight'
+            )
+            expect(dashboardsModel.values.rawDashboards).toBe(before)
         })
     })
 
@@ -485,6 +507,38 @@ describe('dashboardsLogic', () => {
             expect.objectContaining({ id: 'fs-12' }),
         ])
         expect(moveToLogic.values.isOpen).toBe(true)
+    })
+
+    it('reports the failure and leaves the modal closed when no row resolves', async () => {
+        useMocks({ get: { '/api/environments/:team_id/file_system': () => [200, { count: 0, results: [] }] } })
+        moveToLogic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.moveDashboardsToFolder([11], 'single')
+        }).toFinishListeners()
+
+        expect(lemonToast.error).toHaveBeenCalledWith(expect.stringContaining("Couldn't look up where"))
+        expect(moveToLogic.values.isOpen).toBe(false)
+    })
+
+    it('warns and moves on with the subset that resolved', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system': ({ request }) => {
+                    const ref = new URL(request.url).searchParams.get('ref')
+                    const results = ref === '11' ? [{ id: 'fs-11', ref, type: 'dashboard', path: 'Marketing' }] : []
+                    return [200, { count: 0, results }]
+                },
+            },
+        })
+        moveToLogic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.moveDashboardsToFolder([11, 12], 'bulk')
+        }).toFinishListeners()
+
+        expect(lemonToast.warning).toHaveBeenCalledWith(expect.stringContaining('Only 1 of 2'))
+        expect(moveToLogic.values.movingItems).toEqual([expect.objectContaining({ id: 'fs-11' })])
     })
 
     it('does not refetch when toggling pinned while a search is active on the /dashboard URL', async () => {

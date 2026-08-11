@@ -75,6 +75,27 @@ describe('resolveProjectTreeRefs', () => {
         expect(listedRefs).toEqual(['1', '2'])
     })
 
+    it('drops a ref whose lookup fails, keeping the rest of the batch', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/file_system': ({ request }) => {
+                    const ref = new URL(request.url).searchParams.get('ref') ?? ''
+                    if (ref === '1') {
+                        return [500, { detail: 'boom' }]
+                    }
+                    return [200, { count: 0, results: [entry(`fs-${ref}`, ref)] }]
+                },
+            },
+        })
+
+        const entries = await resolveProjectTreeRefs([
+            { type: 'dashboard', ref: '1' },
+            { type: 'dashboard', ref: '2' },
+        ])
+
+        expect(entries).toEqual([expect.objectContaining({ id: 'fs-2' })])
+    })
+
     it('resolves every ref in a selection larger than one batch', async () => {
         const ids = Array.from({ length: 25 }, (_, index) => String(index))
         mockFileSystem(Object.fromEntries(ids.map((id) => [id, [entry(`fs-${id}`, id)]])))

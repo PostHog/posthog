@@ -58,7 +58,7 @@ export function DashboardsTable({
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged, setFilters, moveDashboardsToFolder } = useActions(dashboardsLogic)
-    const { tableSorting, filters } = useValues(dashboardsLogic)
+    const { tableSorting, filters, resolvingMoveTargets } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
     // while the user has an active search term.
@@ -245,6 +245,10 @@ export function DashboardsTable({
                                       >
                                           <LemonButton
                                               onClick={() => moveDashboardsToFolder([id], 'single')}
+                                              loading={resolvingMoveTargets}
+                                              disabledReason={
+                                                  resolvingMoveTargets ? 'Looking up where this is filed' : undefined
+                                              }
                                               fullWidth
                                               data-attr="dashboard-move-to-folder"
                                           >
@@ -323,10 +327,11 @@ export function DashboardsTable({
                             <LemonButton
                                 size="small"
                                 type="secondary"
-                                onClick={() => {
-                                    moveDashboardsToFolder([...ctx.selectedKeys], 'bulk')
-                                    ctx.clearSelection()
-                                }}
+                                onClick={() =>
+                                    moveDashboardsToFolder([...ctx.selectedKeys], 'bulk', ctx.clearSelection)
+                                }
+                                loading={resolvingMoveTargets}
+                                disabledReason={resolvingMoveTargets ? 'Looking up where these are filed' : undefined}
                                 data-attr="dashboards-bulk-move-to-folder"
                             >
                                 Move to folder

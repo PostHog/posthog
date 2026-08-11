@@ -76,7 +76,8 @@ describe('DashboardsTable move to folder', () => {
     it('offers the bulk move action and moves the whole selection', () => {
         renderTable([1, 2], [1, 2])
         fireEvent.click(screen.getByText('Move to folder'))
-        expect(moveDashboardsToFolder).toHaveBeenCalledWith([1, 2], 'bulk')
-        expect(clearSelection).toHaveBeenCalled()
+        // The selection is cleared once the modal opens, so a failed lookup does not cost the user their ticks.
+        expect(moveDashboardsToFolder).toHaveBeenCalledWith([1, 2], 'bulk', clearSelection)
+        expect(clearSelection).not.toHaveBeenCalled()
     })
 })

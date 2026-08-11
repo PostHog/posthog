@@ -8,7 +8,7 @@ import { ProjectTreeRef } from '~/types'
 
 // One request per ref, so chunk rather than firing a full page of them at once.
 const BATCH_SIZE = 10
-// A ref can carry several shortcuts alongside the row itself; fetch enough to look past them.
+// The API sorts non-shortcut rows first, so one would do; the slack is in case that ordering changes.
 const ROWS_PER_REF = 10
 
 async function resolveOne({ type, ref }: ProjectTreeRef): Promise<FileSystemEntry | null> {

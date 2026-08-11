@@ -70,6 +70,7 @@ export interface dashboardsLogicValues {
     filteredTags: string[]
     filters: DashboardsFilters
     isFiltering: boolean
+    resolvingMoveTargets: boolean
     searchedDashboards: DashboardBasicType[] | null
     searchedDashboardsLoading: boolean
     showTagPopover: boolean
@@ -128,10 +129,15 @@ export interface dashboardsLogicActions {
     }
     moveDashboardsToFolder: (
         ids: number[],
-        method: 'bulk' | 'single'
+        method: 'bulk' | 'single',
+        onOpened?: () => void
     ) => {
         ids: number[]
         method: 'bulk' | 'single'
+        onOpened: (() => void) | undefined
+    }
+    moveDashboardsToFolderResolved: () => {
+        value: true
     }
     setCurrentTab: (tab: DashboardsTab) => {
         tab: DashboardsTab
@@ -207,7 +213,12 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     actions({
         // `method` is the affordance used: a bulk bar acting on one dashboard is still a bulk move.
-        moveDashboardsToFolder: (ids: number[], method: 'single' | 'bulk') => ({ ids, method }),
+        moveDashboardsToFolder: (ids: number[], method: 'single' | 'bulk', onOpened?: () => void) => ({
+            ids,
+            method,
+            onOpened,
+        }),
+        moveDashboardsToFolderResolved: true,
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
         setSearch: (search: string) => ({ search }),
         setFilters: (filters: Partial<DashboardsFilters>) => ({
@@ -220,6 +231,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setShowTagPopover: (visible: boolean) => ({ visible }),
     }),
     reducers({
+        resolvingMoveTargets: [
+            false,
+            {
+                moveDashboardsToFolder: () => true,
+                moveDashboardsToFolderResolved: () => false,
+            },
+        ],
         tableSorting: [
             DEFAULT_SORTING,
             { persist: true },
@@ -521,44 +539,44 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             }
         },
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         // The list's Folder column reads the dashboards model, which a move never touched.
-        movedItem: async ({ item, oldPath, newPath }, breakpoint) => {
+        movedItem: ({ item, oldPath, newPath }) => {
             if (item.type === 'folder') {
                 dashboardsModel.actions.reparentDashboardFolders(oldPath, newPath)
                 return
             }
-            if (item.type !== 'dashboard' || !item.ref) {
+            // A shortcut carries the ref of the dashboard it points at, but moving it moves only the shortcut.
+            if (item.type !== 'dashboard' || !item.ref || item.shortcut) {
                 return
             }
-            // A bulk move lands one movedItem per dashboard, so coalesce the burst into a single patch.
-            cache.pendingFolders = {
-                ...cache.pendingFolders,
+            dashboardsModel.actions.patchDashboardFolders({
                 [item.ref]: joinPath(splitPath(newPath).slice(0, -1)),
-            }
-            await breakpoint(50)
-            const folders = cache.pendingFolders
-            cache.pendingFolders = undefined
-            dashboardsModel.actions.patchDashboardFolders(folders)
+            })
         },
-        moveDashboardsToFolder: async ({ ids, method }) => {
+        moveDashboardsToFolder: async ({ ids, method, onOpened }, breakpoint) => {
             if (ids.length === 0) {
+                actions.moveDashboardsToFolderResolved()
                 return
             }
             actions.reportDashboardMoveInitiated(method, ids.length)
             const entries = await resolveProjectTreeRefs(ids.map((id) => ({ type: 'dashboard', ref: String(id) })))
+            // A second click while this one is resolving would otherwise open the modal on the wrong rows.
+            breakpoint()
+            actions.moveDashboardsToFolderResolved()
             if (entries.length === 0) {
                 lemonToast.error(
-                    `Couldn't find ${pluralize(ids.length, 'this dashboard', 'these dashboards', false)} in your project's folders. Refresh the page and try again.`
+                    `Couldn't look up where ${pluralize(ids.length, 'this dashboard is', 'these dashboards are', false)} filed. Refresh the page and try again.`
                 )
                 return
             }
             if (entries.length < ids.length) {
                 lemonToast.warning(
-                    `Only ${entries.length} of ${ids.length} selected dashboards can be moved. The rest couldn't be found in your project's folders.`
+                    `Only ${entries.length} of ${ids.length} selected dashboards can be moved. We couldn't look up where the rest are filed.`
                 )
             }
             actions.openMoveToModal(entries)
+            onOpened?.()
         },
         setSearch: ({ search }) => {
             actions.loadSearchedDashboards({
