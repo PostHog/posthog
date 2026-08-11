@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import {
+    performQuery,
+    pollForResults,
+    QUERY_TIMEOUT_ERROR_MESSAGE,
+    queryExportContext,
+    waitForPageVisible,
+} from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -160,6 +166,20 @@ describe('query', () => {
         })
         // Raw error text must stay out of telemetry
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
+    })
+
+    it('raises a timeout when a blocking query passes the client-side deadline', async () => {
+        // Fire the deadline at once instead of waiting out the real 10-minute bound.
+        const timeoutSpy = jest.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort())
+        const q: EventsQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.EventsQuery,
+            select: ['timestamp'],
+            limit: 100,
+        })
+
+        await expect(performQuery(q, undefined, 'force_blocking')).rejects.toThrow(QUERY_TIMEOUT_ERROR_MESSAGE)
+
+        timeoutSpy.mockRestore()
     })
 
     describe('waitForPageVisible', () => {

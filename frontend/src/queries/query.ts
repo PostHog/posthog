@@ -62,6 +62,10 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
+// A blocking query holds one HTTP request open with no client-side deadline, so a hung connection
+// spins the UI forever. Bound it like the async path bounds polling, with the same buffer over the
+// backend timeout so the backend can return its own error first when it is still responsive.
+const QUERY_BLOCKING_TOTAL_SECONDS = 10 * 60 + 6
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 /**
@@ -185,14 +189,55 @@ async function executeQuery<N extends DataNode>(
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+        // Give a blocking request a client-side deadline. The async path already bounds polling, but
+        // a blocking request otherwise waits on the socket forever. A dedicated controller aborts the
+        // request when either the caller cancels or the deadline fires, and `deadlineExceeded` keeps
+        // the two apart so only the deadline is reported as a timeout.
+        const isBlockingRefresh = refreshParam === 'blocking' || refreshParam === 'force_blocking'
+        let requestOptions = methodOptions
+        let deadlineExceeded = false
+        if (isBlockingRefresh) {
+            const deadlineController = new AbortController()
+            const parentSignal = methodOptions?.signal
+            const timeoutSignal = AbortSignal.timeout(QUERY_BLOCKING_TOTAL_SECONDS * 1000)
+            if (parentSignal?.aborted) {
+                deadlineController.abort()
+            } else {
+                parentSignal?.addEventListener('abort', () => deadlineController.abort(), { once: true })
+            }
+            const onDeadline = (): void => {
+                deadlineExceeded = true
+                deadlineController.abort()
+            }
+            if (timeoutSignal.aborted) {
+                onDeadline()
+            } else {
+                timeoutSignal.addEventListener('abort', onDeadline, { once: true })
+            }
+            requestOptions = { ...methodOptions, signal: deadlineController.signal }
+        }
+
+        const response = await (async () => {
+            try {
+                return await api.query(queryNode, {
+                    requestOptions,
+                    clientQueryId: queryId,
+                    refresh: refreshParam,
+                    filtersOverride,
+                    variablesOverride,
+                    limitContext,
+                })
+            } catch (e) {
+                // Report the deadline the same way the async path does; a user cancel keeps its own
+                // abort semantics.
+                if (deadlineExceeded) {
+                    const timeoutError = new Error(QUERY_TIMEOUT_ERROR_MESSAGE)
+                    ;(timeoutError as Error & { queryId?: string }).queryId = queryId
+                    throw timeoutError
+                }
+                throw e
+            }
+        })()
 
         if (response.detail) {
             throw new Error(response.detail)
