@@ -331,6 +331,77 @@ async fn a_person_marked_by_another_live_op_is_skipped() {
     ctx.cleanup().await.expect("cleanup");
 }
 
+/// A mark can land on a corpse when a merge destroys the person between
+/// the mark step's liveness filter and its insert. The seeded state is
+/// what that window produces: a marked row whose person is already
+/// tombstoned. The recheck must settle it as not_found without touching
+/// the corpse again.
+#[tokio::test]
+async fn a_victim_destroyed_between_liveness_check_and_mark_settles_as_not_found() {
+    let ctx = TestContext::new().await;
+    let service = ctx.lifecycle_service();
+
+    let live = ctx.insert_person_with_distinct_id("recheck-live").await;
+    let corpse = ctx.insert_person_with_distinct_id("recheck-corpse").await;
+    sqlx::query(
+        "UPDATE posthog_person SET is_deleted = true, version = 5 WHERE team_id = $1 AND id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(corpse)
+    .execute(&ctx.pool)
+    .await
+    .expect("tombstone the corpse");
+
+    let op_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, lease_expires_at)
+        VALUES ($1, 'delete', $2, 'started', $3, now() - interval '1 minute')
+        "#,
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(serde_json::json!({"person_ids": [corpse, live]}))
+    .execute(&ctx.pool)
+    .await
+    .expect("insert op");
+    sqlx::query(
+        "INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status) \
+         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+    )
+    .bind(op_id)
+    .bind(ctx.team_id as i32)
+    .bind(corpse)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert the corpse's mark");
+
+    let response = service
+        .delete_persons(Request::new(delete_request(
+            ctx.team_id,
+            vec![corpse, live],
+            op_id,
+        )))
+        .await
+        .expect("delete succeeds")
+        .into_inner();
+
+    assert_eq!(
+        outcomes(&response),
+        vec![
+            (corpse, DeletePersonOutcome::NotFound),
+            (live, DeletePersonOutcome::Deleted),
+        ]
+    );
+    let (is_deleted, version, _) = ctx.person_state(corpse).await;
+    assert!(is_deleted);
+    assert_eq!(version, 5, "the corpse was never re-tombstoned");
+    let (is_deleted, _, _) = ctx.person_state(live).await;
+    assert!(is_deleted, "the live victim's delete proceeded normally");
+
+    ctx.cleanup().await.expect("cleanup");
+}
+
 #[tokio::test]
 async fn a_retry_with_the_same_op_id_returns_the_recorded_outcome() {
     let ctx = TestContext::new().await;
