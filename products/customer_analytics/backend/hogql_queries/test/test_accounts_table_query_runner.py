@@ -214,6 +214,14 @@ class TestAccountsTableQueryRunner(BaseTest):
                         aggregation=AccountsTableAggregation.MAX,
                         column=column,
                     ),
+                ],
+            )
+        )
+        remaining_response = self._run(
+            AccountsTableQuery(
+                columns=[],
+                filters=[],
+                metrics=[
                     AccountsTableAggregateMetric(
                         aggregation=AccountsTableAggregation.MEDIAN,
                         column=column,
@@ -228,7 +236,9 @@ class TestAccountsTableQueryRunner(BaseTest):
         )
 
         assert response.results == []
-        assert response.metricsResults == [3, 300.0, 12.5, 5.0, 20.0, 12.5, 1]
+        assert response.metricsResults == [3, 300.0, 12.5, 5.0, 20.0]
+        assert remaining_response.results == []
+        assert remaining_response.metricsResults == [12.5, 1]
 
     def test_hydrates_custom_properties_with_bounded_queries(self) -> None:
         definition = create_custom_property_definition(
