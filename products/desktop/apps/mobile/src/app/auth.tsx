@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { QrScanModal, type QrScanResult } from "@/components/QrScanModal";
 import { type CloudRegion, useAuthStore } from "@/features/auth";
+import { OAUTH_SCOPES } from "@/features/auth/lib/constants";
 import { resolvePostLoginTarget } from "@/features/auth/lib/postLoginTarget";
 import {
   ANALYTICS_EVENTS,
@@ -255,11 +256,11 @@ export default function AuthScreen() {
               <Text className="font-semibold text-gray-12 text-sm">
                 Dev sign-in (personal API key)
               </Text>
+              {/* Read off OAUTH_SCOPES so a dev key always covers exactly what
+                  the OAuth flow requests — the two drifted apart before. */}
               <Text className="text-gray-11 text-xs">
                 Skips OAuth. Create a personal API key at Settings → User API
-                keys with scopes: user:read, project:read, task:write,
-                integration:read, conversation:write, query:read,
-                llm_skill:read.
+                keys with scopes: {OAUTH_SCOPES.join(", ")}.
               </Text>
               <TextInput
                 value={devToken}

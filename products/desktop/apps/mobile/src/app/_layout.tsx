@@ -129,6 +129,10 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
         options={{ headerShown: false }}
       />
 
+      {/* Scout fleet — stats + per-scout management. Pushed like settings, so
+          back returns to whatever the drawer was opened over. */}
+      <Stack.Screen name="scouts/index" options={{ headerShown: false }} />
+
       {/* MCP servers — marketplace + installed management. */}
       <Stack.Screen name="mcp-servers/index" options={{ headerShown: false }} />
       <Stack.Screen

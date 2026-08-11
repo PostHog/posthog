@@ -465,6 +465,28 @@ export interface ScoutRun {
   emitted_finding_ids: string[];
 }
 
+/** Acknowledgement of an on-demand scout dispatch; the run itself is async. */
+export interface ScoutManualRun {
+  skill_name: string;
+  /** Temporal workflow id for the dispatched run. */
+  workflow_id: string;
+  started: boolean;
+}
+
+/** Fleet-wide tally of what the scouts produced over the summary window. */
+export interface ScoutFindingsSummary {
+  /** Findings emitted in the window, summed over the runs that produced output. */
+  count: number;
+  /** Distinct scouts that produced output in the window. */
+  scout_count: number;
+  /** Distinct inbox reports scouts authored, deduped across runs. */
+  authored_report_count: number;
+  /** Distinct inbox reports scouts edited (excluding ones they also authored). */
+  edited_report_count: number;
+  /** ISO timestamp of the most recent output run; null when nothing was produced. */
+  latest_at: string | null;
+}
+
 export interface ScoutEmission {
   id: string;
   run_id: string;
@@ -1930,6 +1952,42 @@ export class PostHogAPIClient {
     return (await response.json()) as ScoutConfig;
   }
 
+  /**
+   * Dispatch one on-demand run of a scout, regardless of its schedule. The run
+   * executes asynchronously, so there is no `ScoutRun` row yet when this
+   * resolves — poll `listScoutRuns` for the result. The endpoint enforces the
+   * same guards as the scheduled path and surfaces them as errors: 409 when a
+   * run for this scout is already in progress, 429 over the credits quota or
+   * daily run budget, 403 when scouts are not enabled for the project.
+   */
+  async runScoutConfig(
+    projectId: number,
+    configId: string,
+  ): Promise<ScoutManualRun> {
+    const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/run/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({}),
+      },
+    });
+    if (!response.ok) {
+      // The rejections here are the expected outcomes (already running, over
+      // quota), so surface the server's own explanation rather than a bare
+      // status line — same shape as updateScoutConfig.
+      const errorData = (await response.json().catch(() => ({}))) as {
+        detail?: string;
+      };
+      throw new Error(
+        errorData.detail ?? `Failed to run scout: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ScoutManualRun;
+  }
+
   async listScoutRuns(
     projectId: number,
     params?: ScoutRunsQueryParams,
@@ -1950,6 +2008,22 @@ export class PostHogAPIClient {
 
   async getScoutRun(projectId: number, runId: string): Promise<ScoutRun> {
     return await this.scoutGet<ScoutRun>(projectId, `runs/${runId}/`);
+  }
+
+  /**
+   * Fleet-wide tally of recent scout output in one query, instead of paging
+   * through the runs window and summing client-side. `window_hours` defaults
+   * to 72 server-side and is capped there.
+   */
+  async getScoutFindingsSummary(
+    projectId: number,
+    params?: { window_hours?: number },
+  ): Promise<ScoutFindingsSummary> {
+    return await this.scoutGet<ScoutFindingsSummary>(
+      projectId,
+      "runs/findings/summary/",
+      { window_hours: params?.window_hours },
+    );
   }
 
   /**

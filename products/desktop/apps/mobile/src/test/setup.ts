@@ -54,6 +54,7 @@ vi.mock("phosphor-react-native", async () => {
     ArrowsClockwise: icon("ArrowsClockwise"),
     ArrowsIn: icon("ArrowsIn"),
     ArrowsOut: icon("ArrowsOut"),
+    Binoculars: icon("Binoculars"),
     Brain: icon("Brain"),
     BrainIcon: icon("BrainIcon"),
     Bug: icon("Bug"),

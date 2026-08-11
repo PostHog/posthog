@@ -1,3 +1,4 @@
+import { FloatingScreenHeader } from "@components/FloatingScreenHeader";
 import { Text } from "@components/text";
 import { router, useLocalSearchParams } from "expo-router";
 import { Lock, Warning } from "phosphor-react-native";
@@ -9,7 +10,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { FloatingMcpHeader } from "@/features/mcp/components/FloatingMcpHeader";
 import { ServerIcon } from "@/features/mcp/components/ServerIcon";
 import {
   useInstallMcpTemplate,
@@ -58,7 +58,7 @@ export default function McpTemplateDetailScreen() {
   if (!template) {
     return (
       <View className="flex-1 bg-background">
-        <FloatingMcpHeader title="Server" />
+        <FloatingScreenHeader title="Server" />
         <View
           className="flex-1 items-center justify-center px-8"
           style={{ paddingTop: insets.top + 60 }}
@@ -111,7 +111,7 @@ export default function McpTemplateDetailScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <FloatingMcpHeader title={template.name} />
+      <FloatingScreenHeader title={template.name} />
       <ScrollView
         className="flex-1"
         contentContainerStyle={{
@@ -252,7 +252,7 @@ function Loading({
 }) {
   return (
     <View className="flex-1 bg-background">
-      <FloatingMcpHeader title="Server" />
+      <FloatingScreenHeader title="Server" />
       <View
         className="flex-1 items-center justify-center"
         style={{ paddingTop: topInset }}

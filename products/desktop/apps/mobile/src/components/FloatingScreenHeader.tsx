@@ -7,17 +7,17 @@ import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { toRgba, useThemeColors } from "@/lib/theme";
 
-interface FloatingMcpHeaderProps {
+interface FloatingScreenHeaderProps {
   title: string;
   onAddPress?: () => void;
   rightSlot?: ReactNode;
 }
 
-export function FloatingMcpHeader({
+export function FloatingScreenHeader({
   title,
   onAddPress,
   rightSlot,
-}: FloatingMcpHeaderProps) {
+}: FloatingScreenHeaderProps) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const themeColors = useThemeColors();

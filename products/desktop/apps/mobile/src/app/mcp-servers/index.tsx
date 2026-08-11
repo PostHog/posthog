@@ -1,3 +1,4 @@
+import { FloatingScreenHeader } from "@components/FloatingScreenHeader";
 import { Text } from "@components/text";
 import type {
   McpRecommendedServer,
@@ -14,7 +15,6 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { FloatingMcpHeader } from "@/features/mcp/components/FloatingMcpHeader";
 import {
   installationToRowProps,
   McpServerRow,
@@ -82,7 +82,7 @@ export default function McpServersScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <FloatingMcpHeader title="MCP servers" onAddPress={handleAddCustom} />
+      <FloatingScreenHeader title="MCP servers" onAddPress={handleAddCustom} />
 
       <View className="flex-1" style={{ paddingTop: insets.top + 60 }}>
         {/* Tab bar */}

@@ -1,6 +1,7 @@
 import { Text } from "@components/text";
 import { usePathname, useRouter } from "expo-router";
 import {
+  Binoculars,
   CaretRight,
   Clock,
   GearSix,
@@ -118,6 +119,11 @@ const NavDrawerContent = memo(function NavDrawerContent({
     if (pathname === "/settings") return;
     router.push("/settings");
   };
+  const handleScouts = () => {
+    close();
+    if (pathname === "/scouts") return;
+    router.push("/scouts");
+  };
   const handleMcpServers = () => {
     close();
     if (pathname === "/mcp-servers") return;
@@ -136,6 +142,7 @@ const NavDrawerContent = memo(function NavDrawerContent({
   const isOnInbox = pathname === "/inbox";
   const isOnAutomations = pathname === "/automations";
   const isOnSettings = pathname === "/settings";
+  const isOnScouts = pathname === "/scouts";
   const isOnMcpServers = pathname === "/mcp-servers";
 
   return (
@@ -183,6 +190,18 @@ const NavDrawerContent = memo(function NavDrawerContent({
           label="Automations"
           active={isOnAutomations}
           onPress={handleAutomations}
+        />
+        <DrawerItem
+          icon={
+            <Binoculars
+              size={22}
+              color={isOnScouts ? iconColorActive : iconColor}
+              weight={isOnScouts ? "fill" : "regular"}
+            />
+          }
+          label="Scouts"
+          active={isOnScouts}
+          onPress={handleScouts}
         />
         <DrawerItem
           icon={

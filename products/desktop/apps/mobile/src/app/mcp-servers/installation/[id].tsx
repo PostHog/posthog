@@ -1,3 +1,4 @@
+import { FloatingScreenHeader } from "@components/FloatingScreenHeader";
 import { Text } from "@components/text";
 import type { McpApprovalState } from "@posthog/api-client/types";
 import { router, useLocalSearchParams } from "expo-router";
@@ -17,7 +18,6 @@ import {
   Switch,
   View,
 } from "react-native";
-import { FloatingMcpHeader } from "@/features/mcp/components/FloatingMcpHeader";
 import { ServerIcon } from "@/features/mcp/components/ServerIcon";
 import {
   useMcpInstallations,
@@ -58,7 +58,7 @@ export default function McpInstallationDetailScreen() {
   if (installations.isPending || !installation) {
     return (
       <View className="flex-1 bg-background">
-        <FloatingMcpHeader title="Server" />
+        <FloatingScreenHeader title="Server" />
         <View
           className="flex-1 items-center justify-center"
           style={{ paddingTop: insets.top + 60 }}
@@ -134,7 +134,7 @@ export default function McpInstallationDetailScreen() {
 
   return (
     <View className="flex-1 bg-background">
-      <FloatingMcpHeader
+      <FloatingScreenHeader
         title={installation.display_name || installation.name}
       />
 
