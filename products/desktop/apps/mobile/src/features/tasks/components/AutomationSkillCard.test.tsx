@@ -1,3 +1,4 @@
+import type { LlmSkillListItem } from "@posthog/api-client/posthog-client";
 import { createElement } from "react";
 import { act, create } from "react-test-renderer";
 import { describe, expect, it, vi } from "vitest";
@@ -18,6 +19,22 @@ vi.mock("phosphor-react-native", () => ({
 
 import { AutomationSkillCard } from "./AutomationSkillCard";
 
+/** The card only reads `name` and `description`; the rest is list-shape ballast. */
+function skillFixture(description: string): LlmSkillListItem {
+  return {
+    id: "skill-1",
+    name: "shared-daily-brief",
+    description,
+    allowed_tools: [],
+    metadata: {},
+    version: 1,
+    is_latest: true,
+    created_by: null,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  };
+}
+
 describe("AutomationSkillCard", () => {
   it("collapses long descriptions by default and expands on demand", () => {
     const onPress = vi.fn();
@@ -26,11 +43,9 @@ describe("AutomationSkillCard", () => {
     act(() => {
       renderer = create(
         createElement(AutomationSkillCard, {
-          skill: {
-            name: "shared-daily-brief",
-            description:
-              "A longer description that should overflow two lines in the card preview when measured by the native text layout callback.",
-          },
+          skill: skillFixture(
+            "A longer description that should overflow two lines in the card preview when measured by the native text layout callback.",
+          ),
           onPress,
         }),
       );

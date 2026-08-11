@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import type { SessionEvent } from "../types";
 
 /**
  * Cached tails of pinned tasks' sessions, so reopening a pinned task paints
@@ -23,7 +24,7 @@ export interface PinnedSnapshot {
   savedAt: number;
   taskTitle?: string;
   /** The tail of the session's events, oldest first. */
-  events: unknown[];
+  events: SessionEvent[];
 }
 
 /**
@@ -32,7 +33,7 @@ export interface PinnedSnapshot {
  * that will not survive the JSON round-trip AsyncStorage puts it through is
  * dropped now rather than resurfacing as a corrupt event on the next launch.
  */
-function toSerializable(event: unknown): unknown {
+function toSerializable(event: SessionEvent): SessionEvent | undefined {
   try {
     const serialized = JSON.stringify(event);
     return serialized === undefined ? undefined : JSON.parse(serialized);
@@ -46,8 +47,10 @@ function toSerializable(event: unknown): unknown {
  * Events are stored as their round-tripped form so what a freshly written
  * snapshot renders is exactly what it renders after a relaunch.
  */
-export function trimSnapshotEvents(events: readonly unknown[]): unknown[] {
-  const serializable: unknown[] = [];
+export function trimSnapshotEvents(
+  events: readonly SessionEvent[],
+): SessionEvent[] {
+  const serializable: SessionEvent[] = [];
   for (const event of events.slice(-MAX_SNAPSHOT_EVENTS)) {
     const value = toSerializable(event);
     if (value !== undefined) serializable.push(value);
@@ -92,7 +95,7 @@ interface PinnedSnapshotState {
   /** Write (or overwrite) one task's snapshot, trimming and evicting as needed. */
   saveSnapshot: (
     taskId: string,
-    snapshot: { taskTitle?: string; events: readonly unknown[] },
+    snapshot: { taskTitle?: string; events: readonly SessionEvent[] },
   ) => void;
   dropSnapshot: (taskId: string) => void;
   /** Drop every snapshot whose task is no longer pinned. */

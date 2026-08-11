@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { SessionEvent } from "../types";
 import {
   evictOldestSnapshots,
   MAX_SNAPSHOT_EVENTS,
@@ -9,8 +10,13 @@ import {
   usePinnedSnapshotStore,
 } from "./pinnedSnapshotStore";
 
+/** A minimal, distinguishable session event; `seq` rides along in `ts`. */
+function event(seq: number): SessionEvent {
+  return { type: "acp_message", direction: "agent", ts: seq, message: { seq } };
+}
+
 function snapshot(savedAt: number): PinnedSnapshot {
-  return { savedAt, events: [{ type: "session_update" }] };
+  return { savedAt, events: [event(0)] };
 }
 
 function snapshots(
@@ -23,42 +29,46 @@ function snapshots(
 
 describe("trimSnapshotEvents", () => {
   it("keeps only the newest events, oldest first", () => {
-    const events = Array.from({ length: MAX_SNAPSHOT_EVENTS + 5 }, (_, i) => ({
-      seq: i,
-    }));
+    const events = Array.from({ length: MAX_SNAPSHOT_EVENTS + 5 }, (_, i) =>
+      event(i),
+    );
 
     const trimmed = trimSnapshotEvents(events);
 
     expect(trimmed).toHaveLength(MAX_SNAPSHOT_EVENTS);
-    expect(trimmed.at(0)).toEqual({ seq: 5 });
-    expect(trimmed.at(-1)).toEqual({ seq: MAX_SNAPSHOT_EVENTS + 4 });
+    expect(trimmed.at(0)).toEqual(event(5));
+    expect(trimmed.at(-1)).toEqual(event(MAX_SNAPSHOT_EVENTS + 4));
   });
 
   it("keeps a short thread whole", () => {
-    expect(trimSnapshotEvents([{ seq: 0 }, { seq: 1 }])).toEqual([
-      { seq: 0 },
-      { seq: 1 },
+    expect(trimSnapshotEvents([event(0), event(1)])).toEqual([
+      event(0),
+      event(1),
     ]);
   });
 
   it("drops events that cannot survive the storage round-trip", () => {
-    const circular: Record<string, unknown> = { seq: 1 };
+    const circular = event(1) as SessionEvent & { self?: unknown };
     circular.self = circular;
 
-    expect(trimSnapshotEvents([{ seq: 0 }, circular, { seq: 2 }])).toEqual([
-      { seq: 0 },
-      { seq: 2 },
+    expect(trimSnapshotEvents([event(0), circular, event(2)])).toEqual([
+      event(0),
+      event(2),
     ]);
   });
 
   it("stores the round-tripped form, not the live object", () => {
     const [stored] = trimSnapshotEvents([
-      { seq: 0, echoes: new Set(["hi"]), render: () => null },
-    ]) as [Record<string, unknown>];
+      {
+        ...event(0),
+        echoes: new Set(["hi"]),
+        render: () => null,
+      } as unknown as SessionEvent,
+    ]);
 
     // A Set serializes to `{}` and a function drops out entirely — the stored
     // event is what a relaunch would read back, so both hydration paths agree.
-    expect(stored).toEqual({ seq: 0, echoes: {} });
+    expect(stored).toEqual({ ...event(0), echoes: {} });
   });
 });
 
@@ -116,32 +126,32 @@ describe("usePinnedSnapshotStore", () => {
 
     usePinnedSnapshotStore.getState().saveSnapshot("task-1", {
       taskTitle: "Fix the thing",
-      events: [{ seq: 0 }, { seq: 1 }],
+      events: [event(0), event(1)],
     });
 
     expect(usePinnedSnapshotStore.getState().snapshots["task-1"]).toEqual({
       savedAt: 1_700_000_000_000,
       taskTitle: "Fix the thing",
-      events: [{ seq: 0 }, { seq: 1 }],
+      events: [event(0), event(1)],
     });
     vi.mocked(Date.now).mockRestore();
   });
 
   it("refuses to overwrite a good snapshot with an empty one", () => {
     const store = usePinnedSnapshotStore.getState();
-    store.saveSnapshot("task-1", { events: [{ seq: 0 }] });
+    store.saveSnapshot("task-1", { events: [event(0)] });
 
     store.saveSnapshot("task-1", { events: [] });
 
     expect(
       usePinnedSnapshotStore.getState().snapshots["task-1"].events,
-    ).toEqual([{ seq: 0 }]);
+    ).toEqual([event(0)]);
   });
 
   it("drops one task's snapshot on unpin", () => {
     const store = usePinnedSnapshotStore.getState();
-    store.saveSnapshot("task-1", { events: [{ seq: 0 }] });
-    store.saveSnapshot("task-2", { events: [{ seq: 0 }] });
+    store.saveSnapshot("task-1", { events: [event(0)] });
+    store.saveSnapshot("task-2", { events: [event(0)] });
 
     store.dropSnapshot("task-1");
 
@@ -152,8 +162,8 @@ describe("usePinnedSnapshotStore", () => {
 
   it("keeps only the still-pinned snapshots", () => {
     const store = usePinnedSnapshotStore.getState();
-    store.saveSnapshot("task-1", { events: [{ seq: 0 }] });
-    store.saveSnapshot("task-2", { events: [{ seq: 0 }] });
+    store.saveSnapshot("task-1", { events: [event(0)] });
+    store.saveSnapshot("task-2", { events: [event(0)] });
 
     store.retainPinned(["task-2"]);
 
@@ -167,7 +177,7 @@ describe("usePinnedSnapshotStore", () => {
     let clock = 1_000;
     vi.spyOn(Date, "now").mockImplementation(() => clock++);
     for (let i = 0; i <= MAX_SNAPSHOT_TASKS; i++) {
-      store.saveSnapshot(`task-${i}`, { events: [{ seq: i }] });
+      store.saveSnapshot(`task-${i}`, { events: [event(i)] });
     }
 
     const kept = usePinnedSnapshotStore.getState().snapshots;

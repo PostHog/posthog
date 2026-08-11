@@ -4,6 +4,7 @@ import {
   usePinnedSnapshotStore,
 } from "../stores/pinnedSnapshotStore";
 import { useTaskSessionStore } from "../stores/taskSessionStore";
+import type { SessionEvent } from "../types";
 import { usePinnedTasks } from "./usePinnedTasks";
 
 /**
@@ -33,7 +34,7 @@ export function usePinnedSnapshotSync(): void {
     // scheduled just before that must still be written.
     const pending = new Map<
       string,
-      { taskTitle?: string; events: unknown[] }
+      { taskTitle?: string; events: SessionEvent[] }
     >();
 
     const flush = (taskId: string) => {

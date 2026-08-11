@@ -1,4 +1,4 @@
-import type { LlmSkillListItem } from "@posthog/api-client";
+import type { LlmSkillListItem } from "@posthog/api-client/posthog-client";
 import { CaretDown, CaretUp } from "phosphor-react-native";
 import { useState } from "react";
 import {
