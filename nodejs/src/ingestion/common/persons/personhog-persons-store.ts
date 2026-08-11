@@ -809,7 +809,7 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
 
     // Postgres bookkeeping with nothing to answer in this world: shadow
     // teams are fresh, so no cohort rows or hash-key overrides exist to
-    // fix up, and the personless surface is being deleted outright.
+    // fix up.
 
     updateCohortsAndFeatureFlagsForMerge(
         _teamID: Team['id'],
@@ -834,34 +834,6 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
     /** The leader enforces the properties-size ceiling at admission. */
     personPropertiesSize(_personId: string, _teamId: number): Promise<number> {
         return Promise.resolve(0)
-    }
-
-    // Personless writes are unsupported here: the caller marks its
-    // process-global personless LRU as inserted after each call, and
-    // that LRU is shared with the Postgres path, so a silent no-op would
-    // record rows that were never written. The shadow gates personless
-    // events off this store, so reaching one of these methods is a
-    // wiring bug.
-
-    addPersonlessDistinctId(_teamId: number, _distinctId: string): Promise<boolean> {
-        throw new PersonhogPendingRpcError('addPersonlessDistinctId', 'personless support')
-    }
-
-    addPersonlessDistinctIdForMerge(
-        _teamId: number,
-        _distinctId: string,
-        _tx?: PersonRepositoryTransaction
-    ): Promise<boolean> {
-        throw new PersonhogPendingRpcError('addPersonlessDistinctIdForMerge', 'personless support')
-    }
-
-    processPersonlessDistinctIdsBatch(_entries: { teamId: number; distinctId: string }[]): Promise<void> {
-        throw new PersonhogPendingRpcError('processPersonlessDistinctIdsBatch', 'personless support')
-    }
-
-    /** A read with a "no batch result" answer; safe to leave callers falling back. */
-    getPersonlessBatchResult(_teamId: number, _distinctId: string): boolean | undefined {
-        return undefined
     }
 
     removeDistinctIdFromCache(teamId: number, distinctId: string): void {
