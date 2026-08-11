@@ -16,6 +16,12 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
 TOKEN_USAGE = {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500, "turns": 3}
 
 
+async def _run_update_task_run_status(
+    activity_environment: ActivityEnvironment, input_data: UpdateTaskRunStatusInput
+) -> None:
+    await activity_environment.run(update_task_run_status, input_data)
+
+
 @pytest.mark.requires_secrets
 class TestUpdateTaskRunStatusActivity:
     @pytest.mark.django_db(transaction=True)
@@ -97,8 +103,8 @@ class TestUpdateTaskRunStatusActivity:
         test_task_run.state = {"prewarmed": True, "await_user_message": True}
         test_task_run.save(update_fields=["state", "updated_at"])
 
-        async_to_sync(activity_environment.run)(
-            update_task_run_status,
+        async_to_sync(_run_update_task_run_status)(
+            activity_environment,
             UpdateTaskRunStatusInput(
                 run_id=str(test_task_run.id),
                 status=TaskRun.Status.COMPLETED,
