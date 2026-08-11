@@ -1254,7 +1254,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5,
                 },
                 "too_short",
-                "Only 5",
+                "This recording is 5",
             ),
             (
                 {
@@ -1264,7 +1264,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 3,  # under 10s floor
                 },
                 "too_inactive",
-                "Only 3s of active",
+                "3s of active interaction",
             ),
             (
                 {
@@ -1274,7 +1274,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5000,  # over 3600 cap
                 },
                 "too_long",
-                "5000s of active",
+                "5000s of active interaction",
             ),
         ],
     )

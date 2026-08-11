@@ -15,3 +15,6 @@ MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 10
 
 # Sessions with more than 1 hour of active interaction take too long to analyze well.
 MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 3600
+
+# Humanized form of the active-interaction ceiling for user-facing reason strings.
+MAX_ACTIVE_LABEL_FOR_VIDEO_SCANNER = f"{MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S // 3600}h"

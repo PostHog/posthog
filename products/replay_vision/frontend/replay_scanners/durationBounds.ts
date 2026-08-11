@@ -45,7 +45,8 @@ export function durationFilterError(filter: RecordingDurationFilter | undefined)
         return `Vision skips recordings over ${MAX_ACTIVE_LABEL} of active time, so "greater than" this scans nothing. Lower the threshold or switch to "less than".`
     }
     if (bounds.min != null && filter.operator === PropertyOperator.LessThan && value <= bounds.min) {
-        return `Vision skips recordings under ${bounds.min}s of active time, so "less than" this scans nothing. Raise the threshold or switch to "greater than".`
+        const floorPhrase = filter.key === 'active_seconds' ? `${bounds.min}s of active time` : `${bounds.min}s long`
+        return `Vision skips recordings under ${floorPhrase}, so "less than" this scans nothing. Raise the threshold or switch to "greater than".`
     }
     return null
 }

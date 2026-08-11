@@ -15,6 +15,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.session_limits import (
+    MAX_ACTIVE_LABEL_FOR_VIDEO_SCANNER,
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
@@ -124,19 +125,19 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     duration_seconds = float(metadata["duration"])
     if duration_seconds < MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S:
         raise IneligibleSessionError(
-            f"Only {round(duration_seconds, 1)}s long; min is {MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S}s",
+            f"This recording is {round(duration_seconds, 1)}s long; scanning needs at least {MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S}s of recording",
             kind=IneligibleSessionKind.TOO_SHORT,
         )
     # `RecordingMetadata` types this as `int` but it can be missing on sparse fixtures; default to 0.
     active_seconds = metadata.get("active_seconds") or 0
     if active_seconds < MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
         raise IneligibleSessionError(
-            f"Only {round(active_seconds, 1)}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            f"This recording has {round(active_seconds, 1)}s of active interaction; scanning needs at least {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
             kind=IneligibleSessionKind.TOO_INACTIVE,
         )
     if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
         raise IneligibleSessionError(
-            f"{round(active_seconds, 1)}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            f"This recording has {round(active_seconds, 1)}s of active interaction; scanning skips recordings over {MAX_ACTIVE_LABEL_FOR_VIDEO_SCANNER} of it",
             kind=IneligibleSessionKind.TOO_LONG,
         )
 

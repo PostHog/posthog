@@ -34,7 +34,8 @@ describe('scannerRunTabLogic', () => {
                                     id: 'obs-3',
                                     session_id: 's3',
                                     status: 'ineligible',
-                                    error_reason: 'too_short:Only 5.0s long; min is 15s',
+                                    error_reason:
+                                        'too_short:This recording is 5.0s long; scanning needs at least 15s of recording',
                                 },
                             ],
                             count: 4,
@@ -65,7 +66,7 @@ describe('scannerRunTabLogic', () => {
             s3: {
                 id: 'obs-3',
                 status: 'ineligible',
-                errorReason: 'too_short:Only 5.0s long; min is 15s',
+                errorReason: 'too_short:This recording is 5.0s long; scanning needs at least 15s of recording',
             },
         })
         // The connected replayScannerLogic fires its own paged list load; ours is the session_id lookup.

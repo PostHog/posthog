@@ -515,7 +515,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             </LabeledRow>
                         )}
                         {durationLabel && (
-                            <LabeledRow label="Duration">
+                            <LabeledRow label="Scan time">
                                 <span>{durationLabel}</span>
                             </LabeledRow>
                         )}

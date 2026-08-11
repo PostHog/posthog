@@ -76,9 +76,15 @@ const INELIGIBLE_KINDS: Record<IneligibleKind, IneligibleKindInfo> = {
         retryable: true,
         retryHint: 'Screen data can finish ingesting after a scan. Retry if you expect this recording to play back.',
     },
-    too_short: { label: 'Too short', description: 'The session was too short to analyze.' },
-    too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
-    too_long: { label: 'Too long', description: 'The session was too long to analyze.' },
+    too_short: {
+        label: 'Too short',
+        description: 'This recording is too short to analyze. Scanning needs a longer recording.',
+    },
+    too_inactive: {
+        label: 'Too inactive',
+        description: 'This recording has too little active interaction to analyze.',
+    },
+    too_long: { label: 'Too long', description: 'This recording has too much active interaction to analyze.' },
     no_events: { label: 'No events', description: 'The session had no events to analyze.' },
     no_ai_consent: {
         label: 'AI analysis not allowed',
