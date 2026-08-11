@@ -28,7 +28,7 @@ import {
     getViewRecordingFiltersForVariant,
 } from '../utils'
 import { RETENTION_UNLINKABLE_REASON, viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogic'
-import { experimentReplayTabLogic } from './experimentReplayTabLogic'
+import { type ExperimentReplayRecording, experimentReplayTabLogic } from './experimentReplayTabLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntentForCrossSell: jest.fn().mockResolvedValue(null),
@@ -50,6 +50,9 @@ const BUCKET_RESPONSE = {
     filter_test_accounts: true,
 }
 
+/** A playlist page as the tab receives it, narrowed to what the watch cards read off it. */
+const loadedPage = (ids: string[]): ExperimentReplayRecording[] => ids.map((id) => ({ id, recording_duration: 120 }))
+
 const DELTA_RESPONSE = {
     cards: [
         {
@@ -60,6 +63,7 @@ const DELTA_RESPONSE = {
             metric_name: null,
             recording_count: 2,
             session_ids: ['card-session-1', 'card-session-2'],
+            highlights: [{ session_id: 'card-session-2', reason: '3 rage clicks' }],
         },
     ],
     arms: [
@@ -583,7 +587,7 @@ describe('experimentReplayTabLogic', () => {
 
     it('prefetches session contexts for a loaded recordings page when the flag is on', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
-        logic.actions.recordingsLoaded(['s1', 's2'])
+        logic.actions.recordingsLoaded(loadedPage(['s1', 's2']))
         await expectLogic(logic).toFinishAllListeners()
 
         expect(experimentsSessionContextsCreate).toHaveBeenCalledWith(expect.any(String), {
@@ -599,7 +603,7 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
 
-        logic.actions.recordingsLoaded(['s1', 's2', 's3'])
+        logic.actions.recordingsLoaded(loadedPage(['s1', 's2', 's3']))
         await expectLogic(logic).toFinishAllListeners()
 
         // The server-side cache TTL runs from prefetch time, so each open must re-warm the
@@ -615,13 +619,13 @@ describe('experimentReplayTabLogic', () => {
     it('never prefetches for flag-disabled viewers, and caps a batch at the backend limit', async () => {
         // Ungated, every experiment-tab visit would fire the expensive ClickHouse scans for
         // viewers who can't even see the experiments box.
-        logic.actions.recordingsLoaded(['s1'])
+        logic.actions.recordingsLoaded(loadedPage(['s1']))
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).not.toHaveBeenCalled()
 
         // Over-cap ids must be sliced, not sent — the backend 400s the whole batch above its cap.
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EXPERIMENT_CONTEXT]: true })
-        logic.actions.recordingsLoaded(Array.from({ length: 25 }, (_, index) => `session-${index}`))
+        logic.actions.recordingsLoaded(loadedPage(Array.from({ length: 25 }, (_, index) => `session-${index}`)))
         await expectLogic(logic).toFinishAllListeners()
         expect(experimentsSessionContextsCreate).toHaveBeenCalledTimes(1)
         expect((experimentsSessionContextsCreate as jest.Mock).mock.calls[0][1].session_ids).toHaveLength(20)

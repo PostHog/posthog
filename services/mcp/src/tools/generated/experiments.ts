@@ -42,6 +42,7 @@ import {
     ExperimentsResetCreateParams,
     ExperimentsResumeCreateParams,
     ExperimentsRetrieveParams,
+    ExperimentsSessionEventDeltasCreateParams,
     ExperimentsShipVariantCreateBody,
     ExperimentsShipVariantCreateParams,
     ExperimentsTimeseriesResultsRetrieveParams,
@@ -1261,6 +1262,26 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
         },
     })
 
+const ExperimentsSessionEventDeltasCreateSchema = ExperimentsSessionEventDeltasCreateParams.omit({
+    project_id: true,
+}).extend({ id: z.preprocess(castStringToInt, ExperimentsSessionEventDeltasCreateParams.shape['id']) })
+
+const experimentsSessionEventDeltasCreate = (): ToolBase<
+    typeof ExperimentsSessionEventDeltasCreateSchema,
+    WithPostHogUrl<Schemas.ExperimentSessionEventDeltaResponse>
+> => ({
+    name: 'experiments-session-event-deltas-create',
+    schema: ExperimentsSessionEventDeltasCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ExperimentsSessionEventDeltasCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ExperimentSessionEventDeltaResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/session_event_deltas/`,
+        })
+        return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-activity': experimentActivity,
     'experiment-archive': experimentArchive,
@@ -1298,4 +1319,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'experiment-unarchive': experimentUnarchive,
     'experiment-unfreeze-exposure': experimentUnfreezeExposure,
     'experiment-update': experimentUpdate,
+    'experiments-session-event-deltas-create': experimentsSessionEventDeltasCreate,
 }

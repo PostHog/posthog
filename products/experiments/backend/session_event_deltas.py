@@ -8,23 +8,35 @@ this event clearly more than the others, here are recordings of it happening".
 **Recordings are the deliverable.** A card's count is a count of watchable recordings, checked
 against replay existence before the card is returned; a finding that no recording can back is
 dropped, because a promise the playlist can't keep reads as the feature being broken. The event
-comparison underneath is the picking mechanism, not the product.
+comparison underneath is the picking mechanism, not the product. A card also names a few of its
+recordings to start with, each carrying the signals that earn it the place, because narrowing
+thousands of recordings to twenty still leaves twenty that a list renders identically and the
+recordings list orders by its own sort rather than by the order they arrive in.
 
 **It reports no effect size, on purpose, and this is the constraint the file serves.** The results
 tab publishes one already, from a real statistics engine: per person, over the whole run window,
 with sample-ratio checks and credible intervals behind it. This reads one session per person over a
 window clamped to hours or days. Measured on a production experiment the two agreed on direction
 for every shared event and on no number at all — 7.5x there against 41x here for the same event —
-because the later sessions where people convert are outside what this reads. So the two rules that
-follow are not stylistic:
+because the later sessions where people convert are outside what this reads. So the three rules
+that follow are not stylistic:
 
-  1. The experiment's own metric events never enter the comparison. Those are the events it was
-     built to move, so they would top the ranking on nearly every experiment, and each row would
-     sit one tab away from a differently-computed answer to the same question. They come back only
-     as shortcuts — "recordings where this metric's event happened, per arm" — which claim nothing.
-  2. Cards carry a direction and a band, never a rate, a ratio or a person count. Whatever we
+  1. Cards carry a direction and a band, never a rate, a ratio or a person count. Whatever we
      called it, a precise number next to an event name is an effect size, and would be read
      against the one the results tab computes.
+  2. A card on one of the experiment's own metric events names the metric it belongs to and says
+     nothing about how that metric moved. Metric events are ranked like any other event rather
+     than held out, because on a UI experiment the events closest to the change are usually the
+     ones a metric already counts: measured on two production experiments, the largest separation
+     in the whole project was a metric event both times, and holding them out left the shelf
+     ranking incidental events or nothing at all. What must not happen is a second, differently
+     computed answer to the question the results tab answers, and rule 1 is what prevents that.
+  3. An event no other variant can fire is the variant's own rendering rather than something a
+     person chose to do, so it is separated onto its own shelf and capped. A variant that ships a
+     new element instruments that element, and such an event separates the arms perfectly, so
+     without the split it outranks every real behavioral difference: measured on a production
+     experiment, the two strongest findings were a callout variant's own impression and dismissal
+     events, at a thousand times the separation of anything a person actually did differently.
 
 **Population.** The same session-scoped exposure evidence the tab's list and the session buckets
 use: a session containing an event that matches the experiment's exposure criteria and carries one
@@ -132,10 +144,17 @@ MAX_DELTA_EVENT_ROWS = 10_000
 # How many behavior cards one response carries. The shelf is scanned, not scrolled, and a long tail
 # of near-identical differences is noise rather than depth.
 MAX_BEHAVIOR_CARDS = 8
-# How many of the experiment's metric events get shortcut cards, in the order its metrics are
-# defined, so the primary metric's event comes first. Per event there is one card per arm, so this
-# stays small to keep a five-arm experiment's shelf readable.
+# How many events the variant's own rendering emits get a card. They confirm the change is live and
+# say nothing about behavior, so a couple covers the question however many such events a variant
+# instruments.
+MAX_VARIANT_ONLY_CARDS = 2
+# How many of the experiment's metric events get shortcut cards, in the order the experiment's own
+# metrics page lists them, so the metric a reader thinks of first is the one they get. An event that
+# already earned a comparison card is not repeated as a shortcut.
 MAX_METRIC_CARD_EVENTS = 2
+# How many recordings a card names to start with. Enough to offer a choice, few enough that the
+# reader still opens one instead of reading a second list.
+MAX_CARD_HIGHLIGHTS = 3
 # Recording candidates fetched per card before replay existence is checked, and how many survive
 # onto the card. The margin absorbs sessions that were never recorded without a second round trip.
 MAX_CARD_RECORDING_CANDIDATES = 60
@@ -166,6 +185,16 @@ MIN_LOG_RATIO_LOWER_BOUND = 0.3
 # that reads as an effect size and collides with the one the results tab computes.
 FAR_MORE_LOG_RATIO = 1.1
 MORE_LOG_RATIO = 0.4
+# When the other variants are this close to never firing an event at all, relative to how often
+# they would have fired it at this arm's rate, they are not doing it less: they have no way to do
+# it. A leak is tolerated rather than requiring a flat zero because an element one variant renders
+# can still be reached from the others by a shared route, and because a person who saw two variants
+# in a session the comparison kept carries one arm's events under the other's key.
+VARIANT_ONLY_MAX_LEAKAGE = 0.02
+# ...and how many occurrences the other variants had to be missing before their absence means
+# anything. Below it, "nobody else did it" is what a handful of people looks like whatever the cause,
+# so the card stays on the behavior shelf and the evidence floors decide whether it appears at all.
+VARIANT_ONLY_MIN_EXPECTED = 10.0
 # Per (team, experiment, window bucket, viewer restriction profile). The window moves with
 # wall-clock time on a running experiment, so the key it is built from is quantized to this same
 # interval — at any finer resolution the key would change faster than the entry expires and the
@@ -205,6 +234,19 @@ UNCOMPARABLE_EVENTS = frozenset(
 # something" differently from "the new variant changes what people do".
 FRICTION_EVENTS = frozenset({"$exception", "$rageclick", "$dead_click"})
 
+# What a card ranks its own recordings by, strongest kind first, as (event name, singular, plural).
+# The same three signals the friction shelf is built from, counted per session here rather than
+# compared across arms. Each is a property of the session rather than of the event that earned the
+# card, so a recording keeps the same reason on every card it backs. Counted over the whole covered
+# session, so the phrase still describes what the reader sees once the recording is open. One more
+# signal rides alongside these without being one of them: how many times the session fired the
+# card's own event, which is per card by construction and so computed at pick time rather than here.
+HIGHLIGHT_SIGNALS: tuple[tuple[str, str, str], ...] = (
+    ("$rageclick", "rage click", "rage clicks"),
+    ("$exception", "error", "errors"),
+    ("$dead_click", "dead click", "dead clicks"),
+)
+
 # Distinct from session_buckets' CUSTOM_EXPOSURE_UNLINKABLE_REASON in both name and wording: the
 # bucket can't *match* such an event, this can't *compare* on it, and a reader hitting one of the two
 # endpoints should get the sentence that describes what they asked for.
@@ -236,9 +278,37 @@ class WatchCardKind(StrEnum):
     BEHAVIOR = "behavior"
     # Same evidence, but the event is an error/rage signal, so it reads as a defect lead.
     FRICTION = "friction"
+    # An event only this arm can fire, because the arm is what renders it. Confirms the change is
+    # live rather than saying anything about what people did with it.
+    VARIANT_ONLY = "variant_only"
     # A shortcut to recordings around one of the experiment's own metric events. No comparison
     # claim: what happened to the metric is the results tab's answer.
     METRIC = "metric"
+
+
+@dataclass(frozen=True)
+class ExperimentWatchHighlight:
+    """One recording a card names first, and everything it carries that earned it the place.
+
+    The friction signals are session-level rather than per event, so a recording keeps them on
+    every card it backs. That is deliberate: the reason has to survive a reader opening the
+    recording, and "this session rage clicked six times" does, while anything scoped to the card's
+    own event would contradict itself the moment the same session appeared under a second card.
+    The one per-card part, "did this N times", survives the same trip because "this" reads against
+    whichever card it is printed on.
+    """
+
+    session_id: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class _CardRecordings:
+    """What one card's recordings lookup found: the recordings themselves, and which of them to
+    open first."""
+
+    session_ids: list[str]
+    highlights: list[ExperimentWatchHighlight]
 
 
 @dataclass(frozen=True)
@@ -257,10 +327,16 @@ class ExperimentWatchCard:
     variant: str
     # None on metric cards: they are shortcuts, not comparisons.
     strength: Optional[DeltaStrength]
-    # The metric whose event this card shortcuts to; None outside metric cards.
+    # The metric this card's event belongs to, on a shortcut card and on a comparison card alike.
+    # Set means the results tab measures this event, so the card must be read as pointing there
+    # rather than as a second answer.
     metric_name: Optional[str]
     recording_count: int
     session_ids: list[str]
+    # Which of those recordings to open first, strongest signal first. Empty when none of them
+    # carries one, which is itself worth showing: it says the card's recordings are unremarkable
+    # apart from the event that earned the card.
+    highlights: list[ExperimentWatchHighlight]
 
 
 @dataclass(frozen=True)
@@ -311,7 +387,10 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
     for card in result.cards:
         session_ids = [session_id for session_id in card.session_ids if session_id in accessible]
         if session_ids:
-            cards.append(replace(card, recording_count=len(session_ids), session_ids=session_ids))
+            highlights = [highlight for highlight in card.highlights if highlight.session_id in accessible]
+            cards.append(
+                replace(card, recording_count=len(session_ids), session_ids=session_ids, highlights=highlights)
+            )
     return replace(result, cards=cards)
 
 
@@ -356,12 +435,12 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     if exposure.used_fallback:
         window_start = max(window_start, window_end - timedelta(days=MAX_FALLBACK_DELTA_SCAN_DAYS))
 
-    # The experiment's own metric events never enter the comparison — the module docstring's first
-    # rule. They reappear below as shortcut cards, which claim nothing the results tab also claims.
+    # Metric events stay in — the module docstring's second rule. A card on one is labeled with its
+    # metric instead of being held out of the ranking. Never-session-linked events need no exclusion
+    # here: every query in this family requires a non-empty $session_id, so an event that has never
+    # carried one cannot be counted, let alone carded.
     excluded_events = sorted(
-        UNCOMPARABLE_EVENTS
-        | metric_event_names
-        | ({exposure.exposure_event} if exposure.exposure_event is not None else set())
+        UNCOMPARABLE_EVENTS | ({exposure.exposure_event} if exposure.exposure_event is not None else set())
     )
     multiple_variant_handling = get_multiple_variant_handling_from_experiment(experiment.exposure_criteria)
 
@@ -403,10 +482,27 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     candidates: list[ExperimentWatchCard] = []
     metric_nodes: dict[str, list[EventsNode]] = {}
     if not too_early:
-        candidates = _pick_behavior_cards(scan, arm_keys=qualified_arms)
-        metric_cards, metric_nodes = _metric_card_candidates(
-            metrics, arm_keys=qualified_arms, never_linked=exposure.never_linked
+        named_metric_events, nodes_by_metric_event = _metric_events_by_name(metrics, experiment)
+        candidates = _pick_behavior_cards(
+            scan, arm_keys=qualified_arms, metric_names_by_event=dict(named_metric_events)
         )
+        metric_cards = _metric_card_candidates(
+            named_metric_events,
+            arm_keys=qualified_arms,
+            never_linked=exposure.never_linked,
+            # An event that already won a comparison card is not offered a second time as a
+            # shortcut to the same recordings, which on a two-metric experiment would be half the
+            # shelf restating the other half.
+            carded_events={candidate.event for candidate in candidates},
+        )
+        # A metric's property filters narrow the recordings behind its *shortcut* cards only. A
+        # comparison card was ranked on the bare event name, so filtering its recordings would show
+        # a narrower set than the one that earned it the card, and could leave it with none.
+        metric_nodes = {
+            card.event: nodes_by_metric_event[card.event]
+            for card in metric_cards
+            if card.event in nodes_by_metric_event
+        }
         candidates += metric_cards
 
     cards: list[ExperimentWatchCard] = []
@@ -418,12 +514,19 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
             metric_nodes=metric_nodes,
         )
         for candidate in candidates:
-            session_ids = recordings.get((candidate.event, candidate.variant), [])
+            found = recordings.get((candidate.event, candidate.variant))
             # A card that can't show a single recording is dropped, not rendered greyed-out: the
             # deliverable is what can be watched, and replay sampling or retention already ate
             # these sessions.
-            if session_ids:
-                cards.append(replace(candidate, recording_count=len(session_ids), session_ids=session_ids))
+            if found:
+                cards.append(
+                    replace(
+                        candidate,
+                        recording_count=len(found.session_ids),
+                        session_ids=found.session_ids,
+                        highlights=found.highlights,
+                    )
+                )
 
     result = ExperimentWatchResult(
         cards=cards,
@@ -584,7 +687,7 @@ def _cache_key(
     # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
     # on the heaviest read in this family is the difference between paying it once per team per
     # TTL and once per viewer.
-    return f"experiment_session_event_deltas_v4_{team.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_event_deltas_v6_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -862,7 +965,35 @@ def _strength(*, separation: float, baseline_count: int, target_count: int) -> D
     return DeltaStrength.SLIGHTLY_MORE
 
 
-def _pick_behavior_cards(scan: SessionEventDeltaScan, *, arm_keys: list[str]) -> list[ExperimentWatchCard]:
+def _card_kind(
+    *, event_name: str, target_count: int, target_persons: int, baseline_count: int, baseline_persons: int
+) -> WatchCardKind:
+    """Which shelf a comparison card belongs on.
+
+    Friction is decided first and beats everything: an error only the new variant throws is the
+    single most useful thing this surface can find, and routing it to the variant's-own-rendering
+    shelf on the strength of the same evidence would bury it.
+
+    Everything else turns on how much of the event the other arms are missing rather than on the
+    ratio. A ratio alone can't tell "almost nobody else did it" from "nobody else could": both look
+    enormous, and the second is the variant rendering something the others never had. Comparing the
+    other arms' occurrences against the number this arm's rate predicts for them separates the two,
+    and it needs the prediction to be large before an absence means anything at all.
+    """
+    if event_name in FRICTION_EVENTS:
+        return WatchCardKind.FRICTION
+    expected_baseline = target_count / target_persons * baseline_persons
+    if (
+        expected_baseline >= VARIANT_ONLY_MIN_EXPECTED
+        and baseline_count <= expected_baseline * VARIANT_ONLY_MAX_LEAKAGE
+    ):
+        return WatchCardKind.VARIANT_ONLY
+    return WatchCardKind.BEHAVIOR
+
+
+def _pick_behavior_cards(
+    scan: SessionEventDeltaScan, *, arm_keys: list[str], metric_names_by_event: dict[str, str]
+) -> list[ExperimentWatchCard]:
     """The events one arm did clearly more than the other arms pooled, strongest first.
 
     One card per event at most, on the arm where it is most over-represented — an event five arms
@@ -896,14 +1027,22 @@ def _pick_behavior_cards(scan: SessionEventDeltaScan, *, arm_keys: list[str]) ->
             )
             if separation < MIN_LOG_RATIO_LOWER_BOUND:
                 continue
+            strength = _strength(separation=separation, baseline_count=rest_count, target_count=counts[key])
             card = ExperimentWatchCard(
-                kind=WatchCardKind.FRICTION if event_name in FRICTION_EVENTS else WatchCardKind.BEHAVIOR,
+                kind=_card_kind(
+                    event_name=event_name,
+                    target_count=counts[key],
+                    target_persons=arm_persons[key],
+                    baseline_count=rest_count,
+                    baseline_persons=rest_persons,
+                ),
                 event=event_name,
                 variant=key,
-                strength=_strength(separation=separation, baseline_count=rest_count, target_count=counts[key]),
-                metric_name=None,
+                strength=strength,
+                metric_name=metric_names_by_event.get(event_name),
                 recording_count=0,
                 session_ids=[],
+                highlights=[],
             )
             if best is None or separation > best[0]:
                 best = (separation, card)
@@ -911,36 +1050,58 @@ def _pick_behavior_cards(scan: SessionEventDeltaScan, *, arm_keys: list[str]) ->
             picked.append(best)
 
     picked.sort(key=lambda entry: (-entry[0], entry[1].event))
-    # Friction is capped by FRICTION_EVENTS instead, at one card per name, because it renders on
-    # its own shelf and is the first thing a reader triages. Sharing one budget would let a run of
-    # behavior findings push the only $exception card out of the response entirely.
-    behavior = [card for _separation_value, card in picked if card.kind == WatchCardKind.BEHAVIOR]
-    friction = [card for _separation_value, card in picked if card.kind == WatchCardKind.FRICTION]
-    return behavior[:MAX_BEHAVIOR_CARDS] + friction
+    # Each shelf gets its own budget. Friction is capped by FRICTION_EVENTS instead, at one card per
+    # name, because it is the first thing a reader triages; the variant's-own-rendering shelf is
+    # capped low because it always sorts above everything else and is never the reason to open a
+    # recording. Sharing one budget would let either of them push the whole behavior shelf out of
+    # the response, which is the failure mode both splits exist to prevent.
+    by_kind: dict[WatchCardKind, list[ExperimentWatchCard]] = {}
+    for _separation_value, card in picked:
+        by_kind.setdefault(card.kind, []).append(card)
+    return (
+        by_kind.get(WatchCardKind.BEHAVIOR, [])[:MAX_BEHAVIOR_CARDS]
+        + by_kind.get(WatchCardKind.FRICTION, [])
+        + by_kind.get(WatchCardKind.VARIANT_ONLY, [])[:MAX_VARIANT_ONLY_CARDS]
+    )
 
 
-def _metric_card_candidates(
-    metrics: list[MetricEventSource], *, arm_keys: list[str], never_linked: frozenset[str]
-) -> tuple[list[ExperimentWatchCard], dict[str, list[EventsNode]]]:
-    """Shortcut cards to recordings around the experiment's own metric events, one per arm.
+def _metric_events_by_name(
+    metrics: list[MetricEventSource], experiment: Experiment
+) -> tuple[list[tuple[str, str]], dict[str, list[EventsNode]]]:
+    """Every named event the experiment's metrics count, paired with the metric that owns it, in the
+    order the experiment's own metrics page lists them.
 
-    No strength and no comparison claim: what happened to the metric is the results tab's answer.
-    These cards only say "here is the metric's event happening on screen, in this arm". Events that
-    have only ever been captured server-side can't back a recording and are skipped outright.
+    That order rather than the order the metrics happen to be stored in: a reader who put the metric
+    they care about first sees a shelf built around a different one otherwise, and on a production
+    experiment that is exactly what happened — the event the experiment was built to move sat eighth
+    in storage order and never reached the shelf.
 
-    Also returns each card event's source nodes from the metric whose name the card carries, so the
-    recordings lookup can honor that metric's property filters: the card is labeled with the
-    metric's name, and a recording of the event happening outside the metric would be mislabeled.
+    Also returns each event's source nodes from the metric that owns it, so the recordings lookup
+    can honor that metric's property filters: the card is labeled with the metric's name, and a
+    recording of the event happening outside the metric would be mislabeled.
     """
+    display_order = [
+        *(experiment.primary_metrics_ordered_uuids or []),
+        *(experiment.secondary_metrics_ordered_uuids or []),
+    ]
+
+    def rank(metric: MetricEventSource) -> int:
+        # A metric missing from the ordering arrays sorts last rather than vanishing, and equal
+        # ranks subtract to zero so the sort stays stable within that group.
+        try:
+            return display_order.index(metric.metric_uuid)
+        except ValueError:
+            return len(display_order)
+
     named: list[tuple[str, str]] = []
     owner_by_event: dict[str, str] = {}
     nodes_by_event: dict[str, list[EventsNode]] = {}
-    for metric in metrics:
+    for metric in sorted(metrics, key=rank):
         for source in metric.sources:
             node = source.node
             if not isinstance(node, EventsNode) or not node.event:
                 continue
-            if node.event in UNCOMPARABLE_EVENTS or node.event in never_linked:
+            if node.event in UNCOMPARABLE_EVENTS:
                 continue
             if node.event not in owner_by_event:
                 owner_by_event[node.event] = metric.metric_uuid
@@ -951,8 +1112,28 @@ def _metric_card_candidates(
                 # event across steps with different filters, and any of them counts as the metric.
                 nodes_by_event[node.event].append(node)
 
-    kept = named[:MAX_METRIC_CARD_EVENTS]
-    cards = [
+    return named, nodes_by_event
+
+
+def _metric_card_candidates(
+    named_metric_events: list[tuple[str, str]],
+    *,
+    arm_keys: list[str],
+    never_linked: frozenset[str],
+    carded_events: set[str],
+) -> list[ExperimentWatchCard]:
+    """Shortcut cards to recordings around the experiment's own metric events, one per arm.
+
+    No strength and no comparison claim: what happened to the metric is the results tab's answer.
+    These cards only say "here is the metric's event happening on screen, in this arm". Events that
+    have only ever been captured server-side can't back a recording and are skipped outright.
+    """
+    kept = [
+        (event, metric_name)
+        for event, metric_name in named_metric_events
+        if event not in never_linked and event not in carded_events
+    ][:MAX_METRIC_CARD_EVENTS]
+    return [
         ExperimentWatchCard(
             kind=WatchCardKind.METRIC,
             event=event,
@@ -961,11 +1142,11 @@ def _metric_card_candidates(
             metric_name=metric_name,
             recording_count=0,
             session_ids=[],
+            highlights=[],
         )
         for event, metric_name in kept
         for arm_key in arm_keys
     ]
-    return cards, {event: nodes_by_event[event] for event, _name in kept}
 
 
 def _recordings_for_cards(
@@ -974,8 +1155,9 @@ def _recordings_for_cards(
     wanted: list[tuple[str, str]],
     covered_from: datetime,
     metric_nodes: Optional[dict[str, list[EventsNode]]] = None,
-) -> dict[tuple[str, str], list[str]]:
-    """Recent recorded sessions per (event, arm) pair, most recent first.
+) -> dict[tuple[str, str], _CardRecordings]:
+    """Recent recorded sessions per (event, arm) pair, most recent first, and which of them to open
+    first.
 
     Unlike the scan this prunes on event names, so it reads a sliver of the window. Every candidate
     then goes through replay's own existence check rather than being trusted because it was exposed:
@@ -1013,7 +1195,30 @@ def _recordings_for_cards(
             return ast.Constant(value=False)
         return ast.Or(exprs=conditions) if len(conditions) > 1 else conditions[0]
 
-    wanted_event_rows = card_event_match()
+    def highlight_signal_rows() -> ast.Expr:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=[event for event, _singular, _plural in HIGHLIGHT_SIGNALS]),
+        )
+
+    def highlight_count(event_name: str) -> ast.Expr:
+        return ast.Call(
+            name="countIf",
+            args=[
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["event"]),
+                    right=ast.Constant(value=event_name),
+                )
+            ],
+        )
+
+    # The signal rows join the predicate rather than riding on a second query: they are three event
+    # names, so ClickHouse still prunes this on the events table's primary key, and a session that
+    # carries only signal rows contributes an empty `events_present` and drops out at the arrayJoin
+    # below rather than polluting any card.
+    wanted_event_rows = ast.Or(exprs=[card_event_match(), highlight_signal_rows()])
     if setup.exposure.used_fallback:
         # The stamped flag property rides on the wanted events themselves, so their names are the
         # whole predicate.
@@ -1048,12 +1253,18 @@ def _recordings_for_cards(
                     ],
                 ),
             ),
+            # Every card-event row rather than the distinct names, so the projection below can both
+            # enumerate the names and count how often the session fired each one.
             ast.Alias(
                 alias="events_present",
                 expr=ast.Call(
-                    name="groupUniqArrayIf",
+                    name="groupArrayIf",
                     args=[ast.Field(chain=["event"]), card_event_match()],
                 ),
+            ),
+            *(
+                ast.Alias(alias=_highlight_alias(event), expr=highlight_count(event))
+                for event, _singular, _plural in HIGHLIGHT_SIGNALS
             ),
         ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -1073,9 +1284,22 @@ def _recordings_for_cards(
 
     candidates_query = ast.SelectQuery(
         select=[
-            ast.Alias(alias="event_name", expr=ast.Call(name="arrayJoin", args=[ast.Field(chain=["events_present"])])),
+            ast.Alias(
+                alias="event_name",
+                expr=ast.Call(
+                    name="arrayJoin",
+                    args=[ast.Call(name="arrayDistinct", args=[ast.Field(chain=["events_present"])])],
+                ),
+            ),
             ast.Field(chain=["variant"]),
             ast.Field(chain=["session_id"]),
+            *(ast.Field(chain=[_highlight_alias(event)]) for event, _singular, _plural in HIGHLIGHT_SIGNALS),
+            ast.Alias(
+                alias="repetition",
+                expr=ast.Call(
+                    name="countEqual", args=[ast.Field(chain=["events_present"]), ast.Field(chain=["event_name"])]
+                ),
+            ),
         ],
         select_from=ast.JoinExpr(table=session_rows),
         # A session that saw more than one variant belongs to no card. The check is per session
@@ -1106,10 +1330,18 @@ def _recordings_for_cards(
     # the replay existence check, which pays per id.
     wanted_pairs = set(wanted)
     candidates: dict[tuple[str, str], list[str]] = {}
+    signals: dict[str, dict[str, int]] = {}
+    repetitions: dict[tuple[str, str], int] = {}
     for row in setup.run(candidates_query):
         pair = (str(row[0]), str(row[1]))
-        if pair in wanted_pairs:
-            candidates.setdefault(pair, []).append(str(row[2]))
+        if pair not in wanted_pairs:
+            continue
+        session_id = str(row[2])
+        candidates.setdefault(pair, []).append(session_id)
+        signals[session_id] = {
+            event: int(row[3 + index]) for index, (event, _singular, _plural) in enumerate(HIGHLIGHT_SIGNALS)
+        }
+        repetitions[(pair[0], session_id)] = int(row[3 + len(HIGHLIGHT_SIGNALS)])
 
     all_session_ids = sorted({session_id for ids in candidates.values() for session_id in ids})
     if not all_session_ids:
@@ -1122,7 +1354,75 @@ def _recordings_for_cards(
     exists_by_id = SessionReplayEvents().batch_exists(all_session_ids, setup.team)
     recorded = {session_id for session_id in all_session_ids if exists_by_id.get(session_id)}
 
-    return {
-        pair: [session_id for session_id in ids if session_id in recorded][:MAX_CARD_RECORDINGS]
-        for pair, ids in candidates.items()
-    }
+    signal_events = frozenset(event for event, _singular, _plural in HIGHLIGHT_SIGNALS)
+    found = {}
+    for pair, ids in candidates.items():
+        event_name = pair[0]
+        session_ids = [session_id for session_id in ids if session_id in recorded][:MAX_CARD_RECORDINGS]
+        # On a card whose own event is one of the signals, the signal count already is the
+        # repetition, so carrying both would say "2 rage clicks, did this 2 times".
+        card_repetitions = (
+            {}
+            if event_name in signal_events
+            else {session_id: repetitions.get((event_name, session_id), 0) for session_id in session_ids}
+        )
+        found[pair] = _CardRecordings(
+            session_ids=session_ids,
+            highlights=_pick_highlights(
+                {session_id: signals[session_id] for session_id in session_ids}, repetitions=card_repetitions
+            ),
+        )
+    return found
+
+
+def _highlight_alias(event_name: str) -> str:
+    """Column alias for one highlight signal's per-session count. Derived from the event name so the
+    select list, the outer projection and the row unpacking cannot drift apart."""
+    return f"signal_{event_name.lstrip('$')}"
+
+
+def _pick_highlights(
+    signals: dict[str, dict[str, int]], *, repetitions: dict[str, int]
+) -> list[ExperimentWatchHighlight]:
+    """Which of a card's recordings to open first, and everything each of them carries.
+
+    Ranked on the friction a session shows as a whole rather than by naming the leader of each
+    signal in turn. Per-signal leaders describe half of what they point at and hide the sessions
+    carrying several kinds of trouble at once: measured on a production-shaped card, the top
+    rage-click session also held six errors and the top error session also held four rage clicks,
+    while the session sitting just behind on both axes never appeared. That session is the one
+    showing a person hitting two problems in a row, which is the case this surface exists to find.
+
+    Kinds before volume for the same reason: a session that rage clicked and then hit an error says
+    more about the variant than one that only rage clicked twice as often.
+
+    Repeating the card's own event counts as one more kind of signal, from two occurrences up
+    since one is what put the session on the card at all. It ranks below friction on a tie by
+    sitting last in the reason, but it is what gives a card without any friction a highlight
+    worth the name: on a behavior card, "did this five times" is the session where the difference
+    the card claims is most on screen. `repetitions` is empty when the card's own event is a
+    friction signal, whose count already says the same thing.
+    """
+    scored: list[tuple[int, int, str, str]] = []
+    for session_id, counts in signals.items():
+        present = [
+            (counts[event], singular, plural) for event, singular, plural in HIGHLIGHT_SIGNALS if counts[event] > 0
+        ]
+        # Every signal the session carries, in the shelf's own priority order rather than by size,
+        # so two recordings' reasons stay comparable at a glance.
+        phrases = [f"{count} {singular if count == 1 else plural}" for count, singular, plural in present]
+        repetition = repetitions.get(session_id, 0)
+        if repetition > 1:
+            phrases.append(f"did this {repetition} times")
+        if not phrases:
+            continue
+        kinds = len(present) + (1 if repetition > 1 else 0)
+        total = sum(count for count, _singular, _plural in present) + (repetition if repetition > 1 else 0)
+        scored.append((kinds, total, session_id, ", ".join(phrases)))
+    # Ties broken on the session id rather than left to dict order, so the same shelf computed
+    # twice names the same recordings.
+    scored.sort(key=lambda entry: (-entry[0], -entry[1], entry[2]))
+    return [
+        ExperimentWatchHighlight(session_id=session_id, reason=reason)
+        for _kinds, _total, session_id, reason in scored[:MAX_CARD_HIGHLIGHTS]
+    ]
