@@ -27,12 +27,23 @@ import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playli
 import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
-import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
+import {
+    clampDurationFilter,
+    durationFilterError,
+    MAX_ACTIVE_LABEL,
+    MIN_ACTIVE_SECONDS,
+    MIN_DURATION_SECONDS,
+} from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
-import { ScannerQuotaForecast } from './ScannerQuotaForecast'
+import {
+    formatObservationsPerDay,
+    isLowVolumeForecast,
+    perMonthToPerDay,
+    ScannerQuotaForecast,
+} from './ScannerQuotaForecast'
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
 // Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
@@ -103,6 +114,13 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
     const noMatchWindowDays =
         !scannerEstimateLoading && scannerEstimate?.matched_sessions_in_window === 0
             ? scannerEstimate.window_days
+            : null
+    // Some recordings match, but the sampling rate and filters trim the projection below the low-volume floor.
+    const lowVolumePerMonth =
+        !scannerEstimateLoading &&
+        noMatchWindowDays === null &&
+        isLowVolumeForecast(scannerEstimate?.estimated_observations_per_month)
+            ? (scannerEstimate?.estimated_observations_per_month ?? 0)
             : null
 
     if (!scanner) {
@@ -177,6 +195,17 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                         No recordings from the last {noMatchWindowDays} days match these conditions, so
                                         this scanner has nothing to scan. Widen the filters, or pick a broader option
                                         under Session coverage.
+                                    </span>
+                                </LemonBanner>
+                            ) : lowVolumePerMonth !== null ? (
+                                <LemonBanner type="warning">
+                                    <span className="text-xs">
+                                        These settings project about{' '}
+                                        {formatObservationsPerDay(perMonthToPerDay(lowVolumePerMonth))} observations a
+                                        day, which is low.{' '}
+                                        {deriveOperand(universal.filter_group) === FilterLogicalOperator.And
+                                            ? 'Switch Match from all to any so a recording needs to meet only one condition, and raise the sampling rate to scan more of what matches.'
+                                            : 'Raise the sampling rate to scan a larger share of matching recordings.'}
                                     </span>
                                 </LemonBanner>
                             ) : (
@@ -261,8 +290,9 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                         <div className="text-danger text-xs">{durationError}</div>
                                     ) : (
                                         <div className="text-xs text-muted">
-                                            Vision only scans recordings up to {MAX_ACTIVE_LABEL} of active time. Longer
-                                            sessions are always skipped.
+                                            Vision skips recordings under {MIN_DURATION_SECONDS}s long or under{' '}
+                                            {MIN_ACTIVE_SECONDS}s of active time. It also skips recordings over{' '}
+                                            {MAX_ACTIVE_LABEL} of active time.
                                         </div>
                                     )}
                                 </div>

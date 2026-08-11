@@ -10,6 +10,10 @@ export const DURATION_BOUNDS: Partial<Record<DurationType, { min?: number; max?:
 export const MAX_ACTIVE_SECONDS = DURATION_BOUNDS.active_seconds?.max ?? 3600
 export const MAX_ACTIVE_LABEL = `${Math.round(MAX_ACTIVE_SECONDS / 3600)}h`
 
+// The floors Vision enforces — recordings below either are always skipped.
+export const MIN_DURATION_SECONDS = DURATION_BOUNDS.duration?.min ?? 15
+export const MIN_ACTIVE_SECONDS = DURATION_BOUNDS.active_seconds?.min ?? 10
+
 export function clampDurationFilter(filter: RecordingDurationFilter): RecordingDurationFilter {
     const bounds = DURATION_BOUNDS[filter.key]
     if (!bounds) {

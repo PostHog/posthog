@@ -24,6 +24,27 @@ interface Props {
     scannerId: string
 }
 
+// Warn in the editor when a scanner projects fewer than this many observations a day.
+export const LOW_VOLUME_OBSERVATIONS_PER_DAY = 5
+
+// The monthly projection is scaled to a 30-day month, so the day rate is that figure over 30.
+export function perMonthToPerDay(perMonth: number): number {
+    return perMonth / 30
+}
+
+// True when the projection is known and lands below the low-volume floor.
+export function isLowVolumeForecast(estimatedObservationsPerMonth: number | null | undefined): boolean {
+    if (estimatedObservationsPerMonth == null) {
+        return false
+    }
+    return perMonthToPerDay(estimatedObservationsPerMonth) < LOW_VOLUME_OBSERVATIONS_PER_DAY
+}
+
+// Show a whole number once the day rate reaches double digits, one decimal below that.
+export function formatObservationsPerDay(perDay: number): string {
+    return perDay.toLocaleString(undefined, { maximumFractionDigits: perDay < 10 ? 1 : 0 })
+}
+
 export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const { scanner, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
         replayScannerLogic({ id: scannerId })
@@ -205,8 +226,14 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 </div>
             ) : scannerEstimate ? (
                 <div className="text-xs text-muted">
-                    Based on <strong>{scannerEstimate.matched_sessions_in_window.toLocaleString()}</strong> matching
-                    recordings in the last {scannerEstimate.window_days} days.
+                    <strong>{scannerEstimate.matched_sessions_in_window.toLocaleString()}</strong> matching recordings
+                    in the last {scannerEstimate.window_days} days, sampled at{' '}
+                    <strong>{Math.round(scannerEstimate.sampling_rate * 1000) / 10}%</strong>, project to{' '}
+                    <strong>
+                        ~{formatObservationsPerDay(perMonthToPerDay(scannerEstimate.estimated_observations_per_month))}
+                        /day
+                    </strong>{' '}
+                    (~{scannerEstimate.estimated_observations_per_month.toLocaleString()}/month).
                 </div>
             ) : scannerEstimateError ? (
                 <div className="text-xs text-danger">Couldn't estimate cost: {scannerEstimateError}</div>
