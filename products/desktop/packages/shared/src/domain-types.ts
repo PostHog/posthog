@@ -154,7 +154,7 @@ export interface TaskThreadMessage {
 
 /** The latest resolve or reopen on a comment thread. */
 export interface TaskCommentStateEvent {
-  state: string;
+  state: "resolved" | "open";
   author?: UserBasic | null;
   created_at: string;
 }
@@ -180,6 +180,8 @@ export interface TaskCommentThreadSummary {
   latest_reply: {
     author?: UserBasic | null;
     content: string;
+    /** The excerpt is bounded, so a long reply comes back cut. */
+    content_truncated: boolean;
     created_at: string;
   } | null;
 }
