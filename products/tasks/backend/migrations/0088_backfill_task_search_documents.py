@@ -1,5 +1,6 @@
 import re
 import hashlib
+from typing import Any
 
 from django.db import migrations
 
@@ -60,7 +61,7 @@ def backfill_task_search_documents(apps, schema_editor):
     SearchDocument = apps.get_model("tasks", "TaskSearchDocument")
     Team = apps.get_model("posthog", "Team")
     parent_team_ids = dict(Team.objects.exclude(parent_team_id=None).values_list("id", "parent_team_id"))
-    documents = []
+    documents: list[Any] = []
     documents_processed = 0
     batches_committed = 0
 
