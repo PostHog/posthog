@@ -141,6 +141,21 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         assert self._dm_channels() == ["U-author"]
 
+    def test_canvas_comment_does_not_dm_a_recipient_without_canvas_access(self):
+        canvas = Canvas.objects.create(
+            team=self.team,
+            channel=self.channel,
+            name="Launch canvas",
+            created_by=self.peer,
+            generation_task_id=self.task.id,
+        )
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+
+        with patch("products.tasks.backend.logic.services.comment_slack_dm.canvas_belongs_to_task", return_value=False):
+            self._record_activity(comment, [self.author.id])
+
+        assert self._dm_channels() == []
+
     @parameterized.expand(
         [
             # Same workspace as the integration: the directory match is trustworthy.
