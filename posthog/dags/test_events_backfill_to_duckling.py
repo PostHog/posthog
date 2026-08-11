@@ -67,6 +67,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
+from products.managed_warehouse.backend.service_credentials import ServiceCredential, ServiceCredentialUnavailable
 
 
 @pytest.fixture(autouse=True)
@@ -1557,6 +1558,53 @@ class TestDuckgresSessionRetry:
             session.run("register", op)
         assert op.call_count == _DuckgresSession.MAX_ATTEMPTS
         assert mock_connect.call_count == 1  # never reconnects for an S3 hiccup
+
+
+class TestDuckgresSessionServiceCredential:
+    """The session mints ONE team-scoped credential at init and presents the SAME
+    credential on every reconnect — the CP's reuse contract makes a mid-TTL
+    re-mint return no plaintext, so re-minting on reconnect would deadlock the
+    session against a missing password.
+    """
+
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_mints_once_and_reuses_on_reconnect(self, mock_connect, mock_mint):
+        credential = ServiceCredential(
+            username="posthog_team_2_rw",
+            password="secret",
+            expires_at=datetime(2026, 8, 11, 12, 0),
+            rotated=True,
+        )
+        mock_mint.return_value = credential
+        mock_connect.side_effect = [MagicMock(name="c0"), MagicMock(name="c1")]
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        session = _DuckgresSession(MagicMock(), target)
+        mock_mint.assert_called_once_with(
+            "org-1", 2, principal="dagster:events-backfill", force_rotate=True
+        )
+        # initial connect presented the minted credential
+        assert mock_connect.call_args_list[0].kwargs["service_credential"] is credential
+
+        session._reconnect()
+        assert mock_connect.call_count == 2
+        # reconnect presents the SAME credential object — a re-mint would
+        # return no plaintext for a still-fresh grant
+        assert mock_connect.call_args_list[1].kwargs["service_credential"] is credential
+        assert mock_mint.call_count == 1
+
+    @patch("posthog.dags.events_backfill_to_duckling.mint_service_credential")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_falls_back_to_root_when_mint_unavailable(self, mock_connect, mock_mint):
+        mock_mint.side_effect = ServiceCredentialUnavailable("cp down")
+        mock_connect.return_value = MagicMock()
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="r")
+
+        session = _DuckgresSession(MagicMock(), target)
+        # The CP being down must not fail the run while root still works —
+        # transitional path until DuckgresServer dies entirely.
+        assert mock_connect.call_args_list[0].kwargs["service_credential"] is None
 
 
 class TestDuckgresBackfillOptions:

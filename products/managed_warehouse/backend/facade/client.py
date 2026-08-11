@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
     from products.managed_warehouse.backend.facade.contracts import DuckLakeQueryResult, DuckLakeTableResult
+    from products.managed_warehouse.backend.service_credentials import ServiceCredential
 
 __all__ = [
     "compile_hogql_to_ducklake_sql",
@@ -31,8 +32,17 @@ __all__ = [
 ]
 
 
-def make_duckgres_conninfo(team_id: int, *, organization_id: str | None = None) -> str:
-    return client.make_duckgres_conninfo(team_id, organization_id=organization_id)
+def make_duckgres_conninfo(
+    team_id: int,
+    *,
+    organization_id: str | None = None,
+    service_credential: "ServiceCredential | None" = None,
+) -> str:
+    return client.make_duckgres_conninfo(
+        team_id,
+        organization_id=organization_id,
+        service_credential=service_credential,
+    )
 
 
 def compile_hogql_to_ducklake_sql(
