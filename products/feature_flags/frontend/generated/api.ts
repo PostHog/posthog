@@ -767,14 +767,11 @@ export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number)
 export const featureFlagsDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -808,14 +805,11 @@ export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, 
 export const featureFlagsEnrichUsageDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getFeatureFlagsEnrichUsageDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
     })
 }
 

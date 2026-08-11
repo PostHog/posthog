@@ -3389,6 +3389,13 @@ def signal_task_run_user_message(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    from products.tasks.backend.exceptions import (
+        ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+    )
+    from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+
+    if is_compute_quota_exhausted(run.task):
+        raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)})
     try:
         context = {"actor_slack_user_id": actor_slack_user_id} if actor_slack_user_id else None
         signal_task_followup_message(
@@ -4470,6 +4477,11 @@ def create_task(
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
+    if validated_data.get("repository") and not validated_data.get("github_integration"):
+        default_integration = Integration.objects.filter(team=team, kind="github").first()
+        if default_integration:
+            validated_data["github_integration"] = default_integration
+
     if (
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
@@ -4510,6 +4522,18 @@ def create_task(
                 warm_run = None
         if warm_run is not None:
             warm_task = warm_run.task
+            should_set_client_provenance = warm_task.client_provenance is None and client_provenance is not None
+            if should_set_client_provenance:
+                warm_task.client_provenance = client_provenance
+            from products.tasks.backend.exceptions import (
+                ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
+            )
+            from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted  # noqa: PLC0415
+
+            if is_compute_quota_exhausted(warm_task):
+                raise ComputeBillingLimitError(
+                    {"team_id": team_id, "task_id": str(warm_task.id), "run_id": str(warm_run.id)}
+                )
             description = (validated_data.get("description") or "").strip()
             update_fields: list[str] = []
             if description and not (warm_task.title or "").strip():
@@ -4525,11 +4549,10 @@ def create_task(
                 update_fields.append("channel")
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
-            if warm_task.client_provenance is None and client_provenance is not None:
+            if should_set_client_provenance:
                 Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
                     client_provenance=client_provenance
                 )
-                warm_task.client_provenance = client_provenance
             _activate_warm_run(
                 warm_run,
                 warm_task,

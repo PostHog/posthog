@@ -158,10 +158,10 @@ Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the f
 
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
-Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: `30m`, `2h`, `1d`, `0.5m` (=30s).
+Must match `^\d*\.?\d+[dhms]$` — a number plus unit `s` | `m` | `h` | `d`. Examples: `30s`, `30m`, `2h`, `1d`, `1.5d` (=36h).
 
-- **No seconds, no ISO-8601.** For sub-minute, use a fraction of a minute.
-- Per-unit caps are **silently clamped**: `m`≤60, `h`≤24, `d`≤30. Max total 30d. Use the larger unit (`90m` → use `1.5h`) to avoid surprise clamping.
+- **No ISO-8601.** Fractions are allowed in every unit.
+- Per-unit caps are **silently clamped**: `s`≤60, `m`≤60, `h`≤24, `d`≤30. Max total 30d. Use the larger unit (`90m` → use `1.5h`) to avoid surprise clamping.
 
 ## Conversion & exit condition
 
