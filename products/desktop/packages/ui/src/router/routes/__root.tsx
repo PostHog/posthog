@@ -48,11 +48,6 @@ import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepL
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
 import { SecondaryPanel } from "@posthog/ui/features/navigation/components/SecondaryPanel";
-import {
-  NAV_PANEL_DEFAULTS,
-  NAV_PANEL_SEARCH_KEYS,
-  validateNavPanelSearch,
-} from "@posthog/ui/features/navigation/navPanelSearch";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
 import {
@@ -91,8 +86,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   createRootRoute,
   Outlet,
-  retainSearchParams,
-  stripSearchParams,
   useCanGoBack,
   useRouter,
   useRouterState,
@@ -113,20 +106,6 @@ const WINDOWS_TITLEBAR_INSET = 140;
 
 export const Route = createRootRoute({
   component: RootLayout,
-  // The chrome's panel state (secondary panel, its tab, the right panel) is
-  // root-level search state so it survives every in-app navigation — widths
-  // stay in stores. Retained so a plain navigate doesn't silently drop it, then
-  // stripped back out whenever a param sits at its default, which is also what
-  // lets the chrome reset one: retain restores any key the navigation didn't
-  // name, so a default has to be written out loud and dropped here rather than
-  // deleted at the call site.
-  validateSearch: validateNavPanelSearch,
-  search: {
-    middlewares: [
-      retainSearchParams([...NAV_PANEL_SEARCH_KEYS]),
-      stripSearchParams(NAV_PANEL_DEFAULTS),
-    ],
-  },
 });
 
 function RootLayout() {

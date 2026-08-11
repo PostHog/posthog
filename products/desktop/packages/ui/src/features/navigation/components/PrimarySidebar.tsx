@@ -54,13 +54,17 @@ import {
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
 import { useRouterState } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
-  navigateToSpaceFresh,
-  patchNavPanelSearch,
-  useNavPanelSearch,
-  useSecondaryPanelState,
-} from "../useNavPanels";
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useNavPanelStore } from "../navPanelStore";
+import { navigateToSpaceFresh, useSecondaryPanelState } from "../useNavPanels";
 
 const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
@@ -93,19 +97,30 @@ function AttentionDot({
   );
 }
 
-function SpaceRow({
+interface SpaceRowProps {
+  channel: Channel;
+  isActive: boolean;
+  /** Take the channel back rather than closing over it, so the handlers the
+   *  parent passes can stay referentially stable and the memo below can bite. */
+  onClick: (channel: Channel) => void;
+  onRename: (channel: Channel) => void;
+  onDelete: (channel: Channel) => void;
+}
+
+/**
+ * Memoized, and it has to stay that way: a row carries a context menu and a
+ * badge, there are dozens of them, and this sidebar re-renders on every panel
+ * toggle — the whole list rebuilding behind one of those cost ~400ms.
+ * That means keeping its props stable; the channel list is polled and hands out
+ * fresh objects, so the channel is compared field by field.
+ */
+const SpaceRow = memo(function SpaceRow({
   channel,
   isActive,
   onClick,
   onRename,
   onDelete,
-}: {
-  channel: Channel;
-  isActive: boolean;
-  onClick: () => void;
-  onRename: () => void;
-  onDelete: () => void;
-}) {
+}: SpaceRowProps) {
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
   const unreadCount = useUnreadSessionCount()(channel.id);
   const blockedCount = useBlockedSessionCount()(channel.id);
@@ -116,7 +131,7 @@ function SpaceRow({
       depth={1}
       label={channel.name}
       isActive={isActive}
-      onClick={onClick}
+      onClick={() => onClick(channel)}
       badge={
         blockedCount > 0 ? (
           <AttentionDot count={blockedCount} tone="blocked" />
@@ -138,16 +153,32 @@ function SpaceRow({
           <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
           {isStarred ? "Unstar space" : "Star space"}
         </ContextMenuItem>
-        <ContextMenuItem onClick={onRename}>
+        <ContextMenuItem onClick={() => onRename(channel)}>
           <PencilSimpleIcon size={14} />
           Rename space…
         </ContextMenuItem>
-        <ContextMenuItem variant="destructive" onClick={onDelete}>
+        <ContextMenuItem
+          variant="destructive"
+          onClick={() => onDelete(channel)}
+        >
           <TrashIcon size={14} />
           Delete space…
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
+  );
+}, areSpaceRowPropsEqual);
+
+function areSpaceRowPropsEqual(a: SpaceRowProps, b: SpaceRowProps): boolean {
+  return (
+    a.isActive === b.isActive &&
+    a.onClick === b.onClick &&
+    a.onRename === b.onRename &&
+    a.onDelete === b.onDelete &&
+    a.channel.id === b.channel.id &&
+    a.channel.name === b.channel.name &&
+    a.channel.starred === b.channel.starred &&
+    a.channel.channelType === b.channel.channelType
   );
 }
 
@@ -159,7 +190,7 @@ function SpaceRow({
  */
 export function PrimarySidebar() {
   const view = useAppView();
-  const search = useNavPanelSearch();
+  const panel = useNavPanelStore((s) => s.panel);
   const { destination, open: panelOpen } = useSecondaryPanelState();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -212,21 +243,27 @@ export function PrimarySidebar() {
 
   const activeSpaceId =
     destination?.kind === "space" ? destination.channelId : null;
-  const isActivity = search.panel === "activity";
+  const isActivity = panel === "activity";
   const isHome = pathname === "/website" && !isActivity;
 
-  const onSpaceClick = (channel: Channel) => {
-    if (activeSpaceId === channel.id && !isActivity) {
+  // The click decision reads the panel state through a ref so the handler
+  // itself never changes identity — a new closure here would re-render every
+  // row on the very toggles this memoization exists to keep cheap.
+  const panelStateRef = useRef({ activeSpaceId, isActivity, panelOpen });
+  panelStateRef.current = { activeSpaceId, isActivity, panelOpen };
+  const onSpaceClick = useCallback((channel: Channel) => {
+    const state = panelStateRef.current;
+    if (state.activeSpaceId === channel.id && !state.isActivity) {
       // Re-clicking the current space toggles its panel.
-      patchNavPanelSearch({ panel: panelOpen ? "off" : "auto" });
+      useNavPanelStore.getState().setPanel(state.panelOpen ? "off" : "auto");
       return;
     }
     navigateToSpaceFresh(channel.id);
-  };
+  }, []);
 
   const onActivityClick = () => {
     trackNav("activity");
-    patchNavPanelSearch({ panel: isActivity ? "off" : "activity" });
+    useNavPanelStore.getState().setPanel(isActivity ? "off" : "activity");
   };
 
   const spaceRow = (channel: Channel): ReactNode => (
@@ -234,9 +271,9 @@ export function PrimarySidebar() {
       key={channel.id}
       channel={channel}
       isActive={activeSpaceId === channel.id && !isActivity}
-      onClick={() => onSpaceClick(channel)}
-      onRename={() => setRenaming(channel)}
-      onDelete={() => setDeleting(channel)}
+      onClick={onSpaceClick}
+      onRename={setRenaming}
+      onDelete={setDeleting}
     />
   );
 

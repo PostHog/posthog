@@ -1,4 +1,9 @@
-import { GearSixIcon, PackageIcon, XIcon } from "@phosphor-icons/react";
+import {
+  GearSixIcon,
+  PackageIcon,
+  PlusIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -15,20 +20,28 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { LOOPS_FLAG } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { ChannelSessionsList } from "@posthog/ui/features/canvas/components/ChannelSidebar";
-import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
+import { trackAndCreateCanvas } from "@posthog/ui/features/canvas/createCanvasAnalytics";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useDashboards } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import {
+  useCreateAndOpenDashboard,
+  useDashboards,
+} from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useLoops } from "@posthog/ui/features/loops/hooks/useLoops";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
-import { navigateToLoopDetail } from "@posthog/ui/router/navigationBridge";
+import {
+  navigateToLoopDetail,
+  navigateToNewLoop,
+} from "@posthog/ui/router/navigationBridge";
+import { openTaskInput } from "@posthog/ui/router/useOpenTask";
+import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMemo } from "react";
-import type { SpacePanelTab } from "../navPanelSearch";
-import { patchNavPanelSearch, useNavPanelSearch } from "../useNavPanels";
+import { type SpacePanelTab, useNavPanelStore } from "../navPanelStore";
 
 function SpaceLoopsList({ channelId }: { channelId: string }) {
   const { data: loops } = useLoops();
@@ -112,6 +125,61 @@ function SpaceCanvasesList({ channelId }: { channelId: string }) {
   );
 }
 
+const NEW_LABELS: Record<SpacePanelTab, string> = {
+  sessions: "New session",
+  loops: "New loop",
+  canvases: "New canvas",
+};
+
+/**
+ * The create affordance for whichever list is showing. It leads the list rather
+ * than floating over it, so it names what it makes and stops covering the rows
+ * at the bottom of a full space.
+ */
+function NewInTab({
+  tab,
+  channelId,
+}: {
+  tab: SpacePanelTab;
+  channelId: string;
+}) {
+  const createAndOpenCanvas = useCreateAndOpenDashboard(channelId);
+
+  const onClick = () => {
+    if (tab === "loops") {
+      navigateToNewLoop();
+      return;
+    }
+    if (tab === "canvases") {
+      // Straight to the default template; the canvas's own composer drives
+      // what actually gets built.
+      trackAndCreateCanvas(channelId, undefined, "sidebar", () => {
+        void createAndOpenCanvas();
+      });
+      return;
+    }
+    // "sidebar" is the surface the floating create button reported from this
+    // same column, so the create series stays continuous across the move.
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "new_task_open",
+      surface: "sidebar",
+      channel_id: channelId,
+    });
+    openTaskInput({ channelId });
+  };
+
+  return (
+    <Button
+      variant="outline"
+      className="w-full justify-start"
+      onClick={onClick}
+    >
+      <PlusIcon size={14} className="text-primary" />
+      {NEW_LABELS[tab]}
+    </Button>
+  );
+}
+
 const SPACE_TABS: readonly { key: SpacePanelTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
   { key: "loops", label: "Loops" },
@@ -125,7 +193,9 @@ const SPACE_TABS: readonly { key: SpacePanelTab; label: string }[] = [
  */
 export function SpacePanel({ channelId }: { channelId: string }) {
   const navigate = useNavigate();
-  const search = useNavPanelSearch();
+  const stab = useNavPanelStore((s) => s.stab);
+  const setStab = useNavPanelStore((s) => s.setStab);
+  const setPanel = useNavPanelStore((s) => s.setPanel);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
 
@@ -135,9 +205,7 @@ export function SpacePanel({ channelId }: { channelId: string }) {
   const tabs = loopsEnabled
     ? SPACE_TABS
     : SPACE_TABS.filter((tab) => tab.key !== "loops");
-  const tab = tabs.some((t) => t.key === search.stab)
-    ? search.stab
-    : "sessions";
+  const tab = tabs.some((t) => t.key === stab) ? stab : "sessions";
   const onContextPage = pathname === `/website/${channelId}/context`;
 
   return (
@@ -150,17 +218,15 @@ export function SpacePanel({ channelId }: { channelId: string }) {
           variant="default"
           size="icon-sm"
           aria-label="Close panel"
-          onClick={() => patchNavPanelSearch({ panel: "off" })}
+          onClick={() => setPanel("off")}
         >
           <XIcon size={14} />
         </Button>
       </div>
-      <div className="flex h-[32px] shrink-0 items-center gap-1 border-border border-b pr-1 pl-2">
+      <div className="flex h-[32px] shrink-0 items-center gap-1 border-border border-b px-2">
         <Tabs
           value={tab}
-          onValueChange={(value: string) =>
-            patchNavPanelSearch({ stab: value as SpacePanelTab })
-          }
+          onValueChange={(value: string) => setStab(value as SpacePanelTab)}
         >
           <TabsList
             variant="line"
@@ -202,12 +268,12 @@ export function SpacePanel({ channelId }: { channelId: string }) {
           </Tooltip>
         </div>
       </div>
+      <div className="shrink-0 px-2 pt-2 pb-1">
+        <NewInTab tab={tab} channelId={channelId} />
+      </div>
       <div className="relative min-h-0 flex-1">
         {tab === "sessions" && (
-          <>
-            <ChannelSessionsList channelId={channelId} sessionsOnly />
-            <ChannelsFab channelId={channelId} />
-          </>
+          <ChannelSessionsList channelId={channelId} sessionsOnly />
         )}
         {tab === "loops" && (
           <div className="h-full overflow-y-auto">

@@ -1,17 +1,18 @@
 import { ErrorBoundary } from "@posthog/ui/primitives/ErrorBoundary";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
+import { useNavPanelStore } from "../navPanelStore";
 import {
   SECONDARY_PANEL_MIN_WIDTH,
   useSecondaryPanelStore,
 } from "../secondaryPanelStore";
-import { patchNavPanelSearch, useSecondaryPanelState } from "../useNavPanels";
+import { useSecondaryPanelState } from "../useNavPanels";
 import { ActivityFeedPanel } from "./ActivityFeedPanel";
 import { SpacePanel } from "./SpacePanel";
 
 /**
  * The second chrome column: a space's lists or the activity feed, between the
- * primary sidebar and the content pane. Which panel shows (and whether it's
- * open) lives in the URL; only the width is local, persisted state.
+ * primary sidebar and the content pane. Which panel shows is view state
+ * (navPanelStore); only the width persists.
  */
 export function SecondaryPanel() {
   const { destination, open } = useSecondaryPanelState();
@@ -29,7 +30,9 @@ export function SecondaryPanel() {
       setIsResizing={setIsResizing}
       side="left"
       minWidth={SECONDARY_PANEL_MIN_WIDTH}
-      setOpen={(next) => patchNavPanelSearch({ panel: next ? "auto" : "off" })}
+      setOpen={(next) =>
+        useNavPanelStore.getState().setPanel(next ? "auto" : "off")
+      }
     >
       {/* Inside the content frame now, so it takes the content surface rather
           than the sidebar's chrome — the divider alone separates the two. */}

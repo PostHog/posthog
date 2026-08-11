@@ -31,9 +31,9 @@ import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useParams } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef } from "react";
-import type { RightPanelSide } from "../navPanelSearch";
+import type { RightPanelSide } from "../navPanelStore";
+import { useNavPanelStore } from "../navPanelStore";
 import { RIGHT_PANEL_MIN_WIDTH, useRightPanelStore } from "../rightPanelStore";
-import { patchNavPanelSearch, useNavPanelSearch } from "../useNavPanels";
 
 const SESSIONLESS_KEY = "__none";
 
@@ -47,15 +47,15 @@ function useRightPanelTask(): Task | null {
 }
 
 /**
- * Which panel is open. The URL's `side` param wins; without it, an open review
+ * Which panel is open. An explicit choice wins; without one, an open review
  * mode (set by every existing "open review" entry point) reads as Changes.
  */
 function useActiveSide(taskId: string | null): RightPanelSide | null {
-  const search = useNavPanelSearch();
+  const side = useNavPanelStore((s) => s.side);
   const reviewMode = useReviewNavigationStore((s) =>
     taskId ? (s.reviewModes[taskId] ?? "closed") : "closed",
   );
-  if (search.side !== "none") return search.side;
+  if (side) return side;
   if (taskId && reviewMode !== "closed") return "changes";
   return null;
 }
@@ -66,11 +66,12 @@ function toggleSide(
   taskId: string | null,
 ): void {
   const { setSideForKey } = useRightPanelStore.getState();
+  const { setSide } = useNavPanelStore.getState();
   const { setReviewMode } = useReviewNavigationStore.getState();
   const key = taskId ?? SESSIONLESS_KEY;
 
   if (active === side) {
-    patchNavPanelSearch({ side: "none" });
+    setSide(null);
     if (taskId) setReviewMode(taskId, "closed");
     setSideForKey(key, undefined);
     return;
@@ -80,11 +81,11 @@ function toggleSide(
   if (side === "changes" && taskId) {
     // Changes rides the review store so the command menu, PR links, and diff
     // toggles that already open review all land on the same panel.
-    patchNavPanelSearch({ side: "none" });
+    setSide(null);
     setReviewMode(taskId, "split");
     return;
   }
-  patchNavPanelSearch({ side });
+  setSide(side);
   if (taskId) setReviewMode(taskId, "closed");
 }
 
@@ -190,49 +191,39 @@ function ChangesPanelContent({ task }: { task: Task }) {
 
 /**
  * The right panel column: a push column under the header-band buttons, one
- * panel at a time, shared resizable width. Open state is per-session (the
- * store remembers each session's panel; the URL's `side` param wins on load).
+ * panel at a time, shared resizable width. Open state is per-session — the
+ * store remembers each session's panel and restores it on the way back.
  */
 export function RightPanel() {
   const task = useRightPanelTask();
   const taskId = task?.id ?? null;
   const active = useActiveSide(taskId);
-  const search = useNavPanelSearch();
 
   const width = useRightPanelStore((s) => s.width);
   const setWidth = useRightPanelStore((s) => s.setWidth);
   const isResizing = useRightPanelStore((s) => s.isResizing);
   const setIsResizing = useRightPanelStore((s) => s.setIsResizing);
 
-  // Per-session memory: on the first render the URL wins and seeds the
-  // session's memory; on later session switches the new session's remembered
-  // panel is applied (or none, closing the panel).
+  // On a session switch the new session's remembered panel is applied, or none,
+  // closing it.
   const key = taskId ?? SESSIONLESS_KEY;
-  const seededRef = useRef(false);
   const lastKeyRef = useRef(key);
-  const urlSide = search.side === "none" ? null : search.side;
   useEffect(() => {
-    const store = useRightPanelStore.getState();
-    if (!seededRef.current) {
-      seededRef.current = true;
-      lastKeyRef.current = key;
-      if (urlSide) store.setSideForKey(key, urlSide);
-      return;
-    }
     if (lastKeyRef.current === key) return;
     lastKeyRef.current = key;
-    const remembered = store.sideByKey[key];
+    const remembered = useRightPanelStore.getState().sideByKey[key];
+    const { setSide } = useNavPanelStore.getState();
     const { setReviewMode } = useReviewNavigationStore.getState();
     if (remembered === "changes" && taskId) {
-      patchNavPanelSearch({ side: "none" });
+      setSide(null);
       setReviewMode(taskId, "split");
       return;
     }
-    patchNavPanelSearch({ side: remembered ?? "none" });
+    setSide(remembered ?? null);
     // Review mode is already per-task, so a session switch restores it on its
     // own — only an explicit non-changes panel needs it closed.
     if (remembered && taskId) setReviewMode(taskId, "closed");
-  }, [key, taskId, urlSide]);
+  }, [key, taskId]);
 
   return (
     <ResizableSidebar

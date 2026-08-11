@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { RightPanelSide } from "./navPanelSearch";
+import type { RightPanelSide } from "./navPanelStore";
 
 export const RIGHT_PANEL_MIN_WIDTH = 280;
 const RIGHT_PANEL_DEFAULT_WIDTH = 340;

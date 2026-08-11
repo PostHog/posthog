@@ -21,7 +21,7 @@ import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMa
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useCommentsEnabled } from "@posthog/ui/features/sessions/useCommentsEnabled";
 import { useCallback, useMemo, useState } from "react";
-import { patchNavPanelSearch } from "../useNavPanels";
+import { useNavPanelStore } from "../navPanelStore";
 
 type ActivityFeedTab = "all" | "mentions" | "agents";
 
@@ -96,7 +96,7 @@ export function ActivityFeedPanel() {
           variant="default"
           size="icon-sm"
           aria-label="Close panel"
-          onClick={() => patchNavPanelSearch({ panel: "off" })}
+          onClick={() => useNavPanelStore.getState().setPanel("off")}
         >
           <XIcon size={14} />
         </Button>
