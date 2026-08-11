@@ -8,17 +8,17 @@ interface MenuButtonProps {
 }
 
 export function MenuButton({ className }: MenuButtonProps) {
-  const open = useNavDrawerStore((s) => s.open);
+  const toggle = useNavDrawerStore((s) => s.toggle);
   const themeColors = useThemeColors();
 
   return (
     <Pressable
       // Fire on touch-down (not release) so the drawer starts animating in
       // the same frame the finger lands.
-      onPressIn={open}
+      onPressIn={toggle}
       hitSlop={12}
       className={`h-10 w-10 items-center justify-center rounded-lg active:bg-gray-3 ${className ?? ""}`}
-      accessibilityLabel="Open navigation menu"
+      accessibilityLabel="Toggle navigation menu"
       accessibilityRole="button"
     >
       <List size={24} color={themeColors.gray[12]} />

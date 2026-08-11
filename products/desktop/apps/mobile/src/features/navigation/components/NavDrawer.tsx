@@ -152,21 +152,9 @@ const NavDrawerContent = memo(function NavDrawerContent({
       className="flex-1"
       style={{ paddingTop, paddingBottom: insets.bottom }}
     >
-      <View className="flex-row items-center justify-between pr-2 pb-3 pl-4">
-        <Pressable onPress={handleHome} className="active:opacity-60">
-          <Text className="font-bold text-[20px] text-gray-12">PostHog</Text>
-        </Pressable>
-        {/* The open panel covers the hamburger button, so give the same
-            gesture a target inside the panel. */}
-        <Pressable
-          onPress={close}
-          hitSlop={8}
-          accessibilityLabel="Close navigation menu"
-          className="h-9 w-9 items-center justify-center rounded-lg active:bg-gray-3"
-        >
-          <X size={20} color={iconColor} />
-        </Pressable>
-      </View>
+      <Pressable onPress={handleHome} className="px-4 pb-3 active:opacity-60">
+        <Text className="font-bold text-[20px] text-gray-12">PostHog</Text>
+      </Pressable>
 
       <View className="gap-0.5 px-2 pb-2">
         <DrawerItem
