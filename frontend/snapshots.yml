@@ -1216,6 +1216,14 @@ snapshots:
         hash: v1.k794b7964.d0e2ad002bf6d7126c2939fcf65a95ad02f915061ac39616f897c4c8f0b9cdef.Rlro8jpQStkVB6I7sLqygnNvq6WiVlgWK8XFlbLSyy0
     components-markdown-editor-inline--with-slash-commands--light:
         hash: v1.k794b7964.8b10234bf99bc2e9b1bae52af562885e611b6e65f8849e91545db592f90d4fbb.lIly8VIiaje29Y8EYFuK5AZ9WKskSJqe97MmbpjLbDo
+    components-markdown-editor-metric-definition--default--dark:
+        hash: v1.k794b7964.06b0579ec23e05a6250c87e79ed080c2e4fb2b7296979f06186fb31e47ae12fd.bXC6YLv3mFz35mSChoJX0grLmFhHkpFf3N55gVBWE_4
+    components-markdown-editor-metric-definition--default--light:
+        hash: v1.k794b7964.e34ddb04224c266b3e93d0c499e6acf383fd3aca74960b966118a4ffa6d8eaae.1TXDvKjupqBFjvwmcaSyDe5fKClqcUUnOfZ2XbCq6fQ
+    components-markdown-editor-metric-definition--legacy-fallback-for-unsafe-markdown--dark:
+        hash: v1.k794b7964.a5f1064ac0311683379bb9ee08d430c942aa64229389777a18881bf0320f23b0.6Za8l5LnjHlxjS0drxiCPjdfyfdgQLbsWLxTccDc-Cs
+    components-markdown-editor-metric-definition--legacy-fallback-for-unsafe-markdown--light:
+        hash: v1.k794b7964.7bac2079ca7516ff5a4d7acd277641bb090377073e8ffbc380c487c870956581.Xl8nazpgWFzOevGh9CHrilQkf_QPuv_BZbV3gRJmEDs
     components-markdown-editor-rich--with-markdown--dark:
         hash: v1.k794b7964.b933911885203330331bde8bd799fd74fcd4e5964ba7fba4538dd075f07e32dc.QhPFXSfVCoIMya1xKmHLdyh3P9dJf-zNL4_zLUNqgqU
     components-markdown-editor-rich--with-markdown--light:
