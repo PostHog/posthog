@@ -34,6 +34,13 @@ export class UrlFetchConsumer {
         private readonly sightings: SightingStore,
         private readonly options: UrlFetchConsumerOptions
     ) {
+        // These arrive from env, where a typo parses to NaN. A NaN age limit makes every comparison
+        // false, which silently disables the shed that lets the lane drop a backlog.
+        if (!Number.isFinite(options.maxAgeMs) || options.maxAgeMs <= 0) {
+            throw new Error(
+                `SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS must be a positive number, got ${options.maxAgeMs}`
+            )
+        }
         this.seenRefs = new RefDedupCache('image_fetch_consumer', options.dedupMaxRefs)
         ImageFetchConsumerMetrics.setDryRun(options.dryRun)
     }
@@ -85,9 +92,13 @@ export class UrlFetchConsumer {
             }
         }
 
-        const fetchable = await this.removeAlreadySeen(candidates)
+        const { fetchable, readFailed } = await this.removeAlreadySeen(candidates)
         if (fetchable.length > 0) {
             ImageFetchConsumerMetrics.incFetchable(fetchable.length)
+        }
+        // A store that just failed a read gets no writes: the un-deduped write volume is the largest
+        // this lane ever offers, and sending it to a struggling Redis makes it slower still.
+        if (fetchable.length > 0 && !readFailed) {
             await this.recordSightings(fetchable, nowMs)
         }
 
@@ -108,9 +119,11 @@ export class UrlFetchConsumer {
      * the safe direction while nothing is being sent, and it is not once requests go out, so the
      * failure is counted rather than only logged.
      */
-    private async removeAlreadySeen(candidates: FetchCandidate[]): Promise<FetchCandidate[]> {
+    private async removeAlreadySeen(
+        candidates: FetchCandidate[]
+    ): Promise<{ fetchable: FetchCandidate[]; readFailed: boolean }> {
         if (candidates.length === 0) {
-            return []
+            return { fetchable: [], readFailed: false }
         }
         const keys = candidates.map((candidate) => sightingKey(candidate.pseudoTeam, candidate.urlHash))
         let result
@@ -119,7 +132,7 @@ export class UrlFetchConsumer {
         } catch (error) {
             ImageFetchConsumerMetrics.incStoreError('read', keys.length)
             logger.warn('🌐', 'ml_image_fetch_sighting_read_failed', { count: keys.length, error: String(error) })
-            return candidates
+            return { fetchable: candidates, readFailed: true }
         }
         if (result.failed > 0) {
             ImageFetchConsumerMetrics.incStoreError('read', result.failed)
@@ -127,7 +140,10 @@ export class UrlFetchConsumer {
         if (result.known.size > 0) {
             ImageFetchConsumerMetrics.incDeduped('store', result.known.size)
         }
-        return candidates.filter((_candidate, index) => !result.known.has(index))
+        return {
+            fetchable: candidates.filter((_candidate, index) => !result.known.has(index)),
+            readFailed: result.failed > 0,
+        }
     }
 
     /**

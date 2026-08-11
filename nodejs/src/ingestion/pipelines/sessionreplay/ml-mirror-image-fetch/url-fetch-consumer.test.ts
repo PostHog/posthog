@@ -90,6 +90,14 @@ describe('UrlFetchConsumer', () => {
 
     const hashOf = (key: string): string => key.split(':').pop() as string
 
+    it.each([NaN, 0, -1])('refuses to start with an age limit of %p', (maxAgeMs) => {
+        // The knob arrives from env, where a typo parses to NaN. A NaN limit makes every comparison
+        // false, so the lane silently stops shedding a backlog instead of failing.
+        expect(() => new UrlFetchConsumer(sightings, { maxAgeMs, dedupMaxRefs: 10, dryRun: true })).toThrow(
+            'SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS'
+        )
+    })
+
     it('writes one ledger entry per URL it would fetch', async () => {
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 

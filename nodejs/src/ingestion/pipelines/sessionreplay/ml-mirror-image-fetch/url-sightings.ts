@@ -21,7 +21,7 @@ const SIGHTING_PREFIX = 'imgfetch:seen'
 export const SIGHTING_TTL_SECONDS = 30 * 24 * 60 * 60
 
 /** Bounds one round trip. A poll batch can carry thousands of URLs, and one pipeline holding all of them times out as a unit. */
-const MAX_COMMANDS_PER_PIPELINE = 256
+const MAX_KEYS_PER_ROUND_TRIP = 256
 
 export function sightingKey(pseudoTeam: string, urlHash: string): string {
     return `${SIGHTING_PREFIX}:${pseudoTeam}:${urlHash}`
@@ -38,7 +38,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 export interface SightingReadResult {
     /** Indexes of the keys that were already recorded. */
     known: Set<number>
-    /** Keys whose read failed, which the caller must treat as unknown rather than as absent. */
+    /** Keys whose read did not complete, which the caller must treat as unknown rather than as absent. */
     failed: number
 }
 
@@ -54,112 +54,116 @@ export interface SightingStore {
  * The in-memory cache in front of it holds only what one pod saw since it started, so a rebalance
  * or a restart would otherwise count every URL again. Losing this store costs an overstated
  * measurement now, and outbound requests once fetching is on. It never costs correctness.
+ *
+ * Both methods stop early once the batch budget is spent and report the rest as failed. A batch that
+ * runs past Kafka's max.poll.interval.ms gets the pod evicted mid-batch, and the partition is then
+ * replayed by a pod that will take just as long, so offered load rises while throughput falls.
  */
 export class UrlSightings implements SightingStore {
     constructor(
         private readonly pool: RedisPool,
-        private readonly commandTimeoutMs: number
+        private readonly commandTimeoutMs: number,
+        private readonly batchBudgetMs: number
     ) {}
 
-    /**
-     * A key whose read failed is reported as failed rather than as absent, because the two mean
-     * opposite things to a caller deciding whether it has handled a URL before.
-     */
     public async read(keys: string[]): Promise<SightingReadResult> {
         const known = new Set<number>()
         let failed = 0
-        let offset = 0
-        for (const batch of chunk(keys, MAX_COMMANDS_PER_PIPELINE)) {
-            const base = offset
-            offset += batch.length
-            let results: [Error | null, unknown][] | null
-            try {
-                results = await this.withClient(async (client) => {
-                    const pipeline = client.pipeline()
-                    for (const key of batch) {
-                        pipeline.get(key)
+        await this.forEachChunk(keys, {
+            onChunk: async (client, batch, base) => {
+                const values = await client.mget(...batch)
+                values.forEach((value, index) => {
+                    if (value !== null) {
+                        known.add(base + index)
                     }
-                    return (await pipeline.exec()) as [Error | null, unknown][] | null
                 })
-            } catch {
+            },
+            onChunkFailed: (batch) => {
                 failed += batch.length
-                continue
-            }
-            for (let i = 0; i < batch.length; i++) {
-                const entry = results?.[i]
-                if (!entry || entry[0]) {
-                    failed++
-                } else if (entry[1] !== null && entry[1] !== undefined) {
-                    known.add(base + i)
-                }
-            }
-        }
+            },
+        })
         return { known, failed }
     }
 
-    /** Returns how many keys could not be written, so the caller can decide what to un-mark. */
     public async record(keys: string[], nowMs: number, ttlSeconds: number): Promise<{ failed: Set<number> }> {
         const failed = new Set<number>()
         const value = JSON.stringify({ seenAtMs: nowMs })
-        let offset = 0
-        for (const batch of chunk(keys, MAX_COMMANDS_PER_PIPELINE)) {
-            const base = offset
-            offset += batch.length
-            let results: [Error | null, unknown][] | null
-            try {
-                results = await this.withClient(async (client) => {
-                    const pipeline = client.pipeline()
-                    for (const key of batch) {
-                        // One command, so a key can never be left without its expiry. A separate
-                        // EXPIRE can be the command that fails, and the key it leaves behind has no
-                        // TTL and is never reclaimed.
-                        pipeline.set(key, value, 'EX', ttlSeconds)
+        await this.forEachChunk(keys, {
+            onChunk: async (client, batch, base) => {
+                const pipeline = client.pipeline()
+                for (const key of batch) {
+                    // One command, so a key can never be left without its expiry. A separate EXPIRE
+                    // can be the command that fails, and the key it leaves behind is never reclaimed.
+                    pipeline.set(key, value, 'EX', ttlSeconds)
+                }
+                const results = (await pipeline.exec()) as [Error | null, unknown][] | null
+                batch.forEach((_key, index) => {
+                    const result = results?.[index]
+                    if (!result || result[0]) {
+                        failed.add(base + index)
                     }
-                    return (await pipeline.exec()) as [Error | null, unknown][] | null
                 })
-            } catch {
-                for (let i = 0; i < batch.length; i++) {
-                    failed.add(base + i)
-                }
-                continue
-            }
-            for (let i = 0; i < batch.length; i++) {
-                const entry = results?.[i]
-                if (!entry || entry[0]) {
-                    failed.add(base + i)
-                }
-            }
-        }
+            },
+            onChunkFailed: (batch, base) => {
+                batch.forEach((_key, index) => failed.add(base + index))
+            },
+        })
         return { failed }
     }
 
-    /**
-     * The deadline covers acquiring a connection as well as the command, because an exhausted pool
-     * blocks for as long as a stalled Redis does and both end at the poll loop. A connection whose
-     * command was abandoned is destroyed rather than returned, since its reply is still in flight
-     * and would be read as the answer to whichever command borrowed it next.
-     */
-    private async withClient<T>(run: (client: Redis) => Promise<T>): Promise<T> {
-        let timer: NodeJS.Timeout | undefined
-        const deadline = new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => reject(new Error('url sighting store timed out')), this.commandTimeoutMs)
-            timer.unref()
-        })
-        let client: Redis | undefined
-        try {
-            client = await Promise.race([this.pool.acquire(), deadline])
-            return await Promise.race([run(client), deadline])
-        } catch (error) {
-            if (client) {
-                await this.pool.destroy(client).catch(() => undefined)
-                client = undefined
+    private async forEachChunk(
+        keys: string[],
+        handlers: {
+            onChunk: (client: Redis, batch: string[], base: number) => Promise<void>
+            onChunkFailed: (batch: string[], base: number) => void
+        }
+    ): Promise<void> {
+        const startedAt = process.hrtime.bigint()
+        const spentMs = (): number => Number(process.hrtime.bigint() - startedAt) / 1e6
+        let base = 0
+        for (const batch of chunk(keys, MAX_KEYS_PER_ROUND_TRIP)) {
+            const at = base
+            base += batch.length
+            if (spentMs() > this.batchBudgetMs) {
+                handlers.onChunkFailed(batch, at)
+                continue
             }
+            try {
+                await this.withClient((client) => handlers.onChunk(client, batch, at))
+            } catch {
+                handlers.onChunkFailed(batch, at)
+            }
+        }
+    }
+
+    /**
+     * The pool rejects rather than queues once its own acquire timeout passes, so this never races
+     * `acquire()`. generic-pool cannot cancel one, and a caller that walked away from a pending
+     * acquire is still handed the next free connection and still counted as borrowing it.
+     *
+     * A connection whose command was abandoned is destroyed rather than returned, because its reply
+     * is still in flight and would be read as the answer to whichever command borrowed it next.
+     */
+    private async withClient(run: (client: Redis) => Promise<void>): Promise<void> {
+        const client = await this.pool.acquire()
+        let timer: NodeJS.Timeout | undefined
+        try {
+            await Promise.race([
+                run(client),
+                new Promise<never>((_resolve, reject) => {
+                    timer = setTimeout(
+                        () => reject(new Error('sighting store command timed out')),
+                        this.commandTimeoutMs
+                    )
+                    timer.unref()
+                }),
+            ])
+        } catch (error) {
+            await this.pool.destroy(client).catch(() => undefined)
             throw error
         } finally {
             clearTimeout(timer)
-            if (client) {
-                await this.pool.release(client)
-            }
         }
+        await this.pool.release(client)
     }
 }

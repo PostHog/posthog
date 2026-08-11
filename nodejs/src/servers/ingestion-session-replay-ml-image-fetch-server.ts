@@ -14,6 +14,17 @@ import {
     buildMlMirrorServerConfig,
 } from './ingestion-session-replay-ml-mirror-server'
 
+// The poll loop only heartbeats between batches, so a slow batch is refreshed from inside it. Must
+// stay under CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s), which binds long before max.poll.interval.ms.
+const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
+
+/**
+ * How long the store may spend on one batch. Half the interval at which the batch refreshes its own
+ * heartbeat, so a degraded Redis makes the lane shed the rest of a batch rather than let the pod be
+ * declared unhealthy and restart onto the same offsets.
+ */
+const STORE_BATCH_BUDGET_MS = BATCH_HEARTBEAT_INTERVAL_MS * 5
+
 export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {
     return {
         topic: KAFKA_SESSION_REPLAY_IMAGE_FETCH,
@@ -57,6 +68,13 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
+        // Before anything connects: a cleared flag is a configuration mistake, and this lane has no
+        // request path yet, so it would report itself as fetching while downloading nothing.
+        const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
+        if (!dryRun) {
+            throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN cannot be cleared yet: this lane cannot fetch')
+        }
+
         // The ml-mirror's instance, which is deliberately not the cluster that serves the primary
         // replay lane: this store holds one key per distinct image URL, and its eviction pressure
         // must not be able to reach the lane that gates replay ingestion.
@@ -64,22 +82,17 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         if (!connection) {
             throw new Error('SESSION_RECORDING_ML_REDIS_HOST must be set for the image-fetch consumer')
         }
+        const redisTimeoutMs = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
         this.sightingPool = createRedisPoolFromConfig({
-            connection,
+            // The lane's own command timeout, not the mirror's 200ms: one round trip here carries a
+            // whole chunk of keys rather than a single per-session command.
+            connection: { ...connection, options: { ...connection.options, commandTimeout: redisTimeoutMs } },
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+            acquireTimeoutMillis: redisTimeoutMs,
         })
-        const sightings = new UrlSightings(
-            this.sightingPool,
-            this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
-        )
+        const sightings = new UrlSightings(this.sightingPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
 
-        // Refuse to start rather than run as though fetching were on: this lane has no request path
-        // yet, so a cleared flag would report itself as fetching while downloading nothing.
-        const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
-        if (!dryRun) {
-            throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN cannot be cleared yet: this lane cannot fetch')
-        }
         const fetchConsumer = new UrlFetchConsumer(sightings, {
             maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
             dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
@@ -88,7 +101,10 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
         const consumer = new KafkaConsumer(buildImageFetchConsumerConfig(this.config))
-        await consumer.connect((messages) => fetchConsumer.handleBatch(messages, Date.now()))
+        await consumer.connect((messages) => {
+            const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
+            return fetchConsumer.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
+        })
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-fetch',

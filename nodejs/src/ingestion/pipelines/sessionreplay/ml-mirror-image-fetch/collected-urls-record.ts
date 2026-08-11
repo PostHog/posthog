@@ -13,7 +13,7 @@ const FETCHABLE_SCHEMES = new Set(['http:', 'https:'])
  * agree with this one, and its size drives a Redis pipeline and a batch's memory, so it is refused
  * rather than trusted.
  */
-const MAX_URLS_PER_RECORD = 256
+const MAX_URLS_PER_RECORD = 128
 
 export interface FetchCandidate {
     ref: string

@@ -45,7 +45,7 @@ export class ImageFetchConsumerMetrics {
      */
     private static readonly dropped = new Counter({
         name: 'ml_image_fetch_consumer_dropped_total',
-        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse)',
+        help: 'URLs refused before dedup, by reason: "stale" (older than the age limit), "malformed" / "unsupported_version" / "oversized_record" (the record did not parse), "bad_ref" / "bad_url" (an entry inside a record did not parse), "foreign_domain" (the host sits outside the domain the record is keyed by)',
         labelNames: ['reason'],
     })
     /**
@@ -73,8 +73,8 @@ export class ImageFetchConsumerMetrics {
     })
     private static readonly batchDuration = new Histogram({
         name: 'ml_image_fetch_consumer_batch_duration_seconds',
-        help: 'Wall time per poll batch. Read against Kafka max.poll.interval.ms (300s): a batch approaching it gets the pod evicted mid-batch',
-        buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 60, 300],
+        help: 'Wall time per poll batch. Read against CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s), which binds long before max.poll.interval.ms: the batch refreshes the heartbeat from inside itself, so a batch past this means that refresh stopped',
+        buckets: [0.01, 0.05, 0.1, 0.5, 1, 5, 15, 30, 60],
     })
     private static readonly ageSeconds = new Histogram({
         name: 'ml_image_fetch_consumer_url_age_seconds',
