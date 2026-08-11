@@ -49,7 +49,11 @@ describe('ConversationsWidget', () => {
 
         fireEvent.click(screen.getByText('I need help with my dashboard.'))
 
-        expect(posthog.capture).toHaveBeenCalledWith('support ticket opened from recent ticket list')
+        expect(posthog.capture).toHaveBeenCalledWith('dashboard widget open support ticket clicked', {
+            widget_type: 'conversations_recent_tickets',
+            tile_id: 1,
+            ticket_id: 'ticket-1',
+        })
     })
 
     it('shows the saved view name in the card top heading', () => {

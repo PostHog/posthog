@@ -81,9 +81,11 @@ export function ConversationsWidgetTopHeading({
 }
 
 function ConversationsWidgetRow({
+    tileId,
     ticket,
     canMutateTickets,
 }: {
+    tileId: number
     ticket: ConversationsWidgetTicket
     canMutateTickets: boolean
 }): JSX.Element {
@@ -94,7 +96,11 @@ function ConversationsWidgetRow({
     const isAssignmentLoading = ticketAssignmentLoadingId === ticket.id
     const channelLabel = channelOptions.find((option) => option.value === ticket.channel_source)?.label
     const captureTicketOpened = (): void => {
-        posthog.capture('support ticket opened from recent ticket list')
+        posthog.capture('dashboard widget open support ticket clicked', {
+            widget_type: 'conversations_recent_tickets',
+            tile_id: tileId,
+            ticket_id: ticket.id,
+        })
     }
     return (
         <div className="border-b border-primary px-3 py-3 hover:bg-fill-highlight-100">
@@ -290,6 +296,7 @@ export function ConversationsWidget({
                     {tickets.map((ticket) => (
                         <ConversationsWidgetRow
                             key={ticket.id}
+                            tileId={tileId}
                             ticket={ticket}
                             canMutateTickets={canMutateConversationsTickets}
                         />
