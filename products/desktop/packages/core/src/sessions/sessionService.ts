@@ -135,6 +135,18 @@ const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
  */
 const SESSION_EVENT_FLUSH_MS = 16;
 /**
+ * Steering an adapter that can't fold a message into a running turn leaves only
+ * one way in: interrupt it. Cancelling the instant the user hits send cuts off
+ * whatever sentence was streaming, so wait for the agent's output to go quiet
+ * this long first. Several flush ticks of silence, not a pause between tokens.
+ */
+const STEER_INTERRUPT_QUIET_MS = 250;
+/**
+ * Ceiling on that wait, so an agent that streams without pausing still gets
+ * interrupted instead of holding the user's message indefinitely.
+ */
+const STEER_INTERRUPT_MAX_WAIT_MS = 1_500;
+/**
  * A backgrounded session's transcript is freed this long after it stops being
  * viewed, and reloaded from disk on return. Only disconnected (idle, no live
  * subscription) sessions are eligible, so no streamed event can append to an
@@ -1281,6 +1293,25 @@ function discardExactHydratedEvents(
     }
   }
   return liveTurn.events.filter((_event, index) => keep[index]);
+}
+
+/**
+ * Whether the event is the agent emitting text — what a user watches arrive
+ * token by token. Tool calls, progress and status updates are not: nothing is
+ * mid-sentence, so there is nothing to wait out before interrupting.
+ */
+function isAgentTextStreamEvent(event: AcpMessage): boolean {
+  const message = event.message;
+  if (!isJsonRpcNotification(message) || message.method !== "session/update") {
+    return false;
+  }
+  const sessionUpdate = (
+    message.params as { update?: { sessionUpdate?: string } } | undefined
+  )?.update?.sessionUpdate;
+  return (
+    sessionUpdate === "agent_message_chunk" ||
+    sessionUpdate === "agent_thought_chunk"
+  );
 }
 
 function agentMessageUpdateKind(
@@ -2586,8 +2617,15 @@ export class SessionService {
    * within a taskRunId is preserved; taskRunIds are independent. */
   private pendingSessionEvents = new Map<string, AcpMessage[]>();
   private sessionEventFlushHandle: ReturnType<typeof setTimeout> | null = null;
+  /** When each run last streamed agent text. Read by the steer fallback so its
+   *  interrupt lands between sentences rather than mid-token. Recorded on
+   *  arrival, not on flush, so the buffering delay doesn't read as silence. */
+  private lastAgentTextAt = new Map<string, number>();
 
   private enqueueSessionEvent(taskRunId: string, acpMsg: AcpMessage): void {
+    if (isAgentTextStreamEvent(acpMsg)) {
+      this.lastAgentTextAt.set(taskRunId, Date.now());
+    }
     const buffered = this.pendingSessionEvents.get(taskRunId);
     if (buffered) {
       buffered.push(acpMsg);
@@ -2787,6 +2825,7 @@ export class SessionService {
     this.subscriptions.delete(taskRunId);
     this.liveTurnContent.delete(taskRunId);
     this.agentSpokeAt.delete(taskRunId);
+    this.lastAgentTextAt.delete(taskRunId);
     // Drop any speak calls still mid-stream for this run (never reached a
     // terminal status, so they were never enqueued or deleted above).
     this.speakCalls.delete(taskRunId);
@@ -3575,7 +3614,15 @@ export class SessionService {
         }
       }
       if (!session.isCloud) {
-        await this.cancelPrompt(taskId);
+        // Nothing folds the message into the running turn here, so the turn has
+        // to end for it to land. Let the output in flight finish first —
+        // cancelling on the keystroke truncates the sentence being read.
+        await this.waitForAgentTextToSettle(taskId);
+        // The turn may have ended while we waited, in which case there is
+        // nothing to interrupt and the message sends as an ordinary prompt.
+        if (this.d.store.getSessionByTaskId(taskId)?.isPromptPending) {
+          await this.cancelPrompt(taskId);
+        }
         const refreshed = this.d.store.getSessionByTaskId(taskId);
         if (refreshed) {
           session = refreshed;
@@ -3665,6 +3712,33 @@ export class SessionService {
     return this.sendLocalPrompt(session, blocks, promptText, {
       optimisticApplied: true,
     });
+  }
+
+  /**
+   * Resolve once the agent's streamed text has been quiet for
+   * {@link STEER_INTERRUPT_QUIET_MS}, the turn has ended on its own, or
+   * {@link STEER_INTERRUPT_MAX_WAIT_MS} has elapsed. Returns straight away when
+   * nothing is streaming — the common case, since a steer usually arrives while
+   * the agent is inside a tool call rather than mid-sentence.
+   */
+  private async waitForAgentTextToSettle(taskId: string): Promise<void> {
+    const deadline = Date.now() + STEER_INTERRUPT_MAX_WAIT_MS;
+    for (;;) {
+      const session = this.d.store.getSessionByTaskId(taskId);
+      if (!session?.isPromptPending) return;
+      // A run that has never streamed text is quiet by definition, whatever the
+      // clock reads.
+      const quietFor =
+        Date.now() -
+        (this.lastAgentTextAt.get(session.taskRunId) ??
+          Number.NEGATIVE_INFINITY);
+      const wait = Math.min(
+        STEER_INTERRUPT_QUIET_MS - quietFor,
+        deadline - Date.now(),
+      );
+      if (wait <= 0) return;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
   }
 
   /**
