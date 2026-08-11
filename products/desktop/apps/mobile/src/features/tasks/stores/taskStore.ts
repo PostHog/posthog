@@ -27,6 +27,28 @@ export interface TaskComposerConfig {
   reasoning?: SupportedReasoningEffort;
   contextWindow?: ContextWindow;
   fastMode?: boolean;
+  /** ISO timestamp of the last local edit. Lets the task screen prefer the
+   *  server-recorded run config when a run (possibly started on another
+   *  device) is newer than this device's selection. */
+  updatedAt?: string;
+}
+
+/**
+ * True when the latest run's config (recorded server-side at run start) is
+ * fresher than this device's local composer selection — e.g. the task was
+ * re-run from desktop with a different model after the local pick was made.
+ * Configs saved before this field existed count as stale.
+ */
+export function isRunConfigNewer(
+  runCreatedAt: string | null | undefined,
+  localUpdatedAt: string | undefined,
+): boolean {
+  if (!runCreatedAt) return false;
+  const runTime = Date.parse(runCreatedAt);
+  if (Number.isNaN(runTime)) return false;
+  if (!localUpdatedAt) return true;
+  const localTime = Date.parse(localUpdatedAt);
+  return Number.isNaN(localTime) || runTime > localTime;
 }
 
 interface TaskUIState {
@@ -80,6 +102,7 @@ export const useTaskStore = create<TaskUIState>()(
             [taskId]: {
               ...state.composerConfigByTaskId[taskId],
               ...config,
+              updatedAt: new Date().toISOString(),
             },
           },
         })),

@@ -67,7 +67,10 @@ import {
   usePendingTaskPrompt,
 } from "@/features/tasks/stores/pendingTaskPromptStore";
 import { useTaskSessionStore } from "@/features/tasks/stores/taskSessionStore";
-import { useTaskStore } from "@/features/tasks/stores/taskStore";
+import {
+  isRunConfigNewer,
+  useTaskStore,
+} from "@/features/tasks/stores/taskStore";
 import { confirmStopRun } from "@/features/tasks/utils/archiveGuard";
 import { buildCloudTaskRunConfig } from "@/features/tasks/utils/cloudTaskRunConfig";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
@@ -180,9 +183,15 @@ export default function TaskDetailScreen() {
   const [initialComposerMessage, setInitialComposerMessage] = useState<
     string | undefined
   >();
+  // A run started after the local pick (possibly from another device) carries
+  // the fresher config — prefer its recorded values over the stale local ones.
+  const runConfigIsNewer = isRunConfigNewer(
+    task?.latest_run?.created_at,
+    composerConfig?.updatedAt,
+  );
   const composerAdapter: Adapter =
     task?.latest_run?.runtime_adapter &&
-    !session?.terminalStatus &&
+    (runConfigIsNewer || !session?.terminalStatus) &&
     composerConfig?.adapter !== task.latest_run.runtime_adapter
       ? task.latest_run.runtime_adapter
       : (composerConfig?.adapter ??
@@ -197,6 +206,7 @@ export default function TaskDetailScreen() {
     getDefaultExecutionModeForAdapter(composerAdapter);
   const kimiEnabled = !!useFeatureFlag(KIMI_MODEL_FLAG);
   const persistedComposerModel =
+    (runConfigIsNewer ? task?.latest_run?.model : undefined) ??
     (composerConfigMatchesAdapter ? composerConfig?.model : undefined) ??
     task?.latest_run?.model ??
     (composerAdapter === "codex" ? DEFAULT_CODEX_MODEL : DEFAULT_GATEWAY_MODEL);
@@ -207,9 +217,11 @@ export default function TaskDetailScreen() {
     !kimiEnabled && isModalModelId(persistedComposerModel)
       ? DEFAULT_GATEWAY_MODEL
       : persistedComposerModel;
-  const requestedComposerReasoning = composerConfigMatchesAdapter
-    ? composerConfig?.reasoning
-    : undefined;
+  const requestedComposerReasoning =
+    (runConfigIsNewer
+      ? (task?.latest_run?.reasoning_effort ?? undefined)
+      : undefined) ??
+    (composerConfigMatchesAdapter ? composerConfig?.reasoning : undefined);
   const composerReasoning: SupportedReasoningEffort =
     requestedComposerReasoning &&
     isSupportedReasoningEffort(
