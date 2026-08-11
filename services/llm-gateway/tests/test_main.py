@@ -4,6 +4,7 @@ import pytest
 import structlog
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import ClientDisconnect
 from structlog.testing import capture_logs
 
 from llm_gateway.config import Settings, get_settings
@@ -172,6 +173,13 @@ def _middleware_test_client() -> TestClient:
     def raises() -> dict[str, bool]:
         return {"ok": True}
 
+    def abandon_request() -> None:
+        raise ClientDisconnect
+
+    @app.get("/disconnects", dependencies=[Depends(abandon_request)])
+    def disconnects() -> dict[str, bool]:
+        return {"ok": True}
+
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -206,3 +214,14 @@ class TestRequestLoggingMiddleware:
 
         request_lines = [log for log in logs if log["event"] == "request"]
         assert errors[0]["request_id"] == request_lines[0]["request_id"]
+
+    def test_client_disconnect_logs_neither_an_error_nor_a_status(self) -> None:
+        # ClientDisconnect is a plain Exception, so a client aborting mid-body would otherwise be
+        # reported as a 500 it never saw, and every abort would raise an error-level event.
+        client = _middleware_test_client()
+
+        with capture_logs() as logs:
+            client.get("/disconnects")
+
+        assert [log for log in logs if log["event"] == "unhandled_exception"] == []
+        assert [log for log in logs if log["event"] == "request"] == []

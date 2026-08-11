@@ -17,6 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.requests import ClientDisconnect
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
@@ -79,9 +80,9 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()
-        # CancelledError is a BaseException, so it escapes the except below and leaves this None.
-        # A request cancelled that way never produced a status code, so logging one would invent a
-        # response the client never received.
+        # Stays None for a client that went away: CancelledError is a BaseException and escapes the
+        # except clauses below, and ClientDisconnect is re-raised untouched. Neither produced a
+        # status code, so logging one would invent a response the client never received.
         status_code: int | None = None
 
         try:
@@ -91,6 +92,11 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             if hasattr(request.app.state, "db_pool"):
                 update_db_pool_metrics(request.app.state.db_pool)
             return response
+        except ClientDisconnect:
+            # A plain Exception, so without this it would take the clause below and report a 500 the
+            # aborting client never saw. The rest of the service treats a disconnect as ordinary
+            # traffic too (see the disconnect counters in api/handler.py and api/anthropic.py).
+            raise
         except Exception as exc:
             # Starlette's ServerErrorMiddleware sits above this middleware, so an exception escaping
             # call_next is the 500 the client gets. Without logging it here the request would leave
