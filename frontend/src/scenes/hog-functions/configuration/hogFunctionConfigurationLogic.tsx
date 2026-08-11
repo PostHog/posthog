@@ -1086,7 +1086,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     let result
                     try {
                         result = await performQuery(sparklineQuery)
-                    } catch (e) {
+                    } catch (e: any) {
                         if (isBreakpoint(e)) {
                             throw e
                         }
