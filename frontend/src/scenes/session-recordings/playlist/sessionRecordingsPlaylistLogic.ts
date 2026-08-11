@@ -2076,6 +2076,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             return
         }
 
+        // The filters reducer persists to localStorage and rehydrates without validation, so a stale
+        // or malformed entry poisons state and makes every later filter change fall back to defaults.
+        // Drop a bad rehydrated value here, reusing the check that already guards the URL and setFilters paths.
+        if (!isValidRecordingFilters(values.filters)) {
+            actions.resetFilters()
+            return
+        }
+
         if (props.pinnedFilters) {
             const merged = mergePinnedFilters(values.filters.filter_group, props.pinnedFilters)
             if (!equal(merged, values.filters.filter_group)) {
