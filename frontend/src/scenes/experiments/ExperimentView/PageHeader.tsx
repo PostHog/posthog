@@ -115,29 +115,27 @@ export function PageHeaderCustom(): JSX.Element {
                                         variant={item.status === 'danger' ? 'danger' : 'default'}
                                         onClick={item.onClick}
                                         disabledReasons={
-                                            // ButtonPrimitive needs string keys; LemonButton's type also
-                                            // allows elements, but the shared actions only set strings.
-                                            typeof item.disabledReason === 'string'
-                                                ? { [item.disabledReason]: true }
-                                                : undefined
+                                            item.disabledReason ? { [item.disabledReason]: true } : undefined
                                         }
                                         data-attr={item['data-attr']}
                                     >
                                         {item.icon}
                                         {item.label}
-                                        {item.sideIcon}
+                                        {item.sideIcon && <span className="ml-auto">{item.sideIcon}</span>}
                                     </ButtonPrimitive>
                                 ))}
                             </Fragment>
                         ))}
-                        <PauseExperimentModal />
-                        <ResumeExperimentModal />
                     </ScenePanelActionsSection>
                     <ExperimentDebugToggle />
                 </ScenePanel>
             )}
             {experiment && (
                 <>
+                    {/* Outside ScenePanel: the panel unmounts its children whenever no panel
+                        element is registered, which would leave these modals' open state dangling. */}
+                    <PauseExperimentModal />
+                    <ResumeExperimentModal />
                     <DuplicateExperimentModal
                         isOpen={isDuplicateExperimentModalOpen}
                         onClose={() => closeDuplicateExperimentModal()}

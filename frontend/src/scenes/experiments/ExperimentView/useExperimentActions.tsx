@@ -41,9 +41,13 @@ import { isExperimentExposureFrozen, isExperimentPaused } from '../experimentsLo
 import { modalsLogic } from '../modalsLogic'
 import { isLegacyExperiment } from '../utils'
 
+/** Keep `disabledReason` a plain string (LemonMenu also allows elements) so the
+ * ScenePanel can use it as a `disabledReasons` key without silently dropping it. */
+export type ExperimentActionItem = LemonMenuItemLeafCallback & { disabledReason?: string }
+
 export interface ExperimentActionsSection {
     key: string
-    items: LemonMenuItemLeafCallback[]
+    items: ExperimentActionItem[]
 }
 
 /** The full action set for the current experiment, shared by the header's Actions
@@ -76,7 +80,9 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
-    if (!experiment) {
+    // `experiment` defaults to the NEW_EXPERIMENT placeholder (id 'new') while the real
+    // experiment loads — don't offer actions (e.g. Delete) against the placeholder.
+    if (!experiment || experiment.id === 'new') {
         return []
     }
 
@@ -92,7 +98,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
     const paused = isExperimentPaused(experiment)
     const showStateActions = isExperimentRunning && !!experiment.feature_flag
 
-    const manageItems: (LemonMenuItemLeafCallback | false)[] = [
+    const manageItems: (ExperimentActionItem | false)[] = [
         {
             label: 'Duplicate',
             icon: <IconCopy />,
@@ -111,6 +117,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
         isExperimentLaunched &&
             (exposureCohortId
                 ? {
+                      // TODO: add custom back button to the destination page
                       label: 'View exposure cohort',
                       icon: <IconPeople />,
                       sideIcon: <IconExternal />,
@@ -146,7 +153,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             },
     ]
 
-    const stateItems: (LemonMenuItemLeafCallback | false)[] = [
+    const stateItems: (ExperimentActionItem | false)[] = [
         showStateActions &&
             paused && {
                 label: 'Resume experiment',
@@ -189,7 +196,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
         },
     ]
 
-    const dangerItems: (LemonMenuItemLeafCallback | false)[] = [
+    const dangerItems: (ExperimentActionItem | false)[] = [
         canArchive && {
             label: 'Archive experiment',
             icon: <IconArchive />,
@@ -224,7 +231,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
     ]
         .map((section) => ({
             ...section,
-            items: section.items.filter((item): item is LemonMenuItemLeafCallback => !!item),
+            items: section.items.filter((item): item is ExperimentActionItem => !!item),
         }))
         .filter((section) => section.items.length > 0)
 }
