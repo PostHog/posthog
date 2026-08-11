@@ -11,18 +11,29 @@ import { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { CyclotronJobInputType, HogFunctionMappingType } from '~/types'
+import { CyclotronJobInputType, CyclotronJobInvocationGlobals, HogFunctionMappingType } from '~/types'
 
 import { workflowLogic } from '../../../workflowLogic'
+import { hogFlowEditorTestLogic } from '../../panel/testing/hogFlowEditorTestLogic'
 import { HogFlowFunctionMappings } from './HogFlowFunctionMappings'
 
 // Builds the sample globals the input editor uses for autocomplete and unknown-global warnings.
 // The available globals depend on the trigger type: batch runs have no external triggering event,
 // but the worker backfills a real event.distinct_id at dequeue, so batch must expose `event` too or
 // the editor wrongly flags {event.distinct_id} as unknown.
+//
+// The trigger type decides which globals exist, while `realSampleGlobals` (a recent matching event,
+// loaded by the test panel) decides what is inside them, so autocomplete offers the property names
+// the run will actually carry rather than invented ones. Only an event trigger gets a real sample:
+// hogFlowEditorTestLogic synthesizes an example $pageview for every other trigger, whose property
+// names a batch or webhook run never carries, so the sample is ignored outside an event trigger.
+// Placeholders stand in for the rest: globals the sample has not loaded yet, globals it leaves
+// undefined such as `person` on an anonymous event, and globals such as `request` that no event
+// carries at all.
 export function buildSampleGlobals(
     triggerType: string | undefined,
-    variables: Array<Record<string, any>> | undefined | null
+    variables: Array<Record<string, any>> | undefined | null,
+    realSampleGlobals?: CyclotronJobInvocationGlobals | null
 ): Record<string, any> {
     const workflowVariables: Record<string, any> = {}
     variables?.forEach((variable) => {
@@ -40,8 +51,18 @@ export function buildSampleGlobals(
         }
     })
 
+    // The worker attaches project and source to every step invocation whatever the trigger
+    // (buildHogFunctionInvocation), so they are never unknown globals.
     const sampleGlobals: Record<string, any> = {
-        variables: workflowVariables,
+        project: {
+            id: 1,
+            name: 'Example project',
+            url: 'https://example.com/project/1',
+        },
+        source: {
+            name: 'Example step',
+            url: 'https://example.com/project/1/workflows/1',
+        },
     }
 
     if (triggerType === 'webhook') {
@@ -87,7 +108,15 @@ export function buildSampleGlobals(
         }
     }
 
-    return sampleGlobals
+    const realGlobalsByKey: Record<string, unknown> = (triggerType === 'event' ? realSampleGlobals : null) ?? {}
+
+    return {
+        ...Object.fromEntries(
+            Object.entries(sampleGlobals).map(([key, placeholder]) => [key, realGlobalsByKey[key] ?? placeholder])
+        ),
+        // Variables are author-declared, so no run samples them and the typed placeholders always stand.
+        variables: workflowVariables,
+    }
 }
 
 export function HogFlowFunctionConfiguration({
@@ -109,7 +138,10 @@ export function HogFlowFunctionConfiguration({
     warnings?: Record<string, string>
     emailFieldErrors?: EmailFieldErrors
 }): JSX.Element {
-    const { workflow, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
+    const { workflow, logicProps, hogFunctionTemplatesById, hogFunctionTemplatesByIdLoading } = useValues(workflowLogic)
+    // The test panel loads a recent matching event; reuse it so autocomplete offers the property
+    // names this workflow really carries. Already mounted by the surrounding step detail panel.
+    const { sampleGlobals: realSampleGlobals } = useValues(hogFlowEditorTestLogic(logicProps))
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
 
@@ -144,7 +176,7 @@ export function HogFlowFunctionConfiguration({
     }
 
     const triggerType = workflow?.trigger?.type
-    const sampleGlobals = buildSampleGlobals(triggerType, workflow?.variables)
+    const sampleGlobals = buildSampleGlobals(triggerType, workflow?.variables, realSampleGlobals)
 
     // Native push carries a long tail of optional Android/iOS override fields. Keep the core message
     // fields inline and tuck the platform-specific ones into collapsed sections so the form stays flat.

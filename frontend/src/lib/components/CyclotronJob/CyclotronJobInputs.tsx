@@ -45,7 +45,8 @@ import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/Em
 import { EmailFieldErrors } from '../../../scenes/hog-functions/email-templater/types'
 import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
-import { CyclotronJobTemplateSuggestionsButton } from './CyclotronJobTemplateSuggestions'
+import { CyclotronJobTemplateSuggestionsButton, useTemplateEditorCursor } from './CyclotronJobTemplateSuggestions'
+import { insertTemplateReference, templateReferenceForOption } from './cyclotronJobTemplateSuggestionsLogic'
 import { CyclotronJobInputIntegration } from './integrations/CyclotronJobInputIntegration'
 import { CyclotronJobInputIntegrationField } from './integrations/CyclotronJobInputIntegrationField'
 import { CyclotronJobInputIntegrationMulti } from './integrations/CyclotronJobInputIntegrationMulti'
@@ -240,7 +241,10 @@ function JsonConfigField(props: {
                                         props.onChange?.({ ...props.input, templating })
                                     }
                                     onOptionSelect={(option) => {
-                                        void copyToClipboard(`{${option.example}}`, 'template code')
+                                        void copyToClipboard(
+                                            templateReferenceForOption(option, templatingKind),
+                                            'template code'
+                                        )
                                     }}
                                 />
                             </span>
@@ -299,6 +303,7 @@ function CyclotronJobTemplateInput(props: {
 }): JSX.Element {
     const templating = props.input.templating ?? 'hog'
     const displayValue = coerceTemplateValueForDisplay(props.input.value, props.templating ? templating : false)
+    const { onEditorMount, cursorOffset } = useTemplateEditorCursor()
 
     if (!props.templating) {
         return (
@@ -318,8 +323,9 @@ function CyclotronJobTemplateInput(props: {
                 minHeight="37" // Match other inputs
                 value={displayValue}
                 onChange={(val) => props.onChange?.({ ...props.input, value: val ?? '' })}
-                language={props.input.templating === 'hog' ? 'hogTemplate' : 'liquid'}
+                language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
                 globals={props.sampleGlobalsWithInputs ?? undefined}
+                onMount={onEditorMount}
             />
             <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">
                 <CyclotronJobTemplateSuggestionsButton
@@ -327,7 +333,14 @@ function CyclotronJobTemplateInput(props: {
                     value={displayValue}
                     setTemplatingEngine={(templating) => props.onChange?.({ ...props.input, templating })}
                     onOptionSelect={(option) => {
-                        props.onChange?.({ ...props.input, value: `${displayValue} {${option.example}}` })
+                        props.onChange?.({
+                            ...props.input,
+                            value: insertTemplateReference(
+                                displayValue,
+                                templateReferenceForOption(option, templating),
+                                cursorOffset()
+                            ),
+                        })
                     }}
                 />
             </span>
