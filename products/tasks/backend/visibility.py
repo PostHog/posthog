@@ -2,23 +2,19 @@
 
 Kept out of the API module so import-light consumers (the file-system registration in
 posthog.api.file_system.registrations, which loads at django.setup()) don't pull the whole
-tasks API surface — its module-scope imports reach jsonschema and the modal SDK.
+tasks API surface. Its module-scope imports reach jsonschema and the modal SDK.
 """
+
+from typing import Literal
 
 from django.db.models import Q
 
 from products.tasks.backend.models import Channel, Task
 
-# Origin products whose tasks are team-scoped rather than personal: every team member
-# can view them regardless of who created them.
-# - SIGNAL_REPORT / SIGNALS_SCOUT: pipeline artifacts attached to a system-picked
-#   `created_by` so the agent can mint an OAuth token, but they are not personal.
-# - ONBOARDING: the "Set up PostHog" wizard task. Its `created_by` is the real person who
-#   went through onboarding (not a system pick), but we surface it team-wide so anyone on
-#   the team can see and pick up the setup, not just whoever happened to start it.
-# - HOGDESK: support-desk Code threads. The task is pinned to the support ticket via a
-#   shared ticket tag, so any agent opening the ticket resumes the same thread — it must
-#   be viewable by the whole team, not just the agent who started it.
+TaskRelation = Literal["", "task"]
+
+# These origins predate channels and remain team-scoped while their tasks have no channel.
+# Once a task is filed into a channel, the channel is authoritative.
 TEAM_VISIBLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.SIGNAL_REPORT,
     Task.OriginProduct.SIGNALS_SCOUT,
@@ -26,58 +22,59 @@ TEAM_VISIBLE_ORIGIN_PRODUCTS = [
     Task.OriginProduct.HOGDESK,
 ]
 
-# Origin products whose tasks are team-readable but stay creator-driven, like
-# public-channel tasks: teammates can open the task and read what the agent did or
-# asked, but runs execute with the creator's credentials (oauth.py mints tokens from
-# `task.created_by`), so edits, runs, and agent commands stay with the creator.
-# - EXPERIMENTS: flag-cleanup tasks opened when an experiment ends. The experiment
-#   (and the task's status on it) is team-visible, so any team member should be able
-#   to open the task, not just whoever clicked "End experiment".
 TEAM_READABLE_ORIGIN_PRODUCTS = [
     *TEAM_VISIBLE_ORIGIN_PRODUCTS,
     Task.OriginProduct.EXPERIMENTS,
 ]
 
 
-def task_control_q(user_id: int | None) -> Q:
-    """Filter for tasks the given user may mutate or drive (edits, runs, agent commands).
+def _field(relation: TaskRelation, name: str) -> str:
+    return f"{relation}__{name}" if relation else name
 
-    A task is controllable if:
-    - its creator matches `user_id`, or
-    - it has no creator at all (legacy unowned tasks remain visible to any
-      team member — they cannot be executed in any case because oauth.py
-      requires `task.created_by` to mint OAuth tokens), or
-    - its `origin_product` is one of `TEAM_VISIBLE_ORIGIN_PRODUCTS`, i.e. a
-      team-scoped artifact (signals, onboarding) any team member may pick up.
 
-    Deliberately narrower than ``task_visibility_q``: public-channel tasks are
-    team-readable but stay creator-driven — seeing a teammate's task in a feed
-    must not allow editing it, starting runs, or messaging its agent (thread
-    forwarding is the explicit, author-only path for that).
+def _channel_relation(relation: TaskRelation) -> Literal["channel", "task__channel"]:
+    return "task__channel" if relation == "task" else "channel"
+
+
+def _creator_q(user_id: int | None, relation: TaskRelation) -> Q:
+    if user_id is None:
+        return Q(**{f"{_field(relation, 'pk')}__in": []})
+    return Q(**{_field(relation, "created_by_id"): user_id})
+
+
+def task_control_q(user_id: int | None, *, relation: TaskRelation = "") -> Q:
+    """Tasks the user may mutate or drive.
+
+    A task with a channel must be visible through that channel and owned by the user.
+    Null-channel tasks keep the product-origin control rules used before channels.
     """
-    return Q(created_by_id=user_id) | Q(created_by__isnull=True) | Q(origin_product__in=TEAM_VISIBLE_ORIGIN_PRODUCTS)
-
-
-def task_visibility_q(user_id: int | None) -> Q:
-    """Filter for tasks visible (readable) to the given user.
-
-    Everything controllable per ``task_control_q``, plus team-readable origins
-    and tasks in a public channel: channel feeds are multiplayer, so every team
-    member sees every task filed there. Personal-channel ("#me") tasks stay
-    creator-only via the control rules.
-    """
-    return (
-        task_control_q(user_id)
-        | Q(origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
-        | Q(channel__channel_type=Channel.ChannelType.PUBLIC, channel__deleted=False)
+    channeled_q = (
+        Q(**{f"{_field(relation, 'channel_id')}__isnull": False})
+        & Channel.visible_to_q(user_id, relation=_channel_relation(relation))
+        & _creator_q(user_id, relation)
     )
+    legacy_q = Q(**{f"{_field(relation, 'channel_id')}__isnull": True}) & (
+        _creator_q(user_id, relation) | Q(**{f"{_field(relation, 'origin_product')}__in": TEAM_VISIBLE_ORIGIN_PRODUCTS})
+    )
+    return channeled_q | legacy_q
+
+
+def task_visibility_q(user_id: int | None, *, relation: TaskRelation = "") -> Q:
+    """Tasks readable by the user.
+
+    Channel visibility is authoritative when a task has a channel. The creator and
+    product-origin fallback applies only to null-channel compatibility rows.
+    """
+    channeled_q = Q(**{f"{_field(relation, 'channel_id')}__isnull": False}) & Channel.visible_to_q(
+        user_id, relation=_channel_relation(relation)
+    )
+    legacy_q = Q(**{f"{_field(relation, 'channel_id')}__isnull": True}) & (
+        _creator_q(user_id, relation)
+        | Q(**{f"{_field(relation, 'origin_product')}__in": TEAM_READABLE_ORIGIN_PRODUCTS})
+    )
+    return channeled_q | legacy_q
 
 
 def task_run_visibility_q(user_id: int | None) -> Q:
-    """`task_visibility_q` traversed via the `task` FK on TaskRun / TaskAutomation."""
-    return (
-        Q(task__created_by_id=user_id)
-        | Q(task__created_by__isnull=True)
-        | Q(task__origin_product__in=TEAM_READABLE_ORIGIN_PRODUCTS)
-        | Q(task__channel__channel_type=Channel.ChannelType.PUBLIC, task__channel__deleted=False)
-    )
+    """``task_visibility_q`` traversed through the parent task relation."""
+    return task_visibility_q(user_id, relation="task")
