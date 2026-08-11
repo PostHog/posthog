@@ -56,17 +56,8 @@ export function HedgehogMode({ enabledOverride }: HedgehogModeProps): JSX.Elemen
                 top: 100,
             },
         },
-        onQuit: (game) => {
-            game.getAllHedgehogs().forEach((hedgehog) => {
-                hedgehog.updateSprite('wave', {
-                    reset: true,
-                    loop: false,
-                })
-            })
-
-            setTimeout(() => {
-                setHedgehogModeEnabled(false)
-            }, 1000)
+        onQuit: () => {
+            setHedgehogModeEnabled(false)
         },
     }
 

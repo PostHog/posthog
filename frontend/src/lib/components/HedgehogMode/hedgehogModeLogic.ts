@@ -33,6 +33,7 @@ export interface hedgehogModeLogicValues {
     hedgehogConfig: HedgehogConfig
     hedgehogMode: HedgehogModeInterface | null
     hedgehogModeEnabled: boolean
+    hedgehogModeEnabledOverride: boolean | null
     minimalHedgehogConfig: MinimalHedgehogConfig
     remoteConfig: Partial<HedgehogConfig> | null
     remoteConfigLoading: boolean
@@ -110,7 +111,7 @@ export interface hedgehogModeLogicActions {
 export interface hedgehogModeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hedgehogConfig: (remoteConfig: Partial<HedgehogConfig> | null) => HedgehogConfig
-        hedgehogModeEnabled: (hedgehogConfig: HedgehogConfig) => boolean
+        hedgehogModeEnabled: (hedgehogConfig: HedgehogConfig, hedgehogModeEnabledOverride: boolean | null) => boolean
         minimalHedgehogConfig: (hedgehogConfig: HedgehogConfig) => MinimalHedgehogConfig
     }
 }
@@ -150,6 +151,14 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
             false,
             {
                 setRemoteConfigUpdateDisabled: (_, { disabled }) => disabled,
+            },
+        ],
+        // Holds the last explicit enable/disable in this session so the widget shows and hides at once.
+        // The remote config save stays best-effort. A failed save must not keep an overlay the user cannot close.
+        hedgehogModeEnabledOverride: [
+            null as boolean | null,
+            {
+                setHedgehogModeEnabled: (_, { enabled }) => enabled,
             },
         ],
     })),
@@ -221,9 +230,9 @@ export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
         ],
 
         hedgehogModeEnabled: [
-            (s) => [s.hedgehogConfig],
-            (hedgehogConfig: HedgehogConfig): boolean => {
-                return !!hedgehogConfig.enabled
+            (s) => [s.hedgehogConfig, s.hedgehogModeEnabledOverride],
+            (hedgehogConfig: HedgehogConfig, hedgehogModeEnabledOverride: boolean | null): boolean => {
+                return hedgehogModeEnabledOverride ?? !!hedgehogConfig.enabled
             },
         ],
 
