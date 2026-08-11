@@ -61,20 +61,49 @@ class TestCommentSlackDm(CommentActivityTestCase):
         assert "mentioned you" in text
         assert "this needs a guard" in text
 
-    @parameterized.expand(
-        [
-            ("opted_out", False, True),
-            ("not_linked", True, False),
-        ]
-    )
-    def test_no_dm_without_both_opt_in_and_slack_link(self, _name: str, opted_in: bool, linked: bool):
-        self._opt_in(self.author, opted_in)
-        if not linked:
-            UserIntegration.objects.filter(user=self.author).delete()
+    def test_no_dm_when_the_user_opted_out(self):
+        self._opt_in(self.author, False)
 
         self._record_activity(self._comment(), [self.author.id])
 
         assert self._dm_channels() == []
+
+    @parameterized.expand(
+        [
+            # Same workspace as the integration: the directory match is trustworthy.
+            ("same_workspace", SLACK_WORKSPACE_ID, ["U-by-email"]),
+            # A Slack Connect guest whose profile email its own admin controls.
+            ("external_workspace", "T-OTHER", []),
+        ]
+    )
+    def test_unlinked_user_is_matched_by_email_only_inside_the_workspace(
+        self, _name: str, profile_team_id: str, expected: list[str]
+    ):
+        UserIntegration.objects.filter(user=self.author).delete()
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                return_value="U-by-email",
+            ),
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                return_value={"name": "Ann", "team_id": profile_team_id},
+            ),
+        ):
+            self._record_activity(self._comment(), [self.author.id])
+
+        assert self._dm_channels() == expected
+
+    def test_the_linked_account_wins_over_an_email_match(self):
+        with patch(
+            "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+            return_value="U-by-email",
+        ) as lookup:
+            self._record_activity(self._comment(), [self.author.id])
+
+        assert self._dm_channels() == ["U-author"]
+        lookup.assert_not_called()
 
     @parameterized.expand(
         [

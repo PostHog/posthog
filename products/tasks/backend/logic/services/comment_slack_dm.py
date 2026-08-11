@@ -18,6 +18,7 @@ from django.conf import settings
 import structlog
 
 from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slack_payload
+from posthog.helpers.slack_identity import resolve_slack_user
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team import Team
@@ -25,6 +26,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
 from products.tasks.backend.logic.services.comment_activity import target_is_accessible
 from products.tasks.backend.models import Task, TaskCommentActivity
 
@@ -54,48 +56,61 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
 
     comment = Comment.objects.filter(team_id=team_id, id=comment_id).select_related("created_by").first()
     if comment is None:
-        return
+        return _skip(comment_id, "comment_missing")
     skip_reason = _skip_reason(comment)
     if skip_reason:
-        logger.info("comment_slack_dm_skipped", comment_id=str(comment_id), reason=skip_reason)
-        return
+        return _skip(comment_id, skip_reason)
 
     # Cheapest gate first: most comments have no opted-in recipient, and this keeps the flag call
     # (a network hop) off that path.
     wanted = _recipients_wanting_dms(team_id=team_id, comment=comment, recipients=recipients)
     if not wanted:
-        return
+        return _skip(comment_id, "no_opted_in_recipient")
 
     integration = Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK).first()
     if integration is None or not integration.integration_id:
-        return
+        return _skip(comment_id, "no_slack_integration")
     # The flag that gates the Slack identity link itself. Gating delivery on it too means an org
     # that never had the link flow can't receive DMs, and turning it off halts delivery without a
-    # deploy.
-    if not is_slack_app_oauth_enabled(integration, integration.integration_id):
-        return
+    # deploy. Skipped in local dev, where flags evaluate against the developer's own instance and
+    # the gate would otherwise fail closed on every machine — the same default-on-in-dev treatment
+    # the desktop flags get.
+    if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
+        return _skip(comment_id, "slack_app_oauth_disabled")
 
     task = Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
     if task is None:
-        return
+        return _skip(comment_id, "task_missing")
 
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    client = SlackIntegration(integration).client
+    emails = dict(User.objects.filter(id__in=list(wanted)).values_list("id", "email"))
+    slack = SlackIntegration(integration)
+    client = slack.client
     for user_id, kind in wanted.items():
         # Re-checked at send time rather than trusting the projected recipient set: the in-app feed
         # re-checks visibility on every read, and a DM can't be taken back.
         if not target_is_accessible(
             team_id=team_id, user_id=user_id, task_id=task_id, scope=comment.scope, item_id=comment.item_id
         ):
+            _skip(comment_id, "recipient_lost_access", user_id=user_id)
             continue
-        slack_user_id = _slack_user_id(user_id, integration.integration_id)
+        slack_user_id = _resolve_slack_user_id(
+            user_id=user_id, email=emails.get(user_id) or "", integration=integration, slack=slack
+        )
         if not slack_user_id:
+            _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
             continue
         fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=organization_id)
         try:
             client.chat_postMessage(channel=slack_user_id, text=fallback, blocks=blocks, unfurl_links=False)
         except Exception as exc:
             logger.warning("comment_slack_dm_failed", comment_id=str(comment_id), user_id=user_id, error=str(exc))
+
+
+def _skip(comment_id: UUID, reason: str, user_id: int | None = None) -> None:
+    """Every gate here returns silently by design, which makes "why did I get no DM" unanswerable
+    without one line per exit."""
+    logger.info("comment_slack_dm_skipped", comment_id=str(comment_id), reason=reason, user_id=user_id)
 
 
 def _skip_reason(comment: Comment) -> str | None:
@@ -147,17 +162,46 @@ def _recipients_wanting_dms(*, team_id: int, comment: Comment, recipients: Mappi
     return wanted
 
 
-def _slack_user_id(user_id: int, slack_team_id: str) -> str | None:
+def _resolve_slack_user_id(
+    *, user_id: int, email: str, integration: Integration, slack: SlackIntegration
+) -> str | None:
+    """Who to DM, preferring the identity the user authenticated over the one we inferred."""
     link = (
         UserIntegration.objects.filter(
             user_id=user_id,
             kind=UserIntegration.IntegrationKind.SLACK,
-            config__slack_team_id=slack_team_id,
+            config__slack_team_id=integration.integration_id,
         )
         .order_by("-created_at")
         .first()
     )
-    return link.integration_id if link else None
+    if link:
+        return link.integration_id
+    return _slack_user_id_by_email(email=email, integration=integration, slack=slack)
+
+
+def _slack_user_id_by_email(*, email: str, integration: Integration, slack: SlackIntegration) -> str | None:
+    """Match a PostHog email against the workspace's own Slack directory.
+
+    This is what makes the feature work without every person linking an account first. It asks the
+    customer's own directory a question about our own user's email, which is the opposite direction
+    from the inbound path (where a Slack-supplied email would decide who a PostHog user is, and so
+    can't be trusted).
+    """
+    workspace = integration.integration_id or ""
+    if not email or not workspace:
+        return None
+    slack_user_id = lookup_slack_user_id_by_email(slack, integration, email)
+    if not slack_user_id:
+        return None
+    profile = resolve_slack_user(slack.client, slack_user_id, workspace=workspace)
+    # `users.lookupByEmail` also returns external Slack Connect members, whose profile emails are
+    # controlled by their own workspace's admin. Without this check an outsider could claim a
+    # teammate's address and receive their comment text.
+    if profile.get("team_id") != workspace:
+        logger.warning("comment_slack_dm_email_match_outside_workspace", integration_id=integration.id)
+        return None
+    return slack_user_id
 
 
 def _author_name(comment: Comment) -> str:
