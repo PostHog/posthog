@@ -170,49 +170,54 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
   try {
     const client = github.getOctokit(token)
     const per_page = 100
-    const files: File[] = []
 
     core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`)
-    for await (const response of client.paginate.iterator(
-      client.rest.pulls.listFiles.endpoint.merge({
-        owner: github.context.repo.owner,
-        repo: github.context.repo.repo,
-        pull_number: pullRequest.number,
-        per_page
-      })
-    )) {
-      if (response.status !== 200) {
-        throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`)
-      }
-      core.info(`Received ${response.data.length} items`)
+    // The API call runs once per changed-file gate and gates downstream jobs, so a
+    // single transient GitHub error (5xx, rate limit, or a not-yet-propagated app
+    // token) must not fail the job. Retry the whole pagination on those errors.
+    return await withRetry('Fetching list of changed files from GitHub API', async () => {
+      const files: File[] = []
+      for await (const response of client.paginate.iterator(
+        client.rest.pulls.listFiles.endpoint.merge({
+          owner: github.context.repo.owner,
+          repo: github.context.repo.repo,
+          pull_number: pullRequest.number,
+          per_page
+        })
+      )) {
+        if (response.status !== 200) {
+          throw new Error(`Fetching list of changed files from GitHub API failed with error code ${response.status}`)
+        }
+        core.info(`Received ${response.data.length} items`)
 
-      for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
-        core.info(`[${row.status}] ${row.filename}`)
-        // There's no obvious use-case for detection of renames
-        // Therefore we treat it as if rename detection in git diff was turned off.
-        // Rename is replaced by delete of original filename and add of new filename
-        if (row.status === ChangeStatus.Renamed) {
-          files.push({
-            filename: row.filename,
-            status: ChangeStatus.Added
-          })
-          files.push({
-            // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-            filename: (<any>row).previous_filename as string,
-            status: ChangeStatus.Deleted
-          })
-        } else {
-          // Github status and git status variants are same except for deleted files
-          const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
-          files.push({
-            filename: row.filename,
-            status
-          })
+        for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
+          core.info(`[${row.status}] ${row.filename}`)
+          // There's no obvious use-case for detection of renames
+          // Therefore we treat it as if rename detection in git diff was turned off.
+          // Rename is replaced by delete of original filename and add of new filename
+          if (row.status === ChangeStatus.Renamed) {
+            files.push({
+              filename: row.filename,
+              status: ChangeStatus.Added
+            })
+            files.push({
+              // 'previous_filename' for some unknown reason isn't in the type definition or documentation
+              filename: (<any>row).previous_filename as string,
+              status: ChangeStatus.Deleted
+            })
+          } else {
+            // Github status and git status variants are same except for deleted files
+            const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
+            files.push({
+              filename: row.filename,
+              status
+            })
+          }
         }
       }
-    }
 
-    return files
+      return files
+    })
   } finally {
     core.endGroup()
   }
@@ -275,6 +280,42 @@ function isExportFormat(value: string): value is ExportFormat {
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+// A transient error can succeed on a later attempt. Network errors have no HTTP
+// status. 5xx are server-side blips. 429 and 403 are rate limits. 401 and 403
+// also cover the short window before a fresh app token has propagated.
+function isRetryableError(error: unknown): boolean {
+  const status = (error as {status?: number}).status
+  if (status === undefined) {
+    return true
+  }
+  return status >= 500 || status === 429 || status === 403 || status === 401
+}
+
+async function withRetry<T>(description: string, operation: () => Promise<T>): Promise<T> {
+  const maxAttempts = 5
+  const baseDelayMs = 1000
+  const maxDelayMs = 15000
+
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await operation()
+    } catch (error) {
+      if (attempt >= maxAttempts || !isRetryableError(error)) {
+        throw error
+      }
+      const delayMs = Math.min(baseDelayMs * 2 ** (attempt - 1), maxDelayMs)
+      core.warning(
+        `${description} failed (attempt ${attempt}/${maxAttempts}): ${getErrorMessage(error)}. Retrying in ${delayMs}ms`
+      )
+      await sleep(delayMs)
+    }
+  }
 }
 
 run()
