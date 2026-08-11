@@ -1389,11 +1389,11 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        feature_flag: experiment-behavior-comparison
         response:
             informational_wrapper:
                 tag: experiment-watch-cards
                 purpose: Use it only to point the user at recordings worth watching for this experiment.
-        feature_flag: experiment-behavior-comparison
     experiments-update:
         operation: experiments_update
         enabled: false
