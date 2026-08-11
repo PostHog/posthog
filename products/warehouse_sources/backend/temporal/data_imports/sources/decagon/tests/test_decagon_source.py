@@ -62,6 +62,29 @@ class TestDecagonSource:
         assert conversations.supports_append is False
         assert [f["field"] for f in conversations.incremental_fields] == ["updated_at"]
 
+        actions = next(s for s in schemas if s.name == "agent_assist_actions")
+        # No documented unique id means no merge key, so append (windowed on created_at)
+        # and full refresh are the only sync types that cannot lose or merge rows.
+        assert actions.supports_incremental is False
+        assert actions.supports_append is True
+        assert [f["field"] for f in actions.incremental_fields] == ["created_at"]
+
+        articles = next(s for s in schemas if s.name == "articles")
+        # The catalog has no server-side timestamp filter, so no incremental option; the
+        # table also starts unselected until article body sizes are confirmed safe.
+        assert articles.supports_incremental is False
+        assert articles.supports_append is False
+        assert articles.should_sync_default is False
+
+        usage = next(s for s in schemas if s.name == "article_usage")
+        assert usage.supports_incremental is False
+        assert usage.supports_append is False
+
+        tags = next(s for s in schemas if s.name == "tags")
+        # /tag/all has no server-side timestamp filter, so only full refresh is honest.
+        assert tags.supports_incremental is False
+        assert tags.supports_append is False
+
     def test_get_schemas_filtered_by_names(self) -> None:
         assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["conversations"])] == [
             "conversations"

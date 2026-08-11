@@ -7,6 +7,7 @@ from django.test.client import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
@@ -272,6 +273,39 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
 
         mock_client.chat_unfurl.assert_not_called()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_reports_why_recognized_links_were_not_unfurled(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        # Every reason to skip a link used to be a bare `continue`, so "no unfurl appeared" was
+        # indistinguishable from "Slack never delivered the event" once it reached production.
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_slack_integration_class.return_value.client = MagicMock()
+
+        with capture_logs() as logs:
+            handle_posthog_link_unfurl(
+                {
+                    "channel": "C1",
+                    "message_ts": "123.456",
+                    "user": "U1",
+                    "links": [
+                        {"url": f"http://testserver/project/{self.team.pk}/insights/nosuchid"},
+                        {"url": f"http://testserver/project/{self.team.pk}/dashboard/424242"},
+                        {"url": "https://example.com/somewhere-else"},
+                    ],
+                },
+                self.integration,
+            )
+
+        mock_slack_integration_class.return_value.client.chat_unfurl.assert_not_called()
+        result = next(log for log in logs if log["event"] == "slack_app_link_unfurl_result")
+        assert result["unfurled"] == 0
+        assert result["skipped"] == [
+            {"kind": "insight", "ref": "nosuchid", "reason": "not_found"},
+            {"kind": "dashboard", "ref": "424242", "reason": "not_found"},
+        ]
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

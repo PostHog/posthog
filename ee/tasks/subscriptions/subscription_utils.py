@@ -34,6 +34,23 @@ def _has_asset_failed(asset: ExportedAsset) -> bool:
     return (not asset.content and not asset.content_location) or asset.exception is not None
 
 
+_OOM_MESSAGE_MARKER = "ran out of memory"
+_OOM_EXCEPTION_TYPE = "ClickHouseQueryMemoryLimitExceeded"
+
+
+def _is_oom_exception_text(exception_text: str | None) -> bool:
+    return exception_text is not None and _OOM_MESSAGE_MARKER in exception_text.lower()
+
+
+def subscription_asset_error_message(asset: ExportedAsset) -> str:
+    # Recipients of scheduled subscriptions didn't author the query, so the OOM advice is
+    # unactionable. Original text stays on asset.exception/exception_type for our own logs.
+    is_oom_exception = asset.exception_type == _OOM_EXCEPTION_TYPE or _is_oom_exception_text(asset.exception)
+    if asset.exception and not is_oom_exception:
+        return asset.exception
+    return ASSET_GENERATION_FAILED_MESSAGE
+
+
 def generate_assets(
     resource: Union[Subscription, SharingConfiguration],
     max_asset_count: int = MAX_INSIGHTS,

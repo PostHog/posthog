@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -135,6 +135,19 @@ class Channel(TeamScopedRootMixin):
 
     def __str__(self):
         return f"#{self.name}"
+
+
+@receiver(pre_delete, sender=Integration)
+def clear_channel_repositories_on_github_integration_delete(
+    sender: type[Integration], instance: Integration, **kwargs: Any
+) -> None:
+    if instance.kind != Integration.IntegrationKind.GITHUB:
+        return
+
+    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+        github_integration=None,
+        repositories=[],
+    )
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
@@ -2576,6 +2589,18 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
     )
     ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+    provider_cpu_usage_attribution_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Cumulative provider CPU time sampled when user attribution starts"
+    )
+    provider_cpu_usage_attribution_measured_at = models.DateTimeField(
+        null=True, blank=True, help_text="When provider CPU usage was sampled at user attribution"
+    )
+    provider_cpu_usage_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Cumulative provider CPU time sampled immediately before sandbox cleanup"
+    )
+    provider_usage_measured_at = models.DateTimeField(
+        null=True, blank=True, help_text="When provider resource usage was sampled"
+    )
 
     class Meta:
         db_table = "posthog_task_sandbox_session"
