@@ -8,6 +8,8 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
 
+import { resolveIncrementalField } from '../../incrementalField'
+
 const LOOKBACK_UNIT_SECONDS = {
     minutes: 60,
     hours: 3600,
@@ -196,13 +198,25 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const columns = availableColumns ?? schema.available_columns ?? []
     const resolvedDetectedPks = detectedPrimaryKeys ?? schema.detected_primary_keys ?? null
 
-    const defaultField = schema.incremental_field ?? schema.incremental_fields[0]?.field ?? null
+    // Default each cursor only to a column with real update semantics (or a detected primary key
+    // for append), never an arbitrary first column that could silently freeze the sync.
+    const defaultIncrementalField =
+        schema.incremental_field ??
+        resolveIncrementalField(schema.incremental_fields, { syncType: 'incremental' })?.field ??
+        null
+    const defaultAppendField =
+        schema.incremental_field ??
+        resolveIncrementalField(schema.incremental_fields, {
+            syncType: 'append',
+            detectedPrimaryKeys: resolvedDetectedPks,
+        })?.field ??
+        null
 
     const [radioValue, setRadioValue] = useState(() =>
         getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled)
     )
-    const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultField)
-    const [appendFieldValue, setAppendFieldValue] = useState(defaultField)
+    const [incrementalFieldValue, setIncrementalFieldValue] = useState(defaultIncrementalField)
+    const [appendFieldValue, setAppendFieldValue] = useState(defaultAppendField)
     // Prefill detected PKs only when the selector is editable. A locked schema already has a key
     // the backend refuses to swap, so prefilling from detected would silently turn unrelated edits
     // into "Primary key cannot be changed" errors.
@@ -218,8 +232,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
 
     useEffect(() => {
         setRadioValue(getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled))
-        setIncrementalFieldValue(defaultField)
-        setAppendFieldValue(defaultField)
+        setIncrementalFieldValue(defaultIncrementalField)
+        setAppendFieldValue(defaultAppendField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
         const resetLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
         setLookbackAmount(resetLookback.amount)

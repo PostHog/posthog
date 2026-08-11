@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
+    SUPABASE_MANAGED_SCHEMAS,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
     SSLRequiredError,
@@ -1077,6 +1078,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                     source_catalog=discovered_schema.source_catalog,
                     source_schema=discovered_schema.source_schema,
                     source_table_name=discovered_schema.source_table_name,
+                    # Supabase-managed schemas (auth, storage, realtime, migration ledgers) are
+                    # ordinary user schemas, so they get discovered. Default them off so the
+                    # one-click setup never proposes syncing Supabase's internals.
+                    should_sync_default=discovered_schema.source_schema not in SUPABASE_MANAGED_SCHEMAS,
                     detected_primary_keys=resolve_detected_primary_keys(
                         pk_columns_by_table.get(table_name),
                         discovered_schema.columns,

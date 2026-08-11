@@ -4,12 +4,37 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     _select_incremental_field,
     build_default_schemas,
+    resolve_default_incremental_field,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
 def _field(name: str, field_type: IncrementalFieldType = IncrementalFieldType.DateTime) -> IncrementalField:
     return {"label": name, "type": field_type, "field": name, "field_type": field_type, "nullable": False}
+
+
+class TestResolveDefaultIncrementalField:
+    @parameterized.expand(
+        [
+            ("empty", [], None),
+            ("prefers_updated_over_created", [_field("created_at"), _field("updated_at")], "updated_at"),
+            ("created_when_no_updated", [_field("created_at")], "created_at"),
+            ("updated_prefix_match", [_field("updated_on")], "updated_on"),
+            ("date_typed_update_column_qualifies", [_field("updated_date", IncrementalFieldType.Date)], "updated_date"),
+            # The regression: an arbitrary date or integer column must be left unset so the user
+            # picks, instead of the sync silently freezing on a column that never advances.
+            (
+                "skips_arbitrary_date_and_integer",
+                [_field("date_of_birth", IncrementalFieldType.Date), _field("priority", IncrementalFieldType.Integer)],
+                None,
+            ),
+            ("skips_integer_id", [_field("id", IncrementalFieldType.Integer)], None),
+            ("skips_timestamp_without_update_name", [_field("last_seen", IncrementalFieldType.Timestamp)], None),
+        ]
+    )
+    def test_resolution(self, _name: str, fields: list[IncrementalField], expected: str | None) -> None:
+        chosen = resolve_default_incremental_field(fields)
+        assert (chosen["field"] if chosen else None) == expected
 
 
 class TestSelectIncrementalField:

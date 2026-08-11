@@ -62,6 +62,34 @@ class SourceSchema:
     schema_metadata: dict[str, Any] | None = None
 
 
+_UPDATE_SEMANTIC_FIELD_TYPES = frozenset(
+    {IncrementalFieldType.Timestamp, IncrementalFieldType.DateTime, IncrementalFieldType.Date}
+)
+
+
+def resolve_default_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
+    """Pick a default incremental cursor with real update semantics, or None to make the user choose.
+
+    Only a timestamp/date column named like ``updated*`` or ``created*`` qualifies automatically —
+    these advance on write, so a sync keyed on one keeps catching new rows. An arbitrary date or
+    integer column is left unset on purpose: auto-selecting one is how a sync silently freezes on a
+    column that never advances (a date-of-birth column, a static priority flag). The frontend
+    resolver applies the same rule, so the picker default agrees across the wire.
+    """
+
+    def _is_update_semantic(field: IncrementalField, prefix: str) -> bool:
+        field_type = field.get("field_type") or field.get("type")
+        return (
+            field.get("label", "").lower().startswith(prefix) or field.get("field", "").lower().startswith(prefix)
+        ) and field_type in _UPDATE_SEMANTIC_FIELD_TYPES
+
+    for prefix in ("updated", "created"):
+        match = next((f for f in incremental_fields if _is_update_semantic(f, prefix)), None)
+        if match is not None:
+            return match
+    return None
+
+
 def _select_incremental_field(incremental_fields: list[IncrementalField]) -> IncrementalField | None:
     """Pick the best incremental field for a table, preferring update-tracking columns."""
     candidates = [f for f in incremental_fields if f.get("field")]

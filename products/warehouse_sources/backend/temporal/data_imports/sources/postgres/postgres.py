@@ -98,6 +98,41 @@ SSL_REQUIRED_AFTER_DATE = datetime(2026, 2, 18, tzinfo=UTC)
 IDENTIFIER_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SYSTEM_POSTGRES_SCHEMAS = ["information_schema", "pg_catalog", "pg_toast"]
 
+# Schemas that Supabase manages for its own platform features. Postgres treats them as ordinary
+# user schemas, so discovery finds them. We default them off so a Supabase source does not sync
+# Supabase's internals (auth users, storage objects, realtime state, migration ledgers) by
+# default. They stay in the picker, so a user can still opt one in. `vault` is on this list and
+# is also hidden from discovery entirely (see SUPABASE_HIDDEN_SCHEMAS).
+SUPABASE_MANAGED_SCHEMAS = frozenset(
+    {
+        "auth",
+        "storage",
+        "realtime",
+        "_realtime",
+        "supabase_functions",
+        "supabase_migrations",
+        "pgsodium",
+        "pgsodium_masks",
+        "vault",
+        "graphql",
+        "graphql_public",
+        "extensions",
+        "cron",
+        "net",
+        "pgbouncer",
+    }
+)
+
+# Supabase-managed schemas hidden from discovery outright, like the Postgres system schemas.
+# `vault` exposes `vault.decrypted_secrets`, a view that decrypts the project's Supabase Vault
+# secrets, so a default sync must never even propose copying it into the warehouse. An explicit
+# `schema = 'vault'` selection still reaches it, matching how SYSTEM_POSTGRES_SCHEMAS behaves.
+SUPABASE_HIDDEN_SCHEMAS = frozenset({"vault"})
+
+# Schemas hidden from the discover-all-schemas sweep: the Postgres system schemas plus the
+# Supabase-managed schemas that must never be synced by default (see SUPABASE_HIDDEN_SCHEMAS).
+DISCOVERY_HIDDEN_SCHEMAS = [*SYSTEM_POSTGRES_SCHEMAS, *sorted(SUPABASE_HIDDEN_SCHEMAS)]
+
 # Statement timeout applied to the row-streaming connection so a slow FETCH
 # (large partitioned scan, cold cache, etc.) does not get killed by a short
 # default statement_timeout on the source role.
@@ -1111,7 +1146,7 @@ def _get_discovered_tables(
             )
         else:
             system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
-                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+                "system_schema", DISCOVERY_HIDDEN_SCHEMAS
             )
             cursor.execute(
                 f"""
@@ -1149,7 +1184,7 @@ def _get_discovered_tables(
             )
         else:
             system_schema_placeholders, system_schema_params = _build_named_value_placeholders(
-                "system_schema", SYSTEM_POSTGRES_SCHEMAS
+                "system_schema", DISCOVERY_HIDDEN_SCHEMAS
             )
             cursor.execute(
                 f"""

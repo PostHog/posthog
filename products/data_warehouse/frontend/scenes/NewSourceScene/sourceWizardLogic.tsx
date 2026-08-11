@@ -35,7 +35,6 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
-    IncrementalField,
     ManualLinkSourceType,
     manualLinkSources,
     RowFilter,
@@ -53,6 +52,7 @@ import {
     supportsDirectQuery,
 } from '../../shared/components/forms/schemaGroupingUtils'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
+import { resolveIncrementalField } from '../../shared/incrementalField'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
@@ -280,46 +280,6 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     'google-cloud': 'Google Cloud Storage',
     'cloudflare-r2': 'Cloudflare R2',
     azure: 'Azure',
-}
-
-const isTimestampType = (field: IncrementalField): boolean => {
-    const type = field.type || field.field_type
-    return type === 'timestamp' || type === 'datetime' || type === 'date'
-}
-
-const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
-    // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
-    const updatedAt = fields.find((field) => {
-        const regex = /^updated/i
-        return regex.test(field.label) && isTimestampType(field)
-    })
-    if (updatedAt) {
-        return updatedAt
-    }
-    // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
-    const createdAt = fields.find((field) => {
-        const regex = /^created/i
-        return regex.test(field.label) && isTimestampType(field)
-    })
-    if (createdAt) {
-        return createdAt
-    }
-    // fallback to any timestamp or datetime field
-    const timestamp = fields.find((field) => isTimestampType(field))
-    if (timestamp) {
-        return timestamp
-    }
-    // fallback to numeric fields matching "id" or "uuid" case insensitive
-    const id = fields.find((field) => {
-        const idRegex = /^id/i
-        const uuidRegex = /^uuid/i
-        return (idRegex.test(field.label) || uuidRegex.test(field.label)) && field.type === 'integer'
-    })
-    if (id) {
-        return id
-    }
-    // leave unset and require user configuration
-    return undefined
 }
 
 function syncExpandedSchemaGroupKeys(
@@ -3493,7 +3453,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'webhook'
                         } else if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField = resolveIncrementalField(schema.incremental_fields, {
+                                syncType: method,
+                                detectedPrimaryKeys: schema.detected_primary_keys,
+                            })
                             schema.sync_type = method
                             if (resolvedField) {
                                 schema.incremental_field = resolvedField.field

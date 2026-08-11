@@ -4,6 +4,7 @@ These tests use the Postgres database running in the Docker Compose stack.
 """
 
 import uuid
+import asyncio
 import datetime as dt
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSLRequiredError,
     _get_sslmode,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
 pytestmark = pytest.mark.usefixtures("minio_client")
@@ -261,6 +263,65 @@ async def test_postgres_source_recovers_from_dropped_connection_via_offset_chunk
 
     assert state["tripped"], "expected the streaming server cursor to hit the simulated connection drop"
     assert res.results == TEST_DATA
+
+
+def _discovery_config(postgres_config: dict[str, Any]) -> PostgresSourceConfig:
+    # An empty schema discovers every schema (the all-schemas sweep), the path a Supabase user hits.
+    return PostgresSourceConfig.from_dict(
+        {
+            **postgres_config,
+            "schema": "",
+            "ssh_tunnel": {"enabled": False, "host": "", "port": "", "auth_type": {"selection": ""}},
+        }
+    )
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_discovery_hides_vault_and_defaults_supabase_schemas_off(
+    team,
+    postgres_connection: AsyncConnection,
+    postgres_config: dict[str, Any],
+):
+    """Supabase-managed schemas must not sync by default, and `vault` must not be discovered at all.
+
+    Regression: the all-schemas sweep filtered only the Postgres system schemas, so every
+    Supabase-managed schema was discovered and turned on by default — including `vault`, whose
+    `vault.decrypted_secrets` view decrypts the project's secrets.
+    """
+    async with postgres_connection.cursor() as cursor:
+        for schema_name in ("auth", "vault"):
+            await cursor.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema_name)))
+        await cursor.execute(
+            sql.SQL("CREATE TABLE IF NOT EXISTS {} (id INTEGER)").format(sql.Identifier("auth", "users"))
+        )
+        await cursor.execute(
+            sql.SQL("CREATE TABLE IF NOT EXISTS {} (id INTEGER)").format(sql.Identifier("vault", "decrypted_secrets"))
+        )
+        await cursor.execute(
+            sql.SQL("CREATE TABLE IF NOT EXISTS {} (id INTEGER)").format(
+                sql.Identifier(postgres_config["schema"], "app_table")
+            )
+        )
+
+    try:
+        config = _discovery_config(postgres_config)
+        schemas = await asyncio.to_thread(PostgresSource().get_schemas, config, team.pk)
+
+        # `vault` is hidden outright, so its decrypted-secrets view never even reaches the picker.
+        assert not any(s.source_schema == "vault" for s in schemas)
+
+        # A Supabase-managed schema is still discovered, but defaulted off.
+        auth_schemas = [s for s in schemas if s.source_schema == "auth"]
+        assert auth_schemas and all(s.should_sync_default is False for s in auth_schemas)
+
+        # An ordinary user schema keeps syncing by default.
+        app_schemas = [s for s in schemas if s.source_schema == postgres_config["schema"]]
+        assert app_schemas and all(s.should_sync_default is True for s in app_schemas)
+    finally:
+        async with postgres_connection.cursor() as cursor:
+            for schema_name in ("auth", "vault"):
+                await cursor.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(schema_name)))
 
 
 def test_postgresql__source_config_loads():

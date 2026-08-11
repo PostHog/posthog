@@ -147,6 +147,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     get_cdc_adapter,
     get_primary_key_columns,
     repair_cdc_source,
+    resolve_default_incremental_field,
     source_requires_ssl,
     source_type_supports_cdc,
     sql_schema_metadata,
@@ -3144,8 +3145,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # xmin is gated at the source-type level by the source's capability flag so it never
         # leaks to another SQL source.
         xmin_capable = source.supports_xmin
-        data = [
-            {
+
+        def _schema_payload(schema: SourceSchema) -> dict[str, Any]:
+            # Default the cursor only to a column with real update semantics; leave it unset
+            # otherwise so the user picks, instead of freezing the sync on an arbitrary column.
+            resolved_incremental_field = resolve_default_incremental_field(schema.incremental_fields)
+            return {
                 "table": schema.name,
                 "label": schema.label,
                 "should_sync": False,
@@ -3154,9 +3159,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
                 "xmin_available": schema.supports_xmin if xmin_capable else None,
-                "incremental_field": schema.incremental_fields[0]["field"]
-                if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
-                else None,
+                "incremental_field": resolved_incremental_field["field"] if resolved_incremental_field else None,
                 "sync_type": None,
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
@@ -3171,8 +3174,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "permission_error": endpoint_permissions.get(schema.name),
                 "rls_warning": schema.rls_warning,
             }
-            for schema in schemas
-        ]
+
+        data = [_schema_payload(schema) for schema in schemas]
         return Response(status=status.HTTP_200_OK, data=data)
 
     @extend_schema(request=SourceSetupSerializer, responses={201: SourceSetupResponseSerializer})
