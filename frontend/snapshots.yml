@@ -4710,10 +4710,10 @@ snapshots:
         hash: v1.k794b7964.ea754a4783f7653247f127337c407a8cdd4a9c6bc3f1b908d8d00dd1a090b966.KQ3yKnRzi4l3ZeYVThZdmo4L6mAbxtNa2uQh7y-kGWA
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--tile-filters-read-only--light:
         hash: v1.k794b7964.b2ca2efc52a9ccf56953159c66d3c8766acd1d3a17379d5faec45a4715ae24a9.fK76p7ZVcgvFJNcKJ5Ixy3YnBm_BcBSFnoytLS2jZdU
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark:
-        hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
-    products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light:
-        hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--dark
+    :   hash: v1.k794b7964.ee9bd78f705c05a89b8dffa7ce394b1af07b75a9597fd220c94d177b49def5bd.Ii4is9m845vi1gNJRW-Pdw93hMfdAEL_0UIj6lAOTvw
+    ? products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--before-exception-ingestion--light
+    :   hash: v1.k794b7964.b71412d69902241f7ec02efa87c138362522d5c7227c36a71e7f0dc0627d2a38.xiUrsbrXCMYmKv85SCzax7k6HNDzZsfKE5ZBhZBFPsI
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--dark:
         hash: v1.k794b7964.b1e0f5f542426e34dec73826f3135902a392c0c13dade4fec14037c615186b13.kbxxijyDI1SdvgdKwkRnIRLLgmsine5AYvOcD79DYsY
     products-dashboards-dashboard-widgets-widget-types-error-tracking-top-issues-widget-settings--default--light:
@@ -5219,9 +5219,9 @@ snapshots:
     replay-scenes-activity-modal--event-explorer-with-modal-not-found--light:
         hash: v1.k794b7964.56fdba2366efbb9c09bb3b1c24ef3288c42cb74b7a695ed51a29ea35fbcd24fa.wFMQwl8fDQGG8qaGWuSQ_fU1aRecYd1_QjLOcD0tX9I
     replay-scenes-group--group-events-tab-with-modal-not-found--dark:
-        hash: v1.k794b7964.043ab84c8d16aecbf903b78c4a9af5e5b908808b3421bd22374718fb9d4cd248.hte4EEXtRcBOOCyzhU3kt_T2ITkgb8YcbnLP8r8NAyo
+        hash: v1.k794b7964.138cafc1552c1dda770e935bcd85d18ea9311f46e924f50402d3bff212be6973.3ArSEPt5vM96hea6kAfkUt6oQ7aaExJ1dTM8wiKLpaU
     replay-scenes-group--group-events-tab-with-modal-not-found--light:
-        hash: v1.k794b7964.da4064ce47b9b9f267897cb3a41aa602533a6f01f1a747865c337bfcabb79c53.-LCTCOhWqQH3CQQxcRcr47nA_xQZhIg9xxaNxaOLygA
+        hash: v1.k794b7964.6e029540cf3b63bd4a0dc3b86ce0550dbf30030e60bfc019cbb3175d300a779a.ziOYrRkUEvJNamyXB0hniRirYjxHtBry1SfcnSzuRDE
     replay-scenes-group--group-recording-tab-empty--dark:
         hash: v1.k794b7964.0660887202ba71055373168f4b9df5cdc8251c89f0f96b77c4b3196845362f70.VFxGeaTyLzGuovqDxnkS9wWUmq2J0edku92QEPb1mJI
     replay-scenes-group--group-recording-tab-empty--light:
@@ -5275,9 +5275,9 @@ snapshots:
     replay-tabs-home-success--filters-expanded-lots-of-results-narrow--light:
         hash: v1.k794b7964.822aa003f36df8d2049a07f88f14951170896692015e0d2abac18a1bc91a22b3.vzX3w8na5zLvm78qhClA34ouQ2r_k8TFiIm2rbQqpMY
     replay-tabs-home-success--recent-recordings--dark:
-        hash: v1.k794b7964.1ccb4f6dd7d0ab71d633bf0cabdbd148e841a29181871d36931620a0d68e3e6a.Vfvxz3PXTg0RiVhbTTuTk3PNTuq1UAcRaGRDX0EcywY
+        hash: v1.k794b7964.81cd1efa8b9559e4b96b9c7e385648189ea45586548256b0cb000ffa80ca985e.14nEhQ9haxi7GqqJ-qd5Vh9UTXOwe0MYYBK3cRsRHm4
     replay-tabs-home-success--recent-recordings--light:
-        hash: v1.k794b7964.0f0c3c8fb0238be5cc1a4b51e70548103893a32b2dda2ccba751c54a707e99e1.OYxTewkj5sJXbTdI2pRGMkU6JxpzbqGUzBAXKBvWkeI
+        hash: v1.k794b7964.1c15c6439072ba99bc539ede94d6546436b78c44e4a026d638130a59e2bed515.RAh0r3lyA4w8xpZ1b0HeY_EBMhyx7A4GXQhD4Q1fzSA
     replay-tabs-home-success--recent-recordings-empty--dark:
         hash: v1.k794b7964.7af42d273f62a6845cc834e1201b40750ce493f9e61d3595d8e3dd0124fb98b9.xMGDUrSSoQOsMXOuwt_whrN_drdBkS1Hcuy7Q01-C48
     replay-tabs-home-success--recent-recordings-empty--light:
