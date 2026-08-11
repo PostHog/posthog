@@ -1508,9 +1508,7 @@ class TestPosthogConnectIntegration(BaseTest):
         with self.settings(**self.connect_settings):
             state = urlencode({"next": "/", "token": "tok", "region": "EU"})
             with pytest.raises(ValidationError):
-                OauthIntegration.integration_from_oauth_response(
-                    "posthog", self.team.id, self.user, {"state": state}
-                )
+                OauthIntegration.integration_from_oauth_response("posthog", self.team.id, self.user, {"state": state})
             mock_post.assert_not_called()
 
     @patch("posthog.models.integration.requests.post")
