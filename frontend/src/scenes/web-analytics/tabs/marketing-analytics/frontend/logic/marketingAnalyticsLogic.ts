@@ -69,7 +69,28 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     ATTRIBUTION = 'attribution',
+    SETUP = 'setup',
+}
+
+/** Section within the Setup tab, synced to `?section=`. Declared here rather than
+ * alongside the components so the logic doesn't import from the scene, which imports
+ * the logic back. */
+export enum SetupSection {
+    SUGGESTIONS = 'suggestions',
+    SOURCES = 'sources',
+    CONVERSION_GOALS = 'conversion-goals',
+    UTM_MAPPING = 'utm-mapping',
     INTEGRATION_HEALTH = 'integration-health',
+    ATTRIBUTION = 'attribution',
+    GENERAL = 'general',
+}
+
+export const DEFAULT_SETUP_SECTION = SetupSection.SUGGESTIONS
+
+/** Tab keys that no longer exist, and where they went. `integration-health` was a
+ * top-level tab before Setup absorbed it, so links and bookmarks still carry it. */
+const LEGACY_TAB_ALIASES: Record<string, { tab: MarketingAnalyticsTab; section: SetupSection }> = {
+    'integration-health': { tab: MarketingAnalyticsTab.SETUP, section: SetupSection.INTEGRATION_HEALTH },
 }
 
 const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([
@@ -279,6 +300,7 @@ export interface marketingAnalyticsLogicValues {
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     overviewQuery: MarketingAnalyticsAggregatedQuery
+    setupSection: SetupSection
     tileColumnSelection: validColumnsForTiles
     uniqueConversionGoalName: string
     validExternalTables: ExternalTable[]
@@ -403,6 +425,9 @@ export interface marketingAnalyticsLogicActions {
     }
     setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
         integrationFilter: IntegrationFilter
+    }
+    setSetupSection: (section: SetupSection) => {
+        section: SetupSection
     }
     setTileColumnSelection: (column: validColumnsForTiles) => {
         column: validColumnsForTiles
@@ -582,6 +607,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
     })),
     actions({
         setActiveTab: (tab: MarketingAnalyticsTab) => ({ tab }),
+        setSetupSection: (section: SetupSection) => ({ section }),
 
         // Low-level state setters (used by listeners)
         setDraftConversionGoal: (goal: ConversionGoalFilter | null) => ({ goal }),
@@ -631,6 +657,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 MarketingAnalyticsTab.DASHBOARD as MarketingAnalyticsTab,
                 {
                     setActiveTab: (_, { tab }) => tab,
+                },
+            ],
+            setupSection: [
+                DEFAULT_SETUP_SECTION as SetupSection,
+                {
+                    setSetupSection: (_, { section }) => section,
                 },
             ],
             initialized: [
@@ -1219,6 +1251,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('tab', values.activeTab)
             }
 
+            // Section is meaningless outside Setup, and the default is implied.
+            if (values.activeTab === MarketingAnalyticsTab.SETUP && values.setupSection !== DEFAULT_SETUP_SECTION) {
+                searchParams.set('section', values.setupSection)
+            }
+
             // Date filters
             if (values.dateFilter.dateFrom) {
                 searchParams.set('date_from', values.dateFilter.dateFrom)
@@ -1263,6 +1300,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
 
         return {
             setActiveTab: buildUrl,
+            setSetupSection: buildUrl,
             setDates: buildUrl,
             setDateInterval: buildUrl,
             setDatesAndInterval: buildUrl,
@@ -1376,9 +1414,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const searchParams = new URLSearchParams(window.location.search)
         const params: Parameters<typeof actions.syncFromUrl>[0] = {}
 
-        const tab = searchParams.get('tab') as MarketingAnalyticsTab | null
-        if (tab && Object.values(MarketingAnalyticsTab).includes(tab)) {
-            actions.setActiveTab(tab)
+        const rawTab = searchParams.get('tab')
+        const alias = rawTab ? LEGACY_TAB_ALIASES[rawTab] : undefined
+        if (alias) {
+            actions.setActiveTab(alias.tab)
+            actions.setSetupSection(alias.section)
+        } else if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
+            actions.setActiveTab(rawTab as MarketingAnalyticsTab)
+        }
+
+        const section = searchParams.get('section')
+        if (section && Object.values(SetupSection).includes(section as SetupSection)) {
+            actions.setSetupSection(section as SetupSection)
         }
 
         const dateFrom = searchParams.get('date_from')
