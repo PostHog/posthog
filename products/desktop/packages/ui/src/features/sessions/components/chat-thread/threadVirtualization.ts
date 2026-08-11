@@ -144,15 +144,32 @@ export interface KeyedTurnRow {
   item: TurnRow;
 }
 
+/** Key prefix per top-level row kind, or null for a kind turn grouping never emits as its own row. */
+function turnRowKeyPrefix(row: TurnRow): string | null {
+  switch (row.type) {
+    case "user_message":
+      return "user-turn";
+    case "agent_turn":
+      return "agent-turn";
+    case "git_action":
+      return "git-action";
+    case "skill_button_action":
+      return "skill-action";
+    default:
+      return null;
+  }
+}
+
 /**
  * Assign list keys to the non-virtualized body's top-level rows.
  *
- * User messages and agent turns are both keyed by ordinal rather than by id, because both ids move
- * under a row that has not changed position. A user message swaps its optimistic id for the real
- * one once the prompt echoes back. An agent turn takes the id of its first item, and that item is
- * replaced whenever tool grouping reshapes the head of the turn: a turn that opens with a thought
- * and then makes a second tool call folds thought plus tools into one `tool_group`, so the turn's
- * id moves from the thought to the first tool call.
+ * Every row is keyed by ordinal rather than by id, because a row's id moves while the row itself
+ * stays in place. A user message and a skill-button action each swap an optimistic id for the real
+ * one when the prompt echoes back, in the single commit that drops the optimistic item and appends
+ * the event. An agent turn takes the id of its first item, and that item is replaced whenever tool
+ * grouping reshapes the head of the turn: a turn that opens with a thought and then makes a second
+ * tool call folds thought plus tools into one `tool_group`, so the turn's id moves from the thought
+ * to the first tool call.
  *
  * Keying on those ids remounts the row. The scroller engine watches its content element for child
  * list changes, and a remount that neither adds nor removes a row reads to it as "the row count is
@@ -164,14 +181,13 @@ export interface KeyedTurnRow {
  * Rows are only ever appended, so an ordinal is stable for the life of the row.
  */
 export function keyTurnRows(rows: TurnRow[]): KeyedTurnRow[] {
-  let userTurn = 0;
-  let agentTurn = 0;
+  const ordinals = new Map<string, number>();
   return rows.map((item) => {
-    if (item.type === "user_message")
-      return { key: `user-turn-${userTurn++}`, item };
-    if (item.type === "agent_turn")
-      return { key: `agent-turn-${agentTurn++}`, item };
-    return { key: item.id, item };
+    const prefix = turnRowKeyPrefix(item);
+    if (prefix === null) return { key: item.id, item };
+    const ordinal = ordinals.get(prefix) ?? 0;
+    ordinals.set(prefix, ordinal + 1);
+    return { key: `${prefix}-${ordinal}`, item };
   });
 }
 
