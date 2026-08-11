@@ -3921,7 +3921,7 @@ const api = {
             },
             passwordId: string
         ): Promise<void> {
-            dashboardId
+            return dashboardId
                 ? new ApiRequest().dashboardSharingPassword(dashboardId, passwordId).delete()
                 : insightId
                   ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()

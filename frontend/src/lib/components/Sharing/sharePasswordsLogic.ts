@@ -199,6 +199,13 @@ export const sharePasswordsLogic = kea<sharePasswordsLogicType>([
                 actions.loadSharePasswords()
                 lemonToast.success('Password deleted')
             } catch (error: any) {
+                if (error.status === 404) {
+                    // The password was already gone (deleted elsewhere, or its id changed after a token rotation).
+                    // Reload the list to drop the stale row and tell the user rather than report a hard failure.
+                    actions.loadSharePasswords()
+                    lemonToast.info('Password was already deleted')
+                    return
+                }
                 lemonToast.error(error.detail || 'Failed to delete password')
             }
         },
