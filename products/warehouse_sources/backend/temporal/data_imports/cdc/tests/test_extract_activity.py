@@ -571,7 +571,7 @@ class TestBuildEventNameMap:
 class TestShadowBufferWrite:
     """Shadow buffered-ingress writes around _process_flush.
 
-    Enablement is the setting AND the per-project flag, resolved once in _setup;
+    Enablement is the per-team dwh-cdc-buffer-shadow flag, resolved once in _setup;
     these drive it end-to-end through the real gate (`is_shadow_write_enabled`).
     """
 

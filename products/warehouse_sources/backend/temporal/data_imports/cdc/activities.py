@@ -241,8 +241,8 @@ class CDCExtractActivity:
         self._shadow_cleaned_schemas: set[str] = set()
         self._shadow_write_failures: int = 0
         self._shadow_disabled_for_run: bool = False
-        # Resolved once in _setup (setting AND per-project flag) so neither the flush
-        # path nor the batcher re-evaluates a flag per micro-batch.
+        # Resolved once in _setup (the dwh-cdc-buffer-shadow flag) so neither the
+        # flush path nor the batcher re-evaluates a flag per micro-batch.
         self._shadow_enabled: bool = False
 
     # ------------------------------------------------------------------
