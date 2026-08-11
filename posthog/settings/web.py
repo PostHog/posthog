@@ -109,6 +109,7 @@ PRODUCTS_APPS = [
     "products.approvals.backend.apps.ApprovalsConfig",
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
+    "products.data_quality.backend.apps.DataQualityConfig",
 ]
 
 INSTALLED_APPS = [
@@ -645,6 +646,7 @@ SPECTACULAR_SETTINGS = {
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "BackfillStatusEnum": "products.replay_vision.backend.models.replay_scanner_backfill.BackfillStatus",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
         "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
@@ -664,6 +666,12 @@ SPECTACULAR_SETTINGS = {
         "PropertyGroupOperator": ["AND", "OR"],
         # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
         "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
+        # `strength` and `kind` are generic enough that the next one added anywhere would collide,
+        # and `multiple_variant_handling` would otherwise generate a bare `MultipleVariantHandling`
+        # sitting next to the schema type of the same name. One prefix for all three.
+        "ExperimentWatchCardKindEnum": ["behavior", "friction", "metric"],
+        "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
+        "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
         # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
         # daily/weekly/monthly choice set; pin one name for both.
         "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
@@ -1246,6 +1254,13 @@ _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS = (
 WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
+]
+
+# Dogfooding list for the precompute-backed web analytics trends path — teams
+# here take it regardless of the `web-analytics-trends-precompute` rollout flag.
+# The shared precompute enrollment gate still applies underneath.
+WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS", ""))
 ]
 
 # Upper bound on the number of distinct precompute shapes (query cache keys) a single

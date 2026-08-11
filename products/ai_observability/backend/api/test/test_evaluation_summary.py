@@ -148,7 +148,8 @@ class TestEvaluationSummaryAPI(APIBaseTest):
             ),
         )
 
-        mock_async_to_sync.return_value = lambda *args, **kwargs: mock_summary
+        mock_generate_summary = MagicMock(return_value=mock_summary)
+        mock_async_to_sync.return_value = mock_generate_summary
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/evaluation_summary/",
@@ -160,6 +161,7 @@ class TestEvaluationSummaryAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
+        assert mock_generate_summary.call_args.kwargs["evaluation_id"] == str(self.evaluation.id)
         data = response.data
 
         assert "overall_assessment" in data

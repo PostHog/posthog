@@ -9,6 +9,7 @@ class DataModelingJobStatus(models.TextChoices):
     COMPLETED = "Completed", "Completed"
     FAILED = "Failed", "Failed"
     RUNNING = "Running", "Running"
+    SKIPPED = "Skipped", "Skipped"
 
 
 class DataModelingJobEngine(models.TextChoices):

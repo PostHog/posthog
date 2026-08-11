@@ -210,8 +210,7 @@ jobs:
                   OLDEST_SUPPORTED: ${{ steps.read-versions.outputs.oldest_supported }}
               run: |
                   # :NOTE: Keep shard count in sync with observed run times.
-                  # Target: ~15 min per shard. Current: 3 shards for ~30 min total.
-                  # Consult #team-devex before changing.
+                  # Target: ~15 min per shard. Consult #team-devex before changing.
                   shards=3
                   # Parse the oldest_supported from the JSON array format
                   image=$(echo "$OLDEST_SUPPORTED" | jq -r '.[0]')
