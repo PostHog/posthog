@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 
 import { IconCheck, IconWarning } from '@posthog/icons'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { type AdblockDetectionResult } from './hooks/useAdblockDetection'
 import { useInstallationComplete } from './hooks/useInstallationComplete'
 import { OnboardingLiveEvents } from './OnboardingLiveEvents'
@@ -9,8 +11,8 @@ import { OnboardingLiveEvents } from './OnboardingLiveEvents'
 export type RealtimeCheckIndicatorProps = {
     teamPropertyToVerify: string
     listeningForName?: string
-    /** Drop the "Verify installation" label where space is tight and the chip explains itself. */
-    hideLabel?: boolean
+    /** Compact presentation for tight headers: no "Verify installation" label, no chip border. */
+    minimal?: boolean
     /** Fires once when verification flips from waiting to complete. Already-complete mounts don't fire. */
     onComplete?: () => void
 }
@@ -18,7 +20,7 @@ export type RealtimeCheckIndicatorProps = {
 export function RealtimeCheckIndicator({
     teamPropertyToVerify,
     listeningForName = 'event',
-    hideLabel = false,
+    minimal = false,
     onComplete,
 }: RealtimeCheckIndicatorProps): JSX.Element {
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
@@ -43,8 +45,13 @@ export function RealtimeCheckIndicator({
                 </div>
             ) : (
                 <div className="flex flex-row gap-3 items-center">
-                    {!hideLabel && <div className="font-medium">Verify installation</div>}
-                    <div className="flex items-center gap-2 px-2 py-1 border border-accent rounded-sm">
+                    {!minimal && <div className="font-medium">Verify installation</div>}
+                    <div
+                        className={cn(
+                            'flex items-center gap-2 px-2 py-1',
+                            !minimal && 'border border-accent rounded-sm'
+                        )}
+                    >
                         <div className="relative flex items-center justify-center">
                             <div className="absolute w-3 h-3 border-2 border-accent rounded-full animate-ping" />
                             <div className="w-2 h-2 bg-accent rounded-full" />

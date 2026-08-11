@@ -229,7 +229,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
                         {step.id === 'install' && (
                             <RealtimeCheckIndicator
                                 teamPropertyToVerify="ingested_event"
-                                hideLabel
+                                minimal
                                 onComplete={reportOnboardingInstallVerified}
                             />
                         )}
