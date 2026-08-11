@@ -186,6 +186,7 @@ const ExperimentsTableFilters = ({
                     <TagSelect
                         defaultLabel="Any tags"
                         value={filters.tags || []}
+                        size="xsmall"
                         onChange={(tags) => {
                             onFiltersChange({ tags: tags.length > 0 ? tags : undefined, page: 1 })
                         }}
@@ -197,6 +198,7 @@ const ExperimentsTableFilters = ({
                     <TagSelect
                         defaultLabel="No tags"
                         value={filters.excluded_tags || []}
+                        size="xsmall"
                         onChange={(excludedTags) => {
                             onFiltersChange({
                                 excluded_tags: excludedTags.length > 0 ? excludedTags : undefined,
