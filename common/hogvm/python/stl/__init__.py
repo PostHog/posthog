@@ -1016,7 +1016,7 @@ STL: dict[str, STLFunction] = {
     "reverse": STLFunction(fn=lambda args, team, stdout, timeout: args[0][::-1], minArgs=1, maxArgs=1),
     "print": STLFunction(fn=print, minArgs=0, maxArgs=None),
     "jsonParse": STLFunction(fn=jsonParse, minArgs=1, maxArgs=1),
-    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=1),
+    "jsonStringify": STLFunction(fn=jsonStringify, minArgs=1, maxArgs=2),
     "JSONHas": STLFunction(fn=JSONHas, minArgs=2, maxArgs=None),
     "isValidJSON": STLFunction(fn=isValidJSON, minArgs=1, maxArgs=1),
     "JSONLength": STLFunction(fn=JSONLength, minArgs=2, maxArgs=None),

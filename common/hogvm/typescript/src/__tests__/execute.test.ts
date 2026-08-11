@@ -1994,7 +1994,7 @@ describe('hogvm execute', () => {
 
     test('uncaught exceptions', () => {
         // throw Error('Not a good day')
-        const bytecode1 = ['_h', op.NULL, op.NULL, op.STRING, 'Not a good day', op.CALL_GLOBAL, 'Error', 3, op.THROW]
+        const bytecode1 = ['_h', op.STRING, 'Not a good day', op.CALL_GLOBAL, 'Error', 1, op.THROW]
         expect(() => execSync(bytecode1)).toThrow(new UncaughtHogVMException('Error', 'Not a good day', null))
 
         // throw RetryError('Not a good day', {'key': 'value'})

@@ -36,10 +36,11 @@ logger = structlog.get_logger(__name__)
 # - `ValueError` at large, with `json.JSONDecodeError` (a subclass) listed instead: our own code
 #   raises plain ValueError, and skipping on that would hide real bugs.
 # - `IndexError`, which no user data reaches: Hog indexing is bounds-safe (`get_nested_value`
-#   returns null past the end of an array). What does raise it is an STL call compiled with the
-#   wrong arity, which nothing validates at save time, so a source like `jsonParse()` reaches the
-#   VM and fails on every unit. Listing it here would skip that source silently and forever, and
-#   blame the customer's data for it; left out, it stays loud.
+#   returns null past the end of an array). A wrong-arity builtin used to raise it — a source like
+#   `jsonParse()` reached the STL function and indexed off the end of an empty args list. The VM now
+#   validates arity at the dispatch site and raises HogVMException instead, so that source becomes a
+#   terminal hog_error that disables the evaluation. Either way this must not be an input error, or
+#   the broken source would skip every unit silently and blame the customer's data.
 HOG_INPUT_ERROR_TYPES: tuple[type[Exception], ...] = (
     TypeError,
     AttributeError,

@@ -798,7 +798,7 @@ export const STL: Record<string, STLFunction> = {
         description: 'Converts an object to a JSON string',
         example: 'jsonStringify($1)',
         minArgs: 1,
-        maxArgs: 1,
+        maxArgs: 2,
     },
     JSONHas: {
         fn: ([obj, ...path]) => {

@@ -164,6 +164,13 @@ class TestBytecodeExecute:
         try:
             execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "replaceOne", 1], {})
         except Exception as e:
+            assert str(e) == "Function replaceOne requires at least 3 arguments"
+        else:
+            raise AssertionError("Expected Exception not raised")
+
+        try:
+            execute_bytecode([_H, VERSION, op.CALL_GLOBAL, "lower", 1], {})
+        except Exception as e:
             assert str(e) == "Stack underflow"
         else:
             raise AssertionError("Expected Exception not raised")
