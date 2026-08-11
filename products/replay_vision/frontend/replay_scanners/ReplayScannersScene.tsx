@@ -287,7 +287,7 @@ export function ReplayScannersScene(): JSX.Element {
                 productName="Replay Vision"
                 productKey={ProductKey.REPLAY_VISION}
                 thingName="scanner"
-                description="Replay Vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
+                description="Replay Vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it: categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
                 secondaryDescription="Start from a template or build a fully custom scanner."
                 customHog={HedgehogXRay}
                 action={() => push(urls.replayVisionTemplates())}
