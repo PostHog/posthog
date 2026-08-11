@@ -360,8 +360,7 @@ class RelaySlackMessageInput:
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.run_footer import load_run_footer
-    from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
+    from products.slack_app.backend.services.slack_messages import load_run_footer, normalize_labeled_mentions_to_bare
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
     from products.tasks.backend.temporal.process_task.utils import get_message_actor

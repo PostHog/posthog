@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
-from products.slack_app.backend.services.run_footer import RunFooter
+from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 
 _post_slack_update_module = importlib.import_module(
@@ -29,7 +29,7 @@ class TestPostSlackUpdate(TestCase):
         # tested there. Here it only decides whether the cards carry a url, so default to
         # "linkable" and let the deny-path test re-patch it.
         self._footer_patcher = patch(
-            "products.slack_app.backend.services.run_footer.load_run_footer",
+            "products.slack_app.backend.services.slack_messages.load_run_footer",
             return_value=RunFooter(task_url="http://localhost:8000/project/1/tasks/10?runId=run-1"),
         )
         self._footer_patcher.start()
@@ -598,7 +598,7 @@ class TestPostSlackUpdate(TestCase):
         # web buttons are skipped.
         self._footer_patcher.stop()
         deny_patcher = patch(
-            "products.slack_app.backend.services.run_footer.load_run_footer",
+            "products.slack_app.backend.services.slack_messages.load_run_footer",
             return_value=RunFooter(),
         )
         deny_patcher.start()

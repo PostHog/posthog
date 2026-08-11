@@ -8,11 +8,14 @@ from slack_sdk import WebClient
 from posthog.models.integration import Integration, SlackIntegration
 
 from products.slack_app.backend.feature_flags import is_slack_app_home_enabled, is_slack_app_model_classifier_enabled
-from products.slack_app.backend.services.blocks import context_block
 from products.slack_app.backend.services.model_catalogue import describe_run_model
-from products.slack_app.backend.services.run_footer import RunFooter, reply_footer_block
-from products.slack_app.backend.services.slack_links import app_home_url
-from products.slack_app.backend.services.slack_messages import normalize_labeled_mentions_to_bare
+from products.slack_app.backend.services.slack_messages import (
+    RunFooter,
+    app_home_url,
+    context_block,
+    normalize_labeled_mentions_to_bare,
+    reply_footer_block,
+)
 
 logger = structlog.get_logger(__name__)
 

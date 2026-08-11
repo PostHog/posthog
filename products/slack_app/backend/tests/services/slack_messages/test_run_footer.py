@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.slack_app.backend.services.run_footer import RunFooter, load_run_footer, reply_footer_block
+from products.slack_app.backend.services.slack_messages import RunFooter, load_run_footer, reply_footer_block
 
 TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3"
 DESKTOP_URL = "posthog-code://task/2"
@@ -63,7 +63,7 @@ class TestLoadRunFooter(SimpleTestCase):
             created_by_id=created_by_id,
         )
 
-    @patch("products.slack_app.backend.services.run_footer.User")
+    @patch("products.slack_app.backend.services.slack_messages.User")
     @patch("products.tasks.backend.facade.access.has_tasks_access")
     @patch("products.tasks.backend.facade.api.get_task_run")
     def test_a_run_with_no_creator_gets_no_links_without_consulting_the_flag(
@@ -80,7 +80,7 @@ class TestLoadRunFooter(SimpleTestCase):
         # The model is not access-sensitive, so it survives the gate.
         assert footer.model == "claude-opus-5"
 
-    @patch("products.slack_app.backend.services.run_footer.User")
+    @patch("products.slack_app.backend.services.slack_messages.User")
     @patch("products.tasks.backend.facade.access.has_tasks_access", side_effect=RuntimeError("flags down"))
     @patch("products.tasks.backend.facade.api.get_task_run")
     def test_a_flag_service_blip_withholds_the_links_rather_than_guessing(

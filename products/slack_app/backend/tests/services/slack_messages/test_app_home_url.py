@@ -4,7 +4,7 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.services.slack_links import app_home_url
+from products.slack_app.backend.services.slack_messages import app_home_url
 
 
 class TestSlackLinks(SimpleTestCase):

@@ -1706,7 +1706,7 @@ def _resolve_tasks_state(
     from django.utils import timezone as django_timezone
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
-    from products.slack_app.backend.services.run_footer import DESKTOP_URL_SCHEME
+    from products.slack_app.backend.services.slack_messages import DESKTOP_URL_SCHEME
     from products.tasks.backend.facade import api as tasks_facade
 
     slack_team_id = integration.integration_id
