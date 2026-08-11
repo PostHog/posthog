@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTool, AssistantToolCallMessage
 
-from products.notebooks.backend.presentation.widget_catalog import format_notebook_widget_catalog_for_agents
+from products.notebooks.backend.facade.widget_catalog import format_notebook_widget_catalog_for_agents
 
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.create_notebook.helpers import (
