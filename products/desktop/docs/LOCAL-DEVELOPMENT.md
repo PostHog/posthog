@@ -165,10 +165,10 @@ The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI0
 
 ### "OAuth error: invalid_scope"
 
-PostHog Code requests the wildcard scope `*` (see `OAUTH_SCOPES` in
+PostHog Desktop requests the wildcard scope `*` (see `OAUTH_SCOPES` in
 `packages/shared/src/oauth.ts`). PostHog's OAuth server only grants `*` at
 `/authorize` when the OAuth application's **scope ceiling is empty** — this is
-the grandfathering path for the PostHog Code client. If the application has any
+the grandfathering path for the PostHog Desktop client. If the application has any
 explicit `scopes` or `optional_scopes` configured, the wildcard is rejected with
 `invalid_scope`.
 

@@ -52,6 +52,33 @@ class SandboxComputeCost:
 COMPUTE_RATE_CARDS: tuple[ComputeRateCard, ...] = ()
 
 
+@dataclass(frozen=True)
+class ComputeRateCardCatalog:
+    current: ComputeRateCard | None
+    history: tuple[ComputeRateCard, ...]
+
+
+def get_compute_rate_card_catalog(
+    *, at: datetime | None = None, rate_cards: Sequence[ComputeRateCard] | None = None
+) -> ComputeRateCardCatalog:
+    cards = tuple(COMPUTE_RATE_CARDS if rate_cards is None else rate_cards)
+    if not cards:
+        return ComputeRateCardCatalog(current=None, history=())
+
+    cards = validate_compute_rate_cards(cards)
+    effective_at = at or timezone.now()
+    if timezone.is_naive(effective_at):
+        raise ValueError("rate card lookup timestamp must be timezone-aware")
+
+    published_cards = tuple(card for card in cards if card.effective_at <= effective_at)
+    current = next(
+        (card for card in reversed(published_cards) if card.expires_at is None or effective_at < card.expires_at),
+        None,
+    )
+    history = tuple(card for card in reversed(published_cards) if card != current)
+    return ComputeRateCardCatalog(current=current, history=history)
+
+
 def validate_reporting_window(reporting_start: datetime, reporting_end: datetime) -> None:
     if timezone.is_naive(reporting_start) or timezone.is_naive(reporting_end):
         raise ValueError("reporting timestamps must be timezone-aware")

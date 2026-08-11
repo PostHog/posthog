@@ -7497,6 +7497,8 @@ export interface SourceFieldSelectConfig {
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
     caption?: string
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean
 }
 
 export interface SourceFieldSwitchGroupConfig {
