@@ -7,9 +7,14 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.formbricks import (
+    FORMBRICKS_API_VERSION_V1,
+    FORMBRICKS_API_VERSION_V2,
     FormbricksResumeConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.settings import (
+    ENDPOINTS,
+    FORMBRICKS_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.formbricks.source import FormbricksSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.formbricks import (
     FormbricksSourceConfig,
@@ -60,6 +65,29 @@ class TestFormbricksSource:
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
+
+    def test_supports_v1_and_v2_with_v2_default(self) -> None:
+        # New sources are stamped v2 (the version Formbricks recommends and that the responses
+        # incremental sync requires); v1 stays supported so existing pins keep resolving.
+        assert self.source.supported_versions == (FORMBRICKS_API_VERSION_V1, FORMBRICKS_API_VERSION_V2)
+        assert self.source.default_version == FORMBRICKS_API_VERSION_V2
+
+    @parameterized.expand(
+        [
+            ("responses", FORMBRICKS_API_VERSION_V2),
+            ("contact_attribute_keys", FORMBRICKS_API_VERSION_V2),
+            ("webhooks", FORMBRICKS_API_VERSION_V2),
+            ("surveys", FORMBRICKS_API_VERSION_V1),
+            ("contacts", FORMBRICKS_API_VERSION_V1),
+            ("contact_attributes", FORMBRICKS_API_VERSION_V1),
+            ("action_classes", FORMBRICKS_API_VERSION_V1),
+        ]
+    )
+    def test_each_resource_targets_the_version_that_lists_it(self, endpoint: str, expected_version: str) -> None:
+        # Only responses/contact-attribute-keys/webhooks have an environment-wide v2 list endpoint;
+        # the rest are v1-only. A resource pointed at the wrong version would 404 (v1-only resource
+        # on v2) or lose incremental filtering (responses on v1), so pin the routing per resource.
+        assert f"/api/{expected_version}/management/" in FORMBRICKS_ENDPOINTS[endpoint].path
 
     def test_get_schemas_covers_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)

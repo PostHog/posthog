@@ -190,7 +190,7 @@ impl<D: PersonDb + 'static> WriterTask<D> {
                 .unwrap_or_default()
                 .as_millis() as i64;
             let latency_ms = now_ms.saturating_sub(ts_ms);
-            histogram!("personhog_writer_e2e_latency_seconds").record(latency_ms as f64 / 1000.0);
+            histogram!("personhog_writer_e2e_latency_ms").record(latency_ms as f64);
         }
 
         debug!(rows = rows_written, "flushed to store");

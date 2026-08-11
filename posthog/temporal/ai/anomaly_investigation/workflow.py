@@ -49,12 +49,14 @@ SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "anomaly_investigation"
 
 
-# Sized to cover a realistic worst-case sequential agent run: up to MAX_TOOL_CALLS + 1 LLM turns,
-# each capped at the runner's per-request timeout (thinking turns run long). 20 min got tight once
-# that per-request timeout rose to 180s, so a slow thinking-heavy run could blow the deadline and be
-# killed mid-flight — skipping the runner's fallback path and re-running the whole agent. 30 min
-# keeps a realistic run inside a single activity attempt; the pathological tail falls to the retry.
-ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 30 * 60  # 30 minutes
+# Sized to cover a realistic worst-case sequential agent run: up to MAX_TOOL_CALLS + 2 LLM turns
+# (tool loop, finalize, and one corrective finalize retry), each capped at the runner's per-request
+# timeout (thinking turns run long). 20 min got tight once that per-request timeout rose to 180s,
+# so a slow thinking-heavy run could blow the deadline and be killed mid-flight — skipping the
+# runner's fallback path and re-running the whole agent; the finalize retry pushed the 12-request
+# worst case to 36 min, past the previous 30. 40 min keeps a realistic run inside a single activity
+# attempt; the pathological tail falls to the retry.
+ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 40 * 60  # 40 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 

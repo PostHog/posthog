@@ -44,9 +44,11 @@ VALIDATOR_MODEL = "claude-sonnet-4-6"
 LLM_REQUEST_TIMEOUT_SECONDS = 90.0
 
 # One-shot triage of each ticket up front. `how_to`/`account_billing` are retrieval-solvable;
-# `diagnostic` needs the customer's own data (drives PR 3's wider read scopes); `unactionable`
-# (spam, bare feedback, no question) short-circuits before the expensive draft loop.
-TICKET_TYPES = ("how_to", "diagnostic", "account_billing", "unactionable")
+# `diagnostic` needs the customer's own data (drives PR 3's wider read scopes); `bug` is answered by
+# researching our own code, which the signals pipeline does separately and writes back onto the
+# ticket; `unactionable` (spam, bare feedback, no question) short-circuits before the expensive
+# draft loop.
+TICKET_TYPES = ("how_to", "diagnostic", "account_billing", "bug", "unactionable")
 
 # Scopes for a reply that may be auto-sent to the (untrusted) ticket author. Deliberately the
 # narrowest set: only what docs-search (project:read) and business-knowledge search
@@ -97,4 +99,10 @@ TICKET_TYPE_HINTS: dict[str, str] = {
     "diagnostic": "This is a diagnostic ticket — the customer reports something broken or unexpected for their account; focus on what's failing and why.",
     "account_billing": "This is an account/billing question — focus on the customer's plan, usage, limits, and billing specifics.",
     "unactionable": "This ticket has no answerable support question.",
+    "bug": (
+        "This reads as a defect in the product itself, not a usage or account question. Do not offer a fix or a "
+        "workaround assembled from documentation, because the behavior described is not what the docs describe. "
+        "Acknowledge the report and gather only what an engineer would need to reproduce it: affected version or SDK, "
+        "exact steps, when it started, error text, and screenshots."
+    ),
 }

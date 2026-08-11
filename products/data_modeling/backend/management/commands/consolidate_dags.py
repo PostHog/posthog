@@ -5,11 +5,16 @@ from datetime import timedelta
 from typing import Any
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.management.base import BaseCommand, CommandError, CommandParser
+from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from temporalio.client import Client
 from temporalio.service import RPCError, RPCStatusCode
+
+from posthog.hogql.errors import BaseHogQLError
 
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import delete_schedule
@@ -27,7 +32,12 @@ from products.data_modeling.backend.logic.node_frequency import (
     schedulable_nodes,
     set_declared_target,
 )
-from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
+    DEGRADED_SYNC_KEY,
+    DegradedSyncMarker,
+    node_type_for,
+    sync_saved_query_to_dag,
+)
 from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_v1_saved_query_schedules,
     list_existing_schedule_ids,
@@ -37,6 +47,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
 from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.modeling import UnknownParentError
 from products.data_modeling.backend.models.node import Node, NodeType
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +56,13 @@ logger = structlog.get_logger(__name__)
 MODE_TIERED = "tiered"  # per-cadence tier schedules ({dag_id}:{seconds})
 MODE_LEGACY_V2 = "legacy-v2"  # single whole-DAG execute-dag schedule (id == dag_id)
 MODE_V1 = "v1-only"  # no execute-dag schedule; queries run on per-query v1 schedules
+
+# The sync failures --adopt-unresolvable may adopt: the query's SQL failing to parse or resolve
+# (BaseHogQLError covers parse errors and the BoundedResolver family), a parent that is not a
+# known table or view, or a parent whose node lives in a DAG the resolver cannot see (surfaces
+# as Node/SavedQuery DoesNotExist). Operational failures (DB errors, ManagedDAGError, a query
+# with no SQL at all) stay failed moves — a retry could still move those intact.
+ADOPTABLE_SYNC_ERRORS = (BaseHogQLError, UnknownParentError, ObjectDoesNotExist)
 
 
 @dataclasses.dataclass
@@ -83,8 +101,10 @@ class Command(BaseCommand):
         "finalizes the target from its persistent state: seed declared targets from leftover v1 "
         "intervals, sweep v1 per-query schedules, null the intervals, reconcile tiers once. "
         "Because the finalize derives from the target rather than this run's moves, re-running "
-        "with --apply completes a partially-applied consolidation. Dry run by default; pass "
-        "--apply to execute."
+        "with --apply completes a partially-applied consolidation. A query whose SQL fails "
+        "dependency resolution normally keeps its source DAG and fails the run; "
+        "--adopt-unresolvable instead lands it in the target with no edges and a "
+        "properties.system.degraded_sync marker. Dry run by default; pass --apply to execute."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -105,6 +125,18 @@ class Command(BaseCommand):
             "--verbose",
             action="store_true",
             help="List per-query names under each source DAG's move/drop counts (default: counts only)",
+        )
+        parser.add_argument(
+            "--adopt-unresolvable",
+            action="store_true",
+            default=False,
+            help=(
+                "When a query's SQL fails dependency resolution during a move, create its node in "
+                "the target with no incoming edges (marked properties.system.degraded_sync) instead "
+                "of keeping the source DAG and failing the run. The query keeps failing at "
+                "materialization time as it already does; edges rebuild on its next successful "
+                "sync. Caveat: until then the node runs at level 0, before any real parents."
+            ),
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -190,14 +222,30 @@ class Command(BaseCommand):
 
         consolidated_sq_ids: set[str] = set()
         kept_dags: list[str] = []
+        adopted_names: list[str] = []
         for plan in plans:
-            kept_reason = self._apply_source_dag(plan, target, temporal, consolidated_sq_ids)
+            kept_reason = self._apply_source_dag(
+                plan,
+                target,
+                temporal,
+                consolidated_sq_ids,
+                adopted_names,
+                adopt_unresolvable=options["adopt_unresolvable"],
+            )
             if kept_reason:
                 kept_dags.append(f"{plan.dag.name} ({plan.dag.id}): {kept_reason}")
 
         v1_failed_sq_ids = self._finalize_target(target, temporal)
 
         self.stdout.write(f"\nDone: consolidated {len(consolidated_sq_ids)} saved query(ies) into {target.name}")
+        if adopted_names:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  adopted {len(adopted_names)} query(ies) without edges (SQL failed to resolve): "
+                    f"{', '.join(sorted(adopted_names))} — they run at level 0 until their next "
+                    "successful sync rebuilds edges"
+                )
+            )
         if v1_failed_sq_ids:
             self.stdout.write(
                 self.style.WARNING(
@@ -472,6 +520,9 @@ class Command(BaseCommand):
         target: DAG,
         temporal: Client,
         consolidated_sq_ids: set[str],
+        adopted_names: list[str],
+        *,
+        adopt_unresolvable: bool = False,
     ) -> str | None:
         """Consolidate one source DAG. Returns None on success, or the reason the DAG was kept.
 
@@ -493,14 +544,22 @@ class Command(BaseCommand):
             try:
                 node = sync_saved_query_to_dag(item.saved_query, dag=target, reconcile=False)
             except Exception as error:
-                failed_moves.append(item.saved_query.name)
-                logger.exception(
-                    "Failed to move saved query into target DAG",
-                    saved_query_id=str(item.saved_query.id),
-                    source_dag_id=str(plan.dag.id),
-                    target_dag_id=str(target.id),
-                )
-                self.stderr.write(f"    FAILED to move {item.saved_query.name}: {error}")
+                adoptable = adopt_unresolvable and isinstance(error, ADOPTABLE_SYNC_ERRORS)
+                node = self._adopt_without_edges(item.saved_query, target, error) if adoptable else None
+                if node is None:
+                    failed_moves.append(item.saved_query.name)
+                    logger.exception(
+                        "Failed to move saved query into target DAG",
+                        saved_query_id=str(item.saved_query.id),
+                        source_dag_id=str(plan.dag.id),
+                        target_dag_id=str(target.id),
+                    )
+                    self.stderr.write(f"    FAILED to move {item.saved_query.name}: {error}")
+                    continue
+                self._carry_declared_target(node, item.declared_target, item.saved_query.name)
+                moved_sq_ids.append(str(item.saved_query.id))
+                adopted_names.append(item.saved_query.name)
+                self.stdout.write(self.style.WARNING(f"    adopted {item.saved_query.name} without edges: {error}"))
                 continue
             if node is not None:
                 self._carry_declared_target(node, item.declared_target, item.saved_query.name)
@@ -534,6 +593,39 @@ class Command(BaseCommand):
         consolidated_sq_ids.update(moved_sq_ids)
         consolidated_sq_ids.update(drop.saved_query_id for drop in plan.drops)
         return None
+
+    def _adopt_without_edges(self, saved_query: DataWarehouseSavedQuery, target: DAG, error: Exception) -> Node | None:
+        """Last-resort landing for a query whose SQL will not resolve: create its node in the
+        target with no incoming edges so the consolidation can proceed and the source DAG can be
+        deleted. The query keeps failing at materialization time exactly as it did in the source
+        DAG (feeding the suspension circuit breaker), the marker makes these nodes findable
+        fleet-wide, and the next successful sync clears the marker and rebuilds real edges.
+        Returns None if even the bare node cannot be created, falling back to keeping the DAG.
+        """
+        marker: DegradedSyncMarker = {"error": str(error)[:500], "at": timezone.now().isoformat()}
+        try:
+            # Atomic so a failed marker save rolls the creation back too: a committed but
+            # unmarked node would make the re-run classify this query as DROP instead of
+            # retrying the move, stranding it edge-less and invisible to the marker sweep.
+            with transaction.atomic():
+                node, _ = Node.objects.get_or_create(
+                    team_id=saved_query.team_id,
+                    saved_query=saved_query,
+                    dag=target,
+                    defaults={"name": saved_query.name, "type": node_type_for(saved_query)},
+                )
+                properties = node.properties or {}
+                properties.setdefault("system", {})[DEGRADED_SYNC_KEY] = marker
+                node.properties = properties
+                node.save(update_fields=["properties"])
+            return node
+        except Exception:
+            logger.exception(
+                "Failed to adopt unresolvable saved query into target DAG",
+                saved_query_id=str(saved_query.id),
+                target_dag_id=str(target.id),
+            )
+            return None
 
     def _carry_declared_target(self, node: Node, declared: timedelta | None, name: str) -> None:
         """Carry a source node's declared freshness target onto its target-DAG node. The target

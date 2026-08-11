@@ -1,4 +1,5 @@
 import { type SetupTaskId } from 'lib/components/ProductSetup'
+import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingType, OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
@@ -63,6 +64,14 @@ export interface OnboardingFlowContext {
     subscribedDuringOnboarding: boolean
     /** Members can invite teammates — drives the trailing invite step. */
     canInviteTeammates: boolean
+    /**
+     * Current feature flags, threaded through the flow selector so flag-gated steps
+     * recompute when flags are delivered — providers must read flags from here, not
+     * via `featureFlagLogic.findMounted()` (an imperative read never re-fires the flow).
+     */
+    featureFlags: FeatureFlagsSet
+    /** Experiment arm + AI-subscription availability — drives the trailing weekly-report step. */
+    showAIReportsStep: boolean
 }
 
 export type StepProvider = (ctx: OnboardingFlowContext) => OnboardingStepDescriptor[]
@@ -83,8 +92,7 @@ export interface ProductOnboardingProvider {
     steps: StepProvider
     /**
      * Where to redirect when this product's onboarding completes (used when this
-     * product is the primary). Falls back to the quickstart page (behind the
-     * quickstart-homepage flag) or the homepage if not provided.
+     * product is the primary). Falls back to the homepage if not provided.
      */
     completeRedirectUrl?: () => string
 }

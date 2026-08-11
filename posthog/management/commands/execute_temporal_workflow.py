@@ -30,6 +30,8 @@ from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
+from products.error_tracking.backend.facade.temporal import WORKFLOWS as ERROR_TRACKING_WORKFLOWS
+from products.logs.backend.temporal.retention_entitlements import WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
 from products.warehouse_sources.backend.facade.temporal import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
@@ -152,9 +154,11 @@ class Command(BaseCommand):
             + DATA_MODELING_WORKFLOWS
             + LLM_ANALYTICS_WORKFLOWS
             + EVENT_SCREENSHOTS_WORKFLOWS
+            + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
             + RASTERIZE_RECORDING_WORKFLOWS
             + SUMMARIZATION_SWEEP_WORKFLOWS
             + WA_DIGEST_WORKFLOWS
+            + ERROR_TRACKING_WORKFLOWS
             + SURFACING_SCORING_SWEEP_WORKFLOWS
             + BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS
         )

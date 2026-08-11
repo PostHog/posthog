@@ -1,10 +1,11 @@
 import type { SourceFieldConfig } from '~/queries/schema/schema-general'
 import type { ExternalDataSourceSchema } from '~/types'
 
+import { clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
+
 import {
     buildBulkEnablePayloads,
     clonePayloadPreservingFiles,
-    clampFrequencyForSchema,
     isSensitiveCredentialField,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
@@ -228,18 +229,11 @@ describe('schemasEligibleForSync', () => {
     })
 })
 
-describe('clampFrequencyForSchema', () => {
-    it('floors non-CDC schemas at 5 minutes', () => {
-        const incremental = makeSchema({ sync_type: 'incremental' })
-        expect(clampFrequencyForSchema('1min', incremental)).toBe('5min')
-        expect(clampFrequencyForSchema('5min', incremental)).toBe('5min')
-        expect(clampFrequencyForSchema('1hour', incremental)).toBe('1hour')
-    })
-
-    it('lets CDC schemas go down to 1 minute', () => {
-        const cdc = makeSchema({ sync_type: 'cdc' })
-        expect(clampFrequencyForSchema('1min', cdc)).toBe('1min')
-        expect(clampFrequencyForSchema('6hour', cdc)).toBe('6hour')
+describe('clampSyncFrequency', () => {
+    it('floors every schema at 5 minutes, CDC included', () => {
+        expect(clampSyncFrequency('1min')).toBe('5min')
+        expect(clampSyncFrequency('5min')).toBe('5min')
+        expect(clampSyncFrequency('1hour')).toBe('1hour')
     })
 })
 

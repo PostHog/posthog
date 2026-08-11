@@ -1,4 +1,6 @@
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
+import type { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import type { DataWarehouseViewLink } from '~/types'
 
 import type {
     AccountRelationshipDefinitionApi,
@@ -6,8 +8,11 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import {
+    AccountColumnGroup,
+    applyColumnDisplayToSelect,
     buildAccountColumnGroups,
     customPropertyAlias,
+    filterColumnOptions,
     relationshipAlias,
     roleKeyToDefinitionMap,
     translateSelectColumns,
@@ -23,6 +28,7 @@ function definition(
         name,
         display_type: 'text',
         is_big_number: false,
+        is_canonical: false,
         description: null,
         created_at: '2024-01-01T00:00:00Z',
         created_by: null,
@@ -108,6 +114,67 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
         expect(buildAccountColumnGroups({}, [], [], []).map((group) => group.key)).not.toContain('relationships')
     })
 
+    it('limits the picker to Postgres-backed groups when HogQL cleanup is enabled', () => {
+        const table = (name: string, fields: Record<string, Record<string, unknown>>): DatabaseSchemaTable =>
+            ({ name, fields }) as unknown as DatabaseSchemaTable
+        const allTablesMap = {
+            'system.accounts': table('accounts', {
+                name: { name: 'name', type: 'string', hogql_value: 'name' },
+                tags: { name: 'tags', type: 'lazy_table', table: 'account_tags', fields: ['names'] },
+                notebooks: {
+                    name: 'notebooks',
+                    type: 'lazy_table',
+                    table: 'account_notebooks',
+                    fields: ['count'],
+                },
+                enrichment: {
+                    name: 'enrichment',
+                    type: 'virtual_table',
+                    table: 'account_enrichment',
+                    fields: ['score'],
+                },
+            }),
+            account_tags: table('account_tags', { names: { name: 'names', type: 'array' } }),
+            account_notebooks: table('account_notebooks', { count: { name: 'count', type: 'integer' } }),
+            account_enrichment: table('account_enrichment', { score: { name: 'score', type: 'float' } }),
+            'warehouse.accounts': table('warehouse.accounts', { tier: { name: 'tier', type: 'string' } }),
+        }
+        const warehouseJoins = [
+            {
+                source_table_name: 'system.accounts',
+                field_name: 'warehouse_account',
+                joining_table_name: 'warehouse.accounts',
+            } as DataWarehouseViewLink,
+        ]
+        const customDefinition = definition('11111111-2222-3333-4444-555555555555', 'Plan')
+        const relationship = relationshipDefinition('66666666-7777-8888-9999-000000000000', 'CSM')
+
+        const unrestrictedKeys = buildAccountColumnGroups(
+            allTablesMap,
+            warehouseJoins,
+            [customDefinition],
+            [relationship]
+        ).map((group) => group.key)
+        const restrictedKeys = buildAccountColumnGroups(
+            allTablesMap,
+            warehouseJoins,
+            [customDefinition],
+            [relationship],
+            true
+        ).map((group) => group.key)
+
+        expect(unrestrictedKeys).toEqual(
+            expect.arrayContaining(['accounts.enrichment', 'accounts.warehouse_account', 'sql_expression'])
+        )
+        expect(restrictedKeys).toEqual([
+            'account_properties',
+            'relationships',
+            'custom_properties',
+            'accounts.tags',
+            'accounts.notebooks',
+        ])
+    })
+
     it('translateSelectColumns resolves legacy roles through the lazy join and drops unmatched ones', () => {
         const csm = relationshipDefinition('11111111-2222-3333-4444-555555555555', 'CSM')
         const map = roleKeyToDefinitionMap([
@@ -119,5 +186,62 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
             'name',
             `accounts.relationships.values.\`${csm.id}\` AS csm`,
         ])
+    })
+
+    it('applyColumnDisplayToSelect swaps only configured custom property columns to the history join', () => {
+        const id = '11111111-2222-3333-4444-555555555555'
+        const scalar = `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`
+        const other = 'accounts.tags.names AS tag_names'
+
+        expect(applyColumnDisplayToSelect([scalar, other], {})).toEqual([scalar, other])
+        expect(applyColumnDisplayToSelect([scalar, other], { [id]: { mode: 'sparkline', window_days: 7 } })).toEqual([
+            `accounts.custom_properties_history.values.\`${id}\` AS ${customPropertyAlias(id)}`,
+            other,
+        ])
+        expect(
+            applyColumnDisplayToSelect([scalar], {
+                '99999999-0000-1111-2222-333333333333': { mode: 'trend', window_days: 30 },
+            })
+        ).toEqual([scalar])
+    })
+
+    const pickerGroups: AccountColumnGroup[] = [
+        {
+            key: 'account_properties',
+            label: 'Account properties',
+            options: [
+                { name: 'name', expression: 'name' },
+                { name: 'created_at', expression: 'created_at', type: 'datetime' },
+            ],
+        },
+        {
+            key: 'accounts.billing',
+            label: 'billing',
+            options: [{ name: 'plan_name', expression: 'accounts.billing.plan_name AS plan_name' }],
+        },
+        { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
+    ]
+
+    it('filterColumnOptions spans all non-freeform groups and marks already-selected expressions', () => {
+        const options = filterColumnOptions(pickerGroups, null, '', ['name'])
+
+        expect(options.map((option) => [option.name, option.groupLabel, option.isSelected])).toEqual([
+            ['name', 'Account properties', true],
+            ['created_at', 'Account properties', false],
+            ['plan_name', 'billing', false],
+        ])
+    })
+
+    it('filterColumnOptions matches the search case-insensitively across groups', () => {
+        expect(filterColumnOptions(pickerGroups, null, ' PLAN ', []).map((option) => option.name)).toEqual([
+            'plan_name',
+        ])
+    })
+
+    it('filterColumnOptions narrows to the active group and yields nothing for freeform groups', () => {
+        expect(filterColumnOptions(pickerGroups, pickerGroups[1], '', []).map((option) => option.name)).toEqual([
+            'plan_name',
+        ])
+        expect(filterColumnOptions(pickerGroups, pickerGroups[2], '', [])).toEqual([])
     })
 })

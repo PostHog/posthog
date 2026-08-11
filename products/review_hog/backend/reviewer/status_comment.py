@@ -118,7 +118,7 @@ def report_deep_link(team_id: int, report_id: str) -> str:
     re-edited); the frontend's Code review URL sync accepts exactly this param, so the two must keep
     agreeing. Auth-gated like any app link — the same posture as posting Slack links publicly.
     """
-    return f"{settings.SITE_URL}/project/{team_id}/code_review?review={report_id}"
+    return f"{settings.SITE_URL}/project/{team_id}/code-review?review={report_id}"
 
 
 def _plural(count: int, noun: str) -> str:

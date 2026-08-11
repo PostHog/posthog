@@ -16,7 +16,7 @@ from posthoganalytics.ai.openai import (
     AzureOpenAI as WrappedAzureOpenAI,
     OpenAI,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -174,6 +174,10 @@ class OpenAIAdapter:
                     if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
                         return self._complete_with_json_fallback(client, request, messages, analytics)
                     raise
+                except (ValidationError, openai.LengthFinishReasonError) as e:
+                    # json_schema does not enforce cross-field validators, while the SDK raises a separate
+                    # exception for length-limited output. Normalize both so callers skip invalid output.
+                    raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
             else:
                 create_response = client.chat.completions.create(
                     model=request.model,

@@ -3,11 +3,15 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.splitio import (
     SplitIoSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.settings import (
+    ENDPOINTS,
+    SPLIT_IO_API_VERSION_V2,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.source import SplitIoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io import SplitIoResumeConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -54,6 +58,20 @@ class TestSplitIoSource:
     def test_non_retryable_errors_does_not_match_server_errors(self):
         observed_error = "500 Server Error for url: https://api.split.io/internal/api/v2/workspaces"
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    def test_version_declaration(self):
+        # v2 is the newest supported version and the default new sources are stamped with;
+        # v1 (the pre-versioning placeholder) stays supported so existing pins keep working.
+        assert self.source.default_version == SPLIT_IO_API_VERSION_V2
+        assert set(self.source.supported_versions) == {UNVERSIONED_API_VERSION, SPLIT_IO_API_VERSION_V2}
+        assert self.source.deprecated_versions == ()
+
+    @pytest.mark.parametrize("api_version", [None, UNVERSIONED_API_VERSION, SPLIT_IO_API_VERSION_V2])
+    def test_get_schemas_identical_across_pins(self, api_version):
+        # Both labels hit the same wire, so discovery must return the same tables regardless of
+        # pin — this is what makes the v1→v2 default flip byte-for-byte safe for existing rows.
+        schemas = self.source.get_schemas(self.config, self.team_id, api_version=api_version)
+        assert {schema.name for schema in schemas} == set(ENDPOINTS)
 
     def test_get_schemas_lists_all_endpoints_full_refresh(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

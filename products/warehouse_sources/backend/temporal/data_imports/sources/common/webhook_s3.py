@@ -16,8 +16,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
 T = TypeVar("T")
 
@@ -154,9 +154,16 @@ class WebhookSourceManager:
                 path = self._strip_s3_protocol(file)
 
                 await self._logger.adebug(f"Webhook source reading file {path}")
-                async with await s3.open_async(path, "rb") as f:
-                    data = await f.read()
-                    table = pq.read_table(pa.BufferReader(data))
+                try:
+                    async with await s3.open_async(path, "rb") as f:
+                        data = await f.read()
+                        table = pq.read_table(pa.BufferReader(data))
+                except FileNotFoundError:
+                    # A concurrent run (or a retry of this same activity) can have already
+                    # read and deleted this file between our listing and this open, since
+                    # this is a plain listing snapshot, not a lease on the listed files.
+                    await self._logger.adebug("webhook_file_already_consumed", path=path)
+                    continue
 
                 table = await self._validate_webhook_table(table)
                 if table.num_rows == 0:

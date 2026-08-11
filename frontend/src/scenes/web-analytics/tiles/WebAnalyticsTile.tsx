@@ -182,6 +182,39 @@ const PathValueWithHoverLink = ({
     )
 }
 
+// Outbound clicks come through as a `url` column (not `breakdown_value`), so they don't get the
+// PathValueWithHoverLink affordance. The value is already a full external URL.
+const UrlValueCell: QueryContextColumnComponent = ({ value }) => {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (typeof value !== 'string' || !value) {
+        return <>{value}</>
+    }
+
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_URL]) {
+        return <>{value}</>
+    }
+
+    const url = value.startsWith('http') ? value : `https://${value}`
+
+    // The URL text itself is the click target so it stays discoverable on touch and keyboard focus,
+    // and works even when the cell's max-width clips the trailing icon. The icon is a hover-only hint.
+    return (
+        <Link
+            to={url}
+            target="_blank"
+            subtle
+            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            className="inline-flex items-center gap-1"
+        >
+            {value}
+            <Tooltip title="Open URL">
+                <IconExternal className="text-base opacity-0 transition-opacity [[data-row-key]:hover_&]:opacity-100" />
+            </Tooltip>
+        </Link>
+    )
+}
+
 type VariationCellProps = { isPercentage?: boolean; reverseColors?: boolean; isDuration?: boolean }
 const VariationCell = (
     { isPercentage, reverseColors, isDuration }: VariationCellProps = {
@@ -628,6 +661,9 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             renderTitle: SortableCell('Converting Users', WebAnalyticsOrderByFields.ConvertingUsers),
             render: VariationCell(),
             align: 'right',
+        },
+        url: {
+            render: UrlValueCell,
         },
         action_name: {
             title: 'Action',
@@ -1082,6 +1118,8 @@ export const WebStatsTableTile = ({
         ]
     )
 
+    const canFilterRow = !includeHost && productTab !== ProductTab.PAGE_REPORTS
+
     const context = useMemo((): QueryContext => {
         const rowProps: QueryContext['rowProps'] = (record: unknown) => {
             // Compound breakdowns (UTM s/m/c, Viewport, Timezone) have dedicated handling in onClick
@@ -1094,7 +1132,7 @@ export const WebStatsTableTile = ({
                 return {}
             }
 
-            return { onClick: () => onClick(breakdownValue) }
+            return { onClick: () => onClick(breakdownValue), ...(canFilterRow && { title: 'Filter by this value' }) }
         }
 
         return {
@@ -1104,7 +1142,7 @@ export const WebStatsTableTile = ({
             compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
             showLoadNextButton: enablePagination,
         }
-    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination])
+    }, [onClick, insightProps, breakdownBy, key, type, isCompoundBreakdown, query, enablePagination, canFilterRow])
 
     const numericColumns = PAGE_LIKE_BREAKDOWNS.has(breakdownBy) ? 3 : 2
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({

@@ -226,6 +226,14 @@ export const ALL_SDKS: SDK[] = [
         docsLink: 'https://posthog.com/docs/ai-observability/installation/vercel-ai',
     },
     {
+        name: 'Eve',
+        key: SDKKey.EVE,
+        tags: [SDKTag.FRAMEWORK],
+        searchTerms: ['Vercel Eve', 'agent'],
+        image: 'https://res.cloudinary.com/dmukukwp6/image/upload/vercel_373fa70879.svg',
+        docsLink: 'https://posthog.com/docs/ai-observability/installation/eve',
+    },
+    {
         name: 'LangChain',
         key: SDKKey.LANGCHAIN,
         tags: [SDKTag.FRAMEWORK],

@@ -22,11 +22,10 @@ from posthog.kafka_client.routing import (
 )
 from posthog.kafka_client.topics import (
     KAFKA_APP_METRICS2,
-    KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
     KAFKA_DEAD_LETTER_QUEUE,
     KAFKA_DWH_CDP_RAW_TABLE,
     KAFKA_EVENTS_JSON,
-    KAFKA_WAREHOUSE_SOURCES_JOBS,
+    KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
 )
 
 
@@ -110,22 +109,22 @@ class CurrentTopicRoutingTest(TestCase):
     def test_without_overrides_returns_defaults(self):
         with override_settings(KAFKA_TOPIC_ROUTING_OVERRIDES=""):
             mapping = current_topic_routing()
-        self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS), KafkaClusterProfile.WAREHOUSE_SOURCES)
+        self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCE_WEBHOOKS), KafkaClusterProfile.WAREHOUSE_SOURCES)
         self.assertEqual(mapping.get(KAFKA_DWH_CDP_RAW_TABLE), KafkaClusterProfile.CYCLOTRON)
         # KAFKA_APP_METRICS2 is routed to the INGESTION cluster.
         self.assertEqual(mapping.get(KAFKA_APP_METRICS2), KafkaClusterProfile.INGESTION)
 
     def test_env_overrides_add_new_topic(self):
-        with override_settings(
-            KAFKA_TOPIC_ROUTING_OVERRIDES=f"{KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES}=cyclotron"
-        ):
+        # KAFKA_DEAD_LETTER_QUEUE is deliberately absent from the defaults, so this covers
+        # adding a brand-new routing key rather than overriding an existing one.
+        with override_settings(KAFKA_TOPIC_ROUTING_OVERRIDES=f"{KAFKA_DEAD_LETTER_QUEUE}=cyclotron"):
             mapping = current_topic_routing()
         self.assertEqual(
-            mapping.get(KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES),
+            mapping.get(KAFKA_DEAD_LETTER_QUEUE),
             KafkaClusterProfile.CYCLOTRON,
         )
         # Defaults still present.
-        self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCES_JOBS), KafkaClusterProfile.WAREHOUSE_SOURCES)
+        self.assertEqual(mapping.get(KAFKA_WAREHOUSE_SOURCE_WEBHOOKS), KafkaClusterProfile.WAREHOUSE_SOURCES)
 
     def test_env_overrides_win_over_defaults(self):
         with override_settings(KAFKA_TOPIC_ROUTING_OVERRIDES=f"{KAFKA_DWH_CDP_RAW_TABLE}=default"):
@@ -149,14 +148,14 @@ class ResolveAndGetProducerTest(TestCase):
 
     def test_topic_in_map_resolves_to_profile(self):
         with _mock_kafka_backend() as (sync_build, _):
-            get_producer(topic=KAFKA_WAREHOUSE_SOURCES_JOBS)
+            get_producer(topic=KAFKA_WAREHOUSE_SOURCE_WEBHOOKS)
         sync_build.assert_called_once_with(KafkaClusterProfile.WAREHOUSE_SOURCES)
 
     def test_explicit_profile_wins_over_topic(self):
         # Even though the topic is mapped to WAREHOUSE_SOURCES, an explicit
         # `profile=` argument takes precedence.
         with _mock_kafka_backend() as (sync_build, _):
-            get_producer(topic=KAFKA_WAREHOUSE_SOURCES_JOBS, profile=KafkaClusterProfile.CYCLOTRON)
+            get_producer(topic=KAFKA_WAREHOUSE_SOURCE_WEBHOOKS, profile=KafkaClusterProfile.CYCLOTRON)
         sync_build.assert_called_once_with(KafkaClusterProfile.CYCLOTRON)
 
     def test_env_override_routes_to_new_profile(self):

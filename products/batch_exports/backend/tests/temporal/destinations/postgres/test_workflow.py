@@ -31,7 +31,10 @@ from products.batch_exports.backend.tests.temporal.destinations.postgres.utils i
     TEST_MODELS,
     assert_clickhouse_records_in_postgres,
 )
-from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import (
+    WORKFLOW_REAL_TIME_LIMIT_SECONDS,
+    mocked_start_batch_export_run,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -109,13 +112,15 @@ async def test_postgres_export_workflow(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                await activity_environment.client.execute_workflow(
-                    PostgresBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        PostgresBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    ),
+                    timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
@@ -203,13 +208,15 @@ async def test_postgres_export_workflow_with_integration(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                await activity_environment.client.execute_workflow(
-                    PostgresBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        PostgresBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    ),
+                    timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
@@ -289,13 +296,15 @@ async def test_postgres_export_workflow_without_events(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                await activity_environment.client.execute_workflow(
-                    PostgresBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(seconds=10),
+                await asyncio.wait_for(
+                    activity_environment.client.execute_workflow(
+                        PostgresBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    ),
+                    timeout=WORKFLOW_REAL_TIME_LIMIT_SECONDS,
                 )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)

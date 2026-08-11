@@ -1,5 +1,5 @@
 use common_kafka::kafka_producer::KafkaContext;
-use metrics::counter;
+use metrics::{counter, histogram};
 use prost::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use tracing::error;
@@ -51,10 +51,15 @@ pub async fn produce_person_changelog(
         .key(&key)
         .payload(&payload);
 
+    // Time-to-durable for the changelog append: every acked write waits
+    // on this, so it is the broker's direct contribution to write latency.
+    let start = std::time::Instant::now();
     match producer.send_result(record) {
         Ok(delivery_future) => match delivery_future.await {
             Ok(Ok((_, offset))) => {
                 counter!("personhog_leader_kafka_produces_total").increment(1);
+                histogram!("personhog_leader_kafka_produce_duration_ms")
+                    .record(start.elapsed().as_secs_f64() * 1000.0);
                 Ok(offset)
             }
             Ok(Err((kafka_err, _))) => {

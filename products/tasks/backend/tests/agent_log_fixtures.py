@@ -60,6 +60,10 @@ def _end_turn_line() -> str:
     return json.dumps({"notification": {"result": {"stopReason": "end_turn"}}})
 
 
+def _refusal_line() -> str:
+    return json.dumps({"notification": {"result": {"stopReason": "refusal"}}})
+
+
 def _user_message_line(text: str) -> str:
     return json.dumps(
         {

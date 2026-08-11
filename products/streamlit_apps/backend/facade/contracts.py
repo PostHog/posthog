@@ -103,6 +103,11 @@ class CreateAppInput:
 
 
 @dataclass(frozen=True)
+class CreateVersionFromSourceInput:
+    source: str
+
+
+@dataclass(frozen=True)
 class UpdateAppInput:
     name: str | None = None
     description: str | None = None

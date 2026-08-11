@@ -23,6 +23,7 @@ class OracleSource(SimpleSource[OracleSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.ORACLE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="Oracle",
             iconPath="/static/services/oracle.png",
             fields=cast(list[FieldType], []),

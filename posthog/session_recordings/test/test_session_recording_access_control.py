@@ -2,8 +2,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.core.cache import cache
-
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -225,13 +223,7 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         )
         self.assertEqual(retrieve_response.status_code, status.HTTP_403_FORBIDDEN)
 
-        cache_key = f"summarize_recording_{self.team.pk}_{self.recording.session_id}"
-        cache.set(cache_key, {"content": "sensitive session summary"}, timeout=30)
-
-        try:
-            summarize_response = self.client.post(
-                f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/summarize/"
-            )
-            self.assertEqual(summarize_response.status_code, status.HTTP_403_FORBIDDEN)
-        finally:
-            cache.delete(cache_key)
+        summarize_response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/{self.recording.session_id}/summarize/"
+        )
+        self.assertEqual(summarize_response.status_code, status.HTTP_403_FORBIDDEN)

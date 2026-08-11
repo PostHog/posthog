@@ -19,8 +19,9 @@ from posthog.hogql.database.schema.groups import join_with_group_n_table
 from posthog.hogql.database.warehouse_join_resolvers import (
     data_warehouse_resolver_params,
     resolve_data_warehouse_experiments_join,
+    resolve_data_warehouse_join,
 )
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.errors import QueryError, ResolutionError
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -43,6 +44,35 @@ class TestLazyJoinResolvers(SimpleTestCase):
         lazy_join = LazyJoin(from_field=["id"], join_table="x", resolver="does_not_exist")
         with self.assertRaises(ValueError):
             lazy_join.resolve_join_to_add(None, None, None)  # type: ignore[arg-type]
+
+    def test_unsupported_join_key_is_an_exposed_query_error(self):
+        # A join key that doesn't root in a field fails deterministically for every query
+        # touching the join. It must surface as an exposed QueryError (a 400 at API
+        # boundaries, e.g. blast radius sizing over a warehouse-joined person property)
+        # naming the key and where it applies, not as an internal 500.
+        lazy_join = LazyJoin(
+            from_field=["id"],
+            join_table="crm_accounts",
+            resolver=DATA_WAREHOUSE,
+            resolver_params=data_warehouse_resolver_params(
+                source_table_key="'not-a-field'",
+                joining_table_key="id",
+                joining_table_name="crm_accounts",
+            ),
+        )
+        join_to_add = LazyJoinToAdd(
+            from_table="events",
+            to_table="crm_accounts",
+            lazy_join=lazy_join,
+            lazy_join_type=None,  # type: ignore[arg-type]
+            fields_accessed={"name": ["name"]},
+        )
+
+        with self.assertRaises(QueryError) as ctx:
+            resolve_data_warehouse_join(join_to_add, HogQLContext(team_id=1), ast.SelectQuery(select=[]))
+        message = str(ctx.exception)
+        assert "'not-a-field'" in message
+        assert "events" in message
 
     def test_group_n_join_requires_group_index(self):
         lazy_join = LazyJoin(from_field=["key"], join_table="groups", resolver=GROUP_N)
@@ -183,6 +213,7 @@ class TestLazyJoinManifest(SimpleTestCase):
         list changes what consumers of a serialized schema must implement — update deliberately."""
         assert sorted(RESOLVERS) == [
             "account_custom_properties",
+            "account_custom_properties_history",
             "account_notebooks",
             "account_relationships",
             "account_tags",
@@ -206,4 +237,6 @@ class TestLazyJoinManifest(SimpleTestCase):
             "replay_to_sessions_v1",
             "replay_to_sessions_v2",
             "replay_to_sessions_v3",
+            "ticket_assignment",
+            "ticket_tags",
         ]

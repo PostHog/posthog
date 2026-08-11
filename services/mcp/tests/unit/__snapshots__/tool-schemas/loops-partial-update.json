@@ -52,12 +52,12 @@
             "anyOf": [
                 {
                     "properties": {
-                        "folder_id": {
-                            "description": "Desktop folder id of the context this loop is attached to.",
+                        "channel_id": {
+                            "description": "Id of the channel (context) this loop is attached to.",
                             "type": "string"
                         },
                         "name": {
-                            "description": "Context (channel) name, used to file runs into its feed.",
+                            "description": "Display name of the context, shown in the loop's publish prompt.",
                             "maxLength": 128,
                             "type": "string"
                         },
@@ -89,7 +89,7 @@
                             "type": "object"
                         }
                     },
-                    "required": ["folder_id", "name"],
+                    "required": ["channel_id", "name"],
                     "type": "object"
                 },
                 {
@@ -220,15 +220,15 @@
         "reasoning_effort": {
             "anyOf": [
                 {
-                    "description": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max",
-                    "enum": ["low", "medium", "high", "xhigh", "max"],
+                    "description": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max"
+            "description": "Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode"
         },
         "repositories": {
             "description": "Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.",
@@ -275,7 +275,7 @@
             "items": {
                 "properties": {
                     "config": {
-                        "description": "Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config."
+                        "description": "Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels, payload}`. Use `actions` for the event action; `payload` is for anything else in the webhook body, as a list of `{path, equals}` conditions where `path` is a dot-path of object keys and `equals` is a string or list of strings, e.g. `[{\"path\": \"requested_team.slug\", \"equals\": \"team-security\"}]` to run only when that team is asked to review. All filters must match. API triggers take no config."
                     },
                     "enabled": {
                         "default": true,

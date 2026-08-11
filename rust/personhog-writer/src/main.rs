@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use tokio::sync::mpsc;
@@ -13,7 +13,6 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::config::Config;
 use personhog_writer::consumer::ConsumerTask;
 use personhog_writer::kafka::PersonConsumer;
@@ -47,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Flush interval: {}ms", config.flush_interval_ms);
     tracing::info!("Flush buffer size: {}", config.flush_buffer_size);
     tracing::info!("Buffer capacity: {}", config.buffer_capacity);
+    tracing::info!("Writer lanes: {}", config.writer_lanes);
     tracing::info!("Metrics port: {}", config.metrics_port);
 
     let mut manager = Manager::builder("personhog-writer")
@@ -59,12 +59,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_graceful_shutdown(Duration::from_secs(15))
             .with_liveness_deadline(Duration::from_secs(30)),
     );
-    let writer_handle = manager.register(
-        "writer",
-        ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(15))
-            .with_liveness_deadline(Duration::from_secs(30)),
-    );
+    // All components must be registered before monitor_background() starts,
+    // so writer lane handles are created up front.
+    let lanes = config.writer_lanes.max(1);
+    let mut writer_handles = Vec::with_capacity(lanes);
+    for lane in 0..lanes {
+        writer_handles.push(
+            manager.register(
+                &format!("writer-{lane}"),
+                ComponentOptions::new()
+                    .with_graceful_shutdown(Duration::from_secs(15))
+                    .with_liveness_deadline(Duration::from_secs(30)),
+            ),
+        );
+    }
     let metrics_handle = manager.register(
         "metrics-server",
         ComponentOptions::new().is_observability(true),
@@ -89,7 +97,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        let metrics_router = setup_metrics_routes(health_router);
+        // E2E latency is a lag detector: healthy produce-to-commit lag is
+        // seconds (the flush cadence), and the interesting tail is minutes
+        // of writer lag. The default buckets cap at 10s, which would
+        // collapse every lag excursion into +Inf.
+        let metrics_router = setup_metrics_routes_with_overrides(
+            health_router,
+            &[(
+                Matcher::Full("personhog_writer_e2e_latency_ms".into()),
+                &[
+                    250.0, 1000.0, 2500.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
+                    600000.0,
+                ],
+            )],
+        );
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)
@@ -125,8 +146,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
-
     // Kafka consumer
     let kafka_consumer = Arc::new(PersonConsumer::from_config(
         &config.kafka,
@@ -136,26 +155,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?);
     tracing::info!("Subscribed to Kafka topic: {}", config.kafka_topic);
 
-    // Writer task
-    let pg_store = PgStore::new(pool, config.pg_target_table.clone());
-    let store = PersonWriteStore::new(
-        pg_store,
-        personhog_writer::store::StoreConfig {
-            chunk_size: config.upsert_batch_size,
-            row_fallback_concurrency: config.row_fallback_concurrency,
-        },
-    );
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
-
-    tokio::spawn(async move {
-        writer_task.run().await;
-    });
+    // Writer lanes: each lane gets its own channel, store, and task, and
+    // commits offsets only for the partitions routed to it.
+    let mut lane_txs = Vec::with_capacity(lanes);
+    for writer_handle in writer_handles {
+        let (flush_tx, flush_rx) = mpsc::channel(config.flush_channel_capacity);
+        let store = PersonWriteStore::new(
+            PgStore::new(pool.clone(), config.pg_target_table.clone()),
+            personhog_writer::store::StoreConfig {
+                chunk_size: config.upsert_batch_size,
+                row_fallback_concurrency: config.row_fallback_concurrency,
+            },
+        );
+        let writer_task =
+            WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+        tokio::spawn(async move {
+            writer_task.run().await;
+        });
+        lane_txs.push(flush_tx);
+    }
 
     // Consumer task
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(config.buffer_capacity),
-        flush_tx,
+        lane_txs,
+        (config.buffer_capacity / lanes).max(1),
         config.flush_interval(),
         config.flush_buffer_size,
         consumer_handle,

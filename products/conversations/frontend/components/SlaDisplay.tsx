@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
 export function SlaDisplay({
@@ -19,7 +20,8 @@ export function SlaDisplay({
     const atRisk = !breached && diffMs < 60 * 60 * 1000
 
     return (
-        <span
+        <TZLabel
+            time={due}
             className={clsx(
                 'font-medium',
                 {
@@ -29,9 +31,6 @@ export function SlaDisplay({
                 },
                 className
             )}
-            title={due.format('YYYY-MM-DD HH:mm:ss')}
-        >
-            {due.fromNow()}
-        </span>
+        />
     )
 }

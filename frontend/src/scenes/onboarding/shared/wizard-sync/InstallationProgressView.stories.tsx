@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { InstallationProgressContent } from './InstallationProgressContent'
 import { InstallationProgress, InstallationStepStatus } from './installationProgressLogic'
-import { InstallationProgressContent } from './InstallationProgressView'
 
 /**
  * Every state of the Installation layer's progress view, driven by fixtures (the component is pure, so
@@ -45,8 +45,29 @@ function steps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, prMerged: false, isCurrent: true, ...overrides }
+    return {
+        phase: 'running',
+        steps: [],
+        error: null,
+        prUrl: null,
+        prMerged: false,
+        isCurrent: true,
+        pendingInput: null,
+        startedBy: null,
+        handoffText: null,
+        ...overrides,
+    }
 }
+
+const SAMPLE_REPORT = [
+    '# PostHog setup report',
+    '',
+    'Installed `posthog-js` and wired up event capture in `app/providers.tsx`.',
+    '',
+    '## Verify before merging',
+    '- [ ] Events arrive on the Activity page',
+    '- [ ] The API key lives in `.env.local`, not in source',
+].join('\n')
 
 export const Connecting: Story = {
     args: { progress: progress({ phase: 'connecting' }), mode: 'cloud' },
@@ -85,14 +106,15 @@ export const Completed: Story = {
             phase: 'completed',
             steps: steps(['completed', 'completed', 'completed', 'completed']),
             prUrl: 'https://github.com/acme-co/web/pull/42',
+            handoffText: SAMPLE_REPORT,
         }),
         mode: 'cloud',
-        dashboard: { id: 1, name: 'My app analytics' },
     },
+    argTypes: { onViewReport: { action: 'view-report' } },
 }
 
 // The local run's final handoff: the wizard finished on the user's machine, so the review + deploy
-// steps are theirs — plus the dashboard the wizard built as the payoff CTA.
+// steps are theirs — plus the setup report the agent wrote as the payoff CTA.
 export const CompletedLocalHandoff: Story = {
     args: {
         progress: progress({
@@ -103,11 +125,11 @@ export const CompletedLocalHandoff: Story = {
                 { id: 'c', label: 'Wired up event capture', status: 'completed', detail: null },
                 { id: 'd', label: 'Created a dashboard', status: 'completed', detail: null },
             ],
+            handoffText: SAMPLE_REPORT,
         }),
         mode: 'local',
-        dashboard: { id: 1, name: 'My app analytics' },
     },
-    argTypes: { onDismiss: { action: 'dismissed' } },
+    argTypes: { onDismiss: { action: 'dismissed' }, onViewReport: { action: 'view-report' } },
 }
 
 // The PR is open but the run keeps going (keeping CI green): "Pull request ready" headline + the review
@@ -192,6 +214,20 @@ export const FailedWizard: Story = {
     },
 }
 
+// A run whose stream never delivered any state: no pipeline steps to show, only the recovery CTAs.
+export const LostContact: Story = {
+    args: {
+        progress: progress({
+            phase: 'error',
+            steps: [],
+            error: {
+                title: 'Setup lost contact',
+                detail: 'We stopped hearing back from this run. Run the wizard yourself, or dismiss it and start over.',
+            },
+        }),
+    },
+}
+
 export const FailedNoDetail: Story = {
     args: {
         progress: progress({
@@ -246,7 +282,7 @@ export const AllStates: Story = {
                         <InstallationProgressContent
                             progress={args!.progress!}
                             mode={args!.mode}
-                            dashboard={args!.dashboard}
+                            onViewReport={() => {}}
                             onRetryLocally={() => {}}
                         />
                     </div>

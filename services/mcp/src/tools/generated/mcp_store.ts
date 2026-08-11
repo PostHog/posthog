@@ -23,7 +23,7 @@ const mcpConnectionToolsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_server_installations/${encodeURIComponent(String(params.id))}/tools/`,
         })
-        return await withPostHogUrl(context, result, '/settings/environment-mcp-servers')
+        return await withPostHogUrl(context, result, '/settings/mcp-servers')
     },
 })
 
@@ -45,7 +45,7 @@ const mcpConnectionsList = (): ToolBase<
                 offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/settings/environment-mcp-servers')
+        return await withPostHogUrl(context, result, '/settings/mcp-servers')
     },
 })
 

@@ -9,11 +9,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from snowflake.connector.errors import DatabaseError, HttpError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
     SnowflakeSourceConfig,
 )
@@ -565,6 +565,28 @@ class TestGetPrimaryKeysForTable:
         cursor.execute.side_effect = Exception("does not exist or not authorized")
         assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
 
+    @pytest.mark.parametrize(
+        "error_msg,expect_capture",
+        [
+            # Table/schema dropped, renamed, or grant revoked after discovery — already classified
+            # as user/upstream and non-retryable by SnowflakeSource; not worth reporting as a bug.
+            (
+                "002003 (42S02): 01c5ed45-0a1f-ee98-0067-5f032313bb4a: SQL compilation error:\n"
+                "Table 'DB.PUBLIC.T' does not exist or not authorized.",
+                False,
+            ),
+            # Anything else is unexpected and should still be surfaced.
+            ("some other driver failure", True),
+        ],
+    )
+    def test_captures_only_unexpected_show_failures(self, impl, cursor, error_msg, expect_capture):
+        cursor.execute.side_effect = Exception(error_msg)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake.capture_exception"
+        ) as mock_capture:
+            assert impl.get_primary_keys_for_table(cursor, "DB", "PUBLIC", "t") is None
+        assert mock_capture.called is expect_capture
+
 
 class TestGetRowsToSync:
     def test_returns_count(self, impl, cursor, logger):
@@ -907,6 +929,17 @@ class TestSnowflakeSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Chunk-download bad-request error should be classified retryable: {error_msg}"
+
+    def test_login_internal_error_is_retryable(self, source):
+        # The real shape from production: the login-request endpoint responded with a generic
+        # internal-error message instead of a credential/config-specific one.
+        error_msg = (
+            "250001 (08001): None: Failed to connect to DB: acme-xy123.snowflakecomputing.com:443. "
+            "Internal error:  [f189e7a4-177b-4b96-a5cf-50a7193e2fff]"
+        )
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Snowflake login internal-error should be classified retryable: {error_msg}"
 
 
 class TestSnowflakeValidateCredentials:

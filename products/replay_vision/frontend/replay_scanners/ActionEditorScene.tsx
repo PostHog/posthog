@@ -2,20 +2,16 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { appLogic } from 'scenes/appLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,6 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
     AlertConfigFrequencyEnumApi,
+    DeliveryTargetTypeEnumApi,
     VisionActionModeEnumApi,
     VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
@@ -108,7 +105,7 @@ function ScheduleSection(): JSX.Element {
                         </LemonButton>
                     </div>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap gap-1">
                     {WEEKDAY_PILLS.map((label, day) => (
                         <LemonButton
                             key={day}
@@ -276,6 +273,7 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
             <h4 className="mb-0">What to summarize</h4>
             <LemonSegmentedButton
                 size="small"
+                className="max-w-full overflow-x-auto"
                 value={targetingMode}
                 onChange={(mode) => setTargetingMode(mode)}
                 options={[
@@ -435,6 +433,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
             <LemonSegmentedButton
                 size="small"
+                className="max-w-full overflow-x-auto"
                 value={actionForm.alert_frequency}
                 onChange={(value) => {
                     setActionFormValue('alert_frequency', value)
@@ -534,6 +533,30 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 function DeliverySection(): JSX.Element {
     const { actionForm } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
+    const noun = actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+
+    return (
+        <div className="flex flex-col gap-2">
+            <LemonSelect
+                value={actionForm.delivery_type}
+                onChange={(value) => setActionFormValue('delivery_type', value)}
+                options={[
+                    { value: DeliveryTargetTypeEnumApi.Slack, label: 'Slack' },
+                    { value: DeliveryTargetTypeEnumApi.Webhook, label: 'Webhook' },
+                ]}
+            />
+            {actionForm.delivery_type === DeliveryTargetTypeEnumApi.Webhook ? (
+                <WebhookDelivery noun={noun} />
+            ) : (
+                <SlackDelivery noun={noun} />
+            )}
+        </div>
+    )
+}
+
+function SlackDelivery({ noun }: { noun: string }): JSX.Element {
+    const { actionForm } = useValues(actionEditorSceneLogic)
+    const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
     const { integration_id } = actionForm
 
@@ -549,7 +572,7 @@ function DeliverySection(): JSX.Element {
     const selectedIntegration = slackIntegrations.find((i) => i.id === integration_id)
 
     return (
-        <div className="flex flex-col gap-2">
+        <>
             <IntegrationChoice
                 integration="slack"
                 value={integration_id ?? undefined}
@@ -571,31 +594,47 @@ function DeliverySection(): JSX.Element {
             )}
             {!actionForm.channel && (
                 <span className="text-xs text-muted">
-                    No channel selected — this {actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'}{' '}
-                    will appear on the scanner page and in its run history, without a Slack notification.
+                    No channel selected. This {noun} will appear on the scanner page and in its run history, without a
+                    Slack notification.
                 </span>
             )}
-        </div>
+        </>
+    )
+}
+
+function WebhookDelivery({ noun }: { noun: string }): JSX.Element {
+    const { actionForm } = useValues(actionEditorSceneLogic)
+
+    return (
+        <>
+            <LemonField name="webhook_url" label="Webhook URL">
+                {({ value, onChange }) => (
+                    <LemonInput value={value} onChange={onChange} placeholder="https://example.com/webhook" />
+                )}
+            </LemonField>
+            <span className="text-xs text-muted">
+                We POST a JSON payload to this URL.{' '}
+                <Link to="https://posthog.com/docs/replay-vision/webhooks" target="_blank">
+                    See the payload format
+                </Link>
+                .
+            </span>
+            {!actionForm.webhook_url && (
+                <span className="text-xs text-muted">
+                    No URL set. This {noun} will appear on the scanner page and in its run history, without a webhook.
+                </span>
+            )}
+        </>
     )
 }
 
 export function ActionEditorSceneComponent(): JSX.Element {
     const { isNew, actionLoading, loadedAction, actionForm, isActionFormSubmitting, effectiveScannerId, scannerName } =
         useValues(actionEditorSceneLogic)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
     // Hooks can't be skipped, and effectiveScannerId can be empty before the action/scanner resolve —
     // 'new' is the sentinel replayScannerLogic already uses to skip its fetch, a harmless placeholder
     // until the real id is available and the logic remounts keyed on it.
     const { scanner } = useValues(replayScannerLogic({ id: effectiveScannerId || 'new' }))
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION] || !featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     if (!isNew && actionLoading && !loadedAction) {
         return (
@@ -634,7 +673,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
     return (
         <SceneContent>
             <div className="flex flex-col items-center py-8">
-                <div className="w-full max-w-3xl px-4 flex flex-col gap-6">
+                <div className="w-full max-w-3xl px-0 sm:px-4 flex flex-col gap-6">
                     <SceneTitleSection
                         name={title}
                         description={
@@ -652,7 +691,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                         enableFormOnSubmit
                         className="w-full"
                     >
-                        <div className="bg-bg-light border rounded-lg shadow-sm p-6 flex flex-col gap-4">
+                        <div className="bg-bg-light border rounded-lg shadow-sm p-4 sm:p-6 flex flex-col gap-4">
                             <LemonField name="name" label="Name">
                                 <LemonInput
                                     placeholder={isAlert ? 'Rage click alert' : 'Daily checkout digest'}
@@ -692,7 +731,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
                             )}
 
                             <div>
-                                <h4 className="mb-1">Deliver to Slack (optional)</h4>
+                                <h4 className="mb-1">Delivery (optional)</h4>
                                 <DeliverySection />
                             </div>
 

@@ -7,7 +7,7 @@ Category `size`, severity `error`: this is data loss, not a cosmetic warning.
 
 There are two distinct failure modes, and they look completely different from the app's side:
 
-1. **Rejected at capture** — the event is already too large when sent. The SDK gets an HTTP 413 back, so the failure is visible in SDK logs/error handlers. No ingestion warning is produced for this mode.
+1. **Rejected at capture** — the event is already too large when sent. The SDK gets an HTTP 413 back, so the failure is visible in SDK logs/error handlers. When the raw event exceeds the Kafka message limit at capture's producer, capture also emits this warning (`source` = `capture`, `pipeline_step` = `capture_validation`, and on the legacy endpoints the `count` covers the whole rejected batch); request-body-level 413s still produce no warning.
 2. **Dropped in the pipeline (this warning)** — the event passed capture fine (SDK saw success), but during ingestion PostHog copies the person's properties **and the properties of every group the event belongs to** onto the event. If those have accumulated large values, that enrichment pushes the message past the limit and it is dropped **silently** — the client believes it succeeded.
 
 The total budget is shared: `event properties + person properties + group properties < ~1MB`.
@@ -19,7 +19,7 @@ Three consequences:
 
 ## Diagnose
 
-1. List the warnings: use the `posthog:ingestion-warnings-list` tool with `type: message_size_too_large` (or the Ingestion warnings page under Data management). Samples carry `event_uuid` and `distinct_id`; `pipeline_step` is `emit-event` (single event) or `flush` (batched person/group writes).
+1. List the warnings: query with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type = 'message_size_too_large' AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (or the Ingestion warnings page under Data management). The `details` JSON carries `event_uuid` and `distinct_id`; `pipeline_step` is `emit-event` (single event), `flush` (batched person/group writes), or `capture_validation` (raw event rejected at capture before enrichment — the fix is the event payload itself, not person/group properties).
 2. Read the repetition pattern in the samples — but resolve distinct IDs to persons before concluding. Distinct IDs are not persons: identified users routinely carry several distinct IDs (anonymous IDs, emails, device IDs) that all map to one merged person, whose properties inflate events sent under **any** of them. Use `posthog:persons-list` (filter by the sampled `distinct_id`) to fetch the person behind it first, then read the pattern at the person level:
    - Same person recurring (even under different distinct IDs) → that person's profile is inflated.
    - Many different _persons_, same event name → the event itself carries a huge payload.
@@ -47,7 +47,7 @@ Per SDK, the bug usually looks like:
 ## Verify
 
 1. Re-run the affected flow.
-2. Re-query `posthog:ingestion-warnings-list` with `type: message_size_too_large` and a `since` after your fix — the count for the affected distinct IDs must stop growing. Warnings are debounced per team+type, so judge by "no new occurrences over a real usage window", not by the historical count going down (it won't).
+2. Re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type = 'message_size_too_large'`, `timestamp` after your fix) — the count for the affected distinct IDs must stop growing. Warnings are debounced per team+type, so judge by "no new occurrences over a real usage window", not by the historical count going down (it won't).
 3. Confirm the previously-missing events now appear in the events table.
 
 ## Related

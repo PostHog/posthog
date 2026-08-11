@@ -361,10 +361,15 @@ class ClickHouseClient:
         has_format_placeholders = re.search(r"(?<!{){[^{}]*}(?!})|{{[^{}]*}}", query)
 
         format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
-        query = query % format_parameters
 
         if has_format_placeholders:
+            # Escape any curly brackets `{` or `}` in the format parameters so they are not parsed
+            # as format placeholders
+            escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
+            query = query % escaped_parameters
             query = KeywordOnlyFormatter().format(query, **format_parameters)
+        else:
+            query = query % format_parameters
 
         return query
 
@@ -603,7 +608,13 @@ class ClickHouseClient:
             return None
 
     async def execute_query_with_summary(
-        self, query, *data, query_parameters=None, query_id: str | None = None, timeout: float | None = None
+        self,
+        query,
+        *data,
+        query_parameters=None,
+        query_id: str | None = None,
+        timeout: float | None = None,
+        settings: dict[str, str] | None = None,
     ) -> dict[str, typing.Any] | None:
         """Execute the given query and return ClickHouse's query summary, if available.
 
@@ -618,6 +629,10 @@ class ClickHouseClient:
         this for queries whose client-bound response is small — e.g. `INSERT INTO FUNCTION
         s3(...)`, whose response body is empty (rows go to S3, counts come back in the
         header) — so the buffering is negligible regardless of `http_response_buffer_size`.
+
+        Arguments:
+            settings: Extra ClickHouse settings to apply to this query, sent as
+                query-string parameters.
         """
         async with self.apost_query(
             query,
@@ -625,7 +640,7 @@ class ClickHouseClient:
             query_parameters=query_parameters,
             query_id=query_id,
             timeout=timeout,
-            settings={"wait_end_of_query": "1"},
+            settings={**(settings or {}), "wait_end_of_query": "1"},
         ) as response:
             summary = response.headers.get("X-ClickHouse-Summary")
             if not summary:

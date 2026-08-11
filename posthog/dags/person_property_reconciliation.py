@@ -1405,7 +1405,7 @@ def fetch_person_from_postgres(cursor, team_id: int, person_uuid: str) -> dict |
             is_identified,
             created_at
         FROM posthog_person
-        WHERE team_id = %s AND uuid = %s::uuid
+        WHERE team_id = %s AND uuid = %s::uuid AND is_deleted = false
         """,
         (team_id, person_uuid),
     )

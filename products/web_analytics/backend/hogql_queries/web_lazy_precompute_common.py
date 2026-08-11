@@ -727,7 +727,7 @@ def compute_filters_eligibility_hash(query: Any, team_timezone: str) -> str:
 # distinct namespaces rather than per-request shapes. Otherwise a user could
 # exhaust the ceiling by replaying one filter with different ISO timestamps until
 # new legitimate shapes are forced onto the live path (veria review).
-_SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS | frozenset(
+SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS: frozenset[str] = _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS | frozenset(
     {"dateRange", "compareFilter"}
 )
 
@@ -740,7 +740,7 @@ def compute_shape_cap_key(query: Any, team_timezone: str, test_account_filters: 
     in stops an admin from minting fresh namespaces onto one cap slot by editing the
     test-account filters (veria review)."""
     dumped = query.model_dump(mode="json", exclude_none=True, by_alias=False)
-    for key in _SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS:
+    for key in SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS:
         dumped.pop(key, None)
     tafs = [
         f.model_dump(mode="json", exclude_none=True) if hasattr(f, "model_dump") else f

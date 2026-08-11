@@ -34,10 +34,53 @@ pub fn image_ref(pseudo_team: &str, hash: &str) -> String {
     format!("image:{pseudo_team}:{hash}")
 }
 
+/// The prefix of a ref whose hash comes from a URL rather than from bytes.
+///
+/// Deliberately not `image:`. A content ref promises that the hash names the bytes behind it, which
+/// is what lets a reader treat one as content-addressed. A URL ref promises only that the hash
+/// names the URL the image came from, and the bytes at that URL can change. Sharing one prefix
+/// would leave a reader unable to tell which promise it holds, and the failure would be a silent
+/// mis-join rather than an error.
+pub const URL_REF_PREFIX: &str = "imageurl";
+
+pub fn url_ref(pseudo_team: &str, hash: &str) -> String {
+    format!("{URL_REF_PREFIX}:{pseudo_team}:{hash}")
+}
+
 /// True for strings shaped like a content ref. The `image:` prefix cannot collide with a data URI,
 /// a URL (no scheme is registered as `image`), or base64 payloads (`:` is not in the alphabet).
+///
+/// Only sound on values this crate produced. To decide whether a value *read back out of a payload*
+/// may skip scrubbing, use [`is_image_ref_strict`]: capture input is attacker-controlled and this
+/// prefix is trivial to forge.
 pub fn is_image_ref(s: &str) -> bool {
     s.starts_with("image:")
+}
+
+/// True only for a fully well-formed ref: `image:` + 32 lowercase hex (the team pseudonym) + `:`
+/// + 22 base64url chars (the truncated HMAC).
+///
+/// The loose prefix check would let a captured page set a media attribute to `image:<anything>` and
+/// have it copied verbatim into anonymized output. This bounds what can survive to a fixed-width
+/// opaque token with no room for readable content.
+pub fn is_image_ref_strict(s: &str) -> bool {
+    let Some(rest) = s
+        .strip_prefix("image:")
+        .or_else(|| s.strip_prefix("imageurl:"))
+    else {
+        return false;
+    };
+    let Some((team, hash)) = rest.split_once(':') else {
+        return false;
+    };
+    team.len() == 32
+        && team
+            .bytes()
+            .all(|b| b.is_ascii_digit() || b.is_ascii_lowercase() && b <= b'f')
+        && hash.len() == 22
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// Per-image cap: a collected image must fit in one Kafka message on the scrub topic with headroom

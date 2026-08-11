@@ -303,19 +303,51 @@ class MCPSessionIntentSerializer(serializers.Serializer):
     )
 
 
+class MCPIntentThemeSerializer(serializers.Serializer):
+    name = serializers.CharField(read_only=True, help_text="Short sentence-case name for this group of intents.")
+    description = serializers.CharField(
+        read_only=True, help_text="One concrete sentence describing what agents in this theme are doing."
+    )
+    intent_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather "
+            "than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more "
+            "than the digest's intent_count."
+        ),
+    )
+    example_intent = serializers.CharField(
+        read_only=True,
+        help_text="One of this theme's intents, verbatim from the corpus.",
+    )
+    tools = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus.",
+    )
+
+
 class MCPIntentDigestSerializer(serializers.Serializer):
     digest = serializers.CharField(
         read_only=True,
         allow_null=True,
         help_text=(
-            "LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP "
-            "server, derived from the most recent recorded $mcp_intents across all sessions. Null when the "
+            "LLM-generated one-sentence summary of what agents are trying to do with this MCP server, "
+            "derived from the most recent recorded $mcp_intents across all sessions. Null when the "
             "project has no recorded intents yet."
         ),
     )
     intent_count = serializers.IntegerField(
         read_only=True,
         help_text="How many recorded intents (the most recent, capped at 100) the digest was derived from.",
+    )
+    themes = MCPIntentThemeSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest "
+            "is null, or when none of the LLM's groupings resolved to recorded intents."
+        ),
     )
 
 
@@ -447,6 +479,115 @@ class MCPIntentClusterJourneySerializer(serializers.Serializer):
     )
 
 
+class MCPClusterSwitchSerializer(serializers.Serializer):
+    from_tool = serializers.CharField(read_only=True, help_text="Tool whose errored call the agent abandoned.")
+    to_tool = serializers.CharField(read_only=True, help_text="Different tool the agent tried immediately after.")
+    count = serializers.IntegerField(
+        read_only=True, help_text="How many times this exact error-then-switch happened within the cluster."
+    )
+
+
+class MCPClusterSelfRetrySerializer(serializers.Serializer):
+    tool = serializers.CharField(read_only=True, help_text="Tool the agent retried immediately after its own error.")
+    count = serializers.IntegerField(read_only=True, help_text="Number of immediate same-tool retries after an error.")
+
+
+class MCPToolPivotCompetitorSerializer(serializers.Serializer):
+    tool = serializers.CharField(
+        read_only=True, help_text="The other tool with the largest share of this cluster's calls."
+    )
+    pct = serializers.FloatField(read_only=True, help_text="That competitor's share of the cluster's calls, 0-100.")
+
+
+class MCPToolPivotClusterEntrySerializer(serializers.Serializer):
+    cluster_id = serializers.IntegerField(
+        read_only=True,
+        help_text="Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here.",
+    )
+    calls = serializers.IntegerField(read_only=True, help_text="Calls routed to this tool for this intent cluster.")
+    capture_pct = serializers.FloatField(
+        read_only=True,
+        help_text="Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent.",
+    )
+    rank = serializers.IntegerField(
+        read_only=True,
+        help_text="This tool's position in the cluster's tool distribution; 1 is the cluster's top tool.",
+    )
+    description_fit = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.",
+    )
+    top_competitor = MCPToolPivotCompetitorSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The strongest other tool in this cluster. Null when this tool is the only one.",
+    )
+
+
+class MCPToolPivotSerializer(serializers.Serializer):
+    tool = serializers.CharField(read_only=True, help_text="Effective MCP tool name.")
+    call_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out.",
+    )
+    error_count = serializers.IntegerField(read_only=True, help_text="Errored attributed calls across the corpus.")
+    session_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count.",
+    )
+    contested_score = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.",
+    )
+    advertised_sessions = serializers.IntegerField(
+        read_only=True,
+        help_text="Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count.",
+    )
+    called_when_advertised = serializers.IntegerField(
+        read_only=True, help_text="Of the advertised sessions, how many actually called the tool."
+    )
+    discovery_rate_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.",
+    )
+    description = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.",
+    )
+    n_clusters_served = serializers.IntegerField(
+        read_only=True,
+        help_text="How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete.",
+    )
+    clusters = MCPToolPivotClusterEntrySerializer(
+        many=True,
+        read_only=True,
+        help_text="Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count.",
+    )
+
+
+class MCPToolOverlapSerializer(serializers.Serializer):
+    tool_a = serializers.CharField(read_only=True, help_text="First tool of the pair (lexicographic order).")
+    tool_b = serializers.CharField(read_only=True, help_text="Second tool of the pair.")
+    contested_calls = serializers.IntegerField(
+        read_only=True,
+        help_text="Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for.",
+    )
+    sessions_with_both = serializers.IntegerField(
+        read_only=True,
+        help_text="Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion.",
+    )
+    sessions_with_either = serializers.IntegerField(
+        read_only=True, help_text="Sampled sessions that called at least one of the pair."
+    )
+    top_cluster_id = serializers.IntegerField(
+        read_only=True, help_text="The cluster contributing the most contested calls for this pair."
+    )
+
+
 class MCPIntentClusterSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True, help_text="Stable cluster identifier within this snapshot.")
     label = serializers.CharField(  # type: ignore[assignment]
@@ -491,6 +632,16 @@ class MCPIntentClusterSerializer(serializers.Serializer):
             "four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable."
         ),
     )
+    switches = MCPClusterSwitchSerializer(
+        many=True,
+        read_only=True,
+        help_text="Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count.",
+    )
+    self_retries = MCPClusterSelfRetrySerializer(
+        many=True,
+        read_only=True,
+        help_text="Errored call immediately retried with the same tool. Top 5 by count.",
+    )
 
 
 class MCPIntentClusterSnapshotMetaSerializer(serializers.Serializer):
@@ -502,6 +653,63 @@ class MCPIntentClusterSnapshotMetaSerializer(serializers.Serializer):
         read_only=True, help_text="Number of distinct intents that fed into the clustering run."
     )
     n_clusters = serializers.IntegerField(read_only=True, help_text="Number of clusters produced by the run.")
+    corpus = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.",
+    )
+    sampled_sessions = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Sessions sampled into the corpus. Null on pre-v2 snapshots."
+    )
+    window_sessions = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Total sessions with tool calls in the lookback window (unsampled).",
+    )
+    session_coverage_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.",
+    )
+    intent_coverage_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.",
+    )
+    imputed_call_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.",
+    )
+    unattributed_call_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.",
+    )
+    corpus_call_coverage_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of attributed calls whose intent made the top-N cut that feeds clustering.",
+    )
+    advertisement_coverage_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.",
+    )
+    n_tools = serializers.IntegerField(read_only=True, allow_null=True, help_text="Tools included in the tool pivot.")
+    dropped_tools = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.",
+    )
+    dropped_overlap_pairs = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Overlap pairs dropped by the pair cap."
+    )
+    description_coverage_pct = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share of pivot tools with a captured description. Description fit is only available for those.",
+    )
 
 
 class MCPIntentClusterSnapshotSerializer(serializers.Serializer):
@@ -522,10 +730,20 @@ class MCPIntentClusterSnapshotSerializer(serializers.Serializer):
         help_text="Email of the user who triggered the latest recompute, empty for system-triggered runs.",
     )
     clusters = MCPIntentClusterSerializer(many=True, read_only=True, help_text="All clusters in the snapshot.")
+    tools = MCPToolPivotSerializer(
+        many=True,
+        read_only=True,
+        help_text="Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate.",
+    )
+    tool_overlaps = MCPToolOverlapSerializer(
+        many=True,
+        read_only=True,
+        help_text="Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50.",
+    )
     computed_with = MCPIntentClusterSnapshotMetaSerializer(
         read_only=True,
         allow_null=True,
-        help_text="Settings used to produce the snapshot. Null when no snapshot has been computed yet.",
+        help_text="Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet.",
     )
 
 

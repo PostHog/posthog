@@ -2,7 +2,7 @@
 
 import json
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from langchain_core.messages import HumanMessage
 
@@ -208,10 +208,13 @@ class TestApplyFallbacks:
 
 
 class TestRunEvalLabelingAgent:
+    @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.build_langchain_callbacks")
     @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.create_react_agent")
-    def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_labeling_llm):
+    def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_labeling_llm, mock_build_callbacks):
         mock_get_labeling_llm.return_value = MagicMock()
+        callbacks = [MagicMock()]
+        mock_build_callbacks.return_value = callbacks
         mock_agent = MagicMock()
         mock_create_agent.return_value = mock_agent
         mock_agent.invoke.return_value = {
@@ -230,11 +233,29 @@ class TestRunEvalLabelingAgent:
             all_eval_contents={},
             window_start="2026-04-15T00:00:00Z",
             window_end="2026-04-16T00:00:00Z",
+            trace_id="evaluation-clustering-run-1",
+            session_id="evaluation-clustering-run-1:session",
+            clustering_run_id="evaluation-clustering-run-1",
+            clustering_job_id="clustering-job-1",
         )
 
         assert result[0].title == "Agent-produced"
         assert result[1].title == "Cluster 1"  # filled by fallback
         mock_create_agent.assert_called_once()
+        mock_get_labeling_llm.assert_called_once_with(
+            ANY,
+            ANY,
+            trace_id="evaluation-clustering-run-1",
+            session_id="evaluation-clustering-run-1:session",
+            properties={
+                "team_id": "1",
+                "analysis_level": "evaluation",
+                "clustering_run_id": "evaluation-clustering-run-1",
+                "clustering_job_id": "clustering-job-1",
+            },
+            distinct_id="team-1",
+        )
+        assert mock_agent.invoke.call_args.args[1]["callbacks"] == callbacks
 
     @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.graph.create_react_agent")
@@ -255,3 +276,6 @@ class TestRunEvalLabelingAgent:
         )
         # Fallback kicks in; test must not raise
         assert result[0].title == "Cluster 0"
+        observability_kwargs = mock_get_labeling_llm.call_args.kwargs
+        assert observability_kwargs["session_id"] == observability_kwargs["trace_id"]
+        assert observability_kwargs["distinct_id"] == "team-1"

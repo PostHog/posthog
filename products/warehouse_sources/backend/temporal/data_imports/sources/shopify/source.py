@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
@@ -88,6 +85,19 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # time but Shopify now rejects it. Retrying cannot recover; the user must
             # reconnect their integration.
             SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # These are the messages `ShopifyRetryableError` carries once `_make_paginated_shopify_
+        # request`'s `execute` exhausts its own tenacity retries (5 attempts, exponential backoff
+        # honoring Shopify's throttle refill time — retried alongside transient `ConnectionError`/
+        # `Timeout`) and re-raises. Surviving all 5 attempts means the rate limit or upstream blip
+        # is still live, but Temporal retries the whole activity and it's self-recovering, so keep
+        # it out of error tracking as noise.
+        return {
+            "Shopify: rate limit exceeded",
+            "Shopify: internal error",
+            "Shopify: connection broken while reading response",
         }
 
     @property

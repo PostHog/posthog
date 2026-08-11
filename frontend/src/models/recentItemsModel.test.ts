@@ -83,6 +83,37 @@ describe('recentItemsModel', () => {
             })
     })
 
+    it('clears the previous project items on team switch so stale recents are not clickable', async () => {
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockResolvedValue({
+            count: 1,
+            results: [recentItem],
+            users: [],
+        })
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([
+            { ref: 'DataManagementScene', type: 'scene', viewed_at: '2026-04-22T00:00:00Z' },
+        ])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess', 'loadSceneLogViewsSuccess'])
+            .toMatchValues({
+                recents: [recentItem],
+                recentsHasLoaded: true,
+                sceneLogViewsHasLoaded: true,
+            })
+
+        // Switching projects must wipe the old list synchronously, before the fresh load resolves,
+        // so its relative hrefs can't be clicked into the new project and 404.
+        teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+        expect(logic.values.recents).toEqual([])
+        expect(logic.values.sceneLogViewsByRef).toEqual({})
+        expect(logic.values.recentsHasLoaded).toBe(false)
+        expect(logic.values.sceneLogViewsHasLoaded).toBe(false)
+    })
+
     it('degrades to empty fallbacks when the loaders hit a fetch failure', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
         jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new TypeError('Failed to fetch'))

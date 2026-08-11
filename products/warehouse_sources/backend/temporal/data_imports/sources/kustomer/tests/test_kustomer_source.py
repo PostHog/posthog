@@ -117,10 +117,10 @@ class TestKustomerSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is KustomerResumeConfig
 
-    def test_version_declaration_keeps_v1_default_with_v2_supported(self):
-        # v2 is declared but dormant; new sources stay stamped v1 until a /v2/ path is confirmed live.
+    def test_version_declaration_defaults_to_v2_with_v1_supported(self):
+        # Both labels resolve to the same /v1/ requests, so the default tracks the newest label.
         assert self.source.supported_versions == ("v1", "v2")
-        assert self.source.default_version == "v1"
+        assert self.source.default_version == "v2"
         assert self.source.deprecated_versions == ()
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.source.kustomer_source")

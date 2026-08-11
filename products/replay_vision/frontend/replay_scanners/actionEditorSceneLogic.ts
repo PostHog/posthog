@@ -18,6 +18,7 @@ import {
 } from '../generated/api'
 import {
     AlertConfigFrequencyEnumApi,
+    DeliveryTargetTypeEnumApi,
     VisionActionModeEnumApi,
     VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
@@ -405,8 +406,10 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                 cadence: parseRruleToCadence(action.trigger_config?.rrule),
                 timezone: action.trigger_config?.timezone || dayjs.tz.guess(),
                 prompt_guide: action.synthesis_config?.prompt_guide ?? '',
+                delivery_type: action.delivery_config?.[0]?.type ?? DeliveryTargetTypeEnumApi.Slack,
                 integration_id: action.delivery_config?.[0]?.integration_id ?? null,
                 channel: action.delivery_config?.[0]?.channel ?? '',
+                webhook_url: action.delivery_config?.[0]?.url ?? '',
                 mode: action.mode ?? VisionActionModeEnumApi.GroupSummary,
                 alert_frequency: alertFrequency,
                 alert_metric: alertMetric,

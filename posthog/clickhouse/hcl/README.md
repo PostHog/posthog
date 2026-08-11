@@ -90,6 +90,18 @@ skipped. `system.*` remotes are always resolvable. The `posthog` data cluster is
 for `local`, `@absent` elsewhere. A tiny `known_drift_skip` covers real proxy/storage drift pending
 a fix.
 
+## The cloud seam: vendored layers and the compose gate
+
+posthog-cloud-infra composes its cloud envs (dev, prod-us, prod-eu) from base layers vendored out of this directory at a pinned `base-ref` — today `roles/shared/` and `roles/data/shared/`, growing as roles migrate.
+Editing a vendored layer therefore changes compositions in another repo.
+Two consequences:
+
+- The **Cloud compose gate** job (in `ci-clickhouse-hcl-schema.yml`) dispatches to posthog-cloud-infra and composes the cloud envs against your PR head; it fails when a change breaks composition there (a patch that no longer resolves, a redeclaration, a validation error).
+- A change that composes cleanly may still legitimately _shift_ cloud goldens (say, a new column on `_event_base`) — that regen happens in cloud-infra's next `base-ref` bump PR, not here, and is expected.
+
+The events family is the canonical example: `roles/data/shared/` declares `_event_base` + `sharded_events` + `events` once; cloud env deltas (mat\_ columns, env specs) live as patches in cloud-infra's `overrides/`.
+Schema changes to those tables belong in `roles/data/shared/`, never re-declared per env.
+
 ## Making a change (edit HCL → migration)
 
 Run from the repo root. All the scripts below call `hclexp` through `bin/hclexp`,
@@ -119,6 +131,12 @@ build it yourself with `go build -o hclexp ./cmd/hclexp` in `../../../../python-
      `query = file("sql/<object>.sql")` (resolved relative to the layer file). The loader normalizes
      `file()`, heredoc, and inline forms to one canonical query, so the form is purely cosmetic — edit
      the `.sql`. `gen-sql.sh`/`gen-golden.sh` emit the beautified form.
+   - a column list shared by a sharded table and its Distributed siblings → an `abstract` table the
+     instances `extend`, kept codec-free. Most tables need no codec at all — the server already
+     compresses with ZSTD, and `posthog/clickhouse/migrations/AGENTS.md` has the rule for the rare
+     column that earns one. Where a column does, add it to the storage instance alone via
+     `patch_column "<col>" { codec = ... }`: a Distributed table stores nothing, so a codec there is
+     inert metadata that only invites the two column lists to drift.
 
 2. **Preview the DDL** the change produces, per node:
 

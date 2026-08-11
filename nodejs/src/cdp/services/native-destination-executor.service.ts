@@ -8,8 +8,8 @@ import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
 import { CDP_TEST_ID, createAddLogFunction, isNativeHogFunction } from '../utils'
+import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from './hog-executor.service'
 
 const nativeDestinationExecutionDuration = new Histogram({
     name: 'cdp_native_execution_duration_ms',
@@ -161,6 +161,8 @@ export class NativeDestinationExecutorService {
                         url,
                         fetchParams: fetchOptions,
                         templateId: invocation.hogFunction.template_id ?? '',
+                        teamId: invocation.teamId,
+                        hogFunctionId: invocation.hogFunction.id,
                     })
 
                     const fetchResponseText = (await fetchResponse?.text()) ?? 'unknown'

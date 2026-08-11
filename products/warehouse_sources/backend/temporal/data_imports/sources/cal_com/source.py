@@ -7,12 +7,10 @@ from posthog.schema import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import (
     CalComResumeConfig,
     cal_com_source,
@@ -33,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.calcom import CalComSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -58,6 +57,8 @@ class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
             caption="""Enter your Cal.com API key to pull your scheduling data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → Security → API keys** in [Cal.com](https://app.cal.com/settings/developer/api-keys). The key grants read access to your bookings, event types, schedules, teams, and webhooks.
+
+Pick the region your Cal.com account lives in. Choose EU if you sign in at cal.eu, since a key from one region is not valid in the other.
 """,
             iconPath="/static/services/cal_com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/cal-com",
@@ -73,6 +74,16 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
                         placeholder="cal_live_...",
                         secret=True,
                     ),
+                    SourceFieldSelectConfig(
+                        name="region",
+                        label="Region",
+                        required=True,
+                        defaultValue="us",
+                        options=[
+                            SourceFieldSelectConfigOption(label="US (api.cal.com)", value="us"),
+                            SourceFieldSelectConfigOption(label="EU (api.cal.eu)", value="eu"),
+                        ],
+                    ),
                 ],
             ),
         )
@@ -85,9 +96,10 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Keyed without a host so both the US and EU hosts match.
         return {
-            "401 Client Error: Unauthorized for url: https://api.cal.com": "Your Cal.com API key is invalid or has been revoked. Create a new API key under Settings → Security → API keys in Cal.com, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.cal.com": "Your Cal.com API key does not have access to this data. Check the key owner's permissions in Cal.com, then reconnect.",
+            "401 Client Error: Unauthorized": "Your Cal.com API key is invalid, has been revoked, or belongs to Cal.com's other region. Check the selected region, or create a new API key under Settings → Security → API keys in Cal.com, then reconnect.",
+            "403 Client Error: Forbidden": "Your Cal.com API key does not have access to this data. Check the key owner's permissions in Cal.com, then reconnect.",
         }
 
     def get_schemas(
@@ -111,7 +123,7 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
-        return validate_credentials(config.api_key)
+        return validate_credentials(config.api_key, config.region)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CalComResumeConfig]:
         return ResumableSourceManager[CalComResumeConfig](inputs, CalComResumeConfig)
@@ -131,6 +143,7 @@ You can create an API key under **Settings → Security → API keys** in [Cal.c
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            region=config.region,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

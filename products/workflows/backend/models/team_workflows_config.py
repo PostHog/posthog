@@ -30,5 +30,10 @@ class TeamWorkflowsConfig(models.Model):
         max_length=16, choices=EmailTrackingConsentMode.choices, default=EmailTrackingConsentMode.OFF
     )
 
+    # Staff-controlled kill switch: while set, the CDP email worker blocks all workflow email
+    # for this team at send time. Set/cleared via Django admin; audit trail lives in the activity log.
+    email_sending_suspended_at = models.DateTimeField(null=True, blank=True)
+    email_sending_suspension_reason = models.TextField(blank=True, default="")
+
 
 register_team_extension_signal(TeamWorkflowsConfig, logger=logger)

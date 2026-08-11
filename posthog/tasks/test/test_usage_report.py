@@ -50,6 +50,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
+    MCP_ANALYTICS_EVENT_METRICS,
     OrgReport,
     UsageReportCounters,
     _add_team_report_to_org_reports,
@@ -58,6 +59,7 @@ from posthog.tasks.usage_report import (
     _get_all_usage_data_as_team_rows,
     _get_full_org_usage_report,
     _get_full_org_usage_report_as_dict,
+    _get_mcp_analytics_event_metric_counts,
     _get_team_report,
     _get_teams_for_usage_reports,
     capture_event,
@@ -207,6 +209,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
 
         # make sure we don't collapse duplicate rows
         sync_execute("SYSTEM STOP MERGES")
+        # Server-global and not scoped to this database, so it outlives the process and would
+        # leave every later test on this ClickHouse unable to merge.
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
 
         materialize("events", "$exception_values")
 
@@ -664,6 +669,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_lite_events_count_in_period": 1,
                     "node_events_count_in_period": 1,
                     "mcp_tool_call_events_count_in_period": 0,
+                    "mcp_missing_capability_events_count_in_period": 0,
+                    "mcp_initialize_events_count_in_period": 0,
+                    "mcp_tools_list_events_count_in_period": 0,
+                    "mcp_resource_read_events_count_in_period": 0,
+                    "mcp_resources_list_events_count_in_period": 0,
+                    "mcp_prompt_get_events_count_in_period": 0,
+                    "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 1,
                     "posthog_pi_events_count_in_period": 1,
                     "posthog_ai_events_count_in_period": 1,
@@ -745,6 +757,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_lite_events_count_in_period": 1,
                             "node_events_count_in_period": 1,
                             "mcp_tool_call_events_count_in_period": 0,
+                            "mcp_missing_capability_events_count_in_period": 0,
+                            "mcp_initialize_events_count_in_period": 0,
+                            "mcp_tools_list_events_count_in_period": 0,
+                            "mcp_resource_read_events_count_in_period": 0,
+                            "mcp_resources_list_events_count_in_period": 0,
+                            "mcp_prompt_get_events_count_in_period": 0,
+                            "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 1,
                             "posthog_pi_events_count_in_period": 1,
                             "posthog_ai_events_count_in_period": 1,
@@ -820,6 +839,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
+                            "mcp_missing_capability_events_count_in_period": 0,
+                            "mcp_initialize_events_count_in_period": 0,
+                            "mcp_tools_list_events_count_in_period": 0,
+                            "mcp_resource_read_events_count_in_period": 0,
+                            "mcp_resources_list_events_count_in_period": 0,
+                            "mcp_prompt_get_events_count_in_period": 0,
+                            "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
@@ -918,6 +944,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "web_lite_events_count_in_period": 0,
                     "node_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
+                    "mcp_missing_capability_events_count_in_period": 0,
+                    "mcp_initialize_events_count_in_period": 0,
+                    "mcp_tools_list_events_count_in_period": 0,
+                    "mcp_resource_read_events_count_in_period": 0,
+                    "mcp_resources_list_events_count_in_period": 0,
+                    "mcp_prompt_get_events_count_in_period": 0,
+                    "mcp_prompts_list_events_count_in_period": 0,
                     "openclaw_events_count_in_period": 0,
                     "posthog_pi_events_count_in_period": 0,
                     "posthog_ai_events_count_in_period": 0,
@@ -999,6 +1032,13 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "web_lite_events_count_in_period": 0,
                             "node_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
+                            "mcp_missing_capability_events_count_in_period": 0,
+                            "mcp_initialize_events_count_in_period": 0,
+                            "mcp_tools_list_events_count_in_period": 0,
+                            "mcp_resource_read_events_count_in_period": 0,
+                            "mcp_resources_list_events_count_in_period": 0,
+                            "mcp_prompt_get_events_count_in_period": 0,
+                            "mcp_prompts_list_events_count_in_period": 0,
                             "openclaw_events_count_in_period": 0,
                             "posthog_pi_events_count_in_period": 0,
                             "posthog_ai_events_count_in_period": 0,
@@ -1472,14 +1512,16 @@ class TestQueryUsageReportSQL:
         assert params["end"] == end
         assert params["event_time_end"] == end + timedelta(hours=6)
 
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report._execute_split_query")
-    @patch("posthog.tasks.usage_report.sync_execute", return_value=[(1, 4)])
+    @patch("posthog.tasks.usage_report.sync_execute")
     @patch("posthog.tasks.usage_report.get_property_string_expr")
     def test_get_all_event_metrics_splits_ai_breakdown_out_of_main_scan(
         self,
         mock_get_property_string_expr: MagicMock,
         mock_sync_execute: MagicMock,
         mock_execute_split_query: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
     ) -> None:
         mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
         # 1st _execute_split_query call is the main per-$lib scan (node_events over-counts every
@@ -1487,6 +1529,13 @@ class TestQueryUsageReportSQL:
         mock_execute_split_query.side_effect = [
             {"node_events": [(1, 10)], "openclaw_events": [], "posthog_pi_events": [], "posthog_ai_events": []},
             [(1, "posthog-ai", 2), (1, "posthog-openclaw", 3)],
+        ]
+        # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
+        # `$mcp_tool_call`, 2nd is the grouped (team_id, event, count) scan over the other 7 events.
+        # A single day spans one calendar-aligned split, hence one call each.
+        mock_sync_execute.side_effect = [
+            [(1, 4)],
+            [(1, "$mcp_missing_capability", 6), (1, "$mcp_initialize", 7)],
         ]
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
@@ -1513,18 +1562,45 @@ class TestQueryUsageReportSQL:
         assert "ai_lib_expr IN (" in ai_query
         assert "'posthog-ai'" in ai_query
 
-        mcp_query = mock_sync_execute.call_args.args[0]
+        dedup_expression = "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))"
+
+        mcp_query = mock_sync_execute.call_args_list[0].args[0]
         assert "event = '$mcp_tool_call'" in mcp_query
-        assert "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))" in mcp_query
+        assert dedup_expression in mcp_query
         assert result["mcp_tool_call_events"] == [(1, 4)]
+
+        # The other 7 MCP Analytics events share one grouped query, and reuse `$mcp_tool_call`'s
+        # dedup expression and table so every MCP metric is counted the same way.
+        mcp_analytics_query = mock_sync_execute.call_args_list[1].args[0]
+        assert dedup_expression in mcp_analytics_query
+        assert "GROUP BY team_id, event" in mcp_analytics_query
+        assert "FROM events" in mcp_analytics_query
+        # `$mcp_tool_call` keeps its own untouched query; `$mcp_custom` is never emitted verbatim.
+        assert "'$mcp_tool_call'" not in mcp_analytics_query
+        assert "'$mcp_custom'" not in mcp_analytics_query
+        # One grouped query for the 7, not one query each.
+        assert mock_sync_execute.call_count == 2
 
         # AI counts are folded back in and subtracted from node_events (10 - 2 - 3 = 5).
         assert result["posthog_ai_events"] == [(1, 2)]
         assert result["openclaw_events"] == [(1, 3)]
         assert result["node_events"] == [(1, 5)]
 
+        # New MCP Analytics metrics are merged straight into the returned dict.
+        assert result["mcp_missing_capability_events"] == [(1, 6)]
+        assert result["mcp_initialize_events"] == [(1, 7)]
+
+    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
+    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[])
-    def test_get_teams_with_ai_event_count_excludes_conversations_loaded(self, mock_sync_execute: MagicMock) -> None:
+    def test_get_teams_with_ai_event_count_excludes_conversations_loaded(
+        self,
+        mock_sync_execute: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
+        _mock_get_property_string_expr: MagicMock,
+        _mock_events_read_table: MagicMock,
+    ) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
 
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
@@ -1535,6 +1611,87 @@ class TestQueryUsageReportSQL:
         params = mock_sync_execute.call_args.args[1]
         assert "$conversations_loaded" not in params["ai_events"]
         assert "$conversations_widget_loaded" not in params["ai_events"]
+
+    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
+    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_get_teams_with_ai_event_count_skips_sponsorship_query_without_verified_relays(
+        self,
+        mock_sync_execute: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
+        _mock_get_property_string_expr: MagicMock,
+        _mock_events_read_table: MagicMock,
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+        mock_sync_execute.return_value = [(1, 150, 0), (2, 20, 0)]
+
+        result = get_teams_with_ai_event_count_in_period(begin, end)
+
+        assert result == [(1, 150), (2, 20)]
+        mock_sync_execute.assert_called_once()
+        base_query = mock_sync_execute.call_args.args[0]
+        assert "if(verified, property_expr, '') IN ('true', '1') AS relay" in base_query
+        assert "max(relay) AS has_verified_relay" in base_query
+
+    @patch("posthog.tasks.usage_report.events_read_table", return_value="events")
+    @patch("posthog.tasks.usage_report.get_property_string_expr", return_value=("property_expr", {}))
+    @patch("posthog.tasks.usage_report.use_new_events_schema", return_value=False)
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_get_teams_with_ai_event_count_subtracts_bounded_gateway_sponsorship(
+        self,
+        mock_sync_execute: MagicMock,
+        _mock_use_new_events_schema: MagicMock,
+        _mock_get_property_string_expr: MagicMock,
+        _mock_events_read_table: MagicMock,
+    ) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            GATEWAY_SPONSORSHIP_BACKDATE,
+            GATEWAY_SPONSORSHIP_LOOKAROUND,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        begin = datetime(2026, 6, 15, tzinfo=tzutc())
+        end = begin + timedelta(days=1)
+        mock_sync_execute.side_effect = [[(1, 150, 1), (2, 20, 0)], [(1, 100)]]
+
+        result = get_teams_with_ai_event_count_in_period(begin, end)
+
+        assert result == [(1, 50), (2, 20)]
+        assert mock_sync_execute.call_count == 2
+        base_query = mock_sync_execute.call_args_list[0].args[0]
+        sponsor_query = mock_sync_execute.call_args_list[1].args[0]
+        sponsor_params = mock_sync_execute.call_args_list[1].args[1]
+        assert "max(relay) AS has_verified_relay" in base_query
+        assert "argMin(raw_trace_id, (raw_generation_timestamp, raw_trace_id)) AS trace_id" in sponsor_query
+        assert "GROUP BY team_id, trace_id" in sponsor_query
+        assert "PARTITION BY team_id, trace_id, allowance_kind" in sponsor_query
+        assert "ARRAY JOIN [0, 1] AS allowance_kind" in sponsor_query
+        assert "if(event = '$ai_evaluation', 1, 0) AS allowance_kind" in sponsor_query
+        assert "sponsor_timestamp - toIntervalSecond(%(backdate_seconds)s)" in sponsor_query
+        assert (
+            "if(\n                                allowance_kind = 0,\n                                sponsor_timestamp"
+            not in sponsor_query
+        )
+        assert sponsor_query.count("AND property_expr IN ('true', '1')") >= 3
+        assert "AND property_expr NOT IN ('true', '1')" in sponsor_query
+        assert "sum(balance_delta) OVER" in sponsor_query
+        assert "min(cumulative_balance) OVER" in sponsor_query
+        assert "cumulative_balance >= least(ifNull(previous_minimum, 0), 0)" in sponsor_query
+        assert "UNION ALL" in sponsor_query
+        assert sponsor_query.count("team_id IN %(relayed_team_ids)s") == 2
+        assert sponsor_params["trace_allowance"] == GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE
+        assert sponsor_params["evaluation_allowance"] == GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE
+        assert sponsor_params["backdate_seconds"] == int(GATEWAY_SPONSORSHIP_BACKDATE.total_seconds())
+        assert sponsor_params["relayed_team_ids"] == [1]
+        assert sponsor_params["sponsor_begin"] == begin - GATEWAY_SPONSORSHIP_LOOKAROUND
+        assert sponsor_params["relay_begin"] == begin - GATEWAY_SPONSORSHIP_LOOKAROUND - GATEWAY_SPONSORSHIP_BACKDATE
+        assert sponsor_params["sponsor_end"] == end + GATEWAY_SPONSORSHIP_LOOKAROUND
 
 
 @freeze_time("2022-01-10T00:01:00Z")
@@ -4802,6 +4959,64 @@ class TestTaskSandboxUsageReport(APIBaseTest):
         self.assertTrue(has_non_zero_usage(UsageReportCounters(**{**zero, "task_sandbox_seconds_in_period": 5})))
 
 
+class TestPostHogCodeComputeUsageReport(SimpleTestCase):
+    def test_component_contract_uses_integer_historical_metric_types(self) -> None:
+        from posthog.tasks.usage_report import UsageReportCounters
+
+        component_metrics = {
+            "posthog_code_token_credits_used_in_period",
+            "sandbox_compute_credits_used_in_period",
+            "sandbox_compute_cpu_millicore_seconds_in_period",
+            "sandbox_compute_memory_mib_seconds_in_period",
+        }
+
+        assert all(UsageReportCounters.__annotations__[metric] is int for metric in component_metrics)
+        assert "sandbox_compute_cpu_core_seconds_in_period" not in UsageReportCounters.__annotations__
+        assert "sandbox_compute_memory_gib_seconds_in_period" not in UsageReportCounters.__annotations__
+
+    def test_combined_credits_reconcile_with_components(self) -> None:
+        from posthog.tasks.usage_report import combine_posthog_code_credits
+
+        assert combine_posthog_code_credits(123, 45) == 168
+
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
+    def test_invalid_compute_configuration_is_observed_without_breaking_report(
+        self, mock_compute: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_billable_sandbox_compute_usage_in_period
+
+        from products.tasks.backend.facade.billing import ComputeRateCardConfigurationError, SandboxComputeUsageByTeam
+
+        error = ComputeRateCardConfigurationError("invalid")
+        mock_compute.side_effect = error
+
+        result = get_teams_with_billable_sandbox_compute_usage_in_period(
+            datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+        )
+
+        assert result == SandboxComputeUsageByTeam([], [], [])
+        mock_capture.assert_called_once_with(error)
+
+    @patch("retry.api.time.sleep")
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
+    def test_transient_compute_failure_propagates_after_retries(
+        self, mock_compute: MagicMock, mock_capture: MagicMock, _mock_sleep: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import QUERY_RETRIES, get_teams_with_billable_sandbox_compute_usage_in_period
+
+        mock_compute.side_effect = RuntimeError("transient database failure")
+
+        with self.assertRaises(RuntimeError):
+            get_teams_with_billable_sandbox_compute_usage_in_period(
+                datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+            )
+
+        assert mock_compute.call_count == QUERY_RETRIES
+        mock_capture.assert_not_called()
+
+
 class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -4855,6 +5070,21 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         TEST_clear_instance_license_cache()
         materialize("events", "$exception_values")
 
+    def _assert_queued_report(self, mock_producer: MagicMock, expected_report: dict[str, Any]) -> None:
+        # Assert on the decoded payload rather than the compressed bytes: `teams` is keyed by
+        # team id in whatever order Postgres hands the rows back, so two runs of an identical
+        # report serialize to different JSON — and therefore different gzip — bytes.
+        mock_producer.send_message.assert_called_once()
+        kwargs = mock_producer.send_message.call_args.kwargs
+        assert kwargs["message_attributes"] == {
+            "content_encoding": "gzip",
+            "content_type": "application/json",
+        }
+        assert json.loads(gzip.decompress(base64.b64decode(kwargs["message_body"]))) == {
+            "organization_id": str(self.organization.id),
+            "usage_report": expected_report,
+        }
+
     def _usage_report_response(self) -> Any:
         # A roughly correct billing response
         return {
@@ -4905,27 +5135,12 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
         )
-        json_data = json.dumps(
-            {
-                "organization_id": str(self.organization.id),
-                "usage_report": full_report_as_dict,
-            },
-            separators=(",", ":"),
-        )
-        compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-        compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
 
         send_all_org_usage_reports(dry_run=False)
         license = License.objects.first()
         assert license
 
-        mock_producer.send_message.assert_called_once_with(
-            message_attributes={
-                "content_encoding": "gzip",
-                "content_type": "application/json",
-            },
-            message_body=compressed_b64,
-        )
+        self._assert_queued_report(mock_producer, full_report_as_dict)
 
         # mock_posthog.capture.assert_any_call(
         #     get_machine_id(),
@@ -4959,27 +5174,11 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
                     get_instance_metadata(period),
                 )
             )
-            json_data = json.dumps(
-                {
-                    "organization_id": str(self.organization.id),
-                    "usage_report": full_report_as_dict,
-                },
-                separators=(",", ":"),
-            )
-            compressed_bytes = gzip.compress(json_data.encode("utf-8"))
-            compressed_b64 = base64.b64encode(compressed_bytes).decode("ascii")
-
             send_all_org_usage_reports(dry_run=False)
             license = License.objects.first()
             assert license
 
-            mock_producer.send_message.assert_called_once_with(
-                message_attributes={
-                    "content_encoding": "gzip",
-                    "content_type": "application/json",
-                },
-                message_body=compressed_b64,
-            )
+            self._assert_queued_report(mock_producer, full_report_as_dict)
 
             # mock_posthog.capture.assert_any_call(
             #     self.user.distinct_id,
@@ -5345,6 +5544,27 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
             ],
         )
 
+    @patch("posthog.tasks.usage_report.sync_execute")
+    def test_mcp_analytics_counts_sum_per_metric_across_splits_and_teams(self, mock_sync_execute: MagicMock) -> None:
+        # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
+        # pieces that must be added, not overwritten, and kept separate per team and per event.
+        mock_sync_execute.side_effect = [
+            [(1, "$mcp_initialize", 2), (2, "$mcp_initialize", 5)],
+            [(1, "$mcp_initialize", 3), (1, "$mcp_tools_list", 7)],
+            [(1, "$mcp_initialize", 4), ("unexpected", "$mcp_not_a_real_event", 9)],
+        ]
+
+        result = _get_mcp_analytics_event_metric_counts(
+            begin=datetime(2023, 1, 1, 12, 0), end=datetime(2023, 1, 3, 12, 0)
+        )
+
+        self.assertEqual(sorted(result["mcp_initialize_events"]), [(1, 9), (2, 5)])
+        self.assertEqual(result["mcp_tools_list_events"], [(1, 7)])
+        # Every metric key is present even when no row mentioned it, so `_get_all_usage_data`
+        # never KeyErrors on a quiet event.
+        self.assertEqual(result["mcp_prompts_list_events"], [])
+        self.assertEqual(set(result), set(MCP_ANALYTICS_EVENT_METRICS.values()))
+
 
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
     def setUp(self) -> None:
@@ -5411,6 +5631,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 event="$feature_flag_called",
                 team=self.team,
                 distinct_id=f"ff_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i),
+                properties={"$feature_flag": f"flag_{i}"},
+                person_mode="full",
+            )
+
+        for i in range(3):
+            _create_event(
+                event="$experiment_exposure",
+                team=self.team,
+                distinct_id=f"exposure_user_{i}",
                 timestamp=self.begin + relativedelta(hours=i),
                 properties={"$feature_flag": f"flag_{i}"},
                 person_mode="full",
@@ -5608,7 +5838,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         result = get_teams_with_billable_event_count_in_period(self.begin, self.end)
 
         # We should get 15 events for our team (10 test_event + 5 enhanced_event)
-        # NOT counting: 3 survey sent, 3 $feature_flag_called, 10 AI events
+        # NOT counting: 3 survey sent, 3 $feature_flag_called, 3 $experiment_exposure, 10 AI events
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], self.team.id)
         self.assertEqual(result[0][1], 15)
@@ -5668,6 +5898,33 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertEqual(dict(event_metrics["python_events"]).get(self.team.id), 1)
+
+    @parameterized.expand(
+        [
+            ("$mcp_missing_capability", "mcp_missing_capability_events"),
+            ("$mcp_initialize", "mcp_initialize_events"),
+            ("$mcp_tools_list", "mcp_tools_list_events"),
+            ("$mcp_resource_read", "mcp_resource_read_events"),
+            ("$mcp_resources_list", "mcp_resources_list_events"),
+            ("$mcp_prompt_get", "mcp_prompt_get_events"),
+            ("$mcp_prompts_list", "mcp_prompts_list_events"),
+        ]
+    )
+    def test_mcp_analytics_events_are_counted_per_team(self, event_name: str, metric_name: str) -> None:
+        _create_event(
+            event=event_name,
+            team=self.team,
+            distinct_id="mcp_analytics_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$lib": "posthog-node-mcp"},
+        )
+        flush_persons_and_events()
+
+        event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
+
+        self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 1)
+        # `$mcp_tool_call` stays untouched by every other MCP Analytics event.
+        self.assertIsNone(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id))
 
     def test_get_teams_with_billable_enhanced_persons_event_count_in_period(
         self,
@@ -5903,6 +6160,441 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             ai_count(),
             baseline_count + 8,
             "verified events with no request_id are not blanket-deduped; both stay counted",
+        )
+
+    def test_gateway_generation_sponsors_bounded_unique_relay_events(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "sponsored-trace"
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin - relativedelta(hours=1),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "gateway-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        for request_id in ("gateway-request-2", "gateway-request-2"):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin - relativedelta(minutes=30),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+        for index in range(GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE + 1):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_gateway_request_id": f"relay-request-{index}",
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": f"span-{index}",
+                },
+            )
+        for _ in range(2):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=2),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_gateway_request_id": "relay-request-0",
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": "span-0",
+                },
+            )
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=3),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_gateway_request_id": "unsponsored-relay-request",
+                "$ai_trace_id": "unsponsored-trace",
+                "$ai_span_id": "unsponsored-span",
+            },
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            ai_count(),
+            baseline_count + 4,
+            "one overage, two span replays, and one unmatched span stay billable",
+        )
+
+    def test_gateway_sponsorship_allowance_is_shared_across_adjacent_periods(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        previous_begin = self.begin - relativedelta(days=1)
+
+        def ai_count(begin: datetime, end: datetime) -> int:
+            return dict(get_teams_with_ai_event_count_in_period(begin, end)).get(self.team.id, 0)
+
+        previous_baseline = ai_count(previous_begin, self.begin)
+        current_baseline = ai_count(self.begin, self.end)
+        trace_id = "cross-period-sponsored-trace"
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin - relativedelta(hours=2),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "cross-period-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        for index in range(GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE):
+            for timestamp in (
+                self.begin - relativedelta(hours=1),
+                self.begin + relativedelta(hours=1),
+            ):
+                _create_event(
+                    event="$ai_span",
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=timestamp,
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{timestamp.isoformat()}-{index}",
+                    },
+                )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(previous_begin, self.begin), previous_baseline)
+        self.assertEqual(
+            ai_count(self.begin, self.end),
+            current_baseline + GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+        )
+
+    def test_gateway_request_sponsors_only_one_trace(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        for trace_id in ("first-trace", "second-trace"):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": "replayed-request",
+                    "$ai_trace_id": trace_id,
+                },
+            )
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=2),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": f"{trace_id}-span",
+                },
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 2, "one generation replay and one unmatched span stay billable")
+
+    def test_gateway_sponsorship_is_isolated_by_team(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        other_team = Team.objects.create(organization=self.team.organization, name="Other gateway team")
+        baseline_counts = dict(get_teams_with_ai_event_count_in_period(self.begin, self.end))
+        trace_id = "shared-across-teams"
+        for team, request_id in ((self.team, "first-request"), (other_team, "second-request")):
+            _create_event(
+                event="$ai_generation",
+                team=team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+            _create_event(
+                event="$ai_span",
+                team=team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=2),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": "shared-span-id",
+                },
+            )
+        flush_persons_and_events()
+
+        counts = dict(get_teams_with_ai_event_count_in_period(self.begin, self.end))
+        self.assertEqual(counts.get(self.team.id, 0), baseline_counts.get(self.team.id, 0))
+        self.assertEqual(counts.get(other_team.id, 0), baseline_counts.get(other_team.id, 0))
+
+    def test_gateway_generation_does_not_sponsor_earlier_relay(self) -> None:
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "future-sponsored-trace"
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_trace_id": trace_id,
+                "$ai_span_id": "early-span",
+            },
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=2),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "later-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 1, "the later generation cannot sponsor the earlier span")
+
+    def test_gateway_generation_sponsors_relay_within_backdate_grace(self) -> None:
+        from posthog.tasks.usage_report import GATEWAY_SPONSORSHIP_BACKDATE, get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "backdated-sponsored-trace"
+        generation_timestamp = self.begin + relativedelta(hours=2)
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp - GATEWAY_SPONSORSHIP_BACKDATE,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_trace_id": trace_id,
+                "$ai_span_id": "provider-parent-span",
+            },
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "completed-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count, "provider-latency backdating keeps the parent span free")
+
+    def test_gateway_sponsorship_counts_grace_relay_before_lookaround(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            GATEWAY_SPONSORSHIP_BACKDATE,
+            GATEWAY_SPONSORSHIP_LOOKAROUND,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "lookaround-boundary-trace"
+        sponsor_begin = self.begin - GATEWAY_SPONSORSHIP_LOOKAROUND
+        generation_timestamp = sponsor_begin + relativedelta(minutes=1)
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "lookaround-boundary-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        _create_event(
+            event="$ai_span",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=generation_timestamp - GATEWAY_SPONSORSHIP_BACKDATE,
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_relay": True,
+                "$ai_trace_id": trace_id,
+                "$ai_span_id": "grace-window-span",
+            },
+        )
+        for index in range(GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE):
+            _create_event(
+                event="$ai_span",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_relay": True,
+                    "$ai_trace_id": trace_id,
+                    "$ai_span_id": f"period-span-{index}",
+                },
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 1, "the grace-window span consumes one trace allowance")
+
+    def test_gateway_sponsorship_has_independent_trace_and_evaluation_allowances(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE,
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "independent-allowance-trace"
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="gateway-user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={
+                "$ai_gateway_verified": True,
+                "$ai_gateway_request_id": "allowance-request",
+                "$ai_trace_id": trace_id,
+            },
+        )
+        for event, limit in (
+            ("$ai_span", GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE),
+            ("$ai_evaluation", GATEWAY_SPONSORED_EVALUATIONS_PER_TRACE),
+        ):
+            for index in range(limit + 1):
+                _create_event(
+                    event=event,
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=self.begin + relativedelta(hours=2),
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{event}-{index}",
+                    },
+                )
+        flush_persons_and_events()
+
+        self.assertEqual(ai_count(), baseline_count + 2, "each RFC allowance has one billable overage")
+
+    def test_gateway_sponsorship_does_not_carry_relay_debt_forward(self) -> None:
+        from posthog.tasks.usage_report import (
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            get_teams_with_ai_event_count_in_period,
+        )
+
+        def ai_count() -> int:
+            return dict(get_teams_with_ai_event_count_in_period(self.begin, self.end)).get(self.team.id, 0)
+
+        baseline_count = ai_count()
+        trace_id = "chronological-sponsored-trace"
+
+        def create_generation(request_id: str, timestamp: datetime) -> None:
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id="gateway-user",
+                timestamp=timestamp,
+                properties={
+                    "$ai_gateway_verified": True,
+                    "$ai_gateway_request_id": request_id,
+                    "$ai_trace_id": trace_id,
+                },
+            )
+
+        def create_relays(prefix: str, count: int, timestamp: datetime) -> None:
+            for index in range(count):
+                _create_event(
+                    event="$ai_span",
+                    team=self.team,
+                    distinct_id="gateway-user",
+                    timestamp=timestamp,
+                    properties={
+                        "$ai_gateway_verified": True,
+                        "$ai_gateway_relay": True,
+                        "$ai_trace_id": trace_id,
+                        "$ai_span_id": f"{prefix}-{index}",
+                    },
+                )
+
+        create_relays("before-sponsor", 1, self.begin + relativedelta(minutes=30))
+        create_generation("first-request", self.begin + relativedelta(hours=1))
+        create_relays(
+            "first-allowance",
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE + 1,
+            self.begin + relativedelta(hours=2),
+        )
+        create_generation("second-request", self.begin + relativedelta(hours=3))
+        create_relays(
+            "second-allowance",
+            GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE,
+            self.begin + relativedelta(hours=4),
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(
+            ai_count(),
+            baseline_count + GATEWAY_SPONSORED_TRACE_EVENTS_PER_TRACE + 2,
+            "a later generation does not replenish the per-trace allowance",
         )
 
     def test_conversations_events_excluded_from_billable_count(self) -> None:

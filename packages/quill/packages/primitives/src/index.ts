@@ -290,6 +290,7 @@ export {
     SelectGroupLabel,
     SelectSeparator,
     SelectTrigger,
+    SelectTriggerIcon,
     SelectValue,
 } from './select'
 export { Separator } from './separator'

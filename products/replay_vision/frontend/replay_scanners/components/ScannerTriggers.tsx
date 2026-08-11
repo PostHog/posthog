@@ -1,3 +1,5 @@
+import './ScannerTriggers.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
@@ -57,6 +59,12 @@ function groupHasEventProperty(group: UniversalFiltersGroup): boolean {
     )
 }
 
+// True when the group holds no leaf filter at any depth. The stored shape is an outer group wrapping one inner
+// group (see recordingsQueryToUniversalFilters), so an unfiltered scanner still arrives as a non-empty `values`.
+export function groupHasNoFilters(group: UniversalFiltersGroup): boolean {
+    return group.values.every((value) => isUniversalGroupFilterLike(value) && groupHasNoFilters(value))
+}
+
 // Renders the bound universal-filter group's values; adding is handled by the search bar above, not an inline button.
 function ScannerFilterGroup(): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -84,13 +92,18 @@ function ScannerFilterGroup(): JSX.Element {
 }
 
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
     const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
+    // Waits for the in-flight estimate so an edit can't report on the previous filters.
+    const noMatchWindowDays =
+        !scannerEstimateLoading && scannerEstimate?.matched_sessions_in_window === 0
+            ? scannerEstimate.window_days
+            : null
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -122,12 +135,11 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                     const durationError = durationFilterError(durationFilter)
                     return (
                         <LemonCard hoverEffect={false} className="p-3 space-y-3">
-                            <div className="flex items-start justify-between gap-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="space-y-1">
                                     <LemonLabel>Recording filters</LemonLabel>
                                     <div className="text-xs text-muted">
-                                        Filter by event, action, person, session, or cohort. Leave empty to scan all
-                                        completed recordings.
+                                        Filter by event, action, person, session, or cohort.
                                     </div>
                                 </div>
                                 <TestAccountFilterSwitch
@@ -159,6 +171,26 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     size="small"
                                 />
                             </div>
+                            {noMatchWindowDays !== null ? (
+                                <LemonBanner type="warning">
+                                    <span className="text-xs">
+                                        No recordings from the last {noMatchWindowDays} days match these conditions, so
+                                        this scanner has nothing to scan. Widen the filters, or pick a broader option
+                                        under Session coverage.
+                                    </span>
+                                </LemonBanner>
+                            ) : (
+                                groupHasNoFilters(universal.filter_group) && (
+                                    <LemonBanner type="warning">
+                                        <span className="text-xs">
+                                            No recording filters set. Your prompt describes what to look for, but it
+                                            doesn't limit which recordings get scanned, so this scanner spends credits
+                                            scanning recordings that aren't relevant to your prompt. Add a filter to
+                                            narrow it down.
+                                        </span>
+                                    </LemonBanner>
+                                )
+                            )}
                             {groupHasEventProperty(universal.filter_group) && (
                                 <LemonBanner type="info" dismissKey="replay-vision-event-vs-person-property-hint">
                                     <span className="text-xs">
@@ -291,8 +323,9 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     Session coverage
                                 </LemonLabel>
                             </div>
-                            <div className="space-y-1">
+                            <div className="space-y-1 @container">
                                 <LemonSegmentedButton
+                                    className="ScannerSessionCoverage"
                                     value={mode}
                                     onChange={onChange}
                                     options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}

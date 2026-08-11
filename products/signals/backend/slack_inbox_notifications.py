@@ -43,6 +43,7 @@ from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     markdown_to_slack_mrkdwn as _markdown_to_slack_mrkdwn,
     slack_channel_id_from_target as _channel_id_from_target,
+    strip_chart_references as _strip_chart_references,
     truncate_slack_section as _truncate_slack_section,
 )
 
@@ -315,7 +316,7 @@ def _build_message_blocks(
     reviewer_mentions: list[str],
     repository: str | None = None,
 ) -> tuple[list[dict], str]:
-    title_line = report.title or "New signals inbox item"
+    title_line = report.title or "New report"
     header_text = (
         title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
     )
@@ -334,7 +335,8 @@ def _build_message_blocks(
     body_parts: list[str] = []
     if meta_parts:
         body_parts.append(f"*{' · '.join(meta_parts)}*")
-    summary_text = _summary_excerpt(report.summary or "")
+    # Strip before excerpting so truncation can't slice a chart link mid-syntax.
+    summary_text = _summary_excerpt(_strip_chart_references(report.summary or ""))
     if summary_text:
         body_parts.append(_escape_mrkdwn(summary_text))
     if not body_parts:
@@ -370,7 +372,7 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox item{priority_suffix}: {_escape_mrkdwn(title_line)}"
+    fallback_text = f"Report{priority_suffix}: {_escape_mrkdwn(title_line)}"
     return blocks, fallback_text
 
 

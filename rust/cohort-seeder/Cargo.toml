@@ -15,6 +15,7 @@ path = "src/bin/reconcile_dispatch.rs"
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 chrono-tz = { workspace = true }
@@ -27,6 +28,7 @@ common-kafka = { path = "../common/kafka" }
 common-liveness = { path = "../common/liveness" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
+futures = { workspace = true }
 governor = { workspace = true }
 hyper-rustls = { workspace = true }
 # client-legacy: the `clickhouse` crate's `with_http_client` escape hatch only accepts a

@@ -53,7 +53,7 @@ Attempt state lives in a sticky PR comment ending with:
 
 One sticky comment per PR, upserted (update the existing comment if present, else create).
 Skip any PR whose latest marker matches the current `(headRefOid, master OID)` pair.
-This format is shared with the CI-based implementation proposed in PR #73036, so never assume this loop is the marker's only writer.
+This format is shared with the CI-based implementation in `.github/workflows/pr-autoresolve-conflicts.yml`, so never assume this loop is the marker's only writer.
 
 Marker state is only trusted from our own App: a commenter could otherwise plant a marker to fake "already attempted" and get a PR skipped.
 The helper filters to comments authored by `AUTORESOLVE_BOT_LOGIN` (the Loop App's `<slug>[bot]` login), which must be set in the run environment; it fails closed without it.

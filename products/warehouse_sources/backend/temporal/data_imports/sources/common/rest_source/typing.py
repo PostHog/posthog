@@ -253,6 +253,11 @@ class Endpoint(TypedDict, total=False):
     # instead of yielding an empty page — fail-loud on an unexpected/changed API response shape,
     # rather than silently syncing 0 rows. A present-but-empty list is still a valid 0-row page.
     data_selector_required: Optional[bool]
+    # Relaxes ``data_selector_required`` for empty-container bodies: when True, a 200 whose body is an
+    # empty ``{}`` or ``[]`` is treated as a valid 0-row page instead of a shape mismatch. For sources
+    # whose API drops the envelope key entirely for an empty collection. A body carrying other keys is
+    # still a shape change and still fails loud. No effect unless ``data_selector_required`` is set.
+    data_selector_empty_ok: Optional[bool]
     # When True, a 200 whose parsed body isn't the expected list shape (selector matches nothing, or
     # the matched value / selector-less body isn't a list) raises a RETRYABLE error and the request is
     # reissued — for sources that defensively treat an unexpected 200-body shape as transient. This is

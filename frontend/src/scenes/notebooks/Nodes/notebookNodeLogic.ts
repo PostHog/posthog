@@ -26,6 +26,11 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { isHogQLQuery, isNodeWithSource } from '~/queries/utils'
 
 import type { CommentType } from '../../../types'
+import {
+    convertNotebookContentToMarkdown,
+    insertMarkdownNotebookBlockAfterNode,
+    isMarkdownNotebookContent,
+} from '../Notebook/markdownNotebookV2'
 import type { NotebookKernelInfo } from '../Notebook/notebookKernelInfoLogic'
 import type { notebookLogicType } from '../Notebook/notebookLogic'
 import {
@@ -928,6 +933,7 @@ export interface notebookNodeLogicValues {
     ref: HTMLElement | null
     resizeable: boolean
     sendMessage: <T extends keyof NotebookNodeMessages>(message: T, payload: NotebookNodeMessages[T]) => boolean
+    settingsDisabledReason: string | null
     settingsPlacement: NotebookNodeSettingsPlacement
     sourceComment: CommentType | null | undefined
     sqlV2ReturnVariable: string
@@ -1046,6 +1052,9 @@ export interface notebookNodeLogicActions {
     setResizeable: (resizeable: boolean) => {
         resizeable: boolean
     }
+    setSettingsDisabledReason: (settingsDisabledReason: string | null) => {
+        settingsDisabledReason: string | null
+    }
     setTitlePlaceholder: (titlePlaceholder: string) => {
         titlePlaceholder: string
     }
@@ -1154,6 +1163,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setResizeable: (resizeable: boolean) => ({ resizeable }),
         setActions: (actions: (NotebookNodeAction | undefined)[]) => ({ actions }),
         setMenuItems: (menuItems: LemonMenuItems | null) => ({ menuItems }),
+        setSettingsDisabledReason: (settingsDisabledReason: string | null) => ({ settingsDisabledReason }),
         insertAfter: (content: JSONContent) => ({ content }),
         updateAttributes: (attributes: Partial<NotebookNodeAttributes<any>>) => ({ attributes }),
         setPreviousNode: (node: RichContentNode | null) => ({ node }),
@@ -1251,6 +1261,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             null as LemonMenuItems | null,
             {
                 setMenuItems: (_, { menuItems }) => menuItems,
+            },
+        ],
+        settingsDisabledReason: [
+            null as string | null,
+            {
+                setSettingsDisabledReason: (_, { settingsDisabledReason }) => settingsDisabledReason,
             },
         ],
         messageListeners: [
@@ -1538,6 +1554,22 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         navigateToNode: ({ nodeId }) => {
             const targetLogic = values.notebookLogic.values.findNodeLogicById(nodeId)
             targetLogic?.actions.selectNode()
+        },
+
+        insertAfter: ({ content }) => {
+            const notebookLogic = values.notebookLogic
+            if (!isMarkdownNotebookContent(notebookLogic.values.content)) {
+                return
+            }
+            // The converter serializes the children of a doc, so a single leaf node must be
+            // wrapped in an array to be serialized itself.
+            const insertedMarkdown = convertNotebookContentToMarkdown(content.type === 'doc' ? content : [content])
+            if (!insertedMarkdown.trim()) {
+                return
+            }
+            notebookLogic.actions.setLocalContent(
+                insertMarkdownNotebookBlockAfterNode(notebookLogic.values.content, values.nodeId, insertedMarkdown)
+            )
         },
 
         setExpanded: ({ expanded }) => {

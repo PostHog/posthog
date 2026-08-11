@@ -5,12 +5,18 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
+from products.review_hog.backend.api.reviews import IN_PROGRESS_STALE_AFTER
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.artefact_content import (
+    FindingOutcomeArtefact,
+    ReviewIssueFinding,
+    ValidationVerdict,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
@@ -184,6 +190,25 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert res.status_code == 200
         assert {r["pr_number"] for r in res.json()["results"]} == {1, 2}
         assert self.client.get(self.url, {"scope": "nonsense"}).status_code == 400
+
+    @parameterized.expand(
+        [
+            ("review_hog_read_allowed", ["review_hog:read"], 200),
+            ("unrelated_scope_denied", ["insight:read"], 403),
+        ]
+    )
+    def test_list_api_key_scope_is_review_hog(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        # The list/get/trigger endpoints carry the `review_hog` scope so the MCP tools reach them with a
+        # personal API key or OAuth token — a revert to INTERNAL would reject the read-scoped key here and
+        # take the MCP review tools down with it.
+        self._report(pr_number=1, acting_user=self.user)
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        res = self.client.get(self.url)
+
+        assert res.status_code == expected_status
 
     def test_list_limit_grows_the_page_and_has_more_flags_the_rest(self) -> None:
         # "Show more" grows `limit` instead of offset-paging. has_more must flip false exactly when
@@ -533,6 +558,35 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["pr_number"] == 99
         assert rows[0]["in_progress"] is True
         assert {r["pr_number"] for r in rows[1:]} <= set(range(1, 6))
+
+    def test_outcome_artefact_does_not_revive_the_in_progress_spinner(self) -> None:
+        # `finding_outcome` is the one artefact written outside a turn: the sweep appends it after the
+        # PR merges, which can be long after the run ended. Status only leaves ACTIVE on a successful
+        # finalize, so a run that crashed before finalize stays ACTIVE forever and the staleness
+        # window is the only thing that retires its spinner. Counting the sweep's write as liveness
+        # would restart that window and show a live row for a report with nothing running.
+        # ACTIVE with a completed turn behind it (the dormant re-review shape): a first-turn ACTIVE
+        # report is listed only while it is in progress, so it could not show the difference.
+        report = self._report(pr_number=7, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
+        ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(
+            updated_at=timezone.now() - IN_PROGRESS_STALE_AFTER - timedelta(minutes=5)
+        )
+        ReviewReportArtefact.add_finding_outcome(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=FindingOutcomeArtefact(
+                issue_key="r1:f.py:10:logic",
+                run_index=1,
+                outcome="ignored",
+                method="no_signal",
+                reviewed_head="base_sha",
+                final_head="head_sha",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        row = next(r for r in self.client.get(self.url).json()["results"] if r["pr_number"] == 7)
+        assert row["in_progress"] is False
 
     def test_perspective_stats_aggregate_latest_turns_per_scope(self) -> None:
         # Effectiveness must aggregate each report's LATEST turn only and, on the default scope,

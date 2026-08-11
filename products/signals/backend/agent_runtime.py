@@ -57,7 +57,8 @@ PIPELINE_MODELS_DISCOVERY_DISTINCT_ID = "internal_signals_pipeline_models_discov
 WILDCARD = "*"
 
 # Step names match the `ai_stage` tags on $ai_generation so payload authors target the
-# vocabulary they see in LLM analytics.
+# vocabulary they see in LLM analytics. Scout generations tag `scout:<skill>` for per-scout
+# cost attribution; the step key here stays the bare stage.
 STEP_SCOUT = "scout"
 STEP_RESEARCH = "research"
 STEP_REPO_SELECTION = "repo_selection"
