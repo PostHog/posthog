@@ -74,6 +74,33 @@ describe('dataWarehouseViewsLogic', () => {
         expect(listCalls).toBe(1)
     })
 
+    // Regression: deleting a view that's already gone (double DELETE, stale list, double-click) is
+    // the outcome the user asked for, so a 404 must resolve as success — not throw an error toast.
+    it('treats a 404 on delete as success', async () => {
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        useMocks({
+            get: {
+                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    { results: [{ id: 'view-404', name: 'v' }] },
+                ],
+            },
+            delete: { '/api/environments/:team_id/warehouse_saved_queries/:id/': [404, { detail: 'Not found.' }] },
+        })
+
+        logic.actions.loadDataWarehouseSavedQueries()
+        await expectLogic(logic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteDataWarehouseSavedQuery('view-404')
+        })
+            .toDispatchActions(['deleteDataWarehouseSavedQuerySuccess'])
+            .toNotHaveDispatchedActions(['deleteDataWarehouseSavedQueryFailure'])
+
+        expect(logic.values.dataWarehouseSavedQueries).toEqual([])
+    })
+
     // Regression: a freshly materialized view showed as a plain view in the sidebar until a manual
     // refresh because is_materialized flips asynchronously and the list was fetched only once. The
     // poll must keep reloading until it settles, then stop (not loop forever).

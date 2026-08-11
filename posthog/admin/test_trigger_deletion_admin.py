@@ -114,6 +114,20 @@ class TestOrganizationAdminTriggerDeletion(BaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
 
+    def test_trigger_deletion_display_has_no_inline_onclick_and_carries_csp_nonce(self):
+        # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, which
+        # silently drops inline onclick attributes. Guards against reintroducing one.
+        request = self.factory.get(f"/admin/posthog/organization/{self.organization.pk}/change/")
+        request.user = self.user
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        _attach_messages(request)
+        self.admin._current_request = request
+
+        html = self.admin.trigger_deletion_display(self.organization)
+
+        self.assertNotIn("onclick=", html)
+        self.assertIn('nonce="test-nonce-value"', html)
+
 
 class TestProjectAdminTriggerDeletion(BaseTest):
     def setUp(self):
@@ -200,3 +214,17 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         mock_start.assert_called_once()
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
+
+    def test_trigger_deletion_display_has_no_inline_onclick_and_carries_csp_nonce(self):
+        # Admin pages serve a CSP with no unsafe-inline/unsafe-hashes on script-src, which
+        # silently drops inline onclick attributes. Guards against reintroducing one.
+        request = self.factory.get(f"/admin/posthog/project/{self.project.pk}/change/")
+        request.user = self.user
+        request.csp_nonce = "test-nonce-value"  # type: ignore[attr-defined]  # ty: ignore[invalid-assignment]
+        _attach_messages(request)
+        self.admin._current_request = request
+
+        html = self.admin.trigger_deletion_display(self.project)
+
+        self.assertNotIn("onclick=", html)
+        self.assertIn('nonce="test-nonce-value"', html)

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
@@ -44,7 +44,8 @@ export function BreakdownsTileButton({ item }: BreakdownsTileButtonProps): JSX.E
 }
 
 function BreakdownPreview({ title, property }: { title: string; property: string }): JSX.Element {
-    const { getBreakdownForProperty, responseLoading } = useValues(miniBreakdownsLogic)
+    const { getBreakdownForProperty, responseLoading, responseError } = useValues(miniBreakdownsLogic)
+    const { loadResponse } = useActions(miniBreakdownsLogic)
     const { properties, totalCount } = getBreakdownForProperty(property)
 
     const hasOnlyNullBreakdown = properties.length === 1 && properties[0].label === BREAKDOWN_NULL_STRING_LABEL
@@ -53,7 +54,19 @@ function BreakdownPreview({ title, property }: { title: string; property: string
         <div className="flex items-center gap-2">
             <div className="font-semibold text-xs w-[30%]">{title}</div>
             <div className="w-[70%]">
-                {responseLoading ? (
+                {responseError ? (
+                    <Tooltip title={responseError}>
+                        <button
+                            className="text-danger text-xs h-4 flex items-center justify-center w-full underline decoration-dotted"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                loadResponse()
+                            }}
+                        >
+                            Failed to load, click to retry
+                        </button>
+                    </Tooltip>
+                ) : responseLoading ? (
                     <div className="h-4 flex items-center justify-center">
                         <LemonSkeleton />
                     </div>

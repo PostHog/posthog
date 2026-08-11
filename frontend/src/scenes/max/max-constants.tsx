@@ -838,6 +838,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating the scanner...'
         },
     },
+    update_replay_vision_scanner: {
+        name: 'Update a scanner',
+        description: 'Update a scanner: turn it on or off, rename it, reword it, or change its sampling',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Updated the scanner'
+            }
+            return 'Updating the scanner...'
+        },
+    },
     create_replay_vision_action: {
         name: 'Summarize a scanner',
         description: 'Summarize a scanner on a recurring schedule',
@@ -848,6 +860,126 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Set up the summary'
             }
             return 'Setting up the summary...'
+        },
+    },
+    list_replay_vision_scanners: {
+        name: 'List scanners',
+        description: 'List scanners in this project, with their ids, status and sampling',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'List scanners'
+            }
+            return 'List scanners...'
+        },
+    },
+    delete_replay_vision_scanner: {
+        name: 'Delete a scanner',
+        description: 'Delete a scanner and every observation it produced',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Delete a scanner'
+            }
+            return 'Delete a scanner...'
+        },
+    },
+    estimate_replay_vision_scanner: {
+        name: 'Estimate scanner cost',
+        description: 'Estimate scanner cost: recordings a month and the credits they take',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Estimate scanner cost'
+            }
+            return 'Estimate scanner cost...'
+        },
+    },
+    label_replay_vision_observation: {
+        name: 'Rate a result',
+        description: 'Rate a result: tell Replay Vision whether a scanner got a recording right',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Rate a result'
+            }
+            return 'Rate a result...'
+        },
+    },
+    analyze_replay_vision_impact: {
+        name: 'Measure impact',
+        description: "Measure impact: how many sessions and people a scanner's findings affected",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Measure impact'
+            }
+            return 'Measure impact...'
+        },
+    },
+    suggest_replay_vision_tags: {
+        name: 'Suggest tags',
+        description: 'Suggest tags for a classifier, grounded in what it has seen',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Suggest tags'
+            }
+            return 'Suggest tags...'
+        },
+    },
+    read_replay_vision_actions: {
+        name: 'Read summaries',
+        description: 'Read summaries and alerts, and the reports they have produced',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Read summaries'
+            }
+            return 'Read summaries...'
+        },
+    },
+    update_replay_vision_action: {
+        name: 'Update a summary',
+        description: 'Update a summary: pause it, resume it, rename it, or change its cadence',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Update a summary'
+            }
+            return 'Update a summary...'
+        },
+    },
+    delete_replay_vision_action: {
+        name: 'Delete a summary',
+        description: 'Delete a summary and every report it has produced',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Delete a summary'
+            }
+            return 'Delete a summary...'
+        },
+    },
+    run_replay_vision_action: {
+        name: 'Run a summary now',
+        description: 'Run a summary now instead of waiting for its schedule',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Run a summary now'
+            }
+            return 'Run a summary now...'
         },
     },
     create_survey: {

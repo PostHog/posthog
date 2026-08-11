@@ -42,6 +42,7 @@ class ExperimentFunnelActorsQueryBuilder:
         funnel_step: int,
         funnel_step_breakdown: str | int | float,
         include_recordings: bool,
+        activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -65,6 +66,7 @@ class ExperimentFunnelActorsQueryBuilder:
             date_range_query=date_range_query,
             entity_key=entity_key,
             metric=metric,
+            activation_config=activation_config,
         )
 
     def build_actors_query(self) -> ast.SelectQuery:
@@ -183,7 +185,7 @@ class ExperimentFunnelActorsQueryBuilder:
         funnel_steps_filter = funnel_steps_to_filter(self.team, self.metric.series)
 
         # Build exposure predicate from the shared exposure fragment builder
-        exposure_predicate = self._query_builder._exposure_query_builder().build_exposure_event_predicate()
+        exposure_predicate = self._query_builder._exposure_query_builder().build_exposure_step_event_predicate()
 
         # Parse base query without step columns
         query = cast(
@@ -230,9 +232,14 @@ class ExperimentFunnelActorsQueryBuilder:
         # Ensure metric is ExperimentFunnelMetric (guaranteed by the constructor signature)
         assert isinstance(self.metric, ExperimentFunnelMetric), "metric must be ExperimentFunnelMetric"
 
-        # Determine if unordered funnel (needs temporal filter)
+        # Determine if unordered funnel (needs temporal filter). Activation mode needs it for
+        # ordered funnels too, matching the main funnel query: step_0 rows are plain
+        # activation-event matches, so events before the qualifying activation must be excluded.
         is_unordered = self.metric.funnel_order_type == "unordered"
-        temporal_filter = "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered else ""
+        is_activation_mode = self._query_builder.context.activation_config is not None
+        temporal_filter = (
+            "AND metric_events.timestamp >= exposures.first_exposure_time" if is_unordered or is_activation_mode else ""
+        )
 
         # Build conversion window
         if self.metric.conversion_window is not None and self.metric.conversion_window_unit is not None:

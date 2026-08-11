@@ -31,7 +31,7 @@ from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
-from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL
+from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.models import Task, TaskPresence
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.visibility import task_visibility_q
@@ -209,9 +209,11 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
 
     user = task_run.task.created_by
     if user is None:
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="no_recipient").inc()
         return
 
     if not user.teams.filter(id=task_run.team_id).exists():
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
         logger.debug(
             "push_dispatcher.recipient_lost_access",
             user_id=user.id,
@@ -250,20 +252,29 @@ def _enqueue_user(
         # Failing closed on flag-evaluation errors keeps an outage from
         # silently flipping pushes on for the whole user base.
         logger.warning("push_dispatcher.flag_check_failed", user_id=user.id, exc_info=True)
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="flag_check_failed").inc()
         return
     if not flag_enabled:
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="flag_disabled").inc()
         return
 
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
     if not get_tasks_cache().add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="cooldown_deduped").inc()
         logger.debug("push_dispatcher.cooldown_hit", subject=cooldown_subject, kind=kind)
         return
 
     suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
+    data["notificationKind"] = kind
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.
-    transaction.on_commit(lambda: send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed))
+    def dispatch() -> None:
+        outcome = "presence_suppressed" if suppressed else "enqueued"
+        PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome=outcome).inc()
+        send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed)
+
+    transaction.on_commit(dispatch)
 
 
 def _suppressed_push_token_ids_for_task(*, user_id: int, task_id) -> list[str]:

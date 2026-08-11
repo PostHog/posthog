@@ -589,7 +589,10 @@
          "posthog_insightvariable"."code_name",
          "posthog_insightvariable"."type",
          "posthog_insightvariable"."default_value",
-         "posthog_insightvariable"."values"
+         "posthog_insightvariable"."values",
+         "posthog_insightvariable"."is_multi",
+         "posthog_insightvariable"."values_query",
+         "posthog_insightvariable"."values_query_connection_id"
   FROM "posthog_insightvariable"
   WHERE "posthog_insightvariable"."team_id" = 99999
   '''

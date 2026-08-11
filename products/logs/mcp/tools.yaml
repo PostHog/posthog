@@ -282,9 +282,27 @@ tools:
     logs-alerts-update:
         operation: logs_alerts_update
         enabled: false
-    logs-anomalies-scan-create:
+    logs-anomalies-scan:
         operation: logs_anomalies_scan_create
-        enabled: false
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Scan a service's logs for volume anomalies
+        description: >
+            Run anomaly detection on demand over one service's log volume for a time window of up to 7 days. Learns
+            per-severity baselines from up to 6 weeks of history and returns spike, drop, and silence issues plus
+            per-severity learning status. Requires a serviceName (use logs-services-list or the resource attribute
+            values tool to discover services). Experimental; synchronous and read only, so prefer windows of a few hours
+            to a day. Per-bucket band evidence is omitted from the tool response to save tokens; the API endpoint
+            returns it for charts.
+        feature_flag: logs-anomalies
+        response:
+            exclude:
+                - series.*.buckets
     logs-attribute-values-list:
         operation: logs_values_retrieve
         enabled: true

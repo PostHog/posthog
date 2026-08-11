@@ -291,7 +291,7 @@ def _query_issue_rows(team: Team, filter_test_accounts: bool = True) -> list:
     """Ranked ``(issue_id, occurrence_count, daily_counts, is_new)`` rows for the last 7 days.
 
     ``LIMIT 5 BY is_new`` (≤10 rows) feeds both the top-issues and new-issues sections: the overall
-    top 5 is always a subset of the per-group union. ``issue_id_v2`` and ``issue_first_seen`` come
+    top 5 is always a subset of the per-group union. ``issue_id`` and ``issue_first_seen`` come
     from the fingerprint issue state table, so merged issues are attributed and dated like the error
     tracking UI. Newness is computed in-query — embedding issue ids would make the rendered SQL grow
     with issue cardinality (ClickHouse caps query text at 1 MiB).
@@ -313,7 +313,7 @@ def _query_issue_rows(team: Team, filter_test_accounts: bool = True) -> list:
                 if(min(first_seen) >= toStartOfDay(now()) - INTERVAL 7 DAY, 1, 0) AS is_new
             FROM (
                 SELECT
-                    issue_id_v2 AS issue_id,
+                    issue_id,
                     toDate(timestamp) AS day,
                     count() AS day_count,
                     min(issue_first_seen) AS first_seen
@@ -321,7 +321,7 @@ def _query_issue_rows(team: Team, filter_test_accounts: bool = True) -> list:
                 WHERE event = '$exception'
                 AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
                 AND timestamp < toStartOfDay(now())
-                AND isNotNull(issue_id_v2)
+                AND isNotNull(issue_id)
                 AND {filters}
                 GROUP BY issue_id, day
             )

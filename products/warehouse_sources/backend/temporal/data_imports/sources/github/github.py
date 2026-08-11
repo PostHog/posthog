@@ -349,9 +349,12 @@ def validate_credentials(
     # before the request so the message names the fix.
     repo = repository.strip()
     if repo.count("/") != 1 or not all(repo.split("/")):
+        # Name the offending entry, like the 404 message below. Without it, two malformed repos both
+        # return this identical sentence and the caller joins them into one repeated string that names
+        # neither.
         return (
             False,
-            "Enter the repository as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
+            f"'{repo}' isn't a valid repository. Enter it as owner/repo (for example, posthog/posthog), not a full URL or just the owner name.",
         )
 
     url = f"{GITHUB_BASE_URL}/repos/{repository}"
