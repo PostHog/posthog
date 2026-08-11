@@ -910,6 +910,11 @@ class DashboardTileErrorSerializer(DashboardTileSerializer):
                     "user_access_level": user_access_level,
                 }
 
+        # InsightBasicSerializer ignores `hide_extra_details`, so strip authorship here too, otherwise
+        # a tile that errors on a shared dashboard leaks its insight's creator name and email.
+        if isinstance(representation.get("insight"), dict):
+            _hide_extra_details(self.context, representation["insight"])
+
         return representation
 
 

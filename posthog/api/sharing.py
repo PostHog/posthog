@@ -24,7 +24,7 @@ from rest_framework.request import Request
 
 from posthog.schema import SharingConfigurationSettings
 
-from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
+from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
@@ -265,13 +265,14 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
 
 def get_themes_for_team(team: Team):
     global_and_team_themes = DataColorTheme.objects.filter(Q(team_id=team.pk) | Q(team_id=None))
-    themes = DataColorThemeSerializer(global_and_team_themes, many=True).data
+    # The shared payload is served to anonymous viewers, so use the serializer without `created_by`.
+    themes = PublicDataColorThemeSerializer(global_and_team_themes, many=True).data
     return themes
 
 
 def get_global_themes():
     global_themes = DataColorTheme.objects.filter(Q(team_id=None))
-    themes = DataColorThemeSerializer(global_themes, many=True).data
+    themes = PublicDataColorThemeSerializer(global_themes, many=True).data
     return themes
 
 
