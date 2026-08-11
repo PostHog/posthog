@@ -5,7 +5,7 @@ import { beforeUnload } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, isApprovalRequiredError } from 'lib/api-error'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { pluralize } from 'lib/utils/strings'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -17,7 +17,6 @@ import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/gener
 
 import type { OrganizationType } from '../../types'
 import { featureFlagsLogic } from './featureFlagsLogic'
-import { isFlagApprovalRequiredError } from './updateFlagActiveInProject'
 
 export type FlagRolloutState = 'fully_rolled_out' | 'not_rolled_out' | 'partial'
 
@@ -607,8 +606,8 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 try {
                     await featureFlagsPartialUpdate(String(projectId), id, { archived: true, active: false })
                     archivedIds.push(id)
-                } catch (error) {
-                    const approvalPending = isFlagApprovalRequiredError(error)
+                } catch (error: any) {
+                    const approvalPending = isApprovalRequiredError(error)
                     if (approvalPending) {
                         dispatchChangeRequestCreated({ resourceType: 'feature_flag', resourceId: id })
                     }

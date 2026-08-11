@@ -1595,7 +1595,10 @@ export type TrendsFilter = {
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
     /** @default true */
     excludeBoxPlotOutliers?: boolean
-    /** @default false */
+    /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query
+     * instead of only hiding their buckets. Still accepted so existing API clients keep working.
+     * @deprecated Use dateRange.daysOfWeek instead.
+     * @default false */
     hideWeekends?: boolean
     /** @default true */
     showAnnotations?: boolean
@@ -7494,6 +7497,8 @@ export interface SourceFieldSelectConfig {
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
     caption?: string
+    /** Allow selecting multiple values; the field's payload value becomes string[]. */
+    multiple?: boolean
 }
 
 export interface SourceFieldSwitchGroupConfig {
@@ -7802,7 +7807,8 @@ export const externalDataSources = [
     'Pingdom',
     'Cloudflare',
     'CosmosDB',
-    'PlanetScale',
+    'PlanetScaleMySQL',
+    'PlanetScalePostgres',
     'SapHana',
     'Rippling',
     'HiBob',

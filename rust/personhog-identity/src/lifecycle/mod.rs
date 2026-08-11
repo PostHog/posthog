@@ -11,6 +11,7 @@
 
 pub mod delete;
 pub mod engine;
+pub mod merge;
 pub mod validation;
 
 use std::sync::Arc;

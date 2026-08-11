@@ -54,6 +54,7 @@ import type {
     PatchedTaskWriteApi,
     PinnedTaskIdsResponseApi,
     RepositoryReadinessResponseApi,
+    SandboxComputePricingApi,
     SandboxCustomImageBuildApi,
     SandboxCustomImageDTOApi,
     SandboxCustomImageWriteApi,
@@ -166,6 +167,21 @@ export const codeInvitesRedeemCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(codeInviteRedeemRequestApi),
+    })
+}
+
+export const getCodeSandboxPricingListUrl = () => {
+    return `/api/code/sandbox-pricing/`
+}
+
+/**
+ * Get the current sandbox compute rate card and expired rate-card history.
+ * @summary Get sandbox compute pricing
+ */
+export const codeSandboxPricingList = async (options?: RequestInit): Promise<SandboxComputePricingApi> => {
+    return apiMutator<SandboxComputePricingApi>(getCodeSandboxPricingListUrl(), {
+        ...options,
+        method: 'GET',
     })
 }
 

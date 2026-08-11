@@ -10,6 +10,7 @@ import {
   getOriginProductMeta,
   type TaskIconProps,
 } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
+import { SlackMark } from "@posthog/ui/primitives/SlackMark";
 
 /**
  * The task state a status dot / badge stack is drawn from: what the shipped
@@ -224,10 +225,12 @@ export interface TaskBadge {
  * nothing else to say carries no badges at all, which is the honest shape:
  * nothing has happened to it yet.
  *
- * Origins deliberately share ONE glyph. Eight product marks at avatar size is a
- * vocabulary nobody learns — and the badge's job in a nav row is "this didn't
- * come from you", which is the same fact whether Slack or error tracking filed
- * it. The tooltip names the actual product for anyone who needs it.
+ * Origins share ONE glyph, with Slack as the exception. Eight product marks at
+ * avatar size is a vocabulary nobody learns — and the badge's job in a nav row
+ * is "this didn't come from you", which is the same fact whether Slack or error
+ * tracking filed it. The tooltip names the actual product for anyone who needs
+ * it. Slack keeps its own mark because it's the one origin where the row came
+ * from a person in a thread, and readers already know that logo on sight.
  *
  * The PR badge is the exception that gets colour: merged / ready / closed is the
  * outcome people actually scan a task list for, and it's a three-value
@@ -239,7 +242,7 @@ export function taskBadges(props: TaskStatusInput): TaskBadge[] {
   if (origin) {
     badges.push({
       key: "origin",
-      Icon: ArrowSquareIn,
+      Icon: props.originProduct === "slack" ? SlackMark : ArrowSquareIn,
       label: `Source: ${origin.label}`,
     });
   }

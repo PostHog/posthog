@@ -1,4 +1,6 @@
 export const BILLING_FLAG = "posthog-code-billing";
+export const CLOUD_COMPUTE_BILLING_FLAG =
+  "posthog-desktop-cloud-compute-billing";
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
@@ -19,7 +21,7 @@ export const CHANNELS_LAYOUT_FLAG = "code-spaces-layout";
 export const LOOPS_FLAG = "loops";
 export const TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox";
 export const GLM_MODEL_FLAG = "posthog-code-glm-model";
-/** PostHog Code: show DeepSeek V4 Flash in the model picker. Off = hidden. */
+/** PostHog Desktop: show DeepSeek V4 Flash in the model picker. Off = hidden. */
 export const DEEPSEEK_MODEL_FLAG = "posthog-code-deepseek-model";
 export const KIMI_MODEL_FLAG = "tasks-kimi-k3";
 /** Gates the Fast Mode section of the reasoning dropdown. */

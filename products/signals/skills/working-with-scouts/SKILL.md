@@ -43,7 +43,7 @@ Check enrollment first, whatever the roster shows — config rows outlive enroll
 (Scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, try the legacy `signals-scout-*` name.)
 One access rule covers everything here: scout rows live on the project's **canonical parent**, so every scout read and write — this roster read included, plus the notes and config steering below — returns 403 for a credential scoped only to a child environment; work from the parent project (or a credential that covers it).
 
-- **Not enrolled** — point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/code) onboarding rather than inventing activity.
+- **Not enrolled** — point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/desktop) onboarding rather than inventing activity.
 - **Enrolled, empty roster** — likely newly enrolled and awaiting the first coordinator tick (configs auto-register then); say so instead of re-sending the user through onboarding.
 - **Enrolled, rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
