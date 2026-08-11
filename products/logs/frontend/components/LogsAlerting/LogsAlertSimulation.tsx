@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { DefaultTooltip, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
@@ -260,12 +260,32 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
     )
 }
 
-export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }): JSX.Element {
+export function LogsAlertSimulation({
+    embedded = false,
+    autoRun = false,
+}: {
+    embedded?: boolean
+    autoRun?: boolean
+}): JSX.Element {
     const { simulationResult, simulationResultLoading, simulationDateFrom } = useValues(logsAlertFormLogic)
     const { simulateAlert, setSimulationDateFrom } = useActions(logsAlertFormLogic)
+    const hasAutomaticallyRun = useRef(false)
+
+    useEffect(() => {
+        if (autoRun && !hasAutomaticallyRun.current) {
+            hasAutomaticallyRun.current = true
+            simulateAlert()
+        }
+    }, [autoRun, simulateAlert])
 
     return (
         <div className={embedded ? 'space-y-4' : 'space-y-4 p-4'}>
+            {embedded ? (
+                <div>
+                    <h4 className="m-0">Preview</h4>
+                    <p className="m-0 text-xs text-secondary">Check how this alert would behave on historical data.</p>
+                </div>
+            ) : null}
             <div className="flex gap-2 items-center">
                 <LemonSelect
                     size="small"
@@ -288,7 +308,7 @@ export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }
             {simulationResult && <SimulationResults result={simulationResult} />}
 
             {!simulationResult && !simulationResultLoading && (
-                <div className="text-center py-8 text-secondary text-sm">
+                <div className="py-4 text-secondary text-sm">
                     Select a time range and click "Run simulation" to preview how this alert would behave on historical
                     data.
                 </div>
