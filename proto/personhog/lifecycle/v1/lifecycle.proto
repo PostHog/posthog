@@ -1,8 +1,6 @@
 syntax = "proto3";
 package personhog.lifecycle.v1;
 
-import "personhog/types/v1/person.proto";
-
 // DeletePersonsRequest identifies the persons to destroy. Arguments are
 // already person ids — there is no identity to resolve first, so the RPC
 // goes straight into the saga runner.
