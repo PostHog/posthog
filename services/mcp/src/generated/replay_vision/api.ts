@@ -525,6 +525,18 @@ export const VisionObservationsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
         ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
     order_by: zod
         .string()
         .optional()
@@ -1053,6 +1065,18 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
@@ -1120,6 +1144,18 @@ export const VisionScannersObservationsRetrieveQueryParams = /* @__PURE__ */ zod
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
         ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
     order_by: zod
         .string()
         .optional()
@@ -1184,6 +1220,18 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = /* @__PURE__ *
         .optional()
         .describe(
             'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
+    max_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
+        ),
+    min_score: zod
+        .number()
+        .optional()
+        .describe(
+            'Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.'
         ),
     recent_days: zod
         .number()

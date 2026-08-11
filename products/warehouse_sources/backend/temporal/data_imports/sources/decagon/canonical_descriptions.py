@@ -93,4 +93,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             ),
         },
     },
+    "admin_logs": {
+        "description": (
+            "An entry in Decagon's admin log: a configuration change with who made it, when, "
+            "and the before and after state. An immutable audit trail."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+        "columns": {
+            "id": "Unique identifier for the log entry.",
+            "created_at": "Timestamp at which the change was made.",
+            "resource_type": "Type of the resource that was changed.",
+            "resource_id": "Identifier of the resource that was changed.",
+            "action": "Action performed on the resource.",
+            "user_id": "Identifier of the user who made the change.",
+            "team_id": "Identifier of the team the change belongs to.",
+            "status": "Status of the change.",
+            "details_before": "State of the resource before the change, as free-form JSON.",
+            "details_after": "State of the resource after the change, as free-form JSON.",
+        },
+    },
 }
