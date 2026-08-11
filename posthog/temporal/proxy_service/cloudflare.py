@@ -48,7 +48,12 @@ class CloudflareStatus(str, Enum):
 
 
 class CustomHostnameSSLStatus(CloudflareStatus):
-    """SSL certificate status for a Custom Hostname."""
+    """SSL certificate status for a Custom Hostname.
+
+    Names the states a proxy of ours reaches. Cloudflare's staging and backup certificate
+    states are absent on purpose, since our flow never asks for them, and the base class
+    keeps them parseable if one ever arrives.
+    """
 
     INITIALIZING = "initializing"
     PENDING_VALIDATION = "pending_validation"
@@ -64,17 +69,15 @@ class CustomHostnameSSLStatus(CloudflareStatus):
     ISSUANCE_TIMED_OUT = "issuance_timed_out"
     DEPLOYMENT_TIMED_OUT = "deployment_timed_out"
     DELETION_TIMED_OUT = "deletion_timed_out"
-    PENDING_CLEANUP = "pending_cleanup"
-    STAGING_DEPLOYMENT = "staging_deployment"
-    STAGING_ACTIVE = "staging_active"
     DEACTIVATING = "deactivating"
     INACTIVE = "inactive"
-    BACKUP_ISSUED = "backup_issued"
-    HOLDING_DEPLOYMENT = "holding_deployment"
 
 
 class CustomHostnameStatus(CloudflareStatus):
-    """Status for a Custom Hostname."""
+    """Status for a Custom Hostname.
+
+    Cloudflare's `test_*` states are absent on purpose, since we never create test hostnames.
+    """
 
     ACTIVE = "active"
     PENDING = "pending"
@@ -85,11 +88,6 @@ class CustomHostnameStatus(CloudflareStatus):
     PENDING_BLOCKED = "pending_blocked"
     PENDING_MIGRATION = "pending_migration"
     PENDING_PROVISIONED = "pending_provisioned"
-    TEST_PENDING = "test_pending"
-    TEST_ACTIVE = "test_active"
-    TEST_ACTIVE_APEX = "test_active_apex"
-    TEST_BLOCKED = "test_blocked"
-    TEST_FAILED = "test_failed"
     PROVISIONED = "provisioned"
     BLOCKED = "blocked"
 

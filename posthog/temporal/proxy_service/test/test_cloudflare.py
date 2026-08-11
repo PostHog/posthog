@@ -9,8 +9,11 @@ from posthog.temporal.proxy_service.cloudflare import (
     _parse_hostname,
 )
 
-# Transcribed from Cloudflare's Custom Hostname API docs, not from the enums under test:
-# https://developers.cloudflare.com/api/resources/custom_hostnames/methods/get/
+# Every status Cloudflare can send, which is a superset of what the enums name. Re-derive with:
+#   curl -sL https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json | jq -r \
+#     '.components.schemas."tls-certificates-and-hostnames_ssl".oneOf[0].properties.status.enum[]'
+#   curl -sL https://raw.githubusercontent.com/cloudflare/api-schemas/main/openapi.json | jq -r \
+#     '.components.schemas."tls-certificates-and-hostnames_status-3".enum[]'
 CLOUDFLARE_SSL_STATUSES = [
     "initializing",
     "pending_validation",
@@ -81,12 +84,12 @@ def _hostname_payload(status="active", ssl_status="active"):
 
 class TestParseHostnameStatuses(SimpleTestCase):
     @parameterized.expand([(status,) for status in CLOUDFLARE_SSL_STATUSES])
-    def test_parses_every_documented_ssl_status(self, ssl_status):
+    def test_parses_every_ssl_status_cloudflare_can_send(self, ssl_status):
         info = _parse_hostname(_hostname_payload(ssl_status=ssl_status))
         self.assertEqual(info.ssl.status.value, ssl_status)
 
     @parameterized.expand([(status,) for status in CLOUDFLARE_HOSTNAME_STATUSES])
-    def test_parses_every_documented_hostname_status(self, status):
+    def test_parses_every_hostname_status_cloudflare_can_send(self, status):
         info = _parse_hostname(_hostname_payload(status=status))
         self.assertEqual(info.status.value, status)
 
