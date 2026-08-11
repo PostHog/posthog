@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 
+from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
 from products.tasks.backend.push_dispatcher import (
@@ -123,6 +124,21 @@ class ChannelsAPITestCase(TestCase):
         other_client.force_authenticate(self.other_user)
         listed = other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"]
         self.assertEqual([t["id"] for t in listed], [created.json()["id"]])
+
+    def test_deleting_github_integration_clears_channel_repositories(self):
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel = Channel.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            name="growth",
+            github_integration=integration,
+            repositories=["posthog/posthog"],
+        )
+
+        Integration.objects.filter(id=integration.id).delete()
+
+        channel.refresh_from_db()
+        self.assertIsNone(channel.github_integration_id)
+        self.assertEqual(channel.repositories, [])
 
     @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
     def test_new_tasks_inherit_channel_repositories(self, list_repositories):
@@ -311,6 +327,20 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
         again = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_send_to_agent_returns_structured_compute_quota_denial(self):
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        message_id = self.peer_client.post(self._thread_url(), {"content": "try X"}).json()["id"]
+
+        with patch(
+            "products.tasks.backend.facade.api.signal_task_run_user_message",
+            side_effect=ComputeBillingLimitError({"team_id": self.team.id}),
+        ):
+            response = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.json()["code"], "posthog_code_billing_limit_exceeded")
+        self.assertIsNone(TaskThreadMessage.objects.unscoped().get(id=message_id).forwarded_to_agent_at)
+
     def test_thread_hidden_when_task_not_visible(self):
         private_task = Task.objects.create(
             team=self.team,
@@ -351,6 +381,44 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         # The author wasn't mentioned, so their own feed stays empty.
         self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
 
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_thread_message_notifies_creator_and_mentions_only(self, mock_delay, _flag):
+        mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
+        unmentioned = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(mentioned, unmentioned)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            message = self._post_message(self.peer_client, "ping @[Mina](mentioned@example.com)")
+
+        calls_by_user_id = {call.args[0]: call.args for call in mock_delay.call_args_list}
+        self.assertEqual(set(calls_by_user_id), {self.author.id, mentioned.id})
+        self.assertEqual(calls_by_user_id[self.author.id][3]["messageId"], message["id"])
+        self.assertIn("replied", calls_by_user_id[self.author.id][2])
+        self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
+
+    @patch("products.tasks.backend.push_dispatcher._enqueue_user")
+    def test_thread_message_recipient_failures_are_isolated(self, mock_enqueue):
+        mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
+        self.organization.members.add(mentioned)
+        mock_enqueue.side_effect = [RuntimeError("redis is down"), None]
+
+        self._post_message(self.peer_client, "ping @[Mina](mentioned@example.com)")
+
+        self.assertEqual(mock_enqueue.call_count, 2)
+
+    @patch("products.tasks.backend.facade.api.TaskActivity.record", side_effect=RuntimeError("db is down"))
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_mention_activity_failure_does_not_discard_push_recipients(self, mock_delay, _flag, _record):
+        mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
+        self.organization.members.add(mentioned)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._post_message(self.peer_client, "ping @[Mina](mentioned@example.com)")
+
+        self.assertEqual({call.args[0] for call in mock_delay.call_args_list}, {self.author.id, mentioned.id})
+
     def test_mentions_resolve_case_insensitively(self):
         self._post_message(self.author_client, "cc @[Bob](Peer@Example.COM)")
         self.assertEqual(len(self.peer_client.get(self._mentions_url()).json()), 1)
@@ -383,7 +451,9 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_mention_on_invisible_task_is_hidden(self):
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_mention_on_invisible_task_is_hidden(self, mock_delay, _flag):
         private_task = Task.objects.create(
             team=self.team,
             created_by=self.author,
@@ -391,8 +461,10 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
             description="d",
             origin_product=Task.OriginProduct.USER_CREATED,
         )
-        self._post_message(self.author_client, "fyi @[Bob](peer@example.com)", task=private_task)
+        with self.captureOnCommitCallbacks(execute=True):
+            self._post_message(self.author_client, "fyi @[Bob](peer@example.com)", task=private_task)
         self.assertEqual(self.peer_client.get(self._mentions_url()).json(), [])
+        mock_delay.assert_not_called()
 
     def test_mentions_are_team_scoped(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

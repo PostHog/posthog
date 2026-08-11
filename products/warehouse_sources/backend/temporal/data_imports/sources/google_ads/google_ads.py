@@ -8,6 +8,7 @@ from django.db import OperationalError, close_old_connections
 
 import grpc
 import pyarrow as pa
+import structlog
 from dateutil import parser as dateutil_parser
 from google.ads.googleads import client as google_ads_client_module
 from google.ads.googleads.client import GoogleAdsClient
@@ -53,6 +54,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     RESOURCE_SCHEMAS,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+logger = structlog.get_logger()
 
 # Host used to label the tracked gRPC transport's logs/metrics. Matches
 # `GoogleAdsServiceClient.DEFAULT_ENDPOINT`.
@@ -543,11 +546,8 @@ def google_ads_source(
         return query
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        client = google_ads_client(config, team_id)
-        service: GoogleAdsServiceClient = client.get_service(
-            "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
-        )
         customer_id = clean_customer_id(config.customer_id)
+        service = GoogleAdsSearchService(google_ads_client(config, team_id), api_version, customer_id)
 
         if not should_use_incremental_field:
             yield from _search_as_arrow_tables(
@@ -697,7 +697,7 @@ def _call_with_transient_retry(
 
 
 def _search_with_transient_retry(
-    service: GoogleAdsServiceClient,
+    service: "GoogleAdsSearchService | GoogleAdsServiceClient",
     request: dict,
     *,
     max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
@@ -774,8 +774,124 @@ def _is_rejected_page_token_error(exc: GoogleAdsException, page_token: str) -> b
     return False
 
 
+# Google Ads only serves a request for a client account the authenticated login reaches *through* a
+# manager (MCC) account when the request carries a `login-customer-id` header naming that manager.
+# We set that header only when the source has the MCC option switched on, so a client account the
+# login can no longer reach directly — moved under a manager, or direct access removed while manager
+# access remains — starts failing every sync with PERMISSION_DENIED / USER_PERMISSION_DENIED, which
+# no amount of retrying clears. The account list at setup time already walks the hierarchy to find
+# which manager an account sits under, so the sync can do the same on demand: find a manager we can
+# still authenticate as, set the header, and repeat the request.
+_MANAGER_LOOKUP_QUERY = "SELECT customer_client.id FROM customer_client WHERE customer_client.id = {customer_id}"
+
+# The ads-level code Google returns alongside a PERMISSION_DENIED status when the login can't reach
+# the requested customer. Matched on the failure text so it is recognised whether the SDK surfaces
+# the transport status, the ads failure, or both.
+_PERMISSION_DENIED_FAILURE_SIGNATURE = "USER_PERMISSION_DENIED"
+
+
+def _is_permission_denied_error(exc: BaseException) -> bool:
+    """Return True when Google refused the request because the login can't reach the customer."""
+    if isinstance(exc, google_api_exceptions.PermissionDenied):
+        return True
+    # The SDK re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads
+    # failure from the trailing metadata, so the gRPC status may live on the wrapped ``error``.
+    candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    code = getattr(candidate, "code", None)
+    if callable(code) and code() == grpc.StatusCode.PERMISSION_DENIED:
+        return True
+    failure = getattr(exc, "failure", None)
+    return failure is not None and _PERMISSION_DENIED_FAILURE_SIGNATURE in str(failure)
+
+
+def _find_manager_customer_id(client: GoogleAdsClient, customer_id: str, api_version: str) -> str | None:
+    """Return an accessible manager account whose hierarchy contains ``customer_id``, if there is one.
+
+    ``list_accessible_customers`` returns only the accounts the login can reach directly, so a
+    client account under a manager never appears there. Querying ``customer_client`` from each of
+    those accounts lists everything below it, which tells us which one to authenticate as. Returns
+    None when the customer is directly accessible (the header isn't what's missing) or when no
+    accessible account can reach it (access really is gone). The probe never raises: a failure here
+    must not replace the permission error the caller is recovering from.
+    """
+    # The id is interpolated into a GAQL query below, so only ever accept the bare digits Google
+    # Ads uses (`clean_customer_id` already normalizes to that on the sync path).
+    if not customer_id.isdigit():
+        return None
+
+    original_login_customer_id = client.login_customer_id
+    try:
+        customer_service = client.get_service(
+            "CustomerService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        )
+        resource_names = customer_service.list_accessible_customers().resource_names
+        candidates = [name.rsplit("/", 1)[-1] for name in resource_names]
+        if customer_id in candidates:
+            return None
+
+        query = _MANAGER_LOOKUP_QUERY.format(customer_id=customer_id)
+        for candidate in candidates:
+            client.login_customer_id = candidate
+            service: GoogleAdsServiceClient = client.get_service(
+                "GoogleAdsService", version=api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+            )
+            try:
+                response = service.search(request={"customer_id": candidate, "query": query})
+                page = next(iter(response.pages), None)
+            except Exception:
+                continue
+            if page is not None and len(page.results) > 0:
+                return candidate
+        return None
+    except Exception:
+        return None
+    finally:
+        client.login_customer_id = original_login_customer_id
+
+
+class GoogleAdsSearchService:
+    """``GoogleAdsService.search`` that recovers from a missing ``login-customer-id`` header.
+
+    The header is a client-level setting the SDK reads when a service is built, so recovering means
+    resetting it on the client and rebuilding the service. Recovery is attempted at most once per
+    sync: if the retry still fails, or no manager can reach the customer, the original error
+    propagates to the caller's non-retryable handling.
+    """
+
+    def __init__(self, client: GoogleAdsClient, api_version: str, customer_id: str | None) -> None:
+        self._client = client
+        self._api_version = api_version
+        self._customer_id = customer_id
+        self._recovery_attempted = False
+        self._service = self._build_service()
+
+    def _build_service(self) -> GoogleAdsServiceClient:
+        return self._client.get_service(
+            "GoogleAdsService", version=self._api_version, interceptors=tracked_interceptors(GOOGLE_ADS_HOST)
+        )
+
+    def search(self, request: dict) -> pagers.SearchPager:
+        try:
+            return self._service.search(request=request)
+        except Exception as e:
+            if self._recovery_attempted or not self._customer_id or not _is_permission_denied_error(e):
+                raise
+            self._recovery_attempted = True
+            manager_customer_id = _find_manager_customer_id(self._client, self._customer_id, self._api_version)
+            if manager_customer_id is None:
+                raise
+            logger.info(
+                "Retrying Google Ads request as the manager account that can reach this customer",
+                customer_id=self._customer_id,
+                login_customer_id=manager_customer_id,
+            )
+            self._client.login_customer_id = manager_customer_id
+            self._service = self._build_service()
+            return self._service.search(request=request)
+
+
 def _search_as_arrow_tables(
-    service: GoogleAdsServiceClient,
+    service: GoogleAdsSearchService | GoogleAdsServiceClient,
     customer_id: str | None,
     query: str,
     table: GoogleAdsTable,

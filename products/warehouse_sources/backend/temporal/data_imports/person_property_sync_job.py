@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     record_completed_runs,
     record_failed_runs,
+    record_started_runs,
     run_person_property_sync,
 )
 
@@ -67,6 +68,13 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     log.info(f"Starting person-property sync for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
     started_at = datetime.now(UTC).isoformat()
+    await record_started_runs(
+        team_id=inputs.team_id,
+        schema_id=str(inputs.schema_id),
+        job_id=inputs.job_id,
+        trigger="scheduled",
+        started_at=started_at,
+    )
     try:
         async with Heartbeater():
             result = await run_person_property_sync(

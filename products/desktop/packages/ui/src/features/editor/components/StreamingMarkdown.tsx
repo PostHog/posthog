@@ -2,7 +2,11 @@ import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { memo, useMemo } from "react";
 import type { Components } from "react-markdown";
 import { MarkdownRenderer } from "./MarkdownRenderer";
-import { parseOpenFence, splitMarkdownBlocks } from "./splitMarkdownBlocks";
+import {
+  maskOpenLinkDestination,
+  parseOpenFence,
+  splitMarkdownBlocks,
+} from "./splitMarkdownBlocks";
 
 interface StreamingMarkdownProps {
   content: string;
@@ -52,7 +56,9 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({
         return (
           <MarkdownRenderer
             key={key}
-            content={block}
+            content={
+              index === lastIndex ? maskOpenLinkDestination(block) : block
+            }
             componentsOverride={componentsOverride}
           />
         );

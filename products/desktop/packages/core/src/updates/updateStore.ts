@@ -108,6 +108,7 @@ export function deriveUpdateUiStatus(
   if (payload.checking && payload.downloading) {
     return {
       status: "downloading",
+      version: null,
       availableVersion: payload.availableVersion ?? null,
       releaseNotes: payload.releaseNotes ?? null,
       releaseDate: payload.releaseDate ?? null,
@@ -120,6 +121,7 @@ export function deriveUpdateUiStatus(
   if (payload.available) {
     return {
       status: "available",
+      version: null,
       availableVersion: payload.availableVersion ?? null,
       releaseNotes: payload.releaseNotes ?? null,
       releaseDate: payload.releaseDate ?? null,

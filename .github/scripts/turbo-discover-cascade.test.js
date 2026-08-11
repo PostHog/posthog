@@ -207,6 +207,26 @@ layer = "modules"
     assert.deepEqual(dependents, [])
 })
 
+// tach.toml annotates facade-only edges with prose that names the tach block
+// enforcing them, so a depends_on list can carry a `]` inside a comment. The
+// scan for the list's closing bracket used to stop there and drop every entry
+// below it, and the fail-closed check could not see it because that check
+// discarded comments too.
+test('a comment inside depends_on does not truncate the list', () => {
+    const toml = `
+[[modules]]
+path = "products.a"
+depends_on = [
+    "products.b",
+    # Facade-only (enforced by c's [[interfaces]] block): a queues c's work.
+    "products.c",
+    "products.d", # direct import
+]
+layer = "modules"
+`
+    assert.deepEqual(parseTachModules(toml).get('a'), ['b', 'c', 'd'])
+})
+
 test('fail closed: a depends_on entry that is not a double-quoted string throws instead of silently dropping the edge', () => {
     const toml = `
 [[modules]]

@@ -138,6 +138,15 @@ export interface accountBillingLogicActions {
         savedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[]
         payload?: any
     }
+    setAllSeriesHidden: (
+        shortId: string,
+        seriesKeys: string[],
+        hidden: boolean
+    ) => {
+        hidden: boolean
+        seriesKeys: string[]
+        shortId: string
+    }
     setDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -188,6 +197,11 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
             seriesKey,
             seriesCount,
         }),
+        setAllSeriesHidden: (shortId: string, seriesKeys: string[], hidden: boolean) => ({
+            shortId,
+            seriesKeys,
+            hidden,
+        }),
     }),
     reducers(({ props }) => ({
         dateRange: [
@@ -208,6 +222,10 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                             : [...current, seriesKey],
                     }
                 },
+                setAllSeriesHidden: (state, { shortId, seriesKeys, hidden }) => ({
+                    ...state,
+                    [shortId]: hidden ? seriesKeys : [],
+                }),
                 setDateRange: () => ({}),
             },
         ],
@@ -218,6 +236,13 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                 kind: props.kind,
                 is_hidden: (values.ephemeralHiddenSeriesKeysByShortId[shortId] ?? []).includes(seriesKey),
                 series_count: seriesCount,
+            })
+        },
+        setAllSeriesHidden: ({ seriesKeys, hidden }) => {
+            posthog.capture(AccountsEvents.UsageSeriesBulkToggled, {
+                kind: props.kind,
+                is_hidden: hidden,
+                series_count: seriesKeys.length,
             })
         },
     })),

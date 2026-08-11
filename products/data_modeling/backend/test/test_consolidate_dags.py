@@ -318,15 +318,13 @@ class TestConsolidateDags(BaseTest):
 
     def test_adopted_node_unblocks_its_dependents_moves(self):
         # The reason the flag exists: one unresolvable query must not cascade into N failed
-        # moves. Parent in a managed DAG (excluded from consolidation) → dependent fails
-        # Node.DoesNotExist and is adopted edge-less → the dependent's own dependent resolves
-        # the adopted node in the target and moves with a real edge.
+        # moves. blocked_view depends on a saved query that has no DAG node (an orphan) → it
+        # resolves in HogQL but fails Node.DoesNotExist and is adopted edge-less → its dependent
+        # resolves the adopted node in the target and moves with a real edge.
         target = DAG.get_or_create_default(self.team)
-        managed = DAG.get_or_create_revenue_analytics(self.team)
-        managed_parent = self._query("stripe_view", "SELECT 1")
-        self._node(managed, managed_parent)
+        self._query("orphan_parent", "SELECT 1")
         source = DAG.objects.create(team=self.team, name="posthog_team")
-        blocked = self._query("blocked_view", "SELECT * FROM stripe_view")
+        blocked = self._query("blocked_view", "SELECT * FROM orphan_parent")
         dependent = self._query("dependent_view", "SELECT * FROM blocked_view")
         blocked_node = self._node(source, blocked)
         dependent_node = self._node(source, dependent)

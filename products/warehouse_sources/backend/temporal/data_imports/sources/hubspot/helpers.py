@@ -233,7 +233,10 @@ def _get_property_names(
         Exception: If an error occurs during the API request.
     """
     properties = []
-    endpoint = apply_crm_api_version(f"/crm/v3/properties/{OBJECT_TYPE_PLURAL[object_type]}", api_version)
+    # Objects added after the original eight are keyed by their own plural name (calls, line_items,
+    # ...), so they aren't in the singular/plural map and pass straight through.
+    plural = OBJECT_TYPE_PLURAL.get(object_type, object_type)
+    endpoint = apply_crm_api_version(f"/crm/v3/properties/{plural}", api_version)
 
     for page in fetch_data(endpoint, api_key, refresh_token, source_id=source_id):
         properties.extend([prop["name"] for prop in page])

@@ -671,6 +671,7 @@ mod tests {
                     messages: vec![],
                     functions: vec![],
                     handled: false,
+                    release: None,
                 },
                 fingerprint: SelectedFingerprint::manual("test-fingerprint".to_string()),
                 issue: Issue {

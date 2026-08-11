@@ -108,4 +108,14 @@ describe("useTaskPrStatus", () => {
     );
     expect(lastQueryOptions?.enabled).toBe(true);
   });
+
+  it("ignores placeholder data when the query is disabled", () => {
+    queryData = { prState: "open", hasDiff: true };
+    const { result } = renderHook(() =>
+      useTaskPrStatus(
+        makeTask({ taskRunEnvironment: "cloud", cloudPrUrl: null }),
+      ),
+    );
+    expect(result.current).toEqual({ prState: null, hasDiff: false });
+  });
 });

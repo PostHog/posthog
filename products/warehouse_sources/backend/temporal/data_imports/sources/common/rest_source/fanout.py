@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
     EndpointResource,
     IncrementalConfig,
+    ResponseAction,
 )
 
 
@@ -31,6 +32,10 @@ class DependentEndpointConfig:
     parent_field_renames: dict[str, str] = field(default_factory=dict)
     parent_params: dict[str, Any] = field(default_factory=dict)
     child_params: dict[str, Any] = field(default_factory=dict)
+    # Applied to the CHILD request only. Use this to tolerate a per-parent-item failure (e.g. a
+    # 404 for a parent row deleted/merged between the parent listing and this child fetch)
+    # without failing the whole fan-out — see resource.py's response_actions "ignore" handling.
+    child_response_actions: list[ResponseAction] = field(default_factory=list)
 
 
 def rename_parent_fields(parent_name: str, renames: dict[str, str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -126,6 +131,8 @@ def build_dependent_resource(
         "path": child_path,
         "params": child_params,
     }
+    if fanout.child_response_actions:
+        child_endpoint_config["response_actions"] = fanout.child_response_actions
     if child_endpoint_extra:
         if "params" in child_endpoint_extra:
             raise ValueError(

@@ -1,11 +1,11 @@
 import { McpServersView } from "@posthog/ui/features/mcp-servers/components/McpServersView";
 import { AdvancedSettings } from "@posthog/ui/features/settings/sections/AdvancedSettings";
 import { AgentsSettings } from "@posthog/ui/features/settings/sections/AgentsSettings";
-import { ClaudeCodeSettings } from "@posthog/ui/features/settings/sections/ClaudeCodeSettings";
 import { DiscordSettings } from "@posthog/ui/features/settings/sections/DiscordSettings";
 import { EnvironmentsSettings } from "@posthog/ui/features/settings/sections/environments/EnvironmentsSettings";
 import { GeneralSettings } from "@posthog/ui/features/settings/sections/GeneralSettings";
 import { GitHubSettings } from "@posthog/ui/features/settings/sections/GitHubSettings";
+import { HarnessSettings } from "@posthog/ui/features/settings/sections/HarnessSettings";
 import { NotificationsSettings } from "@posthog/ui/features/settings/sections/NotificationsSettings";
 import { PersonalizationSettings } from "@posthog/ui/features/settings/sections/PersonalizationSettings";
 import { PlanUsageSettings } from "@posthog/ui/features/settings/sections/PlanUsageSettings";
@@ -72,7 +72,7 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   ),
   sidebar: defineSettingsPage("Sidebar", CustomizeSidebarSettings),
   terminal: defineSettingsPage("Terminal", TerminalSettings),
-  "claude-code": defineSettingsPage("Claude Code", ClaudeCodeSettings),
+  harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),
   slack: defineSettingsPage("Slack integration", SlackSettings),

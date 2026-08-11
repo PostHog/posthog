@@ -30,7 +30,14 @@ export function areReposReady({
 }
 
 export interface RepoSelectionInput {
-  folder: RegisteredFolder;
+  /** The group's registered local folder, absent for cloud-only repos. */
+  folder?: RegisteredFolder;
+  /**
+   * `owner/repo` the sidebar group stands for. Carries the repo for groups with
+   * no registered folder — cloud-only ones — which otherwise had nothing to
+   * prefill from and left the previous pick in place.
+   */
+  folderRepository?: string;
   /** Lower-cased `owner/repo` slugs the user can use in cloud mode. */
   repositories: string[];
   /** Whether the integrations list has finished loading (gate the mode switch). */
@@ -47,8 +54,8 @@ export interface RepoSelectionInput {
 }
 
 export interface RepoSelection {
-  /** Local directory to select (always the folder's path). */
-  directory: string;
+  /** Local directory to select, or undefined when the group has no folder. */
+  directory?: string;
   /** Cloud `owner/repo` slug to select, or undefined to leave the cloud pick as-is. */
   cloudRepository?: string;
   /**
@@ -60,7 +67,7 @@ export interface RepoSelection {
 }
 
 /**
- * Pure resolver: given the folder a user picked (e.g. via the sidebar "+"), decide
+ * Pure resolver: given the group a user picked (e.g. via the sidebar "+"), decide
  * what to select in both the local-directory and cloud-repo pickers, and whether the
  * workspace mode must change.
  *
@@ -71,40 +78,43 @@ export interface RepoSelection {
  * honoured only when the repo has a connected cloud counterpart; otherwise it drops to
  * the last-used local mode. A desired Local mode keeps the current mode when it's already
  * local (preserving worktree), and otherwise switches to the last-used local mode.
+ *
+ * A group with no registered folder is only workable in the cloud, so it has no
+ * directory to prefill and its mode follows cloud-capability alone.
  */
 export function resolveRepoSelectionForFolder({
   folder,
+  folderRepository,
   repositories,
   reposLoaded,
   currentMode,
   lastUsedLocalMode,
   mostRecentEnvironment,
 }: RepoSelectionInput): RepoSelection {
-  const slug = folder.remoteUrl?.toLowerCase();
-  // A folder is cloud-capable only when its remote is a real `owner/repo` (guards against
-  // legacy single-segment values) AND that repo is one of the user's connected integrations.
+  const slug = (folder?.remoteUrl ?? folderRepository)?.toLowerCase();
+  // A group is cloud-capable only when its remote is a real `owner/repo` (guards against
+  // legacy single-segment values and folder-path group ids) AND that repo is one of the
+  // user's connected integrations.
   const cloudRepository =
     slug && parseRepository(slug) !== null && repositories.includes(slug)
       ? slug
       : undefined;
 
   const selection: RepoSelection = {
-    directory: folder.path,
+    directory: folder?.path,
     cloudRepository,
   };
 
   // Only decide the mode once the integrations list has loaded, so cloud-capability is
   // known and we never switch out of cloud while the repo list is still in flight.
   if (reposLoaded) {
-    // Prefer the repo's own most recent run; fall back to the current global mode.
-    const desiredEnvironment =
-      mostRecentEnvironment ?? (currentMode === "cloud" ? "cloud" : "local");
-    const targetMode: WorkspaceMode =
-      desiredEnvironment === "cloud" && cloudRepository
-        ? "cloud"
-        : currentMode === "cloud"
-          ? lastUsedLocalMode
-          : currentMode;
+    const targetMode = resolveTargetMode({
+      hasFolder: folder !== undefined,
+      cloudRepository,
+      currentMode,
+      lastUsedLocalMode,
+      mostRecentEnvironment,
+    });
     if (targetMode !== currentMode) {
       selection.nextMode = targetMode;
     }
@@ -113,8 +123,36 @@ export function resolveRepoSelectionForFolder({
   return selection;
 }
 
+function resolveTargetMode({
+  hasFolder,
+  cloudRepository,
+  currentMode,
+  lastUsedLocalMode,
+  mostRecentEnvironment,
+}: {
+  hasFolder: boolean;
+  cloudRepository: string | undefined;
+  currentMode: WorkspaceMode;
+  lastUsedLocalMode: LocalWorkspaceMode;
+  mostRecentEnvironment?: "local" | "cloud";
+}): WorkspaceMode {
+  // Nothing is checked out locally, so a local mode would leave the previous repo's
+  // directory selected — go to cloud when we can, otherwise leave the mode alone.
+  if (!hasFolder) return cloudRepository ? "cloud" : currentMode;
+  // Prefer the repo's own most recent run; fall back to the current global mode.
+  const desiredEnvironment =
+    mostRecentEnvironment ?? (currentMode === "cloud" ? "cloud" : "local");
+  if (desiredEnvironment === "cloud" && cloudRepository) return "cloud";
+  return currentMode === "cloud" ? lastUsedLocalMode : currentMode;
+}
+
 export interface UseInitialRepoSelectionParams {
   folderId: string | undefined;
+  /**
+   * `owner/repo` the picked sidebar group stands for, used when the group has no
+   * registered folder (see {@link RepoSelectionInput.folderRepository}).
+   */
+  folderRepository?: string;
   /**
    * Identifier of the navigation request that carried the folder prefill. Each
    * "+" click issues a fresh id, so re-picking the same folder re-applies the
@@ -123,6 +161,8 @@ export interface UseInitialRepoSelectionParams {
    */
   requestId?: string;
   folders: RegisteredFolder[];
+  /** Whether the folders list has finished loading. */
+  foldersLoaded: boolean;
   /** Lower-cased `owner/repo` slugs the user can use in cloud mode. */
   repositories: string[];
   /** Whether the integrations list has finished loading (gate the mode switch). */
@@ -142,18 +182,20 @@ export interface UseInitialRepoSelectionParams {
 }
 
 /**
- * Applies {@link resolveRepoSelectionForFolder} to the live pickers when a `folderId`
- * prefill arrives, syncing both the local directory and the cloud repo and switching
- * mode when required. Runs once per `folderId` (guarded by refs) so it never clobbers a
- * repo/mode the user changed afterward, and re-runs when `folderId` changes.
+ * Applies {@link resolveRepoSelectionForFolder} to the live pickers when a group prefill
+ * arrives, syncing both the local directory and the cloud repo and switching mode when
+ * required. Runs once per prefill (guarded by refs) so it never clobbers a repo/mode the
+ * user changed afterward, and re-runs when the picked group changes.
  *
  * The dependency on `folders` / `repositories` lets the sync still fire when those lists
  * load after the initial mount.
  */
 export function useInitialRepoSelectionFromFolderId({
   folderId,
+  folderRepository,
   requestId,
   folders,
+  foldersLoaded,
   repositories,
   reposLoaded,
   currentMode,
@@ -174,19 +216,25 @@ export function useInitialRepoSelectionFromFolderId({
   currentModeRef.current = currentMode;
 
   useEffect(() => {
-    if (!folderId) {
+    if (!folderId && !folderRepository) {
       dirInitRef.current = undefined;
       repoModeInitRef.current = undefined;
       return;
     }
     // A fresh requestId makes this a new prefill request even for the same
-    // folder, so clicking a group's "+" always re-selects its directory.
-    const requestKey = `${requestId ?? ""}:${folderId}`;
-    const folder = folders.find((f) => f.id === folderId);
-    if (!folder) return;
+    // group, so clicking a group's "+" always re-selects its repo.
+    const requestKey = `${requestId ?? ""}:${folderId ?? folderRepository}`;
+    const folder = folderId
+      ? folders.find((f) => f.id === folderId)
+      : undefined;
+    // Wait for a folder that is expected but hasn't loaded yet. Only while the
+    // list is loading, though: a folderId left over from a removed folder never
+    // resolves, and blocking on it would strand the repo prefill for good.
+    if (folderId && !folder && !foldersLoaded) return;
 
     const selection = resolveRepoSelectionForFolder({
       folder,
+      folderRepository,
       repositories,
       reposLoaded,
       currentMode: currentModeRef.current,
@@ -194,7 +242,7 @@ export function useInitialRepoSelectionFromFolderId({
       mostRecentEnvironment,
     });
 
-    if (dirInitRef.current !== requestKey) {
+    if (selection.directory && dirInitRef.current !== requestKey) {
       setSelectedDirectory(selection.directory);
       dirInitRef.current = requestKey;
     }
@@ -211,8 +259,10 @@ export function useInitialRepoSelectionFromFolderId({
     }
   }, [
     folderId,
+    folderRepository,
     requestId,
     folders,
+    foldersLoaded,
     repositories,
     reposLoaded,
     lastUsedLocalMode,

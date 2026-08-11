@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "artifact_id": {
+            "description": "Optional artifact id returned by tasks-artifacts-list.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "cursor": {
+            "description": "Opaque cursor returned by a previous call.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+        },
+        "include_resolved": {
+            "default": false,
+            "description": "Include resolved comments. Defaults to false.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum root comments to return. Defaults to 50.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+        }
+    },
+    "type": "object"
+}

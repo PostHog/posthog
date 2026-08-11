@@ -1,6 +1,6 @@
 import { CaretRightIcon, FilesIcon, TrashIcon } from "@phosphor-icons/react";
 import type { ChannelTaskRecord } from "@posthog/core/canvas/channelTaskSchemas";
-import type { DashboardSummary } from "@posthog/core/canvas/dashboardSchemas";
+import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import {
   Badge,
   Card,
@@ -19,7 +19,6 @@ import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTask
 import { ArtifactsViewToggle } from "@posthog/ui/features/canvas/components/ArtifactsViewToggle";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
-import { FreeformPreview } from "@posthog/ui/features/canvas/components/FreeformPreview";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
 import { useDashboards } from "@posthog/ui/features/canvas/hooks/useDashboards";
@@ -58,8 +57,6 @@ type ArtifactItem =
       ts: number;
       templateId: string;
       dashboardId: string;
-      /** Live React source, along for the ride so cards preview without a get(). */
-      code?: string;
     }
   | {
       kind: "pr";
@@ -72,7 +69,7 @@ type ArtifactItem =
 // A channel's artifacts: canvases and the pull requests produced by its tasks,
 // most recent first. Sibling of the History tab, but scoped to outputs rather
 // than the full activity stream. The view toggle switches between a dense row
-// list and card layouts that preview each canvas live.
+// list and card layouts.
 export function WebsiteChannelArtifacts({ channelId }: { channelId: string }) {
   const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
@@ -100,14 +97,13 @@ export function WebsiteChannelArtifacts({ channelId }: { channelId: string }) {
 
   const items = useMemo<ArtifactItem[]>(() => {
     const canvasItems: ArtifactItem[] = dashboards.map(
-      (d: DashboardSummary) => ({
+      (d: DashboardRecord) => ({
         kind: "canvas",
         key: `canvas:${d.id}`,
         title: d.name,
         ts: d.updatedAt,
         templateId: d.templateId,
         dashboardId: d.id,
-        code: d.code,
       }),
     );
 
@@ -121,7 +117,7 @@ export function WebsiteChannelArtifacts({ channelId }: { channelId: string }) {
       return [
         {
           kind: "pr" as const,
-          key: `pr:${f.id}`,
+          key: `pr:${f.taskId}`,
           title: task.title || "Pull request",
           ts: Date.parse(task.updated_at) || 0,
           prUrl,
@@ -246,7 +242,7 @@ export function WebsiteChannelArtifacts({ channelId }: { channelId: string }) {
             // CSS columns rather than a JS masonry: cards are self-contained and
             // never reflow into each other, so break-inside-avoid is enough. The
             // trade-off is column-major order — newest runs down column one, not
-            // across the row — which is fine for a browse-y wall of previews.
+            // across the row — which is fine for a browse-y wall of cards.
             <div className="columns-1 gap-4 sm:columns-2 lg:columns-3 2xl:columns-4">
               {items.map((item) => (
                 <div key={item.key} className="mb-4 break-inside-avoid">
@@ -313,7 +309,6 @@ function ArtifactCard({
       templateId={item.templateId}
       title={item.title}
       ts={item.ts}
-      code={item.code}
       previewHeight={previewHeight}
       fillHeight={fillHeight}
       onClick={onOpenCanvas}
@@ -448,15 +443,16 @@ function ArtifactRow({
   );
 }
 
-// The card form of a canvas artifact: a live preview of the canvas above its
-// title. Same delete-undo behaviour as the row — the card stays in place,
-// dimmed, until the undo window closes.
+// The card form of a canvas artifact. Canvas records no longer carry source
+// code (the rendered output lives behind the build lifecycle), so the media
+// slot is a stable placeholder frame until per-card artifact previews are
+// wired up, mirroring WebsiteDashboardsIndex. Same delete-undo behaviour as
+// the row: the card stays in place, dimmed, until the undo window closes.
 function CanvasArtifactCard({
   dashboardId,
   templateId,
   title,
   ts,
-  code,
   previewHeight,
   fillHeight,
   onClick,
@@ -465,7 +461,6 @@ function CanvasArtifactCard({
   templateId: string;
   title: string;
   ts: number;
-  code?: string;
   previewHeight: number;
   fillHeight?: boolean;
   onClick: (dashboardId: string) => void;
@@ -476,11 +471,16 @@ function CanvasArtifactCard({
     <ArtifactCardShell
       media={
         <>
-          <FreeformPreview
-            code={code}
-            height={previewHeight}
-            className="border-border border-b"
-          />
+          <div
+            className="relative overflow-hidden border-border border-b bg-muted"
+            style={{ height: previewHeight }}
+          >
+            <div className="absolute inset-0 flex items-center justify-center px-4 text-center">
+              <Text size="xs" variant="muted">
+                Canvas preview
+              </Text>
+            </div>
+          </div>
           {deleting && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 bg-gray-1/80">
               <TrashIcon size={18} className="animate-pulse text-red-9" />
@@ -521,7 +521,7 @@ function PrArtifactCard({
   title: string;
   prUrl: string;
   ts: number;
-  /** Grid only: match the canvas thumbnails' band instead of a short strip. */
+  /** Grid only: match the canvas cards' band instead of a short strip. */
   mediaHeight?: number;
   fillHeight?: boolean;
   onClick: (safeUrl: string) => void;

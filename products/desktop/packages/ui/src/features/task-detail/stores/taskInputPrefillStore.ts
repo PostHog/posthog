@@ -8,6 +8,8 @@ export interface TaskInputReportAssociation {
 export interface TaskInputPrefill {
   requestId?: string;
   folderId?: string;
+  /** `owner/repo` of the picked sidebar group, for groups with no folder. */
+  folderRepository?: string;
   initialPrompt?: string;
   initialCloudRepository?: string;
   initialModel?: string;

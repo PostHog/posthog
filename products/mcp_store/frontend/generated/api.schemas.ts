@@ -30,6 +30,7 @@ export const MCPAuditDecisionEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -42,6 +43,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -118,13 +120,13 @@ export interface PaginatedMCPAuditEventListApi {
 }
 
 export interface AuditCountsApi {
-    /** Every audited tool call. */
+    /** Every audited tool call visible to the requesting user. */
     all: number
-    /** Calls made by service accounts. */
+    /** Visible calls made by service accounts. */
     agents: number
-    /** Calls that were approved or are awaiting approval. */
+    /** Visible calls that were approved or are awaiting approval. */
     approvals: number
-    /** Calls the gateway blocked. */
+    /** Visible calls the gateway blocked. */
     blocked: number
 }
 
@@ -166,6 +168,8 @@ export interface TeamMCPGatewayConfigApi {
      * * `ask` - Ask for destructive
      * * `block` - Block destructive */
     agent_default_preset?: (typeof TeamMCPGatewayConfigApiAgentDefaultPreset)[keyof typeof TeamMCPGatewayConfigApiAgentDefaultPreset]
+    /** Catalog template ids that already have a gateway registration, including registrations hidden from the requesting member. Clients use this list to avoid presenting disabled or revoked templates as new. */
+    readonly registered_template_ids: readonly string[]
     /** Whether the requesting user can administer the gateway (org admin or explicit project admin). */
     readonly is_admin: boolean
 }
@@ -563,6 +567,11 @@ export const ScopeTypeEnumApi = {
     Agent: 'agent',
 } as const
 
+/**
+ * * `approved` - Approved
+ * * `needs_approval` - Needs approval
+ * * `do_not_use` - Do not use
+ */
 export type MCPToolApprovalStateEnumApi = (typeof MCPToolApprovalStateEnumApi)[keyof typeof MCPToolApprovalStateEnumApi]
 
 export const MCPToolApprovalStateEnumApi = {
@@ -637,6 +646,8 @@ export interface ResolvedToolPolicyApi {
     description: string
     /** JSON Schema describing the tool's input arguments. */
     input_schema: ResolvedToolPolicyApiInputSchema
+    /** Whether the canonical gateway heuristic treats this tool as destructive. */
+    is_destructive: boolean
     /** Effective state for the scope.
      *
      * * `approved` - Approved
@@ -849,6 +860,69 @@ export interface PatchedMCPServerInstallationUpdateApi {
     is_enabled?: boolean
 }
 
+/**
+ * Arguments object passed straight to the tool, matching its input schema.
+ */
+export type CallToolRequestApiArguments = { [key: string]: unknown }
+
+export interface CallToolRequestApi {
+    /**
+     * Name of the tool to invoke, exactly as the upstream server reports it.
+     * @maxLength 200
+     */
+    tool_name: string
+    /** Arguments object passed straight to the tool, matching its input schema. */
+    arguments?: CallToolRequestApiArguments
+}
+
+export type CallToolResponseApiContentItem = { [key: string]: unknown }
+
+/**
+ * Structured result the tool returned alongside `content`, when it provides one.
+ * @nullable
+ */
+export type CallToolResponseApiStructuredContent = { [key: string]: unknown } | null
+
+export interface CallToolResponseApi {
+    /** MCP content blocks the tool returned, in upstream order. */
+    content: CallToolResponseApiContentItem[]
+    /** True when the tool itself reported failure (for example bad arguments). The call reached the server; read `content` for the reason. */
+    is_error: boolean
+    /**
+     * Structured result the tool returned alongside `content`, when it provides one.
+     * @nullable
+     */
+    structured_content?: CallToolResponseApiStructuredContent
+}
+
+/**
+ * * `needs_approval` - needs_approval
+ * * `disabled` - disabled
+ * * `removed` - removed
+ * * `upstream_error` - upstream_error
+ */
+export type CallToolBlockedReasonEnumApi =
+    (typeof CallToolBlockedReasonEnumApi)[keyof typeof CallToolBlockedReasonEnumApi]
+
+export const CallToolBlockedReasonEnumApi = {
+    NeedsApproval: 'needs_approval',
+    Disabled: 'disabled',
+    Removed: 'removed',
+    UpstreamError: 'upstream_error',
+} as const
+
+export interface CallToolBlockedApi {
+    /** Why the call was refused, phrased for the calling agent. */
+    detail: string
+    /** Machine-readable refusal cause, so callers can prompt for approval instead of retrying.
+     *
+     * * `needs_approval` - needs_approval
+     * * `disabled` - disabled
+     * * `removed` - removed
+     * * `upstream_error` - upstream_error */
+    reason: CallToolBlockedReasonEnumApi
+}
+
 export interface MCPServerInstallationToolApi {
     readonly id: string
     readonly tool_name: string
@@ -896,6 +970,49 @@ export const ToolApprovalUpdateApprovalStateEnumApi = {
 
 export interface PatchedToolApprovalUpdateApi {
     approval_state?: ToolApprovalUpdateApprovalStateEnumApi
+}
+
+/**
+ * JSON Schema for the tool's arguments.
+ */
+export type AvailableToolApiInputSchema = { [key: string]: unknown }
+
+/**
+ * MCP tool annotations the upstream server declared (destructiveHint, readOnlyHint, ...). Advisory only — policy may escalate them, never loosen them.
+ */
+export type AvailableToolApiAnnotations = { [key: string]: unknown }
+
+export interface AvailableToolApi {
+    /** Tool name as the upstream server reports it. */
+    name: string
+    /** Upstream tool description. */
+    description: string
+    /** JSON Schema for the tool's arguments. */
+    input_schema: AvailableToolApiInputSchema
+    /** MCP tool annotations the upstream server declared (destructiveHint, readOnlyHint, ...). Advisory only — policy may escalate them, never loosen them. */
+    annotations: AvailableToolApiAnnotations
+    /** Effective gateway state. `needs_approval` tools are listed so callers can explain why a call would fail rather than pretending the capability is missing.
+     *
+     * * `approved` - Approved
+     * * `needs_approval` - Needs approval
+     * * `do_not_use` - Do not use */
+    approval_state: MCPToolApprovalStateEnumApi
+}
+
+export interface AvailableServerApi {
+    /** Installation to send `call_tool` requests to. */
+    installation_id: string
+    /** Human-readable server name. */
+    name: string
+    /** Stable lowercase identifier used to namespace tool names. */
+    slug: string
+    /** Callable tools on this server. */
+    tools: AvailableToolApi[]
+}
+
+export interface AvailableToolsResponseApi {
+    /** Connected servers the caller can reach. */
+    servers: AvailableServerApi[]
 }
 
 /**
@@ -1039,6 +1156,13 @@ export const McpGatewayAuditListQuickFilter = {
     Approvals: 'approvals',
     Blocked: 'blocked',
 } as const
+
+export type McpGatewayAuditCountsRetrieveParams = {
+    /**
+     * Only count calls made by this service account.
+     */
+    actor_service_account_id?: string
+}
 
 export type McpGatewayMembersListParams = {
     /**

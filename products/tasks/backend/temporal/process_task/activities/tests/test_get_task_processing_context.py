@@ -19,6 +19,8 @@ from products.tasks.backend.constants import (
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
+    vm_sandbox_origin_in_rollout,
+    vm_sandbox_origin_rollout_percentages,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
@@ -932,6 +934,7 @@ class TestGetTaskProcessingContextActivity:
             ("user_created", {"default_base_origin_products": ["user_created"]}, False, True),
             # the waiver is scoped per origin — an unlisted origin still gets gVisor.
             ("signals_scout", {"default_base_origin_products": ["user_created"]}, False, False),
+            ("signals_scout", {"origin_product_rollout_percentages": {"signals_scout": 100}}, False, True),
             # origin_products membership alone does NOT waive the custom-image requirement.
             (
                 "user_created",
@@ -989,6 +992,34 @@ class TestGetTaskProcessingContextActivity:
     )
     def test_vm_sandbox_default_base_origin_products_parsing(self, payload, expected):
         assert vm_sandbox_default_base_origin_products(payload) == expected
+
+    @pytest.mark.parametrize(
+        "payload,expected",
+        [
+            ({"origin_product_rollout_percentages": {"signals_scout": 10}}, {"signals_scout": 10.0}),
+            ('{"origin_product_rollout_percentages":{"signals_scout":12.5}}', {"signals_scout": 12.5}),
+            ({"origin_product_rollout_percentages": {"negative": -1, "large": 101, "bool": True}}, {}),
+            ({"origin_product_rollout_percentages": ["signals_scout"]}, {}),
+            (None, {}),
+        ],
+    )
+    def test_vm_sandbox_origin_rollout_percentages_parsing(self, payload, expected):
+        assert vm_sandbox_origin_rollout_percentages(payload) == expected
+
+    def test_vm_sandbox_origin_percentage_rollout_is_stable_and_distributed(self):
+        percentages = {"signals_scout": 10.0}
+        decisions = [
+            vm_sandbox_origin_in_rollout("signals_scout", f"run-{index}", percentages) for index in range(1000)
+        ]
+
+        assert decisions == [
+            vm_sandbox_origin_in_rollout("signals_scout", f"run-{index}", percentages) for index in range(1000)
+        ]
+        assert 70 <= sum(decisions) <= 130
+        assert not vm_sandbox_origin_in_rollout("onboarding", "run-1", percentages)
+        assert vm_sandbox_origin_in_rollout(None, "run-1", {"": 50}) == vm_sandbox_origin_in_rollout(
+            "", "run-1", {"": 50}
+        )
 
     @pytest.mark.parametrize(
         "payload, expected",

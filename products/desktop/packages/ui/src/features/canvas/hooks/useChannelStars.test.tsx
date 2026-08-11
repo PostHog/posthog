@@ -1,13 +1,12 @@
-import type { Schemas } from "@posthog/api-client";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockClient = vi.hoisted(() => ({
-  getDesktopFileSystemShortcuts: vi.fn(),
-  createDesktopFileSystemShortcut: vi.fn(),
-  deleteDesktopFileSystemShortcut: vi.fn(),
+  getTaskChannels: vi.fn(),
+  starTaskChannel: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
@@ -18,23 +17,20 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
 
 import { useChannelStars, useChannelStarToggle } from "./useChannelStars";
 import type { Channel } from "./useChannels";
+import { TASK_CHANNELS_QUERY_KEY } from "./useTaskChannels";
 
-function shortcut(
-  id: string,
-  type: string,
-  ref: string | null,
-): Schemas.FileSystemShortcut {
+function taskChannel(id: string, name: string, starred = false): TaskChannel {
   return {
     id,
-    path: ref?.replace(/^\/+/, "") ?? "x",
-    type,
-    ref,
+    name,
+    channel_type: "public",
+    starred,
     created_at: "2026-01-01T00:00:00Z",
   };
 }
 
-function channel(id: string, name: string, path: string): Channel {
-  return { id, name, path };
+function channel(id: string, name: string, starred = false): Channel {
+  return { id, name, channelType: "public", starred };
 }
 
 let queryClient: QueryClient;
@@ -52,37 +48,34 @@ describe("useChannelStars", () => {
     });
   });
 
-  it("maps folder shortcuts by ref, ignoring other types and ref-less rows", async () => {
-    mockClient.getDesktopFileSystemShortcuts.mockResolvedValue([
-      shortcut("s1", "folder", "/alpha"),
-      shortcut("s2", "insight", "abc"), // not a channel
-      shortcut("s3", "folder", null), // no ref to link
+  it("collects the ids of channels the user starred", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([
+      taskChannel("1", "alpha", true),
+      taskChannel("2", "beta", false),
     ]);
 
     const { result } = renderHook(() => useChannelStars(), { wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect([...result.current.starredRefToShortcutId.entries()]).toEqual([
-      ["/alpha", "s1"],
-    ]);
+    expect([...result.current.starredChannelIds]).toEqual(["1"]);
   });
 
-  it("stars an unstarred channel via its raw path, updating the cache immediately", async () => {
-    mockClient.getDesktopFileSystemShortcuts.mockResolvedValue([]);
+  it("stars an unstarred channel, updating the cache immediately", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([taskChannel("1", "alpha")]);
 
     const stars = renderHook(() => useChannelStars(), { wrapper });
     await waitFor(() => expect(stars.result.current.isLoading).toBe(false));
+    expect(stars.result.current.starredChannelIds.size).toBe(0);
 
-    const created = shortcut("s1", "folder", "/alpha");
-    mockClient.createDesktopFileSystemShortcut.mockResolvedValue(created);
+    mockClient.starTaskChannel.mockResolvedValue(undefined);
     // Hang the refetch so only the optimistic cache write is exercised.
-    mockClient.getDesktopFileSystemShortcuts.mockReturnValue(
-      new Promise(() => {}),
-    );
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
 
     const toggle = renderHook(
-      () => useChannelStarToggle(channel("1", "alpha", "/alpha")),
-      { wrapper },
+      () => useChannelStarToggle(channel("1", "alpha")),
+      {
+        wrapper,
+      },
     );
     expect(toggle.result.current.isStarred).toBe(false);
 
@@ -90,33 +83,26 @@ describe("useChannelStars", () => {
       toggle.result.current.toggleStar();
     });
 
-    expect(mockClient.createDesktopFileSystemShortcut).toHaveBeenCalledWith({
-      path: "alpha",
-      type: "folder",
-      ref: "/alpha",
-    });
+    expect(mockClient.starTaskChannel).toHaveBeenCalledWith("1", true);
     await waitFor(() =>
-      expect(stars.result.current.starredRefToShortcutId.get("/alpha")).toBe(
-        "s1",
-      ),
+      expect(stars.result.current.starredChannelIds.has("1")).toBe(true),
     );
   });
 
-  it("unstars a starred channel by deleting its shortcut id", async () => {
-    mockClient.getDesktopFileSystemShortcuts.mockResolvedValue([
-      shortcut("s1", "folder", "/alpha"),
+  it("unstars a starred channel by clearing its flag", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([
+      taskChannel("1", "alpha", true),
     ]);
 
     const stars = renderHook(() => useChannelStars(), { wrapper });
     await waitFor(() => expect(stars.result.current.isLoading).toBe(false));
+    expect(stars.result.current.starredChannelIds.has("1")).toBe(true);
 
-    mockClient.deleteDesktopFileSystemShortcut.mockResolvedValue(undefined);
-    mockClient.getDesktopFileSystemShortcuts.mockReturnValue(
-      new Promise(() => {}),
-    );
+    mockClient.starTaskChannel.mockResolvedValue(undefined);
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
 
     const toggle = renderHook(
-      () => useChannelStarToggle(channel("1", "alpha", "/alpha")),
+      () => useChannelStarToggle(channel("1", "alpha", true)),
       { wrapper },
     );
     expect(toggle.result.current.isStarred).toBe(true);
@@ -125,13 +111,79 @@ describe("useChannelStars", () => {
       toggle.result.current.toggleStar();
     });
 
-    expect(mockClient.deleteDesktopFileSystemShortcut).toHaveBeenCalledWith(
-      "s1",
-    );
+    expect(mockClient.starTaskChannel).toHaveBeenCalledWith("1", false);
     await waitFor(() =>
-      expect(stars.result.current.starredRefToShortcutId.has("/alpha")).toBe(
-        false,
-      ),
+      expect(stars.result.current.starredChannelIds.has("1")).toBe(false),
     );
+  });
+
+  it("settles to the user's LAST click when star/unstar resolve out of order", async () => {
+    mockClient.getTaskChannels.mockResolvedValue([taskChannel("1", "alpha")]);
+    // Keep the post-mutation refetch from overwriting the optimistic write
+    // with a stale snapshot, which is exactly what hides the race.
+    let resolveStar!: () => void;
+    let resolveUnstar!: () => void;
+    mockClient.starTaskChannel
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((res) => {
+            resolveStar = res;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((res) => {
+            resolveUnstar = res;
+          }),
+      );
+
+    // Seed the shared channels cache via the list hook, then hang any refetch
+    // so only the mutation writes (not a refetched snapshot) decide the cache.
+    const stars = renderHook(() => useChannelStars(), { wrapper });
+    await waitFor(() => expect(stars.result.current.isLoading).toBe(false));
+    await waitFor(() =>
+      expect(queryClient.getQueryData(TASK_CHANNELS_QUERY_KEY)).toBeTruthy(),
+    );
+    mockClient.getTaskChannels.mockReturnValue(new Promise(() => {}));
+
+    // Two rapid toggles: star then unstar, modelled with explicit isStarred so
+    // both mutations fire (a single component's stale closure is a separate UI
+    // quirk; this isolates the resolve-order race).
+    const first = renderHook(
+      () => useChannelStarToggle(channel("1", "alpha", false)),
+      { wrapper },
+    );
+    const second = renderHook(
+      () => useChannelStarToggle(channel("1", "alpha", true)),
+      { wrapper },
+    );
+
+    act(() => {
+      first.result.current.toggleStar(); // star
+      second.result.current.toggleStar(); // unstar
+    });
+    // Optimistic write applies immediately from the last click.
+    await waitFor(() =>
+      expect(
+        queryClient
+          .getQueryData<{ id: string; starred: boolean }[]>(
+            TASK_CHANNELS_QUERY_KEY,
+          )
+          ?.find((c) => c.id === "1")?.starred,
+      ).toBe(false),
+    );
+
+    // Resolve in REVERSE order: unstar first, star last. With the last-resolved
+    // wins bug, the star (wrong, older intent) would overwrite the cache.
+    await act(async () => {
+      resolveUnstar();
+      resolveStar();
+    });
+
+    const cached = queryClient
+      .getQueryData<{ id: string; starred: boolean }[]>(TASK_CHANNELS_QUERY_KEY)
+      ?.find((c) => c.id === "1");
+    // The cache must reflect the last click (unstar), not the late star.
+    expect(cached?.starred).toBe(false);
   });
 });
