@@ -50,12 +50,40 @@ def run_conversations_recent_tickets_widget(
     typed_config = validate_widget_config(CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE, config)
     limit = typed_config["limit"]
 
-    queryset = Ticket.objects.filter(team=team).select_related("assignment", "assignment__user", "assignment__role")
+    queryset = (
+        Ticket.objects.filter(team=team)
+        .select_related("assignment", "assignment__user", "assignment__role")
+        .only(
+            "id",
+            "ticket_number",
+            "channel_source",
+            "status",
+            "priority",
+            "updated_at",
+            "last_message_text",
+            "unread_team_count",
+            "email_subject",
+            "assignment__user__id",
+            "assignment__user__first_name",
+            "assignment__user__email",
+            "assignment__user__is_active",
+            "assignment__role__id",
+            "assignment__role__name",
+        )
+    )
     if user is not None:
         queryset = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(queryset)
     filters: dict[str, Any] = {"sorting": {"columnKey": "updated_at", "order": -1}}
     if typed_config["status"] != "all":
         filters["status"] = [typed_config["status"]]
+    if typed_config["priorities"]:
+        filters["priority"] = typed_config["priorities"]
+    if typed_config["channel"] != "all":
+        filters["channel"] = typed_config["channel"]
+    if typed_config["assignees"]:
+        filters["assignee"] = typed_config["assignees"]
+    if typed_config["search"]:
+        filters["search"] = typed_config["search"]
     queryset = apply_ticket_filters(queryset, filters, team=team, user=user)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:

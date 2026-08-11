@@ -244,8 +244,8 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             required_product_access="ticket",
             product_access_denied_message="You do not have access to support tickets.",
             availability_requirements=("conversations_enabled",),
-            form_fields=("limit", "status"),
-            filter_fields=("status",),
+            form_fields=("limit",),
+            filter_fields=("status", "priorities", "channel", "assignees", "search"),
             creation_flag="conversations-dashboard-widget",
         ),
     }

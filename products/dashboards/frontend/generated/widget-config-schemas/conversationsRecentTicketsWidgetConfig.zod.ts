@@ -6,10 +6,17 @@
  */
 import { z as zod } from 'zod'
 
+import { WidgetAssigneeFilter } from './widgetAssigneeFilter.zod'
+
 export const conversationsRecentTicketsWidgetConfigLimitDefault = 10
 export const conversationsRecentTicketsWidgetConfigLimitMax = 25
 
 export const conversationsRecentTicketsWidgetConfigStatusDefault = `all`
+export const conversationsRecentTicketsWidgetConfigChannelDefault = `all`
+export const conversationsRecentTicketsWidgetConfigAssigneesMax = 100
+
+export const conversationsRecentTicketsWidgetConfigSearchDefault = ``
+export const conversationsRecentTicketsWidgetConfigSearchMax = 200
 
 export const ConversationsRecentTicketsWidgetConfig = /* @__PURE__ */ zod.object({
     limit: zod
@@ -22,6 +29,26 @@ export const ConversationsRecentTicketsWidgetConfig = /* @__PURE__ */ zod.object
         .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
         .default(conversationsRecentTicketsWidgetConfigStatusDefault)
         .describe('Ticket status filter.'),
+    priorities: zod
+        .array(zod.enum(['low', 'medium', 'high', 'critical']))
+        .optional()
+        .describe('Only show tickets with these priorities. Empty shows all priorities.'),
+    channel: zod
+        .enum(['widget', 'slack', 'email', 'teams', 'github', 'all'])
+        .default(conversationsRecentTicketsWidgetConfigChannelDefault)
+        .describe('Ticket channel filter.'),
+    assignees: zod
+        .array(zod.union([zod.enum(['me', 'unassigned']), WidgetAssigneeFilter]))
+        .max(conversationsRecentTicketsWidgetConfigAssigneesMax)
+        .optional()
+        .describe(
+            "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
+        ),
+    search: zod
+        .string()
+        .max(conversationsRecentTicketsWidgetConfigSearchMax)
+        .default(conversationsRecentTicketsWidgetConfigSearchDefault)
+        .describe('Search requester name or email, ticket subject, message text, or ticket number.'),
 })
 
 export type ConversationsRecentTicketsWidgetConfig = zod.input<typeof ConversationsRecentTicketsWidgetConfig>

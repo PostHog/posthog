@@ -46,7 +46,6 @@ export const activityEventsWidgetFormSchema = activityEventsWidgetConfigSchema.p
 
 export const conversationsRecentTicketsWidgetFormSchema = conversationsRecentTicketsWidgetConfigSchema.pick({
     limit: true,
-    status: true,
 })
 
 export const errorTrackingWidgetFormSchema = errorTrackingWidgetConfigSchema.pick({

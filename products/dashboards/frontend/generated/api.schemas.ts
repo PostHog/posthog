@@ -815,6 +815,31 @@ export const ConversationsRecentTicketsWidgetConfigApiStatus = {
     All: 'all',
 } as const
 
+export type ConversationsRecentTicketsWidgetConfigApiPrioritiesItem =
+    (typeof ConversationsRecentTicketsWidgetConfigApiPrioritiesItem)[keyof typeof ConversationsRecentTicketsWidgetConfigApiPrioritiesItem]
+
+export const ConversationsRecentTicketsWidgetConfigApiPrioritiesItem = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Critical: 'critical',
+} as const
+
+/**
+ * Ticket channel filter.
+ */
+export type ConversationsRecentTicketsWidgetConfigApiChannel =
+    (typeof ConversationsRecentTicketsWidgetConfigApiChannel)[keyof typeof ConversationsRecentTicketsWidgetConfigApiChannel]
+
+export const ConversationsRecentTicketsWidgetConfigApiChannel = {
+    Widget: 'widget',
+    Slack: 'slack',
+    Email: 'email',
+    Teams: 'teams',
+    Github: 'github',
+    All: 'all',
+} as const
+
 export interface ConversationsRecentTicketsWidgetConfigApi {
     /**
      * Maximum number of tickets to return.
@@ -824,6 +849,20 @@ export interface ConversationsRecentTicketsWidgetConfigApi {
     limit?: number
     /** Ticket status filter. */
     status?: ConversationsRecentTicketsWidgetConfigApiStatus
+    /** Only show tickets with these priorities. Empty shows all priorities. */
+    priorities?: ConversationsRecentTicketsWidgetConfigApiPrioritiesItem[]
+    /** Ticket channel filter. */
+    channel?: ConversationsRecentTicketsWidgetConfigApiChannel
+    /**
+     * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
+     * @maxItems 100
+     */
+    assignees?: ('me' | 'unassigned' | WidgetAssigneeFilterApi)[]
+    /**
+     * Search requester name or email, ticket subject, message text, or ticket number.
+     * @maxLength 200
+     */
+    search?: string
 }
 
 export type DashboardWidgetConfigApi =

@@ -11,7 +11,7 @@
             "configSchemaExport": "conversationsRecentTicketsWidgetConfigSchema",
             "configTypeExport": "ConversationsRecentTicketsWidgetConfig",
             "formSchemaExport": "conversationsRecentTicketsWidgetFormSchema",
-            "formFields": ["limit", "status"],
+            "formFields": ["limit"],
             "live": false
         },
         "error_tracking_list": {

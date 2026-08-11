@@ -1,5 +1,5 @@
 import { IconMessage } from '@posthog/icons'
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
@@ -12,6 +12,7 @@ import {
     WidgetCardContent,
     WidgetContentFooter,
     WidgetListCount,
+    WidgetLoadingState,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 
@@ -82,15 +83,7 @@ export function ConversationsWidget({ result, loading, error }: DashboardWidgetC
     const tickets = payload?.results ?? []
 
     if (loading) {
-        return (
-            <WidgetCardContent>
-                <div className="flex flex-col gap-3 p-3">
-                    {Array.from({ length: 5 }, (_, index) => (
-                        <LemonSkeleton key={index} className="h-10 w-full" />
-                    ))}
-                </div>
-            </WidgetCardContent>
-        )
+        return <WidgetLoadingState rowCount={5} className="p-3" />
     }
     if (error) {
         return (

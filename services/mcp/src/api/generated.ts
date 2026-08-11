@@ -5460,6 +5460,31 @@ export namespace Schemas {
       All: 'all',
     } as const;
 
+    export type ConversationsRecentTicketsWidgetConfigPrioritiesItem = typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem[keyof typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem];
+
+
+    export const ConversationsRecentTicketsWidgetConfigPrioritiesItem = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
+    /**
+     * Ticket channel filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigChannel = typeof ConversationsRecentTicketsWidgetConfigChannel[keyof typeof ConversationsRecentTicketsWidgetConfigChannel];
+
+
+    export const ConversationsRecentTicketsWidgetConfigChannel = {
+      Widget: 'widget',
+      Slack: 'slack',
+      Email: 'email',
+      Teams: 'teams',
+      Github: 'github',
+      All: 'all',
+    } as const;
+
     export interface ConversationsRecentTicketsWidgetConfig {
       /**
          * Maximum number of tickets to return.
@@ -5469,6 +5494,20 @@ export namespace Schemas {
       limit?: number;
       /** Ticket status filter. */
       status?: ConversationsRecentTicketsWidgetConfigStatus;
+      /** Only show tickets with these priorities. Empty shows all priorities. */
+      priorities?: ConversationsRecentTicketsWidgetConfigPrioritiesItem[];
+      /** Ticket channel filter. */
+      channel?: ConversationsRecentTicketsWidgetConfigChannel;
+      /**
+         * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
+         * @maxItems 100
+         */
+      assignees?: ('me' | 'unassigned' | WidgetAssigneeFilter)[];
+      /**
+         * Search requester name or email, ticket subject, message text, or ticket number.
+         * @maxLength 200
+         */
+      search?: string;
     }
 
     export interface ConversationsRecentTicketsWidgetAddRequestOpenApi {

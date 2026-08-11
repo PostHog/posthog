@@ -61,6 +61,8 @@ LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
 ConversationsTicketStatus = Literal["new", "open", "pending", "on_hold", "resolved", "all"]
+ConversationsTicketPriority = Literal["low", "medium", "high", "critical"]
+ConversationsTicketChannel = Literal["widget", "slack", "email", "teams", "github", "all"]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -68,6 +70,9 @@ class WidgetAssigneeFilter(BaseModel):
 
     id: str | int
     type: WidgetAssigneeType
+
+
+ConversationsAssigneeFilter = Literal["me", "unassigned"] | WidgetAssigneeFilter
 
 
 class ActivityEventsPropertyFilter(BaseModel):
@@ -245,3 +250,21 @@ class ConversationsRecentTicketsWidgetConfig(BaseModel):
 
     limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of tickets to return.")
     status: ConversationsTicketStatus = Field(default="all", description="Ticket status filter.")
+    priorities: list[ConversationsTicketPriority] = Field(
+        default_factory=list,
+        description="Only show tickets with these priorities. Empty shows all priorities.",
+    )
+    channel: ConversationsTicketChannel = Field(default="all", description="Ticket channel filter.")
+    assignees: list[ConversationsAssigneeFilter] = Field(
+        default_factory=list,
+        max_length=100,
+        description=(
+            "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' "
+            "means tickets without an assignment. Empty shows all assignees."
+        ),
+    )
+    search: str = Field(
+        default="",
+        max_length=200,
+        description="Search requester name or email, ticket subject, message text, or ticket number.",
+    )

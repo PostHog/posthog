@@ -262,6 +262,12 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitDef
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightLimitMax = 25
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightStatusDefault = `all`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightChannelDefault = `all`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightAssigneesMax = 100
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchDefault = ``
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchMax = 200
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
@@ -947,6 +953,44 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightStatusDefault
                                             )
                                             .describe('Ticket status filter.'),
+                                        priorities: zod
+                                            .array(zod.enum(['low', 'medium', 'high', 'critical']))
+                                            .optional()
+                                            .describe(
+                                                'Only show tickets with these priorities. Empty shows all priorities.'
+                                            ),
+                                        channel: zod
+                                            .enum(['widget', 'slack', 'email', 'teams', 'github', 'all'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightChannelDefault
+                                            )
+                                            .describe('Ticket channel filter.'),
+                                        assignees: zod
+                                            .array(
+                                                zod.union([
+                                                    zod.enum(['me', 'unassigned']),
+                                                    zod.object({
+                                                        id: zod.union([zod.string(), zod.number()]),
+                                                        type: zod.enum(['user', 'role']),
+                                                    }),
+                                                ])
+                                            )
+                                            .max(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightAssigneesMax
+                                            )
+                                            .optional()
+                                            .describe(
+                                                "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
+                                            ),
+                                        search: zod
+                                            .string()
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchDefault
+                                            )
+                                            .describe(
+                                                'Search requester name or email, ticket subject, message text, or ticket number.'
+                                            ),
                                     }),
                                 ])
                                 .optional()
@@ -1194,6 +1238,12 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitDefau
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneLimitMax = 25
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneStatusDefault = `all`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneChannelDefault = `all`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneAssigneesMax = 100
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchDefault = ``
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchMax = 200
+
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
 export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
@@ -2246,6 +2296,36 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneStatusDefault)
                                     .describe('Ticket status filter.'),
+                                priorities: zod
+                                    .array(zod.enum(['low', 'medium', 'high', 'critical']))
+                                    .optional()
+                                    .describe('Only show tickets with these priorities. Empty shows all priorities.'),
+                                channel: zod
+                                    .enum(['widget', 'slack', 'email', 'teams', 'github', 'all'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneChannelDefault)
+                                    .describe('Ticket channel filter.'),
+                                assignees: zod
+                                    .array(
+                                        zod.union([
+                                            zod.enum(['me', 'unassigned']),
+                                            zod.object({
+                                                id: zod.union([zod.string(), zod.number()]),
+                                                type: zod.enum(['user', 'role']),
+                                            }),
+                                        ])
+                                    )
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneAssigneesMax)
+                                    .optional()
+                                    .describe(
+                                        "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
+                                    ),
+                                search: zod
+                                    .string()
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchDefault)
+                                    .describe(
+                                        'Search requester name or email, ticket subject, message text, or ticket number.'
+                                    ),
                             })
                             .describe('Configuration for the recent tickets widget.'),
                     }),
@@ -2329,6 +2409,12 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitDefau
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneLimitMax = 25
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneStatusDefault = `all`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneChannelDefault = `all`
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneAssigneesMax = 100
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault = ``
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchMax = 200
+
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
 export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
@@ -3052,6 +3138,36 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneStatusDefault)
                                     .describe('Ticket status filter.'),
+                                priorities: zod
+                                    .array(zod.enum(['low', 'medium', 'high', 'critical']))
+                                    .optional()
+                                    .describe('Only show tickets with these priorities. Empty shows all priorities.'),
+                                channel: zod
+                                    .enum(['widget', 'slack', 'email', 'teams', 'github', 'all'])
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneChannelDefault)
+                                    .describe('Ticket channel filter.'),
+                                assignees: zod
+                                    .array(
+                                        zod.union([
+                                            zod.enum(['me', 'unassigned']),
+                                            zod.object({
+                                                id: zod.union([zod.string(), zod.number()]),
+                                                type: zod.enum(['user', 'role']),
+                                            }),
+                                        ])
+                                    )
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneAssigneesMax)
+                                    .optional()
+                                    .describe(
+                                        "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees."
+                                    ),
+                                search: zod
+                                    .string()
+                                    .max(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchMax)
+                                    .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault)
+                                    .describe(
+                                        'Search requester name or email, ticket subject, message text, or ticket number.'
+                                    ),
                             })
                             .optional()
                             .describe('New configuration for the recent tickets widget. Omit to leave unchanged.'),

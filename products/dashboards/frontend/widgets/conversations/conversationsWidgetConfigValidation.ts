@@ -10,6 +10,9 @@ import {
 import { fieldErrorsFromZodError, parseWidgetConfig } from '../widgetConfigValidation'
 
 export type ConversationsTicketStatus = NonNullable<ConversationsRecentTicketsWidgetConfig['status']>
+export type ConversationsTicketPriority = NonNullable<ConversationsRecentTicketsWidgetConfig['priorities']>[number]
+export type ConversationsTicketChannel = NonNullable<ConversationsRecentTicketsWidgetConfig['channel']>
+export type ConversationsTicketAssignee = NonNullable<ConversationsRecentTicketsWidgetConfig['assignees']>[number]
 type ConversationsWidgetFormField = keyof z.infer<typeof conversationsRecentTicketsWidgetFormSchema>
 export type ConversationsWidgetFieldErrors = Partial<Record<ConversationsWidgetFormField, string>>
 
@@ -22,17 +25,33 @@ export const CONVERSATIONS_TICKET_STATUS_OPTIONS: { value: ConversationsTicketSt
     { value: 'resolved', label: 'Resolved' },
 ]
 
+export const CONVERSATIONS_TICKET_PRIORITY_OPTIONS: { key: ConversationsTicketPriority; label: string }[] = [
+    { key: 'low', label: 'Low' },
+    { key: 'medium', label: 'Medium' },
+    { key: 'high', label: 'High' },
+    { key: 'critical', label: 'Critical' },
+]
+
+export const CONVERSATIONS_TICKET_CHANNEL_OPTIONS: { value: ConversationsTicketChannel; label: string }[] = [
+    { value: 'all', label: 'All channels' },
+    { value: 'widget', label: 'Widget' },
+    { value: 'slack', label: 'Slack' },
+    { value: 'teams', label: 'Microsoft Teams' },
+    { value: 'email', label: 'Email' },
+    { value: 'github', label: 'GitHub' },
+]
+
 export function parseConversationsWidgetConfig(
     config: Record<string, unknown>
 ): ConversationsRecentTicketsWidgetConfig {
     return parseWidgetConfig(conversationsRecentTicketsWidgetConfigSchema, config)
 }
 
-export function patchConversationsWidgetStatus(
+export function patchConversationsWidgetConfig(
     config: Record<string, unknown>,
-    status: ConversationsTicketStatus
+    patch: Partial<ConversationsRecentTicketsWidgetConfig>
 ): ConversationsRecentTicketsWidgetConfig {
-    return conversationsRecentTicketsWidgetConfigSchema.parse({ ...parseConversationsWidgetConfig(config), status })
+    return conversationsRecentTicketsWidgetConfigSchema.parse({ ...parseConversationsWidgetConfig(config), ...patch })
 }
 
 export function parseConversationsWidgetConfigApiError(

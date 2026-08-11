@@ -41,7 +41,7 @@
             "timezone",
             "wrapLines"
         ],
-        "conversations_recent_tickets": ["limit", "status"]
+        "conversations_recent_tickets": ["assignees", "channel", "limit", "priorities", "search", "status"]
     },
     "configPropertyTrees": {
         "activity_events_list": {
@@ -427,6 +427,27 @@
             },
             "status": {
                 "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+            },
+            "priorities": {
+                "$array": {
+                    "$enum": ["critical", "high", "low", "medium"]
+                }
+            },
+            "channel": {
+                "$enum": ["all", "email", "github", "slack", "teams", "widget"]
+            },
+            "assignees": {
+                "$array": {
+                    "id": {
+                        "$types": ["integer", "string"]
+                    },
+                    "type": {
+                        "$enum": ["role", "user"]
+                    }
+                }
+            },
+            "search": {
+                "$type": "string"
             }
         }
     }
