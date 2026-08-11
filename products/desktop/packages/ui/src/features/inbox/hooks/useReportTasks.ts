@@ -31,13 +31,22 @@ function derivePurpose(taskRun: {
     if (taskRun.type === "implementation") {
       return { purpose: "implementation", purposeLabel: "Implementation" };
     }
-    // repo_selection runs are plumbing, not report work — never displayed (matches the
-    // pre-derivation behavior of only showing research/implementation).
-    return null;
+    if (taskRun.type === "scout") {
+      return { purpose: "other", purposeLabel: "Scout" };
+    }
+    // repo_selection runs are plumbing, not report work — never displayed.
+    if (taskRun.type === "repo_selection") {
+      return null;
+    }
+    // discussion and any other signals task run fall through to "other".
+    return {
+      purpose: "other",
+      purposeLabel: `Signals: ${humanizeIdentifier(taskRun.type)}`,
+    };
   }
   return {
     purpose: "other",
-    purposeLabel: `${humanizeIdentifier(taskRun.product)} — ${humanizeIdentifier(taskRun.type)}`,
+    purposeLabel: `${humanizeIdentifier(taskRun.product)}: ${humanizeIdentifier(taskRun.type)}`,
   };
 }
 
@@ -133,11 +142,14 @@ export function findContinuableImplementationTask(
   reportTasks: ReportTaskData[] | undefined,
 ): Task | null {
   if (!reportTasks) return null;
+  // The PR's existence is the signal that matters, not the task's purpose label:
+  // a Discuss or Scout run that already shipped a PR must count as continuable so
+  // re-engaging the report resumes that task instead of starting a duplicate.
+  const withPr = reportTasks.find((t) => getTaskPrUrl(t.task));
+  if (withPr) return withPr.task;
   const implementation = reportTasks.filter(
     (t) => t.purpose === "implementation",
   );
-  const withPr = implementation.find((t) => getTaskPrUrl(t.task));
-  if (withPr) return withPr.task;
   const running = implementation.find((t) => {
     const status = t.task.latest_run?.status;
     return status != null && !isTerminalStatus(status);
