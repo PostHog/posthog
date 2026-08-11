@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, useMemo } from 'react'
 
 import { useComponentPanelState } from './componentPanelContext'
 import { NotebookComponentRunStatusContext } from './componentRunStatus'
 import { NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
 import { NotebookComponentShell } from './NotebookComponentShell'
 import { createMarkdownNotebookRegistry } from './registry'
+import { NotebookComponentRenderProps } from './types'
 
 function PanelStateProbe(): JSX.Element {
     const panelState = useComponentPanelState()
@@ -235,6 +236,61 @@ describe('NotebookComponentShell', () => {
         expect(screen.queryByText('Change view')).toBeNull()
         expect(screen.getByText('Refresh')).toBeTruthy()
         viewRender.unmount()
+    })
+
+    it('settles when a component publishes a menu derived from updateProps', async () => {
+        function ViewMenuProbe({ updateProps }: NotebookComponentRenderProps): JSX.Element {
+            const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+            const editMenuItems = useMemo(
+                () => [
+                    {
+                        label: 'Change view',
+                        items: [{ label: 'Summary', onClick: () => updateProps({ view: 'summary' }) }],
+                    },
+                ],
+                [updateProps]
+            )
+
+            useEffect(() => {
+                setToolbarExtras?.({ actions: [], menuItems: null, editMenuItems })
+            }, [editMenuItems, setToolbarExtras])
+
+            return <div>Results</div>
+        }
+
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Probe',
+                label: 'Probe',
+                category: 'Test',
+                ViewComponent: ViewMenuProbe,
+            },
+        ])
+
+        const rendered = render(
+            <NotebookComponentShell
+                node={{ id: 'probe-node', type: 'component', tagName: 'Probe', props: {} }}
+                mode="edit"
+                componentPanels={{ filters: false, results: true }}
+                persistComponentPanelVisibility={false}
+                isSelected={false}
+                registry={registry}
+                toggleComponentPanel={jest.fn()}
+                setLocalComponentPanels={jest.fn()}
+                rememberComponentPanels={jest.fn()}
+                setBlockRef={jest.fn()}
+                updateNode={jest.fn()}
+                deleteNode={jest.fn()}
+                deleteSelectedNotebookBlocks={jest.fn(() => false)}
+                insertParagraphAfterNode={jest.fn()}
+                moveFocusToAdjacentNode={jest.fn(() => false)}
+            />
+        )
+
+        expect(within(rendered.container).getByText('Results')).toBeTruthy()
+        await userEvent.click(within(rendered.container).getByLabelText('More actions'))
+        expect(await screen.findByText('Change view')).toBeTruthy()
+        rendered.unmount()
     })
 
     it('puts current-tab and new-tab resource links first in the overflow menu', async () => {

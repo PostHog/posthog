@@ -5,6 +5,7 @@ import {
     PointerEvent as ReactPointerEvent,
     ReactNode,
     memo,
+    useCallback,
     useEffect,
     useMemo,
     useRef,
@@ -261,41 +262,47 @@ export function NotebookComponentShell({
 
         setComponentPanels(nextPanelVisibility)
     }
-    const updateProps = (props: Partial<NotebookComponentProps>): void => {
-        const propKeysToRemove = new Set(
-            Object.entries(props)
-                .filter(([, value]) => value === undefined)
-                .map(([key]) => key)
-        )
-        const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-            if (value !== undefined) {
-                accumulator[key] = value
-            }
-            return accumulator
-        }, {})
+    const updateProps = useCallback(
+        (props: Partial<NotebookComponentProps>): void => {
+            const propKeysToRemove = new Set(
+                Object.entries(props)
+                    .filter(([, value]) => value === undefined)
+                    .map(([key]) => key)
+            )
+            const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
+                if (value !== undefined) {
+                    accumulator[key] = value
+                }
+                return accumulator
+            }, {})
 
-        updateNode(node.id, (currentNode) => {
-            if (currentNode.type !== 'component') {
-                return currentNode
-            }
-            return {
-                ...currentNode,
-                // An intentional edit supersedes any malformed source captured at parse time —
-                // stale `raw` would otherwise win over the new props on serialize
-                raw: undefined,
-                errors: undefined,
-                props: {
-                    ...Object.entries(currentNode.props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-                        if (!propKeysToRemove.has(key)) {
-                            accumulator[key] = value
-                        }
-                        return accumulator
-                    }, {}),
-                    ...nextProps,
-                },
-            }
-        })
-    }
+            updateNode(node.id, (currentNode) => {
+                if (currentNode.type !== 'component') {
+                    return currentNode
+                }
+                return {
+                    ...currentNode,
+                    // An intentional edit supersedes any malformed source captured at parse time —
+                    // stale `raw` would otherwise win over the new props on serialize
+                    raw: undefined,
+                    errors: undefined,
+                    props: {
+                        ...Object.entries(currentNode.props).reduce<NotebookComponentProps>(
+                            (accumulator, [key, value]) => {
+                                if (!propKeysToRemove.has(key)) {
+                                    accumulator[key] = value
+                                }
+                                return accumulator
+                            },
+                            {}
+                        ),
+                        ...nextProps,
+                    },
+                }
+            })
+        },
+        [node.id, updateNode]
+    )
     const commitTitle = (): void => {
         if (cancellingTitleRef.current) {
             cancellingTitleRef.current = false

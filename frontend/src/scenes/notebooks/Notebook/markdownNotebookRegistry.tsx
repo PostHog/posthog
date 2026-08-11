@@ -662,6 +662,17 @@ export function MountedRealNotebookNodeComponent({
         () => getNotebookWidgetViewMenuItem(options, attributes, updateAttributes),
         [attributes, options, updateAttributes]
     )
+    const toolbarExtras = useMemo(
+        () => ({
+            actions: nodeActions,
+            menuItems: nodeMenuItems,
+            editMenuItems: viewMenuItem ? [viewMenuItem] : null,
+            filtersDisabledReason: nodeSettingsDisabledReason,
+            title: nodeTitle,
+            titleStatus: nodeTitleStatus,
+        }),
+        [nodeActions, nodeMenuItems, nodeSettingsDisabledReason, nodeTitle, nodeTitleStatus, viewMenuItem]
+    )
 
     // The settings-panel instance (editOnly) shares the shell with the content instance;
     // only the latter publishes, so a hidden panel doesn't clear the other's extras.
@@ -671,24 +682,8 @@ export function MountedRealNotebookNodeComponent({
         if (editOnly || !setToolbarExtras) {
             return
         }
-        setToolbarExtras({
-            actions: nodeActions,
-            menuItems: nodeMenuItems,
-            editMenuItems: viewMenuItem ? [viewMenuItem] : null,
-            filtersDisabledReason: nodeSettingsDisabledReason,
-            title: nodeTitle,
-            titleStatus: nodeTitleStatus,
-        })
-    }, [
-        editOnly,
-        nodeActions,
-        nodeMenuItems,
-        nodeSettingsDisabledReason,
-        nodeTitle,
-        nodeTitleStatus,
-        setToolbarExtras,
-        viewMenuItem,
-    ])
+        setToolbarExtras(toolbarExtras)
+    }, [editOnly, setToolbarExtras, toolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings
