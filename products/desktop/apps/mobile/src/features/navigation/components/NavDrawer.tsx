@@ -333,6 +333,7 @@ export function NavDrawer() {
   // before kicking off `withTiming`.
   const progress = useSharedValue(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: drawerWidth is only read for diagnostics inside the subscription
   useEffect(() => {
     progress.value = useNavDrawerStore.getState().isOpen ? 1 : 0;
     return useNavDrawerStore.subscribe((state, prev) => {

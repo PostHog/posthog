@@ -282,7 +282,9 @@ export default function NewTaskScreen() {
     !!repositoryWarning && repositoryOptions.length === 0;
 
   // Diagnostic breadcrumb for the blank-new-task-screen report: captures the
-  // states that can each blank the composer area.
+  // states that can each blank the composer area. Shared values are read as
+  // point-in-time snapshots, deliberately not dependencies.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: diagnostics-only snapshot read
   useEffect(() => {
     log.debug("new-task screen state", {
       integrationsLoading: isLoading,
