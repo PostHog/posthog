@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use sqlx::postgres::PgPool;
 
 /// Seed `count` persons for `team_id` directly in `table` and return their
@@ -48,6 +48,18 @@ pub async fn seed_persons(
     Ok(ids)
 }
 
+/// The distinct id tables to sweep for a team: always the real mapping
+/// table, plus the tmp mirror when the harness targets the validation
+/// person table — identity writes its mappings there, and the mirror's FK
+/// blocks the person delete until they go.
+fn distinct_id_tables_for(person_table: &str) -> &'static [&'static str] {
+    if person_table == "personhog_person_tmp" {
+        &["posthog_persondistinctid", "personhog_persondistinctid_tmp"]
+    } else {
+        &["posthog_persondistinctid"]
+    }
+}
+
 /// Delete all of `team_id`'s rows from `table`, plus the distinct id and
 /// personless rows the identity-service create path writes. The harness
 /// owns its team ids outright, so team-wide deletes are the whole cleanup.
@@ -56,11 +68,13 @@ pub async fn cleanup_team(pool: &PgPool, table: &str, team_id: i64) -> Result<u6
     validate_table_name(table)?;
     let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
 
-    sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
-        .bind(team)
-        .execute(pool)
-        .await
-        .context("deleting distinct ids")?;
+    for pdi_table in distinct_id_tables_for(table) {
+        sqlx::query(&format!("DELETE FROM {pdi_table} WHERE team_id = $1"))
+            .bind(team)
+            .execute(pool)
+            .await
+            .with_context(|| format!("deleting distinct ids from {pdi_table}"))?;
+    }
     sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
         .bind(team)
         .execute(pool)
@@ -146,11 +160,13 @@ pub async fn reap_stale_team_rows(
     validate_table_name(table)?;
     let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
 
-    sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
-        .bind(team)
-        .execute(pool)
-        .await
-        .context("deleting distinct ids")?;
+    for pdi_table in distinct_id_tables_for(table) {
+        sqlx::query(&format!("DELETE FROM {pdi_table} WHERE team_id = $1"))
+            .bind(team)
+            .execute(pool)
+            .await
+            .with_context(|| format!("deleting distinct ids from {pdi_table}"))?;
+    }
     sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
         .bind(team)
         .execute(pool)
@@ -173,10 +189,7 @@ pub async fn reap_stale_team_rows(
 /// The table name comes from the operator's CLI/env, but sanity-check it
 /// anyway since it is interpolated into SQL (identifiers cannot be bound).
 pub fn validate_table_name(table: &str) -> Result<()> {
-    if table.is_empty() || !table.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        bail!("invalid table name: {table}");
-    }
-    Ok(())
+    personhog_common::persons::validate_table_name(table).map_err(|e| anyhow::anyhow!(e))
 }
 
 #[cfg(test)]

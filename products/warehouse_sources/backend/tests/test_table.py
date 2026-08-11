@@ -22,6 +22,9 @@ from products.warehouse_sources.backend.models.table import (
     get_hogql_field_for_column,
     run_chdb_query,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -160,6 +163,23 @@ class TestSafeExposeChError:
         )
 
         with pytest.raises(Exception, match="Access was denied when reading the provided file"):
+            DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
+
+    def test_delta_kernel_object_store_blip_is_retried_not_blamed_on_the_bucket(self) -> None:
+        # ClickHouse's own deltaLake() S3 table function hits the same transient object-store
+        # blips as delta-rs (e.g. a dropped connection to our own data-warehouse bucket), just
+        # wrapped in a ClickHouse exception. Without this check it fell through to the generic
+        # "check your credentials" message, which downstream code can no longer recognise as a
+        # retryable infra blip (see is_transient_object_store_error) once it's a bare Exception.
+        delta_kernel_error = ServerException(
+            "DB::Exception: Received DeltaLake kernel error ObjectStoreError: Error interacting with "
+            "object store: Generic S3 error: Error performing GET "
+            "http://objectstorage:19000/data-warehouse/team_2_postgres_x/dw_table/_delta_log/_last_checkpoint "
+            "in 6.1s, after 10 retries, max_retries: 10, retry_timeout: 180s - HTTP error: error sending request",
+            code=742,  # DELTA_KERNEL_ERROR
+        )
+
+        with pytest.raises(TransientObjectStoreError):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
 

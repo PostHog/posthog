@@ -36,7 +36,12 @@ from posthog.models import Team, User
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.sql_v2 import is_frame_store_enabled, verify_data_plane_token
+from products.notebooks.backend.sql_v2 import (
+    DELIVERY_INLINE,
+    DELIVERY_OBJECT_RELAY,
+    is_frame_store_enabled,
+    verify_data_plane_token,
+)
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
@@ -173,7 +178,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
             except Exception:
                 logger.exception("notebook_frame_materialize_enqueue_failed", notebook_short_id=notebook_short_id)
                 return JsonResponse({"error": "Query could not be scheduled."}, status=500)
-            return JsonResponse({"query_id": status.id}, status=202)
+            return JsonResponse({"query_id": status.id, "delivery": DELIVERY_OBJECT_RELAY}, status=202)
         if frame_store_configured:
             # The environment is provisioned but this user is outside the rollout, which is
             # the expected state for most users while the flag ramps. Counted, not logged:
@@ -205,7 +210,9 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=notebook_short_id)
         return JsonResponse({"error": "Query could not be scheduled."}, status=500)
 
-    return JsonResponse({"query_id": status.id}, status=202)
+    # Reached either because the caller wanted inline delivery or because an object request
+    # fell through the two gates above, so this is also the honest label for a fallback.
+    return JsonResponse({"query_id": status.id, "delivery": DELIVERY_INLINE}, status=202)
 
 
 @extend_schema(
