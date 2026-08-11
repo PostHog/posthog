@@ -565,7 +565,7 @@ const MatviewFailureEmailOptions = (): JSX.Element | null => {
             <SimpleSwitch
                 setting="materialized_view_sync_failed_immediate"
                 label="Right away"
-                description="An email as soon as a view starts failing. Later failures of the same view are not emailed."
+                description="An email when a view starts failing. While it keeps failing, only the daily digest lists it."
                 dataAttr="materialized_view_sync_failed_immediate"
             />
         </div>

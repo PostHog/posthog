@@ -40,7 +40,6 @@ from posthog.models.scoping import with_team_scope
 from posthog.models.utils import UUIDT
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.scopes import APIScopeObject
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -63,6 +62,8 @@ class NotificationSetting(Enum):
     DISCUSSIONS_MENTIONED = "discussions_mentioned"
     PROJECT_API_KEY_EXPOSED = "project_api_key_exposed"
     MATERIALIZED_VIEW_SYNC_FAILED = "materialized_view_sync_failed"
+    MATERIALIZED_VIEW_SYNC_FAILED_DAILY = "materialized_view_sync_failed_daily"
+    MATERIALIZED_VIEW_SYNC_FAILED_IMMEDIATE = "materialized_view_sync_failed_immediate"
     WEB_ANALYTICS_WEEKLY_DIGEST = "web_analytics_weekly_digest"
 
 
@@ -74,6 +75,8 @@ NotificationSettingType = Literal[
     "discussions_mentioned",
     "project_api_key_exposed",
     "materialized_view_sync_failed",
+    "materialized_view_sync_failed_daily",
+    "materialized_view_sync_failed_immediate",
     "web_analytics_weekly_digest",
 ]
 
@@ -105,6 +108,22 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
     return memberships_to_email
 
 
+def get_members_to_notify_of_matview_failure(
+    team: Team, delivery: NotificationSettingType
+) -> list[OrganizationMembership]:
+    """Members who turned on materialization failure emails and this way of delivering them.
+
+    Two settings gate these emails, so both are checked: the one that turns them on at all, and
+    the one for the digest or the immediate email.
+    """
+    opted_into_delivery = {membership.id for membership in get_members_to_notify(team, delivery)}
+    return [
+        membership
+        for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
+        if membership.id in opted_into_delivery
+    ]
+
+
 def filter_members_by_warehouse_access(
     memberships: list[OrganizationMembership],
     team: Team,
@@ -125,7 +144,7 @@ def filter_members_by_warehouse_access(
 
     def allowed(membership: OrganizationMembership) -> bool:
         access = UserAccessControl(membership.user, team)
-        if not access.check_access_level_for_resource(cast(APIScopeObject, "warehouse_objects"), "viewer"):
+        if not access.check_access_level_for_resource("warehouse_objects", "viewer"):
             return False
         if saved_query is None or access.is_organization_admin:
             return True
@@ -236,6 +255,13 @@ def should_send_notification(
         return settings.get(notification_type, True)
 
     elif notification_type == NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value:
+        return settings.get(notification_type, False)
+
+    # Delivery modes for the setting above, so a member has to pass both it and one of these.
+    elif notification_type == NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED_DAILY.value:
+        return settings.get(notification_type, True)
+
+    elif notification_type == NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED_IMMEDIATE.value:
         return settings.get(notification_type, False)
 
     # The below typeerror is ignored because we're currently handling the notification
@@ -926,11 +952,7 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         return
 
     memberships_to_email = filter_members_by_warehouse_access(
-        [
-            membership
-            for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
-            if membership.user.notification_settings.get("materialized_view_sync_failed_daily", True)
-        ],
+        get_members_to_notify_of_matview_failure(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED_DAILY.value),
         team,
     )
     if not memberships_to_email:
@@ -1031,11 +1053,9 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
         return
 
     memberships_to_email = filter_members_by_warehouse_access(
-        [
-            membership
-            for membership in get_members_to_notify(team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED.value)
-            if membership.user.notification_settings.get("materialized_view_sync_failed_immediate", False)
-        ],
+        get_members_to_notify_of_matview_failure(
+            team, NotificationSetting.MATERIALIZED_VIEW_SYNC_FAILED_IMMEDIATE.value
+        ),
         team,
         saved_query,
     )
