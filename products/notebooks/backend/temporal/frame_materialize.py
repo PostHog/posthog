@@ -485,13 +485,16 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             database=settings.CLICKHOUSE_DATABASE,
             output_format_arrow_string_as_string="true",
             cancel_http_readonly_queries_on_client_close=1,
-            # sync_execute's offline hygiene, and only meaningful off the interactive pool:
-            # without it, distributed subqueries of a saturated offline query hedge onto
-            # online replicas, bleeding the whale back into the pool this move protects.
-            **({"use_hedged_requests": "0"} if offline else {}),
             max_result_bytes=_MAX_RESULT_BYTES,
             result_overflow_mode="throw",
         )
+        if offline:
+            # sync_execute's offline hygiene, and only meaningful off the interactive pool:
+            # without it, distributed subqueries of a saturated offline query hedge onto
+            # online replicas, bleeding the whale back into the pool this move protects. Set
+            # after construction rather than as a kwarg so the online path sends no such
+            # setting at all, exactly as it did before this flag existed.
+            client.params["use_hedged_requests"] = "0"
         try:
             with _materialize_slots(inputs.team_id, inputs.query_id):
                 # Everything that touches ClickHouse or Postgres lives inside the slots —
