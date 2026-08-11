@@ -1756,7 +1756,7 @@ export class AgentServer {
     const runState = preTaskRun?.state as Record<string, unknown> | undefined;
     // Preserve native Codex modes for cloud runs so they behave the same as
     // local sessions. Claude keeps the historical auto-approved default when
-    // PostHog Code has not explicitly selected a mode.
+    // PostHog Desktop has not explicitly selected a mode.
     const initialPermissionMode: PermissionMode =
       typeof runState?.initial_permission_mode === "string"
         ? (runState.initial_permission_mode as PermissionMode)
@@ -3430,7 +3430,7 @@ export class AgentServer {
   /**
    * Automated, PostHog-branded origins: the Slack app and the Self-driving
    * inbox. These both auto-publish by default and attribute their PRs to
-   * "PostHog" rather than the PostHog Code desktop app.
+   * "PostHog" rather than the PostHog Desktop app.
    */
   private isAutomatedOrigin(): boolean {
     const origin = this.getCloudInteractionOrigin();
@@ -3718,7 +3718,7 @@ hard reset is the safe one here — your work is held in the stash.
 Do NOT add "Co-Authored-By" trailers or "Generated with [Claude Code]" lines to your
 commit messages. The \`git_signed_commit\` tool automatically appends the only trailers
 we want:
-  Generated-By: PostHog Code
+  Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
     const prLinkInstructions = `
@@ -3746,11 +3746,11 @@ When you create a non-code file the user should be able to download (such as a r
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
     // Slack- and inbox-originated PRs are attributed to PostHog, not the
-    // PostHog Code desktop app — they come from the Slack app / Self-driving
+    // PostHog Desktop app — they come from the Slack app / Self-driving
     // inbox, which users know as "PostHog".
     const createdWith = this.isAutomatedOrigin()
       ? "Created with [PostHog](https://posthog.com?ref=pr)"
-      : "Created with [PostHog Code](https://posthog.com/code?ref=pr)";
+      : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
     const prFooter = slackThreadUrl
       ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
       : inboxReportUrl
