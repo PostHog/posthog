@@ -221,15 +221,31 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   );
 }
 
-const BRAINROT_PLAYLIST_ID = "PLnOY1RYHjDfw2joBxUPADaadeX5IradbH";
+const BRAINROT_PLAYLIST_IDS = [
+  "PLnOY1RYHjDfw2joBxUPADaadeX5IradbH",
+  "PLSzOLzwLMqSM",
+];
 const BRAINROT_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
-const BRAINROT_EMBED_URL = `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${BRAINROT_PLAYLIST_ID}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0`;
+
+function brainrotEmbedUrl(playlistId: string): string {
+  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0`;
+}
+
+function pickBrainrotEmbedUrl(): string {
+  const playlistId =
+    BRAINROT_PLAYLIST_IDS[
+      Math.floor(Math.random() * BRAINROT_PLAYLIST_IDS.length)
+    ];
+  return brainrotEmbedUrl(playlistId);
+}
 
 function BrainrotCell({ cellIndex }: { cellIndex: number }) {
   const clearCell = useCommandCenterStore((s) => s.clearCell);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const randomizedRef = useRef(false);
   const [loading, setLoading] = useState(true);
+  // Lazy initializer so the playlist choice is made once per mount.
+  const [embedUrl] = useState(pickBrainrotEmbedUrl);
 
   const postToPlayer = useCallback((func: string, args: unknown[]) => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -302,7 +318,7 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
         <iframe
           ref={iframeRef}
-          src={BRAINROT_EMBED_URL}
+          src={embedUrl}
           title="Brainrot"
           allow="autoplay; encrypted-media; picture-in-picture"
           allowFullScreen
