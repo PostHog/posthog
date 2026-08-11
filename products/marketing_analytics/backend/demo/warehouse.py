@@ -581,6 +581,34 @@ STRIPE_INVOICES_COLUMNS = {
 }
 
 
+def assert_seedable(team: Team) -> None:
+    """Refuse a team whose warehouse tables came from a real integration.
+
+    `register_table` checks the same thing, but only once it reaches each table — by which point
+    the seeder has already written tens of thousands of events into ClickHouse, where they are far
+    harder to take back than a Postgres row. Pointed at the wrong project, the run should cost
+    nothing.
+    """
+    wanted = {
+        f"{prefix}_{schema}" for _, prefix, columns_by_schema in NATIVE_SPECS.values() for schema in columns_by_schema
+    }
+    wanted |= {BIGQUERY_ADS_TABLE, STRIPE_INVOICES_TABLE}
+
+    clashes = sorted(
+        table.name
+        for table in DataWarehouseTable.objects.filter(team=team, name__in=wanted, deleted=False).select_related(
+            "external_data_source"
+        )
+        if table.external_data_source is not None
+        and not (table.external_data_source.source_id or "").startswith("marketing-demo")
+    )
+    if clashes:
+        raise ValueError(
+            f"Team {team.pk} has warehouse tables from a real integration ({', '.join(clashes)}). "
+            "Seed a dedicated project instead, or delete those tables first."
+        )
+
+
 def register_table(
     team: Team,
     *,

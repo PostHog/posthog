@@ -1,3 +1,5 @@
+import './ScannerTriggers.scss'
+
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
@@ -90,13 +92,18 @@ function ScannerFilterGroup(): JSX.Element {
 }
 
 export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Element {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId }))
     const { featureFlags } = useValues(featureFlagLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
     const scannerFilterTypes = [...SCANNER_BASE_FILTER_TYPES, ...groupsTaxonomicTypes]
+    // Waits for the in-flight estimate so an edit can't report on the previous filters.
+    const noMatchWindowDays =
+        !scannerEstimateLoading && scannerEstimate?.matched_sessions_in_window === 0
+            ? scannerEstimate.window_days
+            : null
 
     if (!scanner) {
         return <div className="text-muted">Loading…</div>
@@ -164,14 +171,25 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     size="small"
                                 />
                             </div>
-                            {groupHasNoFilters(universal.filter_group) && (
+                            {noMatchWindowDays !== null ? (
                                 <LemonBanner type="warning">
                                     <span className="text-xs">
-                                        No recording filters set. Your prompt describes what to look for, but it doesn't
-                                        limit which recordings get scanned, so this scanner spends credits scanning
-                                        recordings that aren't relevant to your prompt. Add a filter to narrow it down.
+                                        No recordings from the last {noMatchWindowDays} days match these conditions, so
+                                        this scanner has nothing to scan. Widen the filters, or pick a broader option
+                                        under Session coverage.
                                     </span>
                                 </LemonBanner>
+                            ) : (
+                                groupHasNoFilters(universal.filter_group) && (
+                                    <LemonBanner type="warning">
+                                        <span className="text-xs">
+                                            No recording filters set. Your prompt describes what to look for, but it
+                                            doesn't limit which recordings get scanned, so this scanner spends credits
+                                            scanning recordings that aren't relevant to your prompt. Add a filter to
+                                            narrow it down.
+                                        </span>
+                                    </LemonBanner>
+                                )
                             )}
                             {groupHasEventProperty(universal.filter_group) && (
                                 <LemonBanner type="info" dismissKey="replay-vision-event-vs-person-property-hint">
@@ -305,9 +323,9 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     Session coverage
                                 </LemonLabel>
                             </div>
-                            <div className="space-y-1">
+                            <div className="space-y-1 @container">
                                 <LemonSegmentedButton
-                                    className="max-w-full overflow-x-auto"
+                                    className="ScannerSessionCoverage"
                                     value={mode}
                                     onChange={onChange}
                                     options={SAMPLING_MODE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}

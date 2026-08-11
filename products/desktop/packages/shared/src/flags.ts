@@ -1,4 +1,6 @@
 export const BILLING_FLAG = "posthog-code-billing";
+export const CLOUD_COMPUTE_BILLING_FLAG =
+  "posthog-desktop-cloud-compute-billing";
 export const SPEND_ANALYSIS_FLAG = "posthog-code-spend-analysis";
 export const EXPERIMENT_SUGGESTIONS_FLAG =
   "posthog-code-experiment-suggestions";
@@ -42,3 +44,15 @@ export const TASK_COST_FLAG = "posthog-code-task-cost";
  * the legacy stop-polling-once-staged behavior.
  */
 export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
+/**
+ * Remote in-app announcements. The flag's JSON payload carries the
+ * announcements (schema: `announcements.ts`); rollout % arms the system.
+ * All broad announcements go through this — do not add ad-hoc promo
+ * surfaces (see docs/ANNOUNCEMENTS.md).
+ */
+export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
+/** Gates anchored comments across task, artifact, and Activity surfaces. */
+export const COMMENTS_FLAG = "posthog-code-comments";
+
+/** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
+export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";

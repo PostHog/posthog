@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     isBreakpoint,
     kea,
     key,
@@ -112,11 +113,17 @@ function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     return rest
 }
 
+function omitStamps(scanner: ReplayScanner): Omit<ReplayScanner, 'created_at' | 'updated_at' | 'last_swept_at'> {
+    const { created_at: _created, updated_at: _updated, last_swept_at: _swept, ...rest } = scanner
+    return rest
+}
+
 interface ObservationListParams {
     limit?: number
     offset?: number
     status?: string
     triggered_by?: string
+    backfill_id?: string
     verdict?: string
     tags?: string
     recording_subject?: string
@@ -154,6 +161,7 @@ interface ObservationFilterValues {
     observationSubjectFilter: string
     observationDateFrom: string | null
     observationDateTo: string | null
+    observationBackfillFilter: string | null
 }
 
 /** The filter (non-pagination, non-sort) params shared by the list/stats endpoints and the URL query string. */
@@ -161,11 +169,11 @@ function observationFilterParams(
     values: ObservationFilterValues
 ): Pick<
     ObservationListParams,
-    'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to'
+    'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to' | 'backfill_id'
 > {
     const params: Pick<
         ObservationListParams,
-        'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to'
+        'status' | 'triggered_by' | 'verdict' | 'tags' | 'recording_subject' | 'date_from' | 'date_to' | 'backfill_id'
     > = {}
     if (values.observationStatusFilter.length > 0) {
         params.status = values.observationStatusFilter.join(',')
@@ -187,6 +195,9 @@ function observationFilterParams(
     }
     if (values.observationDateTo) {
         params.date_to = values.observationDateTo
+    }
+    if (values.observationBackfillFilter) {
+        params.backfill_id = values.observationBackfillFilter
     }
     return params
 }
@@ -234,6 +245,7 @@ export interface replayScannerLogicValues {
     isNew: boolean
     isScannerSubmitting: boolean
     isScannerValid: boolean
+    observationBackfillFilter: string | null
     observationDateFrom: string | null
     observationDateTo: string | null
     observationDetailLinkParams: Record<string, string>
@@ -258,6 +270,7 @@ export interface replayScannerLogicValues {
     scanner: ReplayScanner
     scannerAllErrors: Record<string, any>
     scannerChanged: boolean
+    scannerDraftSavedAt: number | null
     scannerErrors: DeepPartialMap<ReplayScanner, ValidationErrorType>
     scannerEstimate: EstimateResponseApi | null
     scannerEstimateError: string | null
@@ -295,6 +308,9 @@ export interface replayScannerLogicActions {
         value: true
     }
     copyAllObservationsFinished: () => {
+        value: true
+    }
+    discardScannerDraft: () => {
         value: true
     }
     dismissTagSuggestions: () => {
@@ -365,6 +381,7 @@ export interface replayScannerLogicActions {
         values?: ReplayScanner
     }
     restoreObservationsTableState: (state: {
+        backfillId: string | null
         dateFrom: string | null
         dateTo: string | null
         page: number
@@ -375,6 +392,7 @@ export interface replayScannerLogicActions {
         triggeredBy: ObservationTriggeredByValue[]
         verdict: ObservationVerdictValue[]
     }) => {
+        backfillId: string | null
         dateFrom: string | null
         dateTo: string | null
         page: number
@@ -429,6 +447,9 @@ export interface replayScannerLogicActions {
         dateFrom: string | null
         dateTo: string | null
     }
+    setObservationBackfillFilter: (value: string | null) => {
+        value: string | null
+    }
     setObservationDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -457,6 +478,9 @@ export interface replayScannerLogicActions {
     setObservationsSort: (sorting: ObservationsSorting | null) => {
         sorting: ObservationsSorting | null
     }
+    setScannerDraftSavedAt: (savedAt: number | null) => {
+        savedAt: number | null
+    }
     setScannerManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
     }
@@ -475,6 +499,9 @@ export interface replayScannerLogicActions {
     }
     setSubmitIntent: (intent: 'advance' | 'save') => {
         intent: 'advance' | 'save'
+    }
+    startFromTemplate: (templateKey: string | null) => {
+        templateKey: string | null
     }
     submitScanner: () => {
         value: boolean
@@ -534,7 +561,8 @@ export interface replayScannerLogicMeta {
             observationTagFilter: string[],
             observationSubjectFilter: string,
             observationDateFrom: string | null,
-            observationDateTo: string | null
+            observationDateTo: string | null,
+            observationBackfillFilter: string | null
         ) => boolean
         observationDetailLinkParams: (
             observationStatusFilter: ObservationStatusEnumApi[],
@@ -544,6 +572,7 @@ export interface replayScannerLogicMeta {
             observationSubjectFilter: string,
             observationDateFrom: string | null,
             observationDateTo: string | null,
+            observationBackfillFilter: string | null,
             observationsSort: ObservationsSorting | null,
             scanner: ReplayScanner
         ) => Record<string, string>
@@ -571,6 +600,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         saveAffectedCohort: (tag?: string) => ({ tag }),
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
+        startFromTemplate: (templateKey: string | null) => ({ templateKey }),
+        discardScannerDraft: true,
+        setScannerDraftSavedAt: (savedAt: number | null) => ({ savedAt }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
         // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
         scannerSaved: (scanner: ReplayScanner) => ({ scanner }),
@@ -595,6 +627,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setObservationTagFilter: (values: string[]) => ({ values }),
         setObservationSubjectFilter: (value: string) => ({ value }),
         setObservationDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setObservationBackfillFilter: (value: string | null) => ({ value }),
         clearObservationFilters: true,
         restoreObservationsTableState: (state: {
             page: number
@@ -606,6 +639,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             subject: string
             dateFrom: string | null
             dateTo: string | null
+            backfillId: string | null
         }) => state,
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         requestScannerEstimate: true,
@@ -770,6 +804,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     })),
 
     reducers({
+        scannerDraftSavedAt: [
+            null as number | null,
+            {
+                setScannerDraftSavedAt: (_, { savedAt }) => savedAt,
+            },
+        ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
         savingCohortTag: [
             null as string | null,
@@ -1003,6 +1043,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 restoreObservationsTableState: (_, { dateTo }) => dateTo,
             },
         ],
+        observationBackfillFilter: [
+            null as string | null,
+            {
+                setObservationBackfillFilter: (_, { value }) => value,
+                clearObservationFilters: () => null,
+                restoreObservationsTableState: (_, { backfillId }) => backfillId,
+            },
+        ],
         chartDateFrom: ['-14d' as string | null, { setChartDateRange: (_, { dateFrom }) => dateFrom }],
         chartDateTo: [null as string | null, { setChartDateRange: (_, { dateTo }) => dateTo }],
     }),
@@ -1027,7 +1075,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!scanner || !original) {
                     return false
                 }
-                return !objectsEqual(scanner, original)
+                return !objectsEqual(omitStamps(scanner), omitStamps(original))
             },
         ],
         hasObservationsInFlight: [
@@ -1043,6 +1091,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
+                s.observationBackfillFilter,
             ],
             (
                 statusFilter: ObservationStatusValue[],
@@ -1051,7 +1100,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 tagFilter: string[],
                 subjectFilter: string,
                 dateFrom: string | null,
-                dateTo: string | null
+                dateTo: string | null,
+                backfillFilter: string | null
             ): boolean =>
                 statusFilter.length > 0 ||
                 triggeredByFilter.length > 0 ||
@@ -1059,7 +1109,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 tagFilter.length > 0 ||
                 subjectFilter.trim().length > 0 ||
                 dateFrom !== null ||
-                dateTo !== null,
+                dateTo !== null ||
+                backfillFilter !== null,
         ],
         // Carried into observation detail links so server-computed prev/next neighbors honor the table's filters + sort.
         observationDetailLinkParams: [
@@ -1071,6 +1122,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 s.observationSubjectFilter,
                 s.observationDateFrom,
                 s.observationDateTo,
+                s.observationBackfillFilter,
                 s.observationsSort,
                 s.scanner,
             ],
@@ -1082,6 +1134,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 observationSubjectFilter: string,
                 observationDateFrom: string | null,
                 observationDateTo: string | null,
+                observationBackfillFilter: string | null,
                 observationsSort: ObservationsSorting | null,
                 scanner: ReplayScanner | null
             ): Record<string, string> =>
@@ -1093,6 +1146,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     observationSubjectFilter,
                     observationDateFrom,
                     observationDateTo,
+                    observationBackfillFilter,
                     observationsSort,
                     scanner,
                 }) as Record<string, string>,
@@ -1136,17 +1190,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             actions.loadObservationStats()
         }
         const persistDraft = (): void => {
-            if (props.id !== 'new') {
+            if (props.id !== 'new' || cache.restoringDraft) {
                 return
             }
             const teamId = teamLogic.findMounted()?.values.currentTeamId
             if (!teamId || !values.scanner || !values.originalScanner) {
                 return
             }
-            if (objectsEqual(values.scanner, values.originalScanner)) {
+            if (objectsEqual(omitStamps(values.scanner), omitStamps(values.originalScanner))) {
+                clearScannerDraft()
+                actions.setScannerDraftSavedAt(null)
                 return
             }
-            writeScannerDraft(teamId, values.scanner)
+            const savedAt = writeScannerDraft(teamId, values.scanner)
+            if (savedAt === null) {
+                // A failed write leaves any older draft behind; drop it so it can't resurrect stale edits.
+                clearScannerDraft()
+            }
+            cache.draftTouched = savedAt !== null
+            actions.setScannerDraftSavedAt(savedAt)
         }
         return {
             // kea-forms' exact rejection for failed client-side validation. API failures toast in submit's catch.
@@ -1180,9 +1242,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         const { template: _drop, ...rest } = router.values.searchParams
                         router.actions.replace(router.values.location.pathname, rest)
                     }
-                    actions.loadScannerSuccess(newScanner(templateKey))
-                    if (draft) {
-                        actions.setScannerValues(draft)
+                    cache.restoringDraft = true
+                    try {
+                        actions.loadScannerSuccess(newScanner(templateKey))
+                        if (draft) {
+                            actions.setScannerValues(draft.scanner)
+                            actions.setScannerDraftSavedAt(draft.savedAt)
+                        }
+                    } finally {
+                        cache.restoringDraft = false
                     }
                     return
                 }
@@ -1220,6 +1288,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ReplayScanner)
+                persistDraft()
             },
 
             // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
@@ -1260,11 +1329,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.requestScannerEstimate()
                 persistDraft()
             },
-            // resetScanner is every "start fresh" moment: template pick, type switch, discard on leave.
-            resetScanner: () => {
+            startFromTemplate: ({ templateKey }) => {
+                clearScannerDraft()
+                actions.setScannerDraftSavedAt(null)
+                actions.resetScanner(newScanner(templateKey))
+            },
+            discardScannerDraft: () => {
+                // Storage holds one draft, and it belongs to the new-scanner wizard.
                 if (props.id === 'new') {
                     clearScannerDraft()
+                    actions.setScannerDraftSavedAt(null)
                 }
+                actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
             scannerSaved: () => {
                 actions.requestScannerEstimate()
@@ -1272,6 +1348,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 refreshVisionQuota()
                 if (props.id === 'new') {
                     clearScannerDraft()
+                    actions.setScannerDraftSavedAt(null)
                 }
             },
 
@@ -1458,6 +1535,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationTriggeredByFilter: () => reloadObservationsAndStats(),
             setObservationVerdictFilter: () => reloadObservationsAndStats(),
             setObservationTagFilter: () => reloadObservationsAndStats(),
+            setObservationBackfillFilter: () => reloadObservationsAndStats(),
             setObservationDateRange: () => reloadObservationsAndStats(),
             setObservationSubjectFilter: async (_, breakpoint) => {
                 // Free-text search — debounce so typing doesn't fire a request per keystroke.
@@ -1538,6 +1616,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationVerdictFilter: writeUrl,
             setObservationTagFilter: writeUrl,
             setObservationDateRange: writeUrl,
+            setObservationBackfillFilter: writeUrl,
             setObservationSubjectFilter: writeUrlReplace,
             clearObservationFilters: writeUrl,
         }
@@ -1562,6 +1641,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 typeof subjectRaw === 'string' ? subjectRaw : typeof subjectRaw === 'number' ? String(subjectRaw) : ''
             const dateFrom = typeof searchParams.date_from === 'string' ? searchParams.date_from : null
             const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            const backfillId = typeof searchParams.backfill_id === 'string' ? searchParams.backfill_id : null
             const sameAsCurrent =
                 page === values.observationsPage &&
                 sort.columnKey === values.observationsSort?.columnKey &&
@@ -1572,7 +1652,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 objectsEqual(tags, values.observationTagFilter) &&
                 subject === values.observationSubjectFilter &&
                 dateFrom === values.observationDateFrom &&
-                dateTo === values.observationDateTo
+                dateTo === values.observationDateTo &&
+                backfillId === values.observationBackfillFilter
             if (!sameAsCurrent) {
                 actions.restoreObservationsTableState({
                     page,
@@ -1584,6 +1665,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     subject,
                     dateFrom,
                     dateTo,
+                    backfillId,
                 })
             }
         },
@@ -1594,6 +1676,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             shouldGuardScannerNavigation({
                 hasUnsavedChanges: values.hasUnsavedChanges,
                 isSubmitting: values.isScannerSubmitting,
+                hasSavedDraft: values.scannerDraftSavedAt !== null,
                 scannerId: props.id,
                 currentPathname: router.values.location.pathname,
                 nextPathname: newLocation?.pathname,
@@ -1606,11 +1689,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         },
     })),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, cache }) => {
+        cache.draftTouched = false
         actions.loadScanner()
         if (props.id !== 'new') {
             actions.loadObservations()
             actions.loadObservationStats()
+        }
+    }),
+
+    beforeUnmount(({ values, props, cache }) => {
+        if (props.id === 'new' && cache.draftTouched && values.scannerDraftSavedAt !== null) {
+            lemonToast.info('Draft saved', {
+                button: {
+                    label: 'Resume',
+                    action: () => router.actions.push(urls.replayVisionScannerConfigure('new')),
+                    dataAttr: 'vision-draft-resume-toast',
+                },
+            })
         }
     }),
 ])
@@ -1625,6 +1721,7 @@ const TABLE_URL_PARAM_KEYS = [
     'recording_subject',
     'date_from',
     'date_to',
+    'backfill_id',
 ] as const
 
 /** Observation-filter params the scanner page reads from the URL; links into the Observations tab build from these keys. */
@@ -1649,12 +1746,13 @@ function scannerEditorPaths(scannerId: string): string[] {
 export function shouldGuardScannerNavigation(params: {
     hasUnsavedChanges: boolean
     isSubmitting: boolean
+    hasSavedDraft: boolean
     scannerId: string
     currentPathname: string
     nextPathname?: string
 }): boolean {
-    const { hasUnsavedChanges, isSubmitting, scannerId, currentPathname, nextPathname } = params
-    if (!hasUnsavedChanges || isSubmitting) {
+    const { hasUnsavedChanges, isSubmitting, hasSavedDraft, scannerId, currentPathname, nextPathname } = params
+    if (!hasUnsavedChanges || isSubmitting || hasSavedDraft) {
         return false
     }
     // The router's stored pathname carries the `/project/:id` prefix, while `urls.*` never do,

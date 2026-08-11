@@ -1047,6 +1047,26 @@ export interface CanvasPromptSentProperties {
   prompt_length_chars: number;
 }
 
+export interface CanvasRenderedProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact rendered; absent for head-source renders. */
+  build_id?: string;
+}
+
+export interface CanvasRuntimeErrorProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact threw; absent for head-source renders. */
+  build_id?: string;
+  /**
+   * The error's class name (e.g. "TypeError"), or "unknown". Deliberately not the
+   * raw message: canvas source is user/agent-authored and its exceptions can carry
+   * source fragments, query results, or secrets that must not cross into analytics.
+   */
+  error_type: string;
+}
+
 export type ContextActionType = "save_version" | "generate_started" | "discard";
 
 export interface ContextActionProperties {
@@ -1271,6 +1291,23 @@ export interface LoopLinkCopiedProperties {
   visibility: "personal" | "team";
 }
 
+export interface AnnouncementProperties {
+  announcement_id: string;
+  announcement_kind: "announcement" | "required-update";
+  announcement_style: "banner" | "modal";
+}
+
+export interface AnnouncementCtaClickedProperties
+  extends AnnouncementProperties {
+  cta_type: "external" | "deeplink" | "update";
+}
+
+export interface AnnouncementAcknowledgedProperties
+  extends AnnouncementProperties {
+  /** "ok" = the ack button; "update" = an update action counted as the ack. */
+  ack_type: "ok" | "update";
+}
+
 // Event names as constants
 export const ANALYTICS_EVENTS = {
   // App lifecycle
@@ -1432,11 +1469,19 @@ export const ANALYTICS_EVENTS = {
   CHANNEL_ACTION: "Channel action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_RENDERED: "Canvas rendered",
+  CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
+
+  // Remote in-app announcement events
+  ANNOUNCEMENT_SHOWN: "Announcement shown",
+  ANNOUNCEMENT_DISMISSED: "Announcement dismissed",
+  ANNOUNCEMENT_CTA_CLICKED: "Announcement CTA clicked",
+  ANNOUNCEMENT_ACKNOWLEDGED: "Announcement acknowledged",
 
   // Loops events
   LOOP_LIST_VIEWED: "Loop list viewed",
@@ -1605,11 +1650,19 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
+  [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
+
+  // Remote in-app announcement events
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_DISMISSED]: AnnouncementProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_CTA_CLICKED]: AnnouncementCtaClickedProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_ACKNOWLEDGED]: AnnouncementAcknowledgedProperties;
 
   // Loops events
   [ANALYTICS_EVENTS.LOOP_LIST_VIEWED]: LoopListViewedProperties;

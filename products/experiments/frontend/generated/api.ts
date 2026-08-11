@@ -27,6 +27,7 @@ import type {
     ExperimentSessionContextResponseApi,
     ExperimentSessionContextsRequestApi,
     ExperimentSessionContextsResponseApi,
+    ExperimentSessionEventDeltaResponseApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -896,6 +897,40 @@ export const experimentsSessionBucketsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentSessionBucketRequestApi),
     })
+}
+
+export const getExperimentsSessionEventDeltasCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/session_event_deltas/`
+}
+
+/**
+ * The recordings worth watching for this experiment, grouped into cards.
+ *
+ * Each card is one sentence and the recordings that back it: an event one variant did clearly
+ * more than the others, an error signal concentrated in one variant, or a shortcut to a
+ * metric event happening on screen. Every card's count is a count of recordings that actually
+ * exist, so handing its session ids to the recordings list can't come back empty. POST to
+ * take the same throttle and cache posture as the other reads in this family rather than
+ * because it carries a body: it takes no parameters, and it only reads.
+ *
+ * It reports no effect size. The experiment's own metric events never enter the comparison,
+ * and cards carry a direction and a band rather than a rate, a ratio or a person count: the
+ * experiment's results already state magnitudes, computed per person over the whole run
+ * window, and this reads one session per person over a clamped one. Two numbers for the same
+ * event would read as a contradiction, so this surface states none.
+ */
+export const experimentsSessionEventDeltasCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentSessionEventDeltaResponseApi> => {
+    return apiMutator<ExperimentSessionEventDeltaResponseApi>(
+        getExperimentsSessionEventDeltasCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getExperimentsShipVariantCreateUrl = (projectId: string, id: number) => {

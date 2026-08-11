@@ -38,6 +38,7 @@ import { NEW_OPTION_ID_PREFIX, isNumericDisplayType, optionLabelError } from './
 
 export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
 export type CustomPropertyTargetType = 'account' | 'person' | 'group'
+export type CustomPropertyTargetTypeFilter = 'all' | CustomPropertyTargetType
 
 // Poll until a source's run settles so the UI reflects completion without a manual refresh: fast at
 // first (a small table finishes in seconds), then slower, and bounded so a stuck run can't poll
@@ -220,6 +221,7 @@ export interface customPropertyDefinitionsLogicValues {
     serializedColumnDescriptions: Record<string, string>
     serializedColumnPropertyMap: Record<string, string>
     showCustomPropertyFormErrors: boolean
+    targetTypeFilter: CustomPropertyTargetTypeFilter
     targetTypeLocked: boolean
     triggeringSourceIds: string[]
     warehouseTables: DataWarehouseTable[]
@@ -405,6 +407,9 @@ export interface customPropertyDefinitionsLogicActions {
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
     }
+    setTargetTypeFilter: (targetTypeFilter: CustomPropertyTargetTypeFilter) => {
+        targetTypeFilter: CustomPropertyTargetTypeFilter
+    }
     submitCustomPropertyForm: () => {
         value: boolean
     }
@@ -453,7 +458,8 @@ export interface customPropertyDefinitionsLogicMeta {
         ) => (string | null)[]
         filteredDefinitions: (
             definitions: CustomPropertyDefinitionApi[],
-            searchTerm: string
+            searchTerm: string,
+            targetTypeFilter: CustomPropertyTargetTypeFilter
         ) => CustomPropertyDefinitionApi[]
         editingReferences: (
             definitions: CustomPropertyDefinitionApi[],
@@ -494,6 +500,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         openEditModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         closeModal: true,
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setTargetTypeFilter: (targetTypeFilter: CustomPropertyTargetTypeFilter) => ({ targetTypeFilter }),
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         // Person sources only. triggerSync re-runs the underlying warehouse sync; triggerBackfill
         // starts a full-table backfill. add/removeTriggeringSource drive the per-row double-submit
@@ -519,6 +526,12 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        targetTypeFilter: [
+            'all' as CustomPropertyTargetTypeFilter,
+            {
+                setTargetTypeFilter: (_, { targetTypeFilter }) => targetTypeFilter,
             },
         ],
         modalVisible: [
@@ -590,8 +603,22 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             [] as CustomPropertyDefinitionApi[],
             {
                 loadDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> => {
-                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                    // Follow pagination so search and the table cover every definition, not just the
+                    // backend's first page (bounded so a runaway count can't pull forever).
+                    const PAGE_SIZE = 300
+                    const MAX_PAGES = 10
+                    const collected: CustomPropertyDefinitionApi[] = []
+                    for (let page = 0; page < MAX_PAGES; page += 1) {
+                        const response = await customPropertyDefinitionsList(String(values.currentProjectId), {
+                            limit: PAGE_SIZE,
+                            offset: page * PAGE_SIZE,
+                        })
+                        collected.push(...response.results)
+                        if (!response.next) {
+                            break
+                        }
+                    }
+                    return collected
                 },
                 deleteDefinition: async ({ id }: { id: string }): Promise<CustomPropertyDefinitionApi[]> => {
                     await customPropertyDefinitionsDestroy(String(values.currentProjectId), id)
@@ -913,16 +940,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             },
         ],
         filteredDefinitions: [
-            (s) => [s.definitions, s.searchTerm],
-            (definitions: CustomPropertyDefinitionApi[], searchTerm: string): CustomPropertyDefinitionApi[] => {
+            (s) => [s.definitions, s.searchTerm, s.targetTypeFilter],
+            (
+                definitions: CustomPropertyDefinitionApi[],
+                searchTerm: string,
+                targetTypeFilter: CustomPropertyTargetTypeFilter
+            ): CustomPropertyDefinitionApi[] => {
                 const query = searchTerm.trim().toLowerCase()
-                if (!query) {
-                    return definitions
-                }
                 return definitions.filter(
                     (definition) =>
-                        definition.name.toLowerCase().includes(query) ||
-                        definition.description?.toLowerCase().includes(query)
+                        (targetTypeFilter === 'all' || (definition.target_type ?? 'account') === targetTypeFilter) &&
+                        (!query ||
+                            definition.name.toLowerCase().includes(query) ||
+                            definition.description?.toLowerCase().includes(query))
                 )
             },
         ],

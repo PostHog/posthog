@@ -133,6 +133,8 @@ Template hygiene, learned the hard way: name the changed surface concretely (not
 
 Every prompt needs the **post-exposure framing** sentence: tell the model to focus on behavior after the point where the experiment's change would first be visible and ignore earlier activity. Be honest with the user that this is a request to the model, not an enforced window — scanners view the whole recording (see Limits).
 
+**The experiment creation wizard offers the same scanner from a checkbox**, built from `frontend/src/scenes/experiments/replayVisionScanner.ts` — the post-exposure friction template below, with the query derived the same way as Step 2. That module is the canonical version of the template, so change it and this section together, and prefer matching it over inventing a new prompt when a user already has a wizard-created scanner.
+
 Starter templates:
 
 1. **"Did anyone notice?"** — `classifier`, tags `reached-and-interacted`, `reached-not-interacted`, `never-reached`. When an experiment lands flat, the numbers can't distinguish "the change did nothing" from "nobody encountered the change"; this can. Needs the user to describe the changed surface. Often the right first scanner.
