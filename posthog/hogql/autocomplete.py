@@ -1,6 +1,8 @@
 import json
 from collections.abc import Callable
 from copy import deepcopy
+from dataclasses import dataclass
+from enum import Enum, auto
 from typing import Optional, cast
 
 from django.db import models
@@ -445,6 +447,439 @@ def gather_hog_variables_in_scope(root_node, node) -> list[str]:
     return list(finder.node_vars)
 
 
+class _VariantFlow(Enum):
+    """How the variant loop in `get_hogql_autocomplete` proceeds once a suggestion step is done."""
+
+    PROCEED = auto()
+    """Keep collecting suggestions for the current variant."""
+
+    TRY_NEXT_VARIANT = auto()
+    """Abandon the current variant and parse the next one, without checking what has been collected."""
+
+    STOP = auto()
+    """The suggestions are final, so no further variant is parsed."""
+
+
+# Each entry is a string spliced in at the cursor so a half-written query still parses, paired with
+# how far it pushes the end of the word being completed. They are tried in order.
+_PARSE_VARIANTS: list[tuple[str, int]] = [
+    ("", 0),
+    (MATCH_ANY_CHARACTER, len(MATCH_ANY_CHARACTER)),
+    ("}", 0),
+    (MATCH_ANY_CHARACTER + "}", len(MATCH_ANY_CHARACTER)),
+    (" FROM events", 0),
+    (f"{MATCH_ANY_CHARACTER} FROM events", len(MATCH_ANY_CHARACTER)),
+]
+
+
+@dataclass(frozen=True, kw_only=True)
+class _ParsedVariant:
+    root_node: AST
+    select_ast: Optional[ast.AST]
+    query_to_try: str
+    query_start: int
+    query_end: int
+
+
+def _parse_source_query(query: HogQLAutocomplete, team: Team) -> ast.SelectQuery | ast.SelectSetQuery:
+    if not query.sourceQuery:
+        return parse_select("select 1")
+
+    if query.sourceQuery.kind == "HogQLQuery" and (query.sourceQuery.query is None or query.sourceQuery.query == ""):
+        return parse_select("select 1")
+
+    try:
+        return get_query_runner(query=query.sourceQuery, team=team).to_query()
+    except Exception:
+        # A malformed source query (e.g. an unquoted reserved keyword used as an
+        # identifier) must not break autocomplete — degrade gracefully instead.
+        return parse_select("select 1")
+
+
+def _parse_for_variant(
+    *,
+    query: HogQLAutocomplete,
+    extra_characters: str,
+    length_to_add: int,
+    source_query: ast.SelectQuery | ast.SelectSetQuery,
+    timings: HogQLTimings,
+) -> Optional[_ParsedVariant]:
+    """Parse one variant of the query. Returns None when the cursor sits outside any JSON string
+    value, which no other variant can change, so the caller stops instead of trying the next one.
+    """
+    query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
+    query_start = query.startPosition
+    query_end = query.endPosition + length_to_add
+    select_ast: Optional[ast.AST] = None
+
+    if query.language == HogLanguage.HOG_QL:
+        with timings.measure("parse_select"):
+            select_ast = parse_select(query_to_try, timings=timings)
+            root_node: ast.AST = select_ast
+    elif query.language == HogLanguage.HOG_QL_EXPR:
+        with timings.measure("parse_expr"):
+            root_node = parse_expr(query_to_try, timings=timings)
+            select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
+            select_ast.select = [root_node]
+    elif query.language == HogLanguage.HOG_TEMPLATE:
+        with timings.measure("parse_template"):
+            root_node = parse_string_template(query_to_try, timings=timings)
+    elif query.language == HogLanguage.LIQUID:
+        with timings.measure("parse_liquid"):
+            # Liquid templates are handled similarly to Hog templates for autocomplete
+            # We treat them as string templates but with Liquid syntax
+            root_node = parse_string_template(query_to_try, timings=timings)
+    elif query.language == HogLanguage.HOG:
+        with timings.measure("parse_program"):
+            root_node = parse_program(query_to_try, timings=timings)
+    elif query.language == HogLanguage.HOG_JSON:
+        query_to_try, query_start, query_end = extract_json_row(query_to_try, query_start, query_end)
+        if query_to_try == "":
+            return None
+        root_node = parse_string_template(query_to_try, timings=timings)
+    else:
+        raise ValueError(f"Unsupported autocomplete language: {query.language}")
+
+    return _ParsedVariant(
+        root_node=root_node,
+        select_ast=select_ast,
+        query_to_try=query_to_try,
+        query_start=query_start,
+        query_end=query_end,
+    )
+
+
+def _suggest_from_globals_chain(
+    *, node: ast.Field, query_globals: dict, response: HogQLAutocompleteResponse
+) -> _VariantFlow:
+    loop_globals: dict | None = query_globals
+    for index, key in enumerate(node.chain):
+        if MATCH_ANY_CHARACTER in str(key):
+            break
+        if loop_globals is not None and str(key) in loop_globals:
+            loop_globals = loop_globals[str(key)]
+        elif index == len(node.chain) - 1:
+            break
+        else:
+            loop_globals = None
+            break
+
+    if loop_globals is not None:
+        add_globals_to_suggestions(loop_globals, response)
+        # looking at a nested global object, no need for other suggestions
+        if loop_globals != query_globals:
+            return _VariantFlow.STOP
+
+    return _VariantFlow.PROCEED
+
+
+def _suggest_hog_variables_and_functions(
+    *, root_node: AST, node: Optional[AST], language: HogLanguage, response: HogQLAutocompleteResponse
+) -> None:
+    # For Hog and Liquid, first add all local variables in scope
+    hog_vars = gather_hog_variables_in_scope(root_node, node)
+    extend_responses(
+        keys=hog_vars,
+        suggestions=response.suggestions,
+        kind=AutocompleteCompletionItemKind.VARIABLE,
+    )
+
+    if language != HogLanguage.LIQUID:
+        extend_responses(
+            ALL_HOG_FUNCTIONS,
+            response.suggestions,
+            AutocompleteCompletionItemKind.FUNCTION,
+            insert_text=lambda key: f"{key}()",
+        )
+
+
+def _suggest_unshadowed_globals(*, query_globals: dict, response: HogQLAutocompleteResponse) -> None:
+    # Override globals if a local variable has the same name
+    existing_values = {item.label for item in response.suggestions}
+    filtered_globals = {key: value for key, value in query_globals.items() if key not in existing_values}
+    add_globals_to_suggestions(filtered_globals, response)
+
+
+def _property_definition_type(table: Table, field: StringJSONDatabaseField) -> Optional[PropertyDefinition.Type]:
+    if isinstance(table, EventsPersonSubTable):
+        return PropertyDefinition.Type.PERSON
+    if isinstance(table, EventsGroupSubTable):
+        return PropertyDefinition.Type.GROUP
+    if isinstance(table, EventsTable):
+        if field.name == "person_properties":
+            return PropertyDefinition.Type.PERSON
+        return PropertyDefinition.Type.EVENT
+    if isinstance(table, PersonsTable):
+        return PropertyDefinition.Type.PERSON
+    if isinstance(table, GroupsTable):
+        return PropertyDefinition.Type.GROUP
+
+    return None
+
+
+def _suggest_property_names(
+    *,
+    table: Table,
+    field: StringJSONDatabaseField,
+    match_term: str,
+    context: HogQLContext,
+    timings: HogQLTimings,
+    response: HogQLAutocompleteResponse,
+) -> None:
+    property_type = _property_definition_type(table, field)
+    if property_type is None:
+        return
+
+    with timings.measure("property_filter"):
+        property_query = PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        ).filter(
+            effective_project_id=context.team.project_id,  # type: ignore
+            name__contains=match_term,
+            type=property_type,
+        )
+
+    with timings.measure("property_count"):
+        total_property_count = property_query.count()
+
+    with timings.measure("property_get_values"):
+        properties = property_query[:PROPERTY_DEFINITION_LIMIT].values("name", "property_type")
+
+    extend_responses(
+        keys=[prop["name"] for prop in properties],
+        suggestions=response.suggestions,
+        details=[prop["property_type"] for prop in properties],
+    )
+    response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
+
+
+def _suggest_nested_table_fields(*, table: Table, context: HogQLContext, response: HogQLAutocompleteResponse) -> None:
+    fields = list(table.fields.items())
+    extend_responses(
+        keys=[key for key, _ in fields],
+        suggestions=response.suggestions,
+        details=[
+            convert_field_or_table_to_type_string(inner_field, table.to_printed_hogql(), context)
+            for _, inner_field in fields
+        ],
+    )
+
+
+def _suggest_select_fields(
+    *,
+    node: ast.Field,
+    nearest_select: ast.SelectQuery,
+    select_from: ast.JoinExpr,
+    ctes: Optional[dict[str, CTE]],
+    match_term: str,
+    language: HogLanguage,
+    context: HogQLContext,
+    timings: HogQLTimings,
+    response: HogQLAutocompleteResponse,
+) -> _VariantFlow:
+    table = get_table(context, select_from, ctes)
+    if table is None:
+        if len(node.chain) == 1:
+            prefix = "" if str(node.chain[0]) == MATCH_ANY_CHARACTER else str(node.chain[0])
+            append_function_suggestions(
+                suggestions=response.suggestions,
+                language=language,
+                context=context,
+                prefix=prefix,
+            )
+        return _VariantFlow.TRY_NEXT_VARIANT
+
+    table_has_alias = select_from.alias is not None
+    chain_len = len(node.chain)
+    last_table: Table = table
+    for index, chain_part in enumerate(node.chain):
+        # Return just the table alias
+        if table_has_alias and index == 0 and chain_len == 1:
+            table_aliases = list(get_tables_aliases(nearest_select, context).keys())
+            extend_responses(
+                keys=table_aliases,
+                suggestions=response.suggestions,
+                kind=AutocompleteCompletionItemKind.FOLDER,
+                details=["Table"] * len(table_aliases),
+            )
+            break
+
+        if table_has_alias and index == 0:
+            tables = get_tables_aliases(nearest_select, context)
+            aliased_table = tables.get(str(chain_part))
+            if aliased_table is not None:
+                last_table = aliased_table
+                continue
+            else:
+                # Don't continue if the alias is not found in the query
+                break
+
+        # Ignore last chain part, it's likely an incomplete word or added characters
+        is_last_part = index >= (chain_len - 2)
+
+        # Replaces all ast.FieldTraverser with the underlying node
+        last_table = resolve_table_field_traversers(last_table, context)
+
+        if is_last_part:
+            if last_table.fields.get(str(chain_part)) is None:
+                append_table_field_to_response(
+                    table=last_table,
+                    suggestions=response.suggestions,
+                    language=language,
+                    context=context,
+                )
+                break
+
+            field = last_table.fields[str(chain_part)]
+
+            if isinstance(field, StringJSONDatabaseField):
+                _suggest_property_names(
+                    table=last_table,
+                    field=field,
+                    match_term=match_term,
+                    context=context,
+                    timings=timings,
+                    response=response,
+                )
+            elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
+                _suggest_nested_table_fields(table=field, context=context, response=response)
+            elif isinstance(field, LazyJoin):
+                _suggest_nested_table_fields(table=field.resolve_table(context), context=context, response=response)
+            break
+        else:
+            field = last_table.fields[str(chain_part)]
+            if isinstance(field, Table):
+                last_table = field
+            elif isinstance(field, LazyJoin):
+                last_table = field.resolve_table(context)
+
+    return _VariantFlow.PROCEED
+
+
+def _suggest_table_names(
+    *, node: ast.Field, database: Database, context: HogQLContext, response: HogQLAutocompleteResponse
+) -> None:
+    table_names = [name for name in database.get_all_table_names() if database.has_table(name)]
+    posthog_table_names = [name for name in database.get_posthog_table_names() if database.has_table(name)]
+
+    if len(node.chain) == 1:
+        extend_responses(
+            keys=table_names,
+            suggestions=response.suggestions,
+            kind=AutocompleteCompletionItemKind.FOLDER,
+            details=["Table"] * len(table_names),
+        )
+        table_function_names = get_direct_table_function_names(context)
+        if table_function_names:
+            extend_responses(
+                keys=table_function_names,
+                suggestions=response.suggestions,
+                kind=AutocompleteCompletionItemKind.FUNCTION,
+                insert_text=lambda key: f"{key}()",
+                details=["Table function"] * len(table_function_names),
+            )
+    elif node.chain[0] in posthog_table_names:
+        pass
+    else:
+        node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
+        node_chain = ".".join(node_chain_arr)
+        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+
+        extend_responses(
+            keys=filtered_table_names,
+            suggestions=response.suggestions,
+            kind=AutocompleteCompletionItemKind.FOLDER,
+            details=["Table"] * len(filtered_table_names),
+        )
+
+
+def _suggest_insight_variables(*, node: ast.Field, team: Team, response: HogQLAutocompleteResponse) -> None:
+    if node.chain[0] == MATCH_ANY_CHARACTER or ("variables".startswith(str(node.chain[0])) and len(node.chain) == 1):
+        # The `variables.` prefix is not typed out yet, so it is part of what gets inserted
+        code_name_prefix = "variables."
+    elif len(node.chain) > 1 and node.chain[0] == "variables":
+        code_name_prefix = ""
+    else:
+        return
+
+    insight_variables = InsightVariable.objects.filter(
+        team_id=team.pk,
+    ).order_by("name")
+    code_names = [f"{code_name_prefix}{n.code_name}" for n in insight_variables if n.code_name]
+    extend_responses(
+        keys=code_names,
+        suggestions=response.suggestions,
+        kind=AutocompleteCompletionItemKind.CONSTANT,
+        details=["Variable"] * len(code_names),
+    )
+
+
+def _suggest_from_schema(
+    *,
+    query: HogQLAutocomplete,
+    parsed: _ParsedVariant,
+    select_ast: ast.AST,
+    find_node: GetNodeAtPositionTraverser,
+    team: Team,
+    context: HogQLContext,
+    get_database: Callable[[], Database],
+    timings: HogQLTimings,
+    response: HogQLAutocompleteResponse,
+) -> _VariantFlow:
+    """Suggestions that resolve against the team's schema, so the database gets built here."""
+    database = get_database()
+
+    if query.filters:
+        try:
+            select_ast = cast(
+                ast.SelectQuery,
+                replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team, database=database),
+            )
+        except Exception:
+            pass
+
+    ctes: Optional[dict[str, CTE]] = None
+    if isinstance(select_ast, ast.SelectQuery):
+        ctes = select_ast.ctes
+    elif isinstance(select_ast, ast.SelectSetQuery):
+        ctes = next(extract_select_queries(select_ast)).ctes
+    nearest_select = find_node.nearest_select_query or select_ast
+
+    node = find_node.node
+    parent_node = find_node.parent_node
+
+    if (
+        isinstance(node, ast.Field)
+        and isinstance(nearest_select, ast.SelectQuery)
+        and nearest_select.select_from is not None
+        and not isinstance(parent_node, ast.JoinExpr)
+        and not isinstance(parent_node, ast.Placeholder)
+    ):
+        # Handle fields
+        match_term = parsed.query_to_try[parsed.query_start : parsed.query_end]
+        with timings.measure("select_field"):
+            return _suggest_select_fields(
+                node=node,
+                nearest_select=nearest_select,
+                select_from=nearest_select.select_from,
+                ctes=ctes,
+                match_term="" if match_term == MATCH_ANY_CHARACTER else match_term,
+                language=query.language,
+                context=context,
+                timings=timings,
+                response=response,
+            )
+
+    if isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
+        # Handle table names
+        with timings.measure("table_name"):
+            _suggest_table_names(node=node, database=database, context=context, response=response)
+    elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
+        _suggest_insight_variables(node=node, team=team, response=response)
+
+    return _VariantFlow.PROCEED
+
+
 def get_hogql_autocomplete(
     query: HogQLAutocomplete,
     team: Team,
@@ -468,350 +903,63 @@ def get_hogql_autocomplete(
             context.database = built_database
         return built_database
 
-    if query.sourceQuery:
-        if query.sourceQuery.kind == "HogQLQuery" and (
-            query.sourceQuery.query is None or query.sourceQuery.query == ""
-        ):
-            source_query = parse_select("select 1")
-        else:
-            try:
-                source_query = get_query_runner(query=query.sourceQuery, team=team).to_query()
-            except Exception:
-                # A malformed source query (e.g. an unquoted reserved keyword used as an
-                # identifier) must not break autocomplete — degrade gracefully instead.
-                source_query = parse_select("select 1")
-    else:
-        source_query = parse_select("select 1")
+    source_query = _parse_source_query(query, team)
 
-    for extra_characters, length_to_add in [
-        ("", 0),
-        (MATCH_ANY_CHARACTER, len(MATCH_ANY_CHARACTER)),
-        ("}", 0),
-        (MATCH_ANY_CHARACTER + "}", len(MATCH_ANY_CHARACTER)),
-        (" FROM events", 0),
-        (f"{MATCH_ANY_CHARACTER} FROM events", len(MATCH_ANY_CHARACTER)),
-    ]:
+    for extra_characters, length_to_add in _PARSE_VARIANTS:
         try:
-            query_to_try = query.query[: query.endPosition] + extra_characters + query.query[query.endPosition :]
-            query_start = query.startPosition
-            query_end = query.endPosition + length_to_add
-            select_ast: Optional[ast.AST] = None
-
-            if query.language == HogLanguage.HOG_QL:
-                with timings.measure("parse_select"):
-                    select_ast = parse_select(query_to_try, timings=timings)
-                    root_node: ast.AST = select_ast
-            elif query.language == HogLanguage.HOG_QL_EXPR:
-                with timings.measure("parse_expr"):
-                    root_node = parse_expr(query_to_try, timings=timings)
-                    select_ast = cast(ast.SelectQuery, clone_expr(source_query, clear_locations=True))
-                    select_ast.select = [root_node]
-            elif query.language == HogLanguage.HOG_TEMPLATE:
-                with timings.measure("parse_template"):
-                    root_node = parse_string_template(query_to_try, timings=timings)
-            elif query.language == HogLanguage.LIQUID:
-                with timings.measure("parse_liquid"):
-                    # Liquid templates are handled similarly to Hog templates for autocomplete
-                    # We treat them as string templates but with Liquid syntax
-                    root_node = parse_string_template(query_to_try, timings=timings)
-            elif query.language == HogLanguage.HOG:
-                with timings.measure("parse_program"):
-                    root_node = parse_program(query_to_try, timings=timings)
-            elif query.language == HogLanguage.HOG_JSON:
-                query_to_try, query_start, query_end = extract_json_row(query_to_try, query_start, query_end)
-                if query_to_try == "":
-                    break
-                root_node = parse_string_template(query_to_try, timings=timings)
-            else:
-                raise ValueError(f"Unsupported autocomplete language: {query.language}")
+            parsed = _parse_for_variant(
+                query=query,
+                extra_characters=extra_characters,
+                length_to_add=length_to_add,
+                source_query=source_query,
+                timings=timings,
+            )
+            if parsed is None:
+                # No variant moves the cursor into a JSON string value, so none of them can help
+                break
 
             with timings.measure("find_node"):
                 # to account for the magic F' symbol we append to change antlr's mode
                 extra = 2 if query.language == HogLanguage.HOG_TEMPLATE else 0
-                find_node = GetNodeAtPositionTraverser(root_node, query_start + extra, query_end + extra)
+                find_node = GetNodeAtPositionTraverser(
+                    parsed.root_node, parsed.query_start + extra, parsed.query_end + extra
+                )
             node = find_node.node
-            parent_node = find_node.parent_node
 
             if HogLanguage.HOG_TEMPLATE and isinstance(node, ast.Constant):
                 # Do not show suggestions if not inside the {} part in a template string
                 continue
 
-            if isinstance(query.globals, dict):
-                if isinstance(node, ast.Field):
-                    loop_globals: dict | None = query.globals
-                    for index, key in enumerate(node.chain):
-                        if MATCH_ANY_CHARACTER in str(key):
-                            break
-                        if loop_globals is not None and str(key) in loop_globals:
-                            loop_globals = loop_globals[str(key)]
-                        elif index == len(node.chain) - 1:
-                            break
-                        else:
-                            loop_globals = None
-                            break
-                    if loop_globals is not None:
-                        add_globals_to_suggestions(loop_globals, response)
-                        # looking at a nested global object, no need for other suggestions
-                        if loop_globals != query.globals:
-                            break
+            if isinstance(query.globals, dict) and isinstance(node, ast.Field):
+                globals_flow = _suggest_from_globals_chain(node=node, query_globals=query.globals, response=response)
+                if globals_flow is _VariantFlow.STOP:
+                    break
 
             if query.language in (HogLanguage.HOG, HogLanguage.HOG_TEMPLATE, HogLanguage.LIQUID):
-                # For Hog and Liquid, first add all local variables in scope
-                hog_vars = gather_hog_variables_in_scope(root_node, node)
-                extend_responses(
-                    keys=hog_vars,
-                    suggestions=response.suggestions,
-                    kind=AutocompleteCompletionItemKind.VARIABLE,
+                _suggest_hog_variables_and_functions(
+                    root_node=parsed.root_node, node=node, language=query.language, response=response
                 )
 
-                if query.language != HogLanguage.LIQUID:
-                    extend_responses(
-                        ALL_HOG_FUNCTIONS,
-                        response.suggestions,
-                        AutocompleteCompletionItemKind.FUNCTION,
-                        insert_text=lambda key: f"{key}()",
-                    )
-
             if isinstance(query.globals, dict):
-                # Override globals if a local variable has the same name
-                existing_values = {item.label for item in response.suggestions}
-                filtered_globals = {key: value for key, value in query.globals.items() if key not in existing_values}
-                add_globals_to_suggestions(filtered_globals, response)
+                _suggest_unshadowed_globals(query_globals=query.globals, response=response)
 
+            select_ast = parsed.select_ast
             if select_ast is None:
                 break
 
-            # Everything below resolves against the team's schema, so this is the first point
-            # where the database has to exist.
-            database = get_database()
-
-            if query.filters:
-                try:
-                    select_ast = cast(
-                        ast.SelectQuery,
-                        replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team, database=database),
-                    )
-                except Exception:
-                    pass
-
-            if isinstance(select_ast, ast.SelectQuery):
-                ctes = select_ast.ctes
-            elif isinstance(select_ast, ast.SelectSetQuery):
-                ctes = next(extract_select_queries(select_ast)).ctes
-            nearest_select = find_node.nearest_select_query or select_ast
-
-            table_has_alias = (
-                nearest_select is not None
-                and isinstance(nearest_select, ast.SelectQuery)
-                and nearest_select.select_from is not None
-                and nearest_select.select_from.alias is not None
+            schema_flow = _suggest_from_schema(
+                query=query,
+                parsed=parsed,
+                select_ast=select_ast,
+                find_node=find_node,
+                team=team,
+                context=context,
+                get_database=get_database,
+                timings=timings,
+                response=response,
             )
-
-            if (
-                isinstance(node, ast.Field)
-                and isinstance(nearest_select, ast.SelectQuery)
-                and nearest_select.select_from is not None
-                and not isinstance(parent_node, ast.JoinExpr)
-                and not isinstance(parent_node, ast.Placeholder)
-            ):
-                # Handle fields
-                with timings.measure("select_field"):
-                    table = get_table(context, nearest_select.select_from, ctes)
-                    if table is None:
-                        if len(node.chain) == 1:
-                            prefix = "" if str(node.chain[0]) == MATCH_ANY_CHARACTER else str(node.chain[0])
-                            append_function_suggestions(
-                                suggestions=response.suggestions,
-                                language=query.language,
-                                context=context,
-                                prefix=prefix,
-                            )
-                        continue
-
-                    chain_len = len(node.chain)
-                    last_table: Table = table
-                    for index, chain_part in enumerate(node.chain):
-                        # Return just the table alias
-                        if table_has_alias and index == 0 and chain_len == 1:
-                            table_aliases = list(get_tables_aliases(nearest_select, context).keys())
-                            extend_responses(
-                                keys=table_aliases,
-                                suggestions=response.suggestions,
-                                kind=AutocompleteCompletionItemKind.FOLDER,
-                                details=["Table"] * len(table_aliases),
-                            )
-                            break
-
-                        if table_has_alias and index == 0:
-                            tables = get_tables_aliases(nearest_select, context)
-                            aliased_table = tables.get(str(chain_part))
-                            if aliased_table is not None:
-                                last_table = aliased_table
-                                continue
-                            else:
-                                # Don't continue if the alias is not found in the query
-                                break
-
-                        # Ignore last chain part, it's likely an incomplete word or added characters
-                        is_last_part = index >= (chain_len - 2)
-
-                        # Replaces all ast.FieldTraverser with the underlying node
-                        last_table = resolve_table_field_traversers(last_table, context)
-
-                        if is_last_part:
-                            if last_table.fields.get(str(chain_part)) is None:
-                                append_table_field_to_response(
-                                    table=last_table,
-                                    suggestions=response.suggestions,
-                                    language=query.language,
-                                    context=context,
-                                )
-                                break
-
-                            field = last_table.fields[str(chain_part)]
-
-                            if isinstance(field, StringJSONDatabaseField):
-                                if isinstance(last_table, EventsPersonSubTable):
-                                    property_type = PropertyDefinition.Type.PERSON
-                                elif isinstance(last_table, EventsGroupSubTable):
-                                    property_type = PropertyDefinition.Type.GROUP
-                                elif isinstance(last_table, EventsTable):
-                                    if field.name == "person_properties":
-                                        property_type = PropertyDefinition.Type.PERSON
-                                    else:
-                                        property_type = PropertyDefinition.Type.EVENT
-                                elif isinstance(last_table, PersonsTable):
-                                    property_type = PropertyDefinition.Type.PERSON
-                                elif isinstance(last_table, GroupsTable):
-                                    property_type = PropertyDefinition.Type.GROUP
-                                else:
-                                    property_type = None
-
-                                if property_type is not None:
-                                    match_term = query_to_try[query_start:query_end]
-                                    if match_term == MATCH_ANY_CHARACTER:
-                                        match_term = ""
-
-                                    with timings.measure("property_filter"):
-                                        property_query = PropertyDefinition.objects.alias(
-                                            effective_project_id=Coalesce(
-                                                "project_id", "team_id", output_field=models.BigIntegerField()
-                                            )
-                                        ).filter(
-                                            effective_project_id=context.team.project_id,  # type: ignore
-                                            name__contains=match_term,
-                                            type=property_type,
-                                        )
-
-                                    with timings.measure("property_count"):
-                                        total_property_count = property_query.count()
-
-                                    with timings.measure("property_get_values"):
-                                        properties = property_query[:PROPERTY_DEFINITION_LIMIT].values(
-                                            "name", "property_type"
-                                        )
-
-                                    extend_responses(
-                                        keys=[prop["name"] for prop in properties],
-                                        suggestions=response.suggestions,
-                                        details=[prop["property_type"] for prop in properties],
-                                    )
-                                    response.incomplete_list = total_property_count > PROPERTY_DEFINITION_LIMIT
-                            elif isinstance(field, VirtualTable) or isinstance(field, LazyTable):
-                                fields = list(field.fields.items())
-                                extend_responses(
-                                    keys=[key for key, field in fields],
-                                    suggestions=response.suggestions,
-                                    details=[
-                                        convert_field_or_table_to_type_string(
-                                            inner_field, field.to_printed_hogql(), context
-                                        )
-                                        for key, inner_field in fields
-                                    ],
-                                )
-                            elif isinstance(field, LazyJoin):
-                                field_table = field.resolve_table(context)
-                                fields = list(field_table.fields.items())
-
-                                extend_responses(
-                                    keys=[key for key, field in fields],
-                                    suggestions=response.suggestions,
-                                    details=[
-                                        convert_field_or_table_to_type_string(
-                                            inner_field, field_table.to_printed_hogql(), context
-                                        )
-                                        for key, inner_field in fields
-                                    ],
-                                )
-                            break
-                        else:
-                            field = last_table.fields[str(chain_part)]
-                            if isinstance(field, Table):
-                                last_table = field
-                            elif isinstance(field, LazyJoin):
-                                last_table = field.resolve_table(context)
-            elif isinstance(node, ast.Field) and isinstance(parent_node, ast.JoinExpr):
-                # Handle table names
-                with timings.measure("table_name"):
-                    table_names = [name for name in database.get_all_table_names() if database.has_table(name)]
-                    posthog_table_names = [
-                        name for name in database.get_posthog_table_names() if database.has_table(name)
-                    ]
-
-                    if len(node.chain) == 1:
-                        extend_responses(
-                            keys=table_names,
-                            suggestions=response.suggestions,
-                            kind=AutocompleteCompletionItemKind.FOLDER,
-                            details=["Table"] * len(table_names),
-                        )
-                        table_function_names = get_direct_table_function_names(context)
-                        if table_function_names:
-                            extend_responses(
-                                keys=table_function_names,
-                                suggestions=response.suggestions,
-                                kind=AutocompleteCompletionItemKind.FUNCTION,
-                                insert_text=lambda key: f"{key}()",
-                                details=["Table function"] * len(table_function_names),
-                            )
-                    elif node.chain[0] in posthog_table_names:
-                        pass
-                    else:
-                        node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
-                        node_chain = ".".join(node_chain_arr)
-                        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
-
-                        extend_responses(
-                            keys=filtered_table_names,
-                            suggestions=response.suggestions,
-                            kind=AutocompleteCompletionItemKind.FOLDER,
-                            details=["Table"] * len(filtered_table_names),
-                        )
-            elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
-                if node.chain[0] == MATCH_ANY_CHARACTER or (
-                    "variables".startswith(str(node.chain[0])) and len(node.chain) == 1
-                ):
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
-                    code_names = [f"variables.{n.code_name}" for n in insight_variables if n.code_name]
-                    extend_responses(
-                        keys=code_names,
-                        suggestions=response.suggestions,
-                        kind=AutocompleteCompletionItemKind.CONSTANT,
-                        details=["Variable"] * len(code_names),
-                    )
-                elif len(node.chain) > 1 and node.chain[0] == "variables":
-                    insight_variables = InsightVariable.objects.filter(
-                        team_id=team.pk,
-                    ).order_by("name")
-                    code_names = [n.code_name for n in insight_variables if n.code_name]
-                    extend_responses(
-                        keys=code_names,
-                        suggestions=response.suggestions,
-                        kind=AutocompleteCompletionItemKind.CONSTANT,
-                        details=["Variable"] * len(code_names),
-                    )
+            if schema_flow is _VariantFlow.TRY_NEXT_VARIANT:
+                continue
         except Exception:
             pass
 
