@@ -2,6 +2,7 @@ import { Text } from "@components/text";
 import { usePathname, useRouter } from "expo-router";
 import {
   Binoculars,
+  BookOpen,
   CaretRight,
   Clock,
   GearSix,
@@ -27,6 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OFFLINE_BANNER_HEIGHT } from "@/components/OfflineBanner";
 import { TaskStatusIcon } from "@/features/tasks/components/TaskStatusIcon";
 import { useTasks } from "@/features/tasks/hooks/useTasks";
+import { useSkillsAvailable } from "@/features/tasks/skills/hooks";
 import { useArchivedTasksStore } from "@/features/tasks/stores/archivedTasksStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { logger } from "@/lib/logger";
@@ -83,6 +85,7 @@ const NavDrawerContent = memo(function NavDrawerContent({
   const themeColors = useThemeColors();
   const insets = useSafeAreaInsets();
   const { tasks } = useTasks();
+  const skillsAvailable = useSkillsAvailable();
   const { archivedTasks, unarchive } = useArchivedTasksStore();
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
@@ -123,6 +126,11 @@ const NavDrawerContent = memo(function NavDrawerContent({
     if (pathname === "/scouts") return;
     router.push("/scouts");
   };
+  const handleSkills = () => {
+    close();
+    if (pathname === "/skills") return;
+    router.push("/skills");
+  };
   const handleMcpServers = () => {
     close();
     if (pathname === "/mcp-servers") return;
@@ -142,6 +150,7 @@ const NavDrawerContent = memo(function NavDrawerContent({
   const isOnAutomations = pathname === "/automations";
   const isOnSettings = pathname === "/settings";
   const isOnScouts = pathname === "/scouts";
+  const isOnSkills = pathname.startsWith("/skills");
   const isOnMcpServers = pathname === "/mcp-servers";
 
   return (
@@ -202,6 +211,23 @@ const NavDrawerContent = memo(function NavDrawerContent({
           active={isOnScouts}
           onPress={handleScouts}
         />
+        {/* Hidden until the skills API confirms this project can use it — a
+            403 there is how a project without the feature reads, and an entry
+            that dead-ends is worse than no entry. */}
+        {skillsAvailable ? (
+          <DrawerItem
+            icon={
+              <BookOpen
+                size={22}
+                color={isOnSkills ? iconColorActive : iconColor}
+                weight={isOnSkills ? "fill" : "regular"}
+              />
+            }
+            label="Skills"
+            active={isOnSkills}
+            onPress={handleSkills}
+          />
+        ) : null}
         <DrawerItem
           icon={
             <PuzzlePiece

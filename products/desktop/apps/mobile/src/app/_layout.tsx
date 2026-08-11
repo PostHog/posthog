@@ -134,6 +134,10 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
           back returns to whatever the drawer was opened over. */}
       <Stack.Screen name="scouts/index" options={{ headerShown: false }} />
 
+      {/* Team skills — read-only browser for the shared skill store. */}
+      <Stack.Screen name="skills/index" options={{ headerShown: false }} />
+      <Stack.Screen name="skills/[name]" options={{ headerShown: false }} />
+
       {/* MCP servers — marketplace + installed management. */}
       <Stack.Screen name="mcp-servers/index" options={{ headerShown: false }} />
       <Stack.Screen

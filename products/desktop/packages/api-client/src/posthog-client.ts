@@ -355,6 +355,11 @@ export interface LlmSkillListItem {
   id: string;
   name: string;
   description: string;
+  /**
+   * Server-owned classification, read-only. Empty for an ordinary skill; the
+   * Signals harness stamps "scout" on the ones it produces.
+   */
+  category?: string | null;
   allowed_tools: unknown[];
   metadata: Record<string, unknown>;
   version: number;
