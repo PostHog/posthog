@@ -256,6 +256,10 @@ const missionControlClient: MissionControlClient = {
     });
     return () => sub.unsubscribe();
   },
+  isSupported: () => trpcClient.missionControl.isSupported.query(),
+  getEnabled: () => trpcClient.missionControl.getEnabled.query(),
+  setEnabled: (enabled) =>
+    trpcClient.missionControl.setEnabled.mutate({ enabled }),
 };
 container.bind(MISSION_CONTROL_CLIENT).toConstantValue(missionControlClient);
 
