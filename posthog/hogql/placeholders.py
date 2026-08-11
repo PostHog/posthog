@@ -69,6 +69,18 @@ class ReplacePlaceholders(CloningVisitor):
 
         from common.hogvm.python.execute import execute_bytecode
 
+        # A simple field placeholder whose root is not supplied would fail in the Hog VM with the
+        # opaque "Global variable not found" message. Name the placeholder and the supported forms
+        # instead, so the query author can fix it.
+        chain = node.chain
+        if chain is not None and (self.placeholders is None or chain[0] not in self.placeholders):
+            field = ".".join(str(c) for c in chain)
+            raise QueryError(
+                f"Placeholder {{{field}}} is not available in this query. "
+                "Supported placeholders are: {filters.dateRange.from}, {filters.dateRange.to}, "
+                "{filters}, and {variables.<name>}."
+            )
+
         # This bytecode runs on the request thread before access control, so refuse blocking calls.
         # The static check gives a clear early error for the common `fn(...)` form; passing
         # disallowed_functions to the VM is the real guard, catching every indirect call path too.

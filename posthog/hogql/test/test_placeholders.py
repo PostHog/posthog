@@ -50,19 +50,24 @@ class TestParser(BaseTest):
         )
 
     def test_replace_placeholders_error(self):
+        # An unresolved simple-field placeholder names itself and the supported forms, instead of
+        # leaking the Hog VM's "Global variable not found" message to the query author.
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(HogVMException) as context:
+        with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, {})
-        self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
-        )
-        with self.assertRaises(HogVMException) as context:
+        self.assertIn("Placeholder {foo} is not available", str(context.exception))
+        self.assertIn("{filters.dateRange.from}", str(context.exception))
+        with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, {"bar": ast.Constant(value=123)})
-        self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
-        )
+        self.assertIn("Placeholder {foo} is not available", str(context.exception))
+
+    def test_replace_placeholders_nested_field_error(self):
+        # The bare {dateRange...} chain reproduces the reported dashboard failure: its root is
+        # missing, so it must raise a named QueryError rather than reach the Hog VM.
+        expr = ast.Placeholder(expr=ast.Field(chain=["dateRange", "from"]))
+        with self.assertRaises(QueryError) as context:
+            replace_placeholders(expr, {"variables": ast.Constant(value=1)})
+        self.assertIn("Placeholder {dateRange.from} is not available", str(context.exception))
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))
@@ -86,12 +91,9 @@ class TestParser(BaseTest):
 
     def test_assert_no_placeholders(self):
         expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
-        with self.assertRaises(HogVMException) as context:
+        with self.assertRaises(QueryError) as context:
             replace_placeholders(expr, None)
-        self.assertEqual(
-            "Global variable not found: foo",
-            str(context.exception),
-        )
+        self.assertIn("Placeholder {foo} is not available", str(context.exception))
 
     def test_replace_placeholders_with_cte(self):
         expr = cast(ast.SelectQuery, parse_select("with test as (select {foo}) select * from test"))
