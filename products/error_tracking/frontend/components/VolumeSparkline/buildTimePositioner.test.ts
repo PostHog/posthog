@@ -1,9 +1,8 @@
 import { buildTimePositioner } from './buildTimePositioner'
 
 describe('buildTimePositioner', () => {
-    // One bucket every hour, band centers 20px apart starting at x=10 — the first bucket's
-    // timestamp sits at its left edge (x=0), not its center (x=10), per the convention this
-    // positioner implements.
+    // Hourly buckets, band centers 20px apart from x=10. A bucket's timestamp is its left edge
+    // (x=0), not its center.
     const HOUR_MS = 60 * 60 * 1000
     const dates = [0, 1, 2, 3].map((i) => new Date(i * HOUR_MS))
     const labels = dates.map((d) => d.toISOString())
@@ -15,8 +14,7 @@ describe('buildTimePositioner', () => {
     it('places an event exactly between two bucket starts at the midpoint', () => {
         const positionAt = buildTimePositioner(dates, labels, scaleX)
         expect(positionAt).not.toBeNull()
-        // Bucket 0's timestamp sits at its left edge (x=0, band center 10 minus half the 20px
-        // step); bucket 1's left edge is at x=20. Halfway in time between them lands at x=30.
+        // Left edges are x=0 and x=20, so halfway in time between them lands at x=30.
         expect(positionAt?.(dates[1].getTime() + HOUR_MS / 2)).toBe(30)
     })
 

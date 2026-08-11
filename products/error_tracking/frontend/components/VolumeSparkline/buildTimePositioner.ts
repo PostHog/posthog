@@ -1,8 +1,5 @@
-/** Builds a continuous time → x mapper so an event at an arbitrary timestamp can be placed between
- *  two bucket starts, not just snapped to one. Bars are band-scaled, so the step comes from two
- *  adjacent band centers and x is measured from the first bucket's left edge — the convention is
- *  that a bucket's timestamp sits at its left edge, not its center. Returns `null` when there's too
- *  little data to derive a step, or the scale hasn't resolved yet. */
+/** Continuous time → x, so an event can sit between two bucket starts rather than snapping to one.
+ *  A bucket's timestamp is its left edge, not its center. `null` when the step can't be derived. */
 export function buildTimePositioner(
     dates: Date[],
     labels: string[],

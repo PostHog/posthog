@@ -5,9 +5,8 @@ describe('spreadLabels', () => {
     const MIN = 0
     const MAX = 200
 
-    // "First seen" and "Last seen" land in the same bucket on a short-lived issue, so both pills
-    // want the same x. Without the second (right-to-left) pass the clamp at `max` piles them back
-    // on top of each other.
+    // On a short-lived issue both pills want the same x. Without the second right-to-left pass the
+    // clamp at `max` piles them back on top of each other.
     it.each([
         {
             name: 'identical centers',

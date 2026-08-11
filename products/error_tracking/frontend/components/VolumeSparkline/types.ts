@@ -2,8 +2,7 @@ export type SparklineDatum = {
     date: Date
     value: number
     color?: string
-    /** When true with `color`, the bar is flagged as a detected spike: its own color plus a
-     *  diagonal hatch fill. */
+    /** With `color`, flags the bar as a detected spike: its own color plus animated stripes. */
     isSpike?: boolean
 }
 

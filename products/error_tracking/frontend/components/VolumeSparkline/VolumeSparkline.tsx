@@ -29,8 +29,9 @@ import type {
 
 export type { VolumeSparklineLayout, VolumeSparklineXAxisMode } from './types'
 
-/** Volume is the subject here, so the bars stay grey and spikes carry the only color. */
-const BAR_COLOR = 'var(--color-zinc-400)'
+/** zinc-400. Hex, not the token: its value is `oklch()`, which d3-color can't parse, so quill's
+ *  hover shade falls back to the bar's own color and the highlight disappears. */
+const BAR_COLOR = '#9f9fa9'
 
 const SERIES_KEY = 'volume'
 
@@ -48,8 +49,7 @@ const LAYOUTS = {
 
 const COMPACT_MARGINS = { left: 0, right: 0, top: 2, bottom: 2 }
 
-/** Half of a "Jan 04"-ish axis label, so the first one isn't clipped at the plot's left edge. The
- *  right edge is handled by the chart's own computed margin (see `resolveMargins`). */
+/** Half an axis label, so the first one isn't clipped at the plot's left edge. */
 const EDGE_LABEL_RESERVE = 24
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000
@@ -78,8 +78,7 @@ export function VolumeSparkline({
 }: VolumeSparklineProps): JSX.Element {
     const theme = useChartTheme()
     const { setHoveredBin, setHoveredEvent } = useActions(errorTrackingVolumeSparklineLogic({ sparklineKey }))
-    // Quill reports a click's position relative to its own wrapper; the spike popover anchors in
-    // viewport coordinates, so track the pointer here rather than converting after the fact.
+    // Quill reports clicks relative to its wrapper; the spike popover anchors in viewport coords.
     const cursorRef = useRef({ x: 0, y: 0 })
     const [eventHovered, setEventHovered] = useState(false)
 
@@ -91,14 +90,12 @@ export function VolumeSparkline({
             {
                 key: SERIES_KEY,
                 label: 'Occurrences',
-                // Bars are painted on a canvas, which can't resolve `var(--…)` — the colors have to be
-                // concrete before they reach quill. Safe to resolve once (the resolver caches): the
-                // palette and brand variables these use hold the same value in light and dark.
+                // Canvas can't resolve `var(--…)`. Safe to resolve once — these hold the same
+                // value in light and dark.
                 color: resolveVariableColor(BAR_COLOR),
                 data: data.map((datum) => datum.value),
-                // Spikes are painted solid here and get their stripes from `SpikeStripes` rather than
-                // quill's `hatch`, whose bare-stripes-on-background fill is a de-emphasis treatment
-                // (for buckets still ingesting) and reads as unfinished rather than flagged.
+                // Solid here, striped by `SpikeStripes`. quill's `hatch` is a de-emphasis
+                // treatment, so it reads as unfinished rather than flagged.
                 bars: data.map((datum) =>
                     datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color) } : {}
                 ),
@@ -109,9 +106,7 @@ export function VolumeSparkline({
 
     const showAxis = xAxis !== 'none'
     const eventLabelReserve = events.length > 0 ? EVENT_LABEL_HEIGHT + EVENT_LABEL_BAR_GAP : undefined
-    // Only built when the axis actually renders ticks — quill reads `xTickFormatter` from
-    // `AxisLabels`/`tickMarkCoords`/`useChartMargins`, all of which bail out when the axis is
-    // hidden, so building it for `xAxis="minimal"` (both issues-list call sites) is wasted work.
+    // Only built when ticks actually render; quill ignores it on a hidden axis.
     const tickFormatter = useMemo(() => (xAxis === 'full' ? buildTickFormatter(dates) : undefined), [dates, xAxis])
 
     const config = useChartConfig<TimeSeriesBarChartConfig>(
@@ -150,8 +145,8 @@ export function VolumeSparkline({
         [data, onRangeSelect]
     )
 
-    // Wired only when a spike is actually present: quill shows the pointer cursor across the whole
-    // chart whenever `onPointClick` is set, which would mask the drag-select crosshair.
+    // Only wired when a spike exists: `onPointClick` sets a pointer cursor chart-wide, which
+    // would mask the drag-select crosshair.
     const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
 
     const onPointClick = useMemo(
@@ -205,9 +200,8 @@ export function VolumeSparkline({
     )
 }
 
-/** A chart child because `useChartHover` is only available inside the chart; `paused` yields to an
- *  event marker's own hover, which owns the same logic field, so while paused this reports nothing
- *  at all rather than overwriting the event's own hover. */
+/** A chart child because `useChartHover` only works inside the chart. `paused` yields to an event
+ *  marker's hover, which writes the same logic field. */
 function HoverReporter({
     data,
     paused,

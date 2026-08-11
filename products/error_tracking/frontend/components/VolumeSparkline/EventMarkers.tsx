@@ -6,8 +6,7 @@ import { buildTimePositioner } from './buildTimePositioner'
 import { spreadLabels } from './spreadLabels'
 import type { SparklineEvent } from './types'
 
-/** Gap between the pill labels and the top of the bars. Paired with `EVENT_LABEL_HEIGHT` to size the
- *  chart's top margin, so the pills sit in reserved space rather than over the bars. */
+/** With `EVENT_LABEL_HEIGHT`, sizes the chart's top margin so pills sit above the bars. */
 export const EVENT_LABEL_BAR_GAP = 10
 export const EVENT_LABEL_HEIGHT = 20
 const EVENT_LABEL_MIN_GAP = 2
@@ -20,9 +19,8 @@ export type EventMarkersProps = {
     onHover: (event: SparklineEvent<string> | null) => void
 }
 
-/** A chart child rather than part of the chart because it reads pixel positions from
- *  `useChartLayout()` and renders DOM, so an event at an arbitrary timestamp can be placed between
- *  two buckets, which quill's band scale can't do since it only resolves whole labels. */
+/** DOM positioned off `useChartLayout()`, so an event can sit between two buckets — quill's band
+ *  scale only resolves whole labels. */
 export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX.Element | null {
     const { scales, dimensions, labels } = useChartLayout()
     const labelRefs = useRef<(HTMLDivElement | null)[]>([])
@@ -34,9 +32,8 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
 
     const positionAt = useMemo(() => buildTimePositioner(dates, labels, scales.x), [dates, labels, scales])
 
-    // React fires no `onMouseLeave` when it unmounts a hovered pill, so a pill that disappears under
-    // the cursor — the whole overlay going when the issue reloads, or one event dropping out of the
-    // list — would strand its hover in the shared state the bar hover also writes to.
+    // React fires no `onMouseLeave` when it unmounts a hovered pill, which would strand its hover
+    // in the state the bar hover shares.
     const hoveredId = useRef<string | null>(null)
     const handleHover = useCallback(
         (event: SparklineEvent<string> | null) => {
@@ -65,11 +62,8 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
         [events, positionAt]
     )
 
-    // Measure the rendered pills, then place them: the labels are author-supplied strings, so their
-    // widths aren't known until the browser has laid them out. Runs before paint, so the unmeasured
-    // first pass is never visible. Safe to run on every render — the updater below already bails
-    // out to the previous value when nothing measured changed, so this also catches a pill's width
-    // shifting for a reason that isn't in the dependency list (e.g. a webfont finishing load).
+    // Pill widths aren't known until laid out. Runs on every render, not just on the deps, to catch
+    // a width shifting for an unlisted reason (a webfont loading); the updater below bails if equal.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
     useLayoutEffect(() => {
         const measured = labelRefs.current.slice(0, events.length).map((node) => (node?.offsetWidth ?? 0) / 2)
@@ -99,8 +93,8 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
             <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible">
                 {events.map((event, index) => {
                     const anchorX = anchors[index]
-                    // An event outside the chart's date range keeps its pill (clamped into view) but
-                    // drops the connector — a line to an off-chart anchor would point at nothing.
+                    // Off-range events keep a clamped pill but drop the connector, which would
+                    // otherwise point at nothing.
                     if (anchorX < plotLeft || anchorX > plotRight) {
                         return null
                     }
@@ -139,8 +133,7 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
                     style={{
                         top: labelTop,
                         height: EVENT_LABEL_HEIGHT,
-                        // Pre-measurement the pill is laid out at its anchor and hidden, so the
-                        // browser reports its natural width without a visible unspread frame.
+                        // Hidden at its anchor until measured, so no unspread frame is visible.
                         left: labelCenters ? labelCenters[index] - (halfWidths?.[index] ?? 0) : anchors[index],
                         visibility: labelCenters ? 'visible' : 'hidden',
                         backgroundColor: event.color || 'black',

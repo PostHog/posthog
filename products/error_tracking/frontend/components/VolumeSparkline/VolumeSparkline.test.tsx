@@ -88,8 +88,8 @@ describe('VolumeSparkline', () => {
 
         it('does not fire onSpikeClick for an ordinary (non-spike) bucket', () => {
             const onSpikeClick = jest.fn()
-            // One spike elsewhere in the data enables the click handler at all (`hasSpikes`); the
-            // click itself lands on an unflagged bucket.
+            // A spike elsewhere enables the handler (`hasSpikes`); the click lands on an
+            // unflagged bucket.
             const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
             const wrapper = renderChart({ data, onSpikeClick })
 
@@ -131,9 +131,8 @@ describe('VolumeSparkline', () => {
             expect(renderStripes(buildData())).toHaveLength(0)
         })
 
-        // The overlay mirrors quill's `minBarSize` flooring to cover a floored bar. Quill skips that
-        // flooring for a zero bucket and draws no bar, so the overlay has to skip it too rather than
-        // striping a stretch of empty plot.
+        // The overlay mirrors quill's `minBarSize` flooring, which quill skips for a zero bucket —
+        // so the overlay must too, or it stripes empty plot.
         it('overlays nothing for a spike bucket with no occurrences', () => {
             expect(renderStripes(buildData({ 2: { ...SPIKE, value: 0 } }))).toHaveLength(0)
         })
@@ -195,8 +194,8 @@ describe('VolumeSparkline', () => {
             })
         })
 
-        // React fires no `onMouseLeave` when it unmounts a hovered pill, so without an explicit
-        // cleanup the removed event stays in `hoverSelection` and keeps the bar hover paused.
+        // React fires no `onMouseLeave` on unmount, so without cleanup the removed event stays in
+        // `hoverSelection` and keeps the bar hover paused.
         it.each([
             { name: 'the hovered event drops out of the list', remaining: [lastSeen] },
             { name: 'every event disappears at once', remaining: [] },

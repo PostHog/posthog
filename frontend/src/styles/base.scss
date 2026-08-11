@@ -2027,6 +2027,13 @@
     animation: setup-highlight-pulse 1s ease-in-out 3 !important;
 }
 
+// One cell is one period along the 135deg axis, so the loop is seamless.
+@keyframes VolumeSparkline__spikeStripes {
+    to {
+        background-position: 0 -12px;
+    }
+}
+
 /* stylelint-disable-next-line keyframes-name-pattern */
 @keyframes setup-highlight-pulse {
     0%,
