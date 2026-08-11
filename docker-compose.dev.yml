@@ -816,6 +816,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: dynamodb
+        profiles: [dynamodb]
         container_name: '${DYNAMODB_DOCKER_NAME:-dynamodb-main}'
         ports:
             # Not 8000 (the Django dev server) and not 18000, which the eval harness binds for its

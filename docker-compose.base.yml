@@ -855,9 +855,8 @@ services:
         image: amazon/dynamodb-local:3.3.1
         command: ['-jar', 'DynamoDBLocal.jar', '-inMemory', '-sharedDb']
         healthcheck:
-            # Opening the port from bash rather than curling it: DynamoDB answers GET / with a 400,
-            # so an HTTP probe has to be written to accept a non-2xx status, and healthchecks that
-            # fetch an http:// URL trip the unencrypted-URL semgrep rule. Without a healthcheck,
+            # Opening the port from bash rather than curling it, because DynamoDB answers GET /
+            # with a 400 and `curl -f` treats that as failure. Without a healthcheck,
             # `docker compose up --wait` returns as soon as the JVM starts, before it listens.
             test: ['CMD-SHELL', 'exec 3<>/dev/tcp/localhost/8000']
             interval: 5s
