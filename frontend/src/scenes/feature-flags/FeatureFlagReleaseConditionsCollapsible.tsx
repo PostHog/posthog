@@ -73,6 +73,7 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
+import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
 import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
@@ -80,9 +81,11 @@ import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { FeatureFlagLogicProps } from './featureFlagLogic'
 import {
+    BlastRadiusError,
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
     featureFlagReleaseConditionsLogic,
+    isBlastRadiusErrorRetryable,
     isDistinctIdFilter,
     withResolvedFlagLabels,
 } from './featureFlagReleaseConditionsLogic'
@@ -336,7 +339,7 @@ interface ConditionProps {
     totalGroups: number
     affectedCounts: Record<string, number | undefined>
     totalCounts: Record<string, number | undefined>
-    blastRadiusErrors: Record<string, boolean>
+    blastRadiusErrors: Record<string, BlastRadiusError>
     calculateBlastRadiusForCondition: (
         sortKey: string,
         properties: AnyPropertyFilter[] | undefined,
@@ -678,27 +681,32 @@ const ConditionContent = ({
                                         {group.sort_key && blastRadiusErrors[group.sort_key] ? (
                                             <div
                                                 role="status"
-                                                className="text-xs text-muted mt-2 flex items-center gap-2"
+                                                className="text-xs text-muted mt-2 flex items-start gap-2"
                                             >
-                                                <IconErrorOutline className="text-danger text-sm shrink-0" />
-                                                <span>Couldn't estimate how many {resolvedTargetName} match.</span>
-                                                <LemonButton
-                                                    type="secondary"
-                                                    size="xsmall"
-                                                    onClick={() =>
-                                                        group.sort_key &&
-                                                        calculateBlastRadiusForCondition(
-                                                            group.sort_key,
-                                                            group.properties,
-                                                            resolveAggregationGroupTypeIndex(
-                                                                group.aggregation_group_type_index,
-                                                                releaseFilters.aggregation_group_type_index
+                                                <IconErrorOutline className="text-danger text-sm shrink-0 mt-0.5" />
+                                                <BlastRadiusErrorMessage
+                                                    error={blastRadiusErrors[group.sort_key]}
+                                                    pluralName={resolvedTargetName}
+                                                />
+                                                {isBlastRadiusErrorRetryable(blastRadiusErrors[group.sort_key]) && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        size="xsmall"
+                                                        onClick={() =>
+                                                            group.sort_key &&
+                                                            calculateBlastRadiusForCondition(
+                                                                group.sort_key,
+                                                                group.properties,
+                                                                resolveAggregationGroupTypeIndex(
+                                                                    group.aggregation_group_type_index,
+                                                                    releaseFilters.aggregation_group_type_index
+                                                                )
                                                             )
-                                                        )
-                                                    }
-                                                >
-                                                    Retry
-                                                </LemonButton>
+                                                        }
+                                                    >
+                                                        Retry
+                                                    </LemonButton>
+                                                )}
                                             </div>
                                         ) : group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
                                             <div className="text-xs text-muted mt-2">
