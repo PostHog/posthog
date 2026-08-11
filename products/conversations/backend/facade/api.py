@@ -6,27 +6,38 @@ Slack integration behind contract types so callers never touch slack_sdk or the
 team's Slack credentials directly.
 """
 
+import asyncio
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
 from django.db.models import F
 
+import structlog
 from slack_sdk.errors import SlackApiError
+from temporalio.common import WorkflowIDReusePolicy
+from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError
 
 from posthog.models.comment import Comment
 from posthog.models.team import Team
+from posthog.temporal.common.client import sync_connect
 
+from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     SupportChannel as SupportChannel,
     TicketSummary as TicketSummary,
 )
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.slack import get_slack_client
+from products.conversations.backend.support_slack import get_support_slack_bot_token
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured as SupportSlackNotConfigured,
     list_support_bot_channels as _list_support_bot_channels,
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class SupportMessageSendError(Exception):
@@ -135,6 +146,71 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
         item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
     )
     return str(comment.id)
+
+
+def trigger_immediate_channel_summary(
+    *,
+    team_id: int,
+    account_id: str,
+    account_name: str,
+    slack_channel_id: str,
+    cadence: str,
+    period_start: datetime,
+    period_end: datetime,
+) -> bool:
+    """Summarize one closed period of an account's Slack channel now, outside the hourly
+    coordinator's schedule.
+
+    Applies the same team-level gates the coordinator applies before it fans out: the team
+    must have the SupportHog bot (it reads the channel) and the org must have approved AI
+    data processing (messages go to an LLM). Returns False when a gate blocks it.
+
+    Fire-and-forget: the caller's own write already succeeded, so a Temporal failure is
+    logged and swallowed rather than raised.
+    """
+    # Deferred: temporal/__init__ loads the summarize workflow, which imports the
+    # customer_analytics facade, which imports this module.
+    from products.conversations.backend.temporal.channel_summary.schemas import ChannelSummaryInput  # noqa: PLC0415
+    from products.conversations.backend.temporal.channel_summary.summarize import (  # noqa: PLC0415
+        AccountChannelSummaryWorkflow,
+    )
+
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None or not team.organization.is_ai_data_processing_approved:
+        return False
+    if not get_support_slack_bot_token(team):
+        return False
+
+    workflow_input = ChannelSummaryInput(
+        team_id=team_id,
+        account_id=account_id,
+        account_name=account_name,
+        slack_channel_id=slack_channel_id,
+        cadence=cadence,
+        period_start=period_start.isoformat(),
+        period_end=period_end.isoformat(),
+    )
+    workflow_id = build_channel_summary_workflow_id(
+        account_id=account_id, cadence=cadence, period_start=period_start.date()
+    )
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                AccountChannelSummaryWorkflow.run,
+                workflow_input,
+                id=workflow_id,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        logger.info("immediate_channel_summary_already_started", workflow_id=workflow_id)
+        return False
+    except RPCError as e:
+        logger.warning("immediate_channel_summary_dispatch_failed", workflow_id=workflow_id, error=str(e))
+        return False
+    return True
 
 
 def list_account_tickets(team_id: int, organization_id: str, *, limit: int = 50) -> list[TicketSummary]:

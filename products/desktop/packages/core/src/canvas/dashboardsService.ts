@@ -6,6 +6,7 @@ import {
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
 import type {
+  CanvasDraft,
   CanvasSource,
   CanvasSourceProject,
   CanvasVersion,
@@ -42,6 +43,15 @@ interface ApiVersion {
   task_id: string | null;
   created_by?: ApiCanvas["created_by"];
   created_at: string;
+}
+
+interface ApiDraft {
+  version_id: string;
+  prompt: string | null;
+  created_by?: ApiCanvas["created_by"];
+  created_at: string;
+  build_status: "queued" | "building" | "ready" | "failed" | null;
+  build_id: string | null;
 }
 
 function creatorLabel(created_by: ApiCanvas["created_by"]): string | undefined {
@@ -233,6 +243,44 @@ export class DashboardsService {
       createdBy: creatorLabel(row.created_by),
       createdAt: toEpoch(row.created_at) ?? 0,
     }));
+  }
+
+  // The canvas's staged drafts, newest first, each with its latest build status.
+  async listDrafts(id: string): Promise<CanvasDraft[]> {
+    const rows = await this.api.json<ApiDraft[]>(
+      `canvases/${encodeURIComponent(id)}/drafts/`,
+      "list canvas drafts",
+    );
+    return rows.map((row) => ({
+      versionId: row.version_id,
+      prompt: row.prompt,
+      createdBy: creatorLabel(row.created_by),
+      createdAt: toEpoch(row.created_at) ?? 0,
+      buildStatus: row.build_status,
+      buildId: row.build_id,
+    }));
+  }
+
+  // Make a draft version the canvas's live head (adopting its ready build, or
+  // rebuilding when the artifacts aged out). Returns the now-live build.
+  async promoteDraft(input: {
+    id: string;
+    versionId: string;
+    expectedCurrentVersionId: string | null;
+  }): Promise<CanvasBuildRecord> {
+    const build = await this.api.json<Record<string, unknown>>(
+      `canvases/${encodeURIComponent(input.id)}/promote/`,
+      "promote canvas draft",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version_id: input.versionId,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
+      },
+    );
+    return toBuildRecord(build);
   }
 
   // Move the canvas's head back to an existing version and rebuild it.

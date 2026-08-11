@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -68,11 +69,17 @@ PROXY_HEADER_ALLOWLIST = frozenset(
 _JSON_SEPARATORS = (",", ":")
 
 
-def _region_domains() -> tuple[str, str]:
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RegionDomains:
+    us: str
+    eu: str
+
+
+def _region_domains() -> RegionDomains:
     """Read at call time, not import time, so @override_settings works in tests."""
-    return (
-        getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN),
-        getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN),
+    return RegionDomains(
+        us=getattr(settings, "REGION_US_DOMAIN", DEFAULT_US_DOMAIN),
+        eu=getattr(settings, "REGION_EU_DOMAIN", DEFAULT_EU_DOMAIN),
     )
 
 
@@ -84,10 +91,10 @@ def _current_region() -> str | None:
 
 
 def _other_region_domain(current: str) -> str:
-    us_domain, eu_domain = _region_domains()
+    domains = _region_domains()
     if current == "US":
-        return eu_domain
-    return us_domain
+        return domains.eu
+    return domains.us
 
 
 def _request_payload(request: HttpRequest) -> dict[str, Any]:
