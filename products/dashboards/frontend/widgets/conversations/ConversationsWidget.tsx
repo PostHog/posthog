@@ -1,6 +1,8 @@
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconMessage } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
@@ -18,6 +20,9 @@ import {
     WidgetLoadingState,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { parseConversationsWidgetConfig } from './conversationsWidgetConfigValidation'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export type ConversationsWidgetTicket = {
     id: string
@@ -118,22 +123,50 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
     )
 }
 
-export function ConversationsWidget({ result, loading, error }: DashboardWidgetComponentProps): JSX.Element {
+export function ConversationsWidget({ result, loading, error, config }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ConversationsWidgetResult | null | undefined
     const tickets = payload?.results ?? []
+    const parsedConfig = parseConversationsWidgetConfig(config)
+    const hasActiveFilters =
+        parsedConfig.status !== 'all' ||
+        (parsedConfig.priorities?.length ?? 0) > 0 ||
+        parsedConfig.channel !== 'all' ||
+        (parsedConfig.assignees?.length ?? 0) > 0 ||
+        !!parsedConfig.search
 
     if (loading) {
         return <WidgetLoadingState rowCount={5} className="p-3" />
     }
     if (error) {
         return (
-            <WidgetCardBodyMessage>
-                Couldn't load recent tickets. Refresh the dashboard to try again.
-            </WidgetCardBodyMessage>
+            <WidgetCardContent>
+                <WidgetCardBodyMessage>
+                    Couldn't load recent tickets. Refresh the dashboard to try again.
+                </WidgetCardBodyMessage>
+            </WidgetCardContent>
         )
     }
     if (tickets.length === 0) {
-        return <WidgetCardBodyMessage>No tickets match this status.</WidgetCardBodyMessage>
+        return (
+            <WidgetCardContent>
+                <WidgetCardBodyMessage>
+                    <div
+                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                        data-attr="conversations-widget-empty-state"
+                    >
+                        <HedgehogMagnifyingGlass className="size-20 shrink-0" />
+                        <p className="m-0 text-base font-semibold text-primary">
+                            {hasActiveFilters ? 'No tickets found' : 'No tickets yet'}
+                        </p>
+                        <p className="m-0 text-sm text-muted">
+                            {hasActiveFilters
+                                ? 'No tickets matched your filters.'
+                                : 'New support tickets will appear here.'}
+                        </p>
+                    </div>
+                </WidgetCardBodyMessage>
+            </WidgetCardContent>
+        )
     }
     return (
         <>
