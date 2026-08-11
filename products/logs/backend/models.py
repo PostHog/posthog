@@ -460,7 +460,7 @@ class LogsRetentionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         return f"{self.name} (team={self.team_id})"
 
 
-class LogsVolumeBucketCompletion(models.Model):
+class LogsVolumeBucketCompletion(UUIDModel):
     """Commit record for the logs_volume_buckets ClickHouse rollup: one row per
     (team, bucket_start, generation) insert attempt. A set `committed_at` means every
     required partition INSERT succeeded and detection may read that generation; null
