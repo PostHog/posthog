@@ -105,6 +105,15 @@ class TestNormalizeToExposureCriteria:
         assert isinstance(result.exposure_config, ExperimentEventExposureConfig)
         assert result.exposure_config.event == "test_event"
 
+    def test_converts_nested_activation_config(self):
+        input_dict = {"activation_config": {"event": "purchase", "properties": []}}
+
+        result = normalize_to_exposure_criteria(input_dict)
+
+        assert result is not None
+        assert isinstance(result.activation_config, ExperimentEventExposureConfig)
+        assert result.activation_config.event == "purchase"
+
     def test_preserves_already_typed_object(self):
         typed_criteria = ExperimentExposureCriteria()
 

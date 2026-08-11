@@ -62,3 +62,6 @@ def test_malformed_repository_gets_format_guidance(repository):
     assert is_valid is False
     assert message is not None
     assert "owner/repo" in message
+    # Naming the offending entry keeps two malformed repos from collapsing into one repeated
+    # sentence when the source layer joins their failures.
+    assert repository.strip() in message

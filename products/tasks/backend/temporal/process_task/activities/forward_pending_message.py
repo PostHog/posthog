@@ -66,7 +66,7 @@ def forward_pending_user_message(run_id: str) -> None:
     from products.tasks.backend.models import TaskRun
 
     try:
-        task_run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=run_id)
+        task_run = TaskRun.objects.select_related("task__created_by", "task__team", "task__loop").get(id=run_id)
     except TaskRun.DoesNotExist:
         # The run existed when this workflow started, so a missing row means it was
         # hard-deleted mid-run (team/org deletion cascade). Fail the workflow rather
@@ -104,6 +104,15 @@ def forward_pending_user_message(run_id: str) -> None:
         if not pending_message and not pending_user_artifact_ids:
             return
 
+        if state.get("await_user_message"):
+            from products.tasks.backend.exceptions import ComputeBillingLimitError
+            from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted
+
+            if is_compute_quota_exhausted(task_run.task):
+                raise ComputeBillingLimitError(
+                    {"team_id": task_run.team_id, "task_id": str(task_run.task_id), "run_id": run_id}
+                )
+
         pending_message_id = state.get("pending_user_message_id")
         assert isinstance(pending_message_id, str) and pending_message_id
 
@@ -128,6 +137,11 @@ def forward_pending_user_message(run_id: str) -> None:
                 task_run, user_id=actor_user.id, distinct_id=get_actor_distinct_id(actor_user)
             )
 
+        from products.tasks.backend.logic.services.sandbox_usage import (  # noqa: PLC0415 — matches the file's deferred-import pattern
+            measure_task_run_cpu_attribution,
+        )
+
+        cpu_attribution = measure_task_run_cpu_attribution(run_id, task_run.team_id)
         result = send_user_message(
             task_run,
             pending_message,
@@ -202,7 +216,7 @@ def forward_pending_user_message(run_id: str) -> None:
                 record_task_run_user_activity,
             )
 
-            record_task_run_user_activity(run_id, task_run.team_id)
+            record_task_run_user_activity(run_id, task_run.team_id, cpu_attribution)
             logger.info("forward_pending_message_delivered", run_id=run_id)
         else:
             observe_followup_delivery_failed(task_run, retryable=False)

@@ -21,12 +21,16 @@ use serde_json::Value;
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
+use personhog_proto::personhog::types::v1::LifecycleOpType;
+
 use crate::lifecycle::engine::{
     advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
 
-pub const OP_TYPE_DELETE: &str = "delete";
+// Derived from the shared enum so the op-type string cannot drift from
+// the leader's fence records or the lifecycle_op CHECK constraint.
+pub const OP_TYPE_DELETE: &str = LifecycleOpType::Delete.as_op_type_str();
 
 /// The delete saga's non-terminal steps, in order. Stored as text in
 /// `lifecycle_op.step` (the engine is generic over op types, so its API is
@@ -262,6 +266,26 @@ async fn mark(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
         .execute(&mut *tx)
         .await?;
     }
+
+    // The live filter above and the mark insert run in different
+    // statement snapshots, so a merge can destroy a person between them
+    // and the insert lands on a corpse. Remove such marks here, in the
+    // same transaction: the person reports as not_found and is never
+    // touched again. From here on the mark keeps every held person alive.
+    sqlx::query!(
+        r#"
+        DELETE FROM lifecycle_op_person lop
+        WHERE lop.op_id = $1 AND lop.status = 'marked'
+          AND NOT EXISTS (
+              SELECT 1 FROM posthog_person p
+              WHERE p.team_id = $2 AND p.id = lop.person_id AND p.is_deleted = false
+          )
+        "#,
+        op.op_id,
+        team_id,
+    )
+    .execute(&mut *tx)
+    .await?;
 
     let claims: i64 = sqlx::query_scalar!(
         r#"
@@ -506,10 +530,9 @@ async fn complete(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
 
 /// One outcome entry per requested person id, in request order, from the
 /// per-person rows: `deleted` and `skipped_conflict` map to themselves; a
-/// missing row means no live person existed at mark time (`not_found`). A
-/// row still `marked`/`sealed` at completion means the person row vanished
-/// under us mid-saga — impossible while the saga is the only deleter (the
-/// per-team exclusivity rollout) — and is reported `not_found`.
+/// missing row means no live person existed at claim time (`not_found`).
+/// A row still `marked`/`sealed` at completion should be unreachable and
+/// reports `not_found`.
 async fn build_outcome(
     tx: &mut Tx<'_>,
     op_id: Uuid,

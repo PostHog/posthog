@@ -16,8 +16,10 @@ import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/
 import { TZLabel } from 'lib/components/TZLabel'
 import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
 import { isEntityFilter } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
     deriveOperand,
@@ -37,7 +39,7 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditsMaybeUsd } from '../../utils/credits'
 import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { MODEL_OPTIONS, ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType } from '../types'
+import { ReplayScanner, SAMPLING_MODE_OPTIONS, ScannerType, getModelOptions, modelNamingVariant } from '../types'
 
 const SUMMARY_LENGTHS = [
     { value: 'short', label: 'Short' },
@@ -267,6 +269,8 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
     const { showUsd } = useValues(visionQuotaLogic)
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
     // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
     const universal = recordingsQueryToUniversalFilters((scanner.query ?? null) as RecordingsQuery | null)
@@ -295,7 +299,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                             <Multiline value={scanner.description} />
                         </LabeledRow>
                         <LabeledRow label="Model">
-                            <OptionTags options={MODEL_OPTIONS} selected={scanner.model} />
+                            <OptionTags options={getModelOptions(namingVariant)} selected={scanner.model} />
                         </LabeledRow>
                         <LabeledRow label="Status">
                             <div className="flex items-center gap-2">
