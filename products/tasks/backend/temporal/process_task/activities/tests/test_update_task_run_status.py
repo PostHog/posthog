@@ -6,6 +6,8 @@ from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
+    SANDBOX_GONE_STATE_KEY,
+    TIMED_OUT_WALL_CLOCK_STATE_KEY,
     UpdateTaskRunStatusInput,
     update_task_run_status,
 )
@@ -83,6 +85,37 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("timed_out_inactivity") is True
         # Merge, not replace: pre-existing state keys survive the marker write.
         assert test_task_run.state.get("existing_key") == "kept"
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "marker",
+        [TIMED_OUT_WALL_CLOCK_STATE_KEY, SANDBOX_GONE_STATE_KEY],
+    )
+    def test_timeout_marker_is_recorded_in_state(self, activity_environment, test_task_run, marker):
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            timeout_marker=marker,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.status == TaskRun.Status.FAILED
+        assert test_task_run.error_message is None
+        assert test_task_run.state.get(marker) is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_unknown_timeout_marker_is_not_written(self, activity_environment, test_task_run):
+        # The marker comes off the wire, so only allowlisted keys may reach TaskRun.state.
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            timeout_marker="arbitrary_key",
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert "arbitrary_key" not in (test_task_run.state or {})
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")

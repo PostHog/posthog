@@ -181,6 +181,7 @@ export function WorkflowMetricsSummary({
             { title: 'Sent', key: 'sent', align: 'right', render: (_, row) => row.sent.toLocaleString() },
             { title: 'Skipped', key: 'skipped', align: 'right', render: (_, row) => row.skipped.toLocaleString() },
             { title: 'Failed', key: 'failed', align: 'right', render: (_, row) => row.failed.toLocaleString() },
+            { title: 'Opened', key: 'opened', align: 'right', render: (_, row) => row.opened.toLocaleString() },
             ...(onSelectAction
                 ? [
                       {

@@ -25,11 +25,12 @@ import {
   Text,
 } from "@posthog/quill";
 import { formatRelativeTimeShort, type TaskRunArtifact } from "@posthog/shared";
-import { isTerminalStatus, type Task } from "@posthog/shared/domain-types";
+import type { Task } from "@posthog/shared/domain-types";
 import {
   getAuthIdentity,
   useAuthStateValue,
 } from "@posthog/ui/features/auth/store";
+import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -42,8 +43,8 @@ import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { createArtifactUploadTracker } from "./countArtifactUploads";
+import { useMemo, useState } from "react";
+import { useCompletedArtifactUploads } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
 
@@ -51,15 +52,30 @@ type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
  * The menu sits at the right edge of the thread, and its popup is capped at the space left
  * there and clips what does not fit, so the age is the compact form rather than the row's.
  */
+function wasEditedByCurrentUser(
+  artifact: TaskRunArtifact,
+  currentUserId: number | undefined,
+): boolean {
+  return (
+    artifact.uploaded_by === "user" &&
+    currentUserId !== undefined &&
+    artifact.uploaded_by_user_id === currentUserId
+  );
+}
+
 function versionMenuLabel(
   artifact: TaskRunArtifact,
   index: number,
   total: number,
+  currentUserId: number | undefined,
 ): string {
-  const label = runArtifactVersionLabel(index, total);
-  return artifact.uploaded_at
-    ? `${label} · ${formatRelativeTimeShort(artifact.uploaded_at)}`
-    : label;
+  return [
+    runArtifactVersionLabel(index, total),
+    wasEditedByCurrentUser(artifact, currentUserId) ? "Edited by you" : null,
+    artifact.uploaded_at ? formatRelativeTimeShort(artifact.uploaded_at) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function CloudArtifactDownloads({
@@ -83,6 +99,7 @@ export function CloudArtifactDownloads({
   const { setArtifactFilesCollapsed } = useSessionViewActions();
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const { download, downloadingId } = useArtifactDownload();
+  const { data: currentUser } = useMeQuery();
   const [selectedVersionByName, setSelectedVersionByName] = useState<
     Record<string, string>
   >({});
@@ -91,34 +108,28 @@ export function CloudArtifactDownloads({
   >({});
   const [showDismissed, setShowDismissed] = useState(false);
   const runId = task?.latest_run?.id;
-  const isTerminal = isTerminalStatus(cloudStatus ?? task?.latest_run?.status);
+  const runStatus = cloudStatus ?? task?.latest_run?.status;
+  const isLive = runStatus === "queued" || runStatus === "in_progress";
+  const events = useSessionSelector(taskId, (session) => session?.events);
+  const completedUploads = useCompletedArtifactUploads(events ?? []);
   const { data: fetchedArtifacts, refetch } = useQuery({
-    queryKey: ["cloudRunArtifacts", authIdentity, taskId, runId],
+    queryKey: [
+      "cloudRunArtifacts",
+      authIdentity,
+      taskId,
+      runId,
+      completedUploads,
+    ],
     queryFn: () =>
       sessionService.getCloudRunArtifacts(taskId ?? "", runId ?? ""),
     enabled:
       authIdentity !== null && taskId !== undefined && runId !== undefined,
     retry: false,
     staleTime: 15_000,
-    // Backstop only, for an upload whose tool call never reached this client.
-    refetchInterval: isTerminal ? false : 30_000,
+    // Tool completion triggers an immediate refresh; this only covers missing tool events.
+    refetchInterval: isLive ? 120_000 : false,
   });
 
-  // The agent's own upload_artifact call is the earliest signal a new file exists,
-  // so read the manifest the moment one finishes rather than on the next tick.
-  const events = useSessionSelector(taskId, (session) => session?.events);
-  const uploadTracker = useRef<ReturnType<
-    typeof createArtifactUploadTracker
-  > | null>(null);
-  uploadTracker.current ??= createArtifactUploadTracker();
-  const tracker = uploadTracker.current;
-  const completedUploads = useMemo(
-    () => tracker.update(events ?? []),
-    [events, tracker],
-  );
-  useEffect(() => {
-    if (completedUploads > 0) void refetch();
-  }, [completedUploads, refetch]);
   const groups = useMemo(
     () =>
       groupRunArtifactVersions(
@@ -127,13 +138,14 @@ export function CloudArtifactDownloads({
           sessionArtifacts ??
           task?.latest_run?.artifacts ??
           []
-        )
-          .filter((artifact) => artifact.type === "output")
-          .map((artifact) =>
+        ).flatMap((artifact) => {
+          if (artifact.type !== "output") return [];
+          return [
             artifact.id && artifact.id in dismissalOverrides
               ? { ...artifact, dismissed_at: dismissalOverrides[artifact.id] }
               : artifact,
-          ),
+          ];
+        }),
       ),
     [
       dismissalOverrides,
@@ -152,16 +164,23 @@ export function CloudArtifactDownloads({
     }: {
       group: ArtifactGroup;
       dismissed: boolean;
-    }) =>
-      sessionService.setCloudRunArtifactsDismissed(
+    }) => {
+      const artifactIds = group.versions.flatMap((version) =>
+        version.id ? [version.id] : [],
+      );
+      if (artifactIds.length !== group.versions.length) {
+        throw new Error("Artifact versions are still uploading");
+      }
+      return sessionService.setCloudRunArtifactsDismissed(
         taskId ?? "",
         runId ?? "",
-        group.versions.flatMap((version) => version.id ?? []),
+        artifactIds,
         dismissed,
-      ),
+      );
+    },
     // Overlay just the dismissal stamps from the response, so the row updates at once without
     // parking a whole-manifest snapshot over a source that keeps refreshing behind it.
-    onSuccess: (manifest) =>
+    onSuccess: async (manifest) => {
       setDismissalOverrides((current) => ({
         ...current,
         ...Object.fromEntries(
@@ -169,23 +188,29 @@ export function CloudArtifactDownloads({
             entry.id ? [[entry.id, entry.dismissed_at ?? null]] : [],
           ),
         ),
-      })),
+      }));
+      const refreshed = await refetch();
+      if (refreshed?.data) setDismissalOverrides({});
+    },
     onError: () => toast.error("Couldn't update this file"),
   });
 
   if (!runId || groups.length === 0) return null;
 
   const renderRow = (group: ArtifactGroup) => {
-    const selectedIndex = Math.max(
-      group.versions.findIndex(
-        (version) =>
-          runArtifactVersionKey(version) === selectedVersionByName[group.name],
-      ),
-      0,
+    const pickedIndex = group.versions.findIndex(
+      (version) =>
+        runArtifactVersionKey(version) === selectedVersionByName[group.name],
     );
+    const newestVisibleIndex = group.versions.findIndex(
+      (version) => !version.dismissed_at,
+    );
+    const selectedIndex =
+      pickedIndex >= 0 ? pickedIndex : Math.max(newestVisibleIndex, 0);
     const selected = group.versions[selectedIndex] as TaskRunArtifact;
     const size = formatFileSize(selected.size);
     const canDownload = Boolean(selected.id);
+    const canChangeDismissal = group.versions.every((version) => version.id);
 
     return (
       <div
@@ -209,6 +234,11 @@ export function CloudArtifactDownloads({
           <Text className="truncate text-[13px]">{selected.name}</Text>
           {size !== null && (
             <Text className="shrink-0 text-[12px] text-gray-10">{size}</Text>
+          )}
+          {wasEditedByCurrentUser(selected, currentUser?.id) && (
+            <Text className="shrink-0 text-[12px] text-gray-10">
+              Edited by you
+            </Text>
           )}
           <RelativeTimestamp timestamp={selected.uploaded_at} />
         </button>
@@ -240,7 +270,12 @@ export function CloudArtifactDownloads({
                     }))
                   }
                 >
-                  {versionMenuLabel(version, index, group.versions.length)}
+                  {versionMenuLabel(
+                    version,
+                    index,
+                    group.versions.length,
+                    currentUser?.id,
+                  )}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
@@ -250,7 +285,7 @@ export function CloudArtifactDownloads({
           <Button
             size="sm"
             variant="outline"
-            disabled={dismissal.isPending}
+            disabled={dismissal.isPending || !canChangeDismissal}
             onClick={() => dismissal.mutate({ group, dismissed: false })}
           >
             Restore
@@ -278,7 +313,7 @@ export function CloudArtifactDownloads({
               size="icon-sm"
               variant="outline"
               aria-label={`Dismiss ${group.name}`}
-              disabled={dismissal.isPending}
+              disabled={dismissal.isPending || !canChangeDismissal}
               onClick={() => dismissal.mutate({ group, dismissed: true })}
             >
               <X size={14} />

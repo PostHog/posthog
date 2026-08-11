@@ -81,6 +81,11 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     task_run_id = models.UUIDField(null=True, blank=True)
     prompt = models.TextField(null=True, blank=True)
 
+    # Snapshot of the project's declared capabilities manifest, denormalized
+    # from the stored source so capability changes can be diffed and audited
+    # without reading object storage. Null for versions that predate it.
+    capabilities = models.JSONField(null=True, blank=True)
+
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )

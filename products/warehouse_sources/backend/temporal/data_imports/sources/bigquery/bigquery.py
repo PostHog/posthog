@@ -195,6 +195,13 @@ BIGQUERY_VALIDATION_GENERIC_ERROR = (
 # the job in place — matched on its stable retry-recommendation wording, not the volatile job id/URL.
 _BIGQUERY_JOB_RETRY_RECOMMENDED = "Retrying the job may solve the problem"
 
+# BigQuery has a second wording for the same transient `jobInternalError` condition above, seen from
+# the same `jobs.getQueryResults` call: "The job encountered an internal error during execution and
+# was unable to complete successfully." — no "Retrying the job may solve the problem" suffix, so
+# `_BIGQUERY_JOB_RETRY_RECOMMENDED` doesn't catch it and it escapes `QueryJob.result()` the same way.
+# Matched on its own stable wording, not the volatile job id/URL.
+_BIGQUERY_JOB_INTERNAL_ERROR = "encountered an internal error during execution and was unable to complete successfully"
+
 
 def _is_transient_rate_quota_exceeded(exc: Exception) -> bool:
     """True for BigQuery's per-second rate quotas, which are transient and recover on their own.
@@ -236,8 +243,10 @@ def _query_should_retry(exc: Exception) -> bool:
     # Defer to the library's own default predicate for the reasons it already covers; importing it
     # directly (rather than reading the private `Retry._predicate`) means a library rename fails
     # loudly at import instead of silently dropping that default coverage.
+    message = str(exc)
     return (
-        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc)
+        _BIGQUERY_JOB_RETRY_RECOMMENDED in message
+        or _BIGQUERY_JOB_INTERNAL_ERROR in message
         or _is_transient_rate_quota_exceeded(exc)
         or _is_transient_queued_jobs_quota_exceeded(exc)
         or _job_should_retry(exc)
