@@ -196,8 +196,13 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     HogQL function: isLikelyBot(user_agent[, ip])
 
     Returns true if the user agent matches bot/automation patterns, or (when given) the
-    client IP falls in a known bot IP range. NULL user agents are treated as bots
-    (empty UA is considered automation).
+    client IP falls in a known bot IP range.
+
+    An empty or NULL user agent is not treated as a bot. Real browser events sometimes
+    reach us without a user agent, so a missing one is weak evidence either way, and
+    classifying it as a bot silently removes real people once bot filtering is on. The
+    empty-UA events still get the reportable `no_user_agent` category from
+    getTrafficCategory; they are only excluded from this filter target.
 
     Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.);
     the IP check is a handful of hash-set lookups and only evaluates for rows the UA check
@@ -207,7 +212,7 @@ def is_bot(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
 
     safe_user_agent = ast.Call(name="ifNull", args=[user_agent_expr, ast.Constant(value="")])
 
-    patterns = [*BOT_DEFINITIONS.keys(), "^$"]
+    patterns = [*BOT_DEFINITIONS.keys()]
     patterns_array = ast.Array(exprs=[ast.Constant(value=p) for p in patterns])
 
     index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_user_agent, patterns_array])

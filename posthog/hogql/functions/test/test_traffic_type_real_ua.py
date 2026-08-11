@@ -192,7 +192,7 @@ class TestTrafficTypeIntegration(BaseTest):
     def test_virt_properties_ignore_user_agent_without_raw(self):
         # $user_agent alone (no $raw_user_agent) is intentionally not read — it has no
         # materialized column, so a fallback would force a properties-blob read on every
-        # query. These events classify via the empty-UA path instead.
+        # query. These events classify via the empty-UA path instead, so is_bot is false.
         tag = uuid4().hex
         self._create_tagged_event(
             tag=tag,
@@ -208,7 +208,7 @@ class TestTrafficTypeIntegration(BaseTest):
         )
         assert len(response.results) == 1
         is_bot, traffic_type, category, bot_name = response.results[0]
-        assert is_bot == 1
+        assert is_bot == 0
         assert traffic_type == "Automation"
         assert category == "no_user_agent"
         assert bot_name == ""
@@ -241,7 +241,7 @@ class TestTrafficTypeIntegration(BaseTest):
         )
         assert len(response.results) == 1
         is_bot, traffic_type, category, bot_name = response.results[0]
-        assert is_bot == 1
+        assert is_bot == 0
         assert traffic_type == "Automation"
         assert category == "no_user_agent"
         assert bot_name == ""
@@ -327,7 +327,7 @@ class TestTrafficTypeIntegration(BaseTest):
         response = self._query_tagged("`$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`", tag)
         assert len(response.results) == 1
         is_bot, traffic_type, category = response.results[0]
-        assert is_bot == 1
+        assert is_bot == 0
         assert traffic_type == "Automation"
         assert category == "no_user_agent"
 
@@ -347,11 +347,16 @@ class TestTrafficTypeIntegration(BaseTest):
                 team=self.team,
                 properties={"$raw_user_agent": ua},
             )
+        # An event with no $raw_user_agent must pass the bot filter — a missing user agent
+        # is not a bot, so real people are not silently removed when bot filtering is on.
+        self._create_tagged_event(
+            tag=tag, distinct_id="filter-empty", event="test_bot_filter", team=self.team, properties={}
+        )
         flush_persons_and_events()
 
         response = self._query_tagged("properties.$raw_user_agent as ua", tag, extra_where="NOT `$virt_is_bot`")
         result_uas = [row[0] for row in response.results]
-        assert len(result_uas) == len(regular_uas)
+        assert len(result_uas) == len(regular_uas) + 1
         for ua in regular_uas:
             assert ua in result_uas, f"Regular UA should pass bot filter: {ua[:50]}"
 
