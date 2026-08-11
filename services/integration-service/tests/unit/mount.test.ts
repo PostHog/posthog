@@ -3,10 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { logger } from '@/lib/logging'
 import { register, servingStaleSeconds } from '@/metrics'
 import { SecretMount } from '@/mount'
-import type { Lifecycle, MountedCredentials } from '@/types'
+import type { MountedCredentials } from '@/types'
 
 const AN_HOUR_MS = 60 * 60 * 1000
 
@@ -25,16 +24,12 @@ async function mount(values: Record<string, string>): Promise<string> {
     return dir
 }
 
-function secretMount(
-    dir: string,
-    opts: { lifecycle?: Lifecycle; now?: () => number } = {}
-): { mount: SecretMount; lifecycle: Lifecycle } {
-    const lifecycle = opts.lifecycle ?? { shuttingDown: false, ready: false }
-    return { mount: new SecretMount({ dir, lifecycle, ...(opts.now && { now: opts.now }) }), lifecycle }
+function secretMount(dir: string, opts: { now?: () => number } = {}): SecretMount {
+    return new SecretMount({ dir, ...(opts.now && { now: opts.now }) })
 }
 
 async function load(values: Record<string, string>): Promise<MountedCredentials | null> {
-    const { mount: m } = secretMount(await mount(values))
+    const m = secretMount(await mount(values))
     await m.reload()
     return m.current()
 }
@@ -139,7 +134,7 @@ describe('reading the mount', () => {
 
     describe('the content hash', () => {
         it('is stable across reads of unchanged content', async () => {
-            const { mount: m } = secretMount(await mount({ HUBSPOT_APP_CLIENT_SECRET: 'sec' }))
+            const m = secretMount(await mount({ HUBSPOT_APP_CLIENT_SECRET: 'sec' }))
             await m.reload()
             const first = m.current()?.versionId
             await m.reload()
@@ -160,11 +155,10 @@ describe('reading the mount', () => {
         // would answer all-missing, which a caller treats as a deleted credential.
         ['the mount carries only reserved entries', null, { __CALLER_KEY_POSTHOG_DJANGO: 'k' }],
     ])('holds nothing when %s', async (_label, path, values) => {
-        const { mount: m, lifecycle } = secretMount(path ?? (await mount(values ?? {})))
+        const m = secretMount(path ?? (await mount(values ?? {})))
         await m.reload()
 
         expect(m.current()).toBeNull()
-        expect(lifecycle.ready).toBe(false)
     })
 })
 
@@ -176,7 +170,7 @@ describe('holding credentials across reloads', () => {
     it('keeps serving what it holds when a reload finds nothing, and says so on the gauge', async () => {
         const dir = await mount({ HUBSPOT_APP_CLIENT_SECRET: 'sec' })
         // A clock an hour ahead of the read, so the gauge has a value to report.
-        const { mount: m, lifecycle } = secretMount(dir, { now: () => Date.now() + AN_HOUR_MS })
+        const m = secretMount(dir, { now: () => Date.now() + AN_HOUR_MS })
         await m.reload()
         const held = m.current()
 
@@ -184,14 +178,13 @@ describe('holding credentials across reloads', () => {
         await m.reload()
 
         expect(m.current()).toBe(held)
-        expect(lifecycle.ready).toBe(true)
         const stale = (await servingStaleSeconds.get()).values[0]?.value ?? 0
         expect(Math.round(stale)).toBe(3600)
     })
 
     it('resets the staleness gauge once the mount reads again', async () => {
         const dir = await mount({ HUBSPOT_APP_CLIENT_SECRET: 'sec' })
-        const { mount: m } = secretMount(dir, { now: () => Date.now() + AN_HOUR_MS })
+        const m = secretMount(dir, { now: () => Date.now() + AN_HOUR_MS })
         await m.reload()
 
         await rm(join(dir, 'HUBSPOT_APP_CLIENT_SECRET'))
@@ -203,34 +196,15 @@ describe('holding credentials across reloads', () => {
         expect((await servingStaleSeconds.get()).values[0]?.value).toBe(0)
     })
 
-    it('recovers readiness once a mount appears, without ever crashing', async () => {
+    it('recovers once a mount appears, without ever crashing', async () => {
         const dir = await mount({})
-        const { mount: m, lifecycle } = secretMount(dir)
+        const m = secretMount(dir)
 
         await m.reload()
-        expect(lifecycle.ready).toBe(false)
+        expect(m.current()).toBeNull()
 
         await writeFile(join(dir, 'HUBSPOT_APP_CLIENT_SECRET'), 'sec')
         await m.reload()
-        expect(lifecycle.ready).toBe(true)
         expect(m.current()).not.toBeNull()
-    })
-
-    it('logs credentials_lost only on the ready-to-not-ready transition', async () => {
-        const error = vi.spyOn(logger, 'error')
-        const empty = await mount({})
-
-        // Marked ready with nothing held: the one state where the pod goes not-ready.
-        const { mount: lost } = secretMount(empty, { lifecycle: { shuttingDown: false, ready: true } })
-        await lost.reload()
-        expect(error.mock.calls.filter(([event]) => event === 'mount:credentials_lost')).toHaveLength(1)
-
-        error.mockClear()
-
-        // Never ready: same empty read, but nothing was lost.
-        const { mount: starting } = secretMount(empty)
-        await starting.reload()
-        await starting.reload()
-        expect(error.mock.calls.filter(([event]) => event === 'mount:credentials_lost')).toHaveLength(0)
     })
 })

@@ -1,5 +1,4 @@
-// The mounted Kubernetes Secret: reads it, holds the credentials it carries, and drives
-// readiness from whether this pod holds any.
+// The mounted Kubernetes Secret: reads it and holds the credentials it carries.
 //
 // Kubelet projects the secret as a directory, one file per key, and rewrites it in place
 // when the content changes, swapping the `..data` symlink atomically. So a rotation reaches
@@ -11,7 +10,7 @@ import { join } from 'node:path'
 
 import { logger } from './lib/logging'
 import { mountErrorsTotal, servingStaleSeconds } from './metrics'
-import type { Credential, Lifecycle, MountedCredentials } from './types'
+import type { Credential, MountedCredentials } from './types'
 
 /**
  * Marks an entry that is never served as a credential, whatever a token asks for. Credential
@@ -69,22 +68,24 @@ export async function readMount(dir: string): Promise<Record<string, string> | n
 export interface SecretMountOptions {
     /** Directory the Kubernetes Secret is mounted at. */
     dir: string
-    lifecycle: Lifecycle
     now?: () => number
 }
 
 /**
- * Readiness tracks whether this pod holds credentials, not merely that a read ran: a pod
- * with none would answer every resolve all-missing, which callers treat as terminal. A read
- * that returns nothing keeps what is held, so a mount blip does not take a warm fleet out
- * of rotation and an empty mount at boot recovers once ESO syncs, without a crash loop.
+ * Holds the last successfully parsed credential set. A reload that fails keeps serving what
+ * is already held, so a mount blip does not take a warm pod out of rotation; the staleness
+ * gauge is what makes that visible.
  */
 export class SecretMount {
     private held: MountedCredentials | null = null
 
     constructor(private readonly opts: SecretMountOptions) {}
 
-    /** The credentials currently being served, if any. */
+    /**
+     * The credentials currently being served. Null until the first successful read, which is
+     * what the server's readiness probe reports: a pod with no credentials must not serve,
+     * because it would answer every resolve all-missing, which callers treat as terminal.
+     */
     current(): MountedCredentials | null {
         return this.held
     }
@@ -99,14 +100,9 @@ export class SecretMount {
         } else {
             mountErrorsTotal.inc()
             if (this.held) {
-                // Keeping what is already held is what stops an unreadable mount failing
-                // every read. The gauge is what stops that being silent.
                 servingStaleSeconds.set((now() - Date.parse(this.held.fetchedAt)) / 1000)
-            } else if (this.opts.lifecycle.ready) {
-                logger.error('mount:credentials_lost', { dir: this.opts.dir })
             }
         }
-        this.opts.lifecycle.ready = this.held !== null
     }
 
     private build(values: Record<string, string>): MountedCredentials | null {

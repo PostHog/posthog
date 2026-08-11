@@ -71,6 +71,7 @@ export class IntegrationServer {
     async reload(): Promise<void> {
         await this.mount?.reload()
         await this.signingKeys?.reload()
+        this.lifecycle.ready = this.mount?.current() != null
     }
 
     async start(): Promise<void> {
@@ -80,7 +81,7 @@ export class IntegrationServer {
         this.signingKeys = signingKeys
         await signingKeys.load()
 
-        const mount = new SecretMount({ dir: config.mountDir, lifecycle: this.lifecycle })
+        const mount = new SecretMount({ dir: config.mountDir })
         this.mount = mount
 
         const app = createApp({
@@ -91,6 +92,7 @@ export class IntegrationServer {
         })
 
         await mount.reload()
+        this.lifecycle.ready = mount.current() != null
         if (!this.lifecycle.ready) {
             logger.error('startup:no_credentials_on_mount', { dir: config.mountDir })
         }
