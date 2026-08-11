@@ -1,10 +1,7 @@
-//! Lifecycle sagas: person-destroying operations (delete and merge) run as
-//! durable sagas with all state in the lifecycle_op tables on the persons
-//! primary. No identity work happens here: MergePersons' validation,
-//! resolution, classification, and inline settlement live in
-//! [`crate::service::merge`], which reaches the op machinery only through
-//! [`merge::MergeOpExecutor`]. This service owns the op machinery and the
-//! delete path, and delegates the merge RPC to the entrance.
+//! Lifecycle sagas: person-destroying operations run as durable sagas with
+//! all state in the lifecycle_op tables on the persons primary. The merge
+//! saga's step handler lives in [`merge`]; the entrance that drives it
+//! lives in [`crate::service::merge`].
 //!
 //! The [`engine`] carries everything op types share (op persistence, lease,
 //! drive loop, sweeper, GC); [`delete`] and [`merge`] carry their sagas'
@@ -22,7 +19,6 @@ use tonic::{Request, Response, Status};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{
     DeletePersonOutcome, DeletePersonResult, DeletePersonsRequest, DeletePersonsResponse,
-    MergePersonsRequest, MergePersonsResponse,
 };
 
 use crate::leader::LifecycleLeader;
@@ -31,12 +27,10 @@ use crate::lifecycle::delete::{
 };
 use crate::lifecycle::engine::{Engine, OpRow, SagaError};
 use crate::lifecycle::validation::validate_delete_persons;
-use crate::service::merge::MergeEntrance;
 
 pub struct PersonHogLifecycleService {
     engine: Arc<Engine>,
     delete_driver: DeleteDriver,
-    merge: MergeEntrance,
 }
 
 impl PersonHogLifecycleService {
@@ -44,12 +38,10 @@ impl PersonHogLifecycleService {
         engine: Arc<Engine>,
         leader: Arc<dyn LifecycleLeader>,
         tables: crate::config::IdentityTables,
-        merge: MergeEntrance,
     ) -> Self {
         Self {
             engine,
             delete_driver: DeleteDriver::new(leader, tables),
-            merge,
         }
     }
 }
@@ -119,14 +111,5 @@ impl PersonHogLifecycle for PersonHogLifecycleService {
             })?;
 
         Ok(Response::new(delete_response(&row)?))
-    }
-
-    async fn merge_persons(
-        &self,
-        request: Request<MergePersonsRequest>,
-    ) -> Result<Response<MergePersonsResponse>, Status> {
-        Ok(Response::new(
-            self.merge.handle(request.into_inner()).await?,
-        ))
     }
 }

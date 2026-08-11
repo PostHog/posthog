@@ -2,8 +2,7 @@
 //! lives in its own submodule (get_or_create and the merge entrance today;
 //! resolution, claims, and splits will follow the same pattern). [`merge`]
 //! carries MergePersons' identity work — validation, resolution,
-//! classification, inline settlement — and is driven from the lifecycle
-//! service's one-line delegation.
+//! classification, inline settlement.
 
 pub mod error;
 pub mod get_or_create;
@@ -20,11 +19,13 @@ use personhog_proto::personhog::identity::v1::{
     GetOrCreatePersonByDistinctIdRequest, GetOrCreatePersonByDistinctIdResponse,
     GetOrCreatePersonResult, GetOrCreatePersonsByDistinctIdsRequest,
     GetOrCreatePersonsByDistinctIdsResponse, GetPersonByDistinctIdResult,
-    GetPersonsByDistinctIdsRequest, GetPersonsByDistinctIdsResponse,
+    GetPersonsByDistinctIdsRequest, GetPersonsByDistinctIdsResponse, MergePersonsRequest,
+    MergePersonsResponse,
 };
 use personhog_proto::personhog::types::v1::{DistinctIdWithVersion, PersonDistinctIds};
 
 use crate::leader::PropertyWriter;
+use crate::service::merge::MergeEntrance;
 use crate::service::validation::{
     validate_batch_size, validate_entry, validate_team_id, RequestLimits,
 };
@@ -34,6 +35,7 @@ pub struct PersonHogIdentityService {
     pub(crate) storage: Arc<dyn IdentityStorage>,
     pub(crate) property_writer: Arc<dyn PropertyWriter>,
     pub(crate) limits: RequestLimits,
+    merge: MergeEntrance,
 }
 
 impl PersonHogIdentityService {
@@ -41,11 +43,13 @@ impl PersonHogIdentityService {
         storage: Arc<dyn IdentityStorage>,
         property_writer: Arc<dyn PropertyWriter>,
         limits: RequestLimits,
+        merge: MergeEntrance,
     ) -> Self {
         Self {
             storage,
             property_writer,
             limits,
+            merge,
         }
     }
 }
@@ -193,5 +197,14 @@ impl PersonHogIdentity for PersonHogIdentityService {
         Ok(Response::new(GetDistinctIdsForPersonsResponse {
             person_distinct_ids,
         }))
+    }
+
+    async fn merge_persons(
+        &self,
+        request: Request<MergePersonsRequest>,
+    ) -> Result<Response<MergePersonsResponse>, Status> {
+        Ok(Response::new(
+            self.merge.handle(request.into_inner()).await?,
+        ))
     }
 }

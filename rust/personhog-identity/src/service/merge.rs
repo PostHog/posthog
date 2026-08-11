@@ -11,7 +11,7 @@ use std::sync::Arc;
 use serde_json::Value;
 use tonic::Status;
 
-use personhog_proto::personhog::lifecycle::v1::{
+use personhog_proto::personhog::identity::v1::{
     MergePersonsRequest, MergePersonsResponse, MergeSourceOutcome, MergeSourceResult,
 };
 use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};

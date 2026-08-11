@@ -1506,21 +1506,26 @@ async fn merge_works_on_a_configured_person_table() {
 // ============================================================
 
 use personhog_identity::lifecycle::merge::MergeOpExecutor;
-use personhog_identity::lifecycle::PersonHogLifecycleService;
 use personhog_identity::service::merge::MergeEntrance;
-use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
-use personhog_proto::personhog::lifecycle::v1::{
+use personhog_identity::service::validation::RequestLimits;
+use personhog_identity::service::PersonHogIdentityService;
+use personhog_proto::personhog::identity::v1::person_hog_identity_server::PersonHogIdentity;
+use personhog_proto::personhog::identity::v1::{
     MergePersonsRequest, MergePersonsResponse, MergeSource, MergeSourceOutcome,
 };
 use tonic::Request;
 
 impl MergeHarness {
-    fn service(&self) -> PersonHogLifecycleService {
+    fn service(&self) -> PersonHogIdentityService {
         let engine = Arc::new(self.ctx.engine());
-        PersonHogLifecycleService::new(
-            engine.clone(),
+        PersonHogIdentityService::new(
+            self.ctx.storage.clone(),
             self.leader.clone(),
-            self.ctx.tables.clone(),
+            RequestLimits {
+                max_batch_size: 250,
+                max_distinct_id_length: 400,
+                max_extra_distinct_ids: 10,
+            },
             MergeEntrance::new(
                 self.ctx.storage.clone(),
                 self.leader.clone(),

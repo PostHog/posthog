@@ -4,7 +4,8 @@ use std::sync::LazyLock;
 use tonic::Status;
 use uuid::Uuid;
 
-use personhog_proto::personhog::lifecycle::v1::{DeletePersonsRequest, MergePersonsRequest};
+use personhog_proto::personhog::identity::v1::MergePersonsRequest;
+use personhog_proto::personhog::lifecycle::v1::DeletePersonsRequest;
 
 /// Maximum person ids per DeletePersons request. Matches the identity
 /// get-or-create batch cap; GDPR jobs chunk above this.

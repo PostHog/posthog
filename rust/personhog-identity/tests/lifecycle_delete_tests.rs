@@ -13,9 +13,7 @@ use uuid::Uuid;
 
 use personhog_identity::lifecycle::delete::{DeleteDriver, DeleteOutcome};
 use personhog_identity::lifecycle::engine::{Engine, OpRow, SagaError};
-use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
-use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::{DeletePersonOutcome, DeletePersonsRequest};
@@ -28,19 +26,7 @@ impl TestContext {
             self.pool.clone(),
             self.tables.person.clone(),
         ));
-        PersonHogLifecycleService::new(
-            engine.clone(),
-            leader.clone(),
-            self.tables.clone(),
-            MergeEntrance::new(
-                self.storage.clone(),
-                Arc::new(common::UnusedLeader),
-                MergeOpExecutor::new(
-                    engine,
-                    MergeDriver::new(Arc::new(common::UnusedLeader), self.tables.clone()),
-                ),
-            ),
-        )
+        PersonHogLifecycleService::new(engine, leader.clone(), self.tables.clone())
     }
 
     /// (is_deleted, version, properties) of a person row.

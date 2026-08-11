@@ -9,10 +9,8 @@ use tonic::{Code, Request};
 
 use personhog_identity::config::IdentityTables;
 use personhog_identity::lifecycle::engine::{Engine, EngineConfig};
-use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::validation::MAX_DELETE_BATCH_SIZE;
 use personhog_identity::lifecycle::PersonHogLifecycleService;
-use personhog_identity::service::merge::MergeEntrance;
 use personhog_proto::personhog::lifecycle::v1::person_hog_lifecycle_server::PersonHogLifecycle;
 use personhog_proto::personhog::lifecycle::v1::DeletePersonsRequest;
 
@@ -41,17 +39,9 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
     ));
     let tables = IdentityTables::real();
     let service = PersonHogLifecycleService::new(
-        engine.clone(),
+        engine,
         Arc::new(SimLeader::new(pool, tables.person.clone())),
         tables,
-        MergeEntrance::new(
-            Arc::new(common::UnusedStorage),
-            Arc::new(common::UnusedLeader),
-            MergeOpExecutor::new(
-                engine,
-                MergeDriver::new(Arc::new(common::UnusedLeader), IdentityTables::real()),
-            ),
-        ),
     );
     service
         .delete_persons(Request::new(request))

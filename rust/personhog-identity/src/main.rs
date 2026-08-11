@@ -245,8 +245,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     );
     let lifecycle_service =
-        PersonHogLifecycleService::new(engine, lifecycle_leader, config.tables(), merge_entrance);
-    let service = PersonHogIdentityService::new(storage, property_writer, config.request_limits());
+        PersonHogLifecycleService::new(engine, lifecycle_leader, config.tables());
+    let service = PersonHogIdentityService::new(
+        storage,
+        property_writer,
+        config.request_limits(),
+        merge_entrance,
+    );
 
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
