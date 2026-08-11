@@ -2,8 +2,7 @@ import type { TaskRunEnvironment, TaskRunStatus } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   classifyTaskRunPlacement,
-  getComposerLock,
-  getLocalRunBannerState,
+  getLocalRunState,
   isLocalRunTask,
   type TaskRunPlacement,
 } from "./taskRunPlacement";
@@ -46,54 +45,41 @@ describe("isLocalRunTask", () => {
   });
 });
 
-describe("getLocalRunBannerState", () => {
-  it("renders no banner for cloud tasks", () => {
-    expect(getLocalRunBannerState("cloud")).toBeNull();
+describe("getLocalRunState", () => {
+  it("leaves cloud tasks alone — no notice, real composer", () => {
+    expect(getLocalRunState("cloud")).toBeNull();
   });
 
   it("offers to continue a finished desktop run in the cloud", () => {
-    expect(getLocalRunBannerState("local-terminal")).toEqual({
-      message: "This task last ran on your desktop",
+    expect(getLocalRunState("local-terminal")).toEqual({
+      notice: "This task last ran on your desktop",
       actionLabel: "Continue in cloud",
       canContinue: true,
     });
   });
 
-  it("locks the action while the desktop run is still going", () => {
-    expect(getLocalRunBannerState("local-active")).toEqual({
-      message: "This task is running on your desktop",
-      actionLabel: "Running on desktop",
+  it("disables the action while the desktop run is still going", () => {
+    expect(getLocalRunState("local-active")).toEqual({
+      notice: "This task is running on your desktop",
+      actionLabel: "Running on desktop…",
       canContinue: false,
     });
   });
-});
 
-describe("getComposerLock", () => {
-  it("leaves the composer open on cloud tasks", () => {
-    expect(getComposerLock("cloud")).toBeNull();
-  });
-
-  it("points a finished desktop run at continuing in cloud", () => {
-    expect(getComposerLock("local-terminal")).toEqual({
-      hint: "Continue in cloud to keep working from here",
-    });
-  });
-
-  it("does not offer to continue while the desktop run is still going", () => {
-    expect(getComposerLock("local-active")).toEqual({
-      hint: "Wait for the desktop run to finish",
-    });
-  });
-
-  it("locks the composer exactly when the banner shows", () => {
+  it("replaces the composer exactly when a desktop run owns the task", () => {
     const placements: TaskRunPlacement[] = [
       "cloud",
       "local-active",
       "local-terminal",
     ];
     for (const placement of placements) {
-      expect(getComposerLock(placement) === null).toBe(
-        getLocalRunBannerState(placement) === null,
+      expect(getLocalRunState(placement) === null).toBe(
+        classifyTaskRunPlacement({
+          latest_run: {
+            environment: placement === "cloud" ? "cloud" : "local",
+            status: placement === "local-active" ? "in_progress" : "completed",
+          },
+        }) === "cloud",
       );
     }
   });

@@ -35,62 +35,42 @@ export function isLocalRunTask(
   return classifyTaskRunPlacement(task) !== "cloud";
 }
 
-export interface LocalRunBannerState {
-  message: string;
+export interface LocalRunState {
+  /** One-line notice pinned above the thread. */
+  notice: string;
+  /** Label on the full-width bar that stands in for the composer. */
   actionLabel: string;
-  /** False while the desktop run is still live — the action is shown disabled. */
+  /** False while the desktop run is still live — the bar is shown disabled. */
   canContinue: boolean;
 }
 
 /**
- * Copy and enablement for the task-detail banner. Returns null for cloud
- * tasks, which get no banner at all.
+ * Everything the task detail screen needs to say about a desktop-owned run,
+ * from one switch so the notice and the action can never disagree.
+ *
+ * A desktop-owned run has no cloud session behind it, so typing into the
+ * composer could only ever fail with "No active session". Mobile replaces the
+ * composer with the single move that does work — starting a fresh cloud run —
+ * and disables it until the desktop run has actually ended, so the two never
+ * race. Cloud tasks return null: no notice, and the real composer stays.
  */
-export function getLocalRunBannerState(
+export function getLocalRunState(
   placement: TaskRunPlacement,
-): LocalRunBannerState | null {
+): LocalRunState | null {
   switch (placement) {
     case "cloud":
       return null;
     case "local-active":
       return {
-        message: "This task is running on your desktop",
-        actionLabel: "Running on desktop",
+        notice: "This task is running on your desktop",
+        actionLabel: "Running on desktop…",
         canContinue: false,
       };
     case "local-terminal":
       return {
-        message: "This task last ran on your desktop",
+        notice: "This task last ran on your desktop",
         actionLabel: "Continue in cloud",
         canContinue: true,
       };
-  }
-}
-
-export interface ComposerLock {
-  /** Stands in for the composer placeholder while input is refused. */
-  hint: string;
-}
-
-/**
- * Whether the composer accepts input, from the same placement the banner reads.
- *
- * A desktop-owned run has no cloud session behind it, so a send would fail with
- * "No active session" only after the user typed a whole message. Refuse the
- * input up front and point at the way forward instead. Cloud tasks return null:
- * the composer is open and the caller keeps its own placeholder.
- */
-export function getComposerLock(
-  placement: TaskRunPlacement,
-): ComposerLock | null {
-  switch (placement) {
-    case "cloud":
-      return null;
-    case "local-active":
-      // "Continue in cloud" isn't available yet -- the banner's action is
-      // disabled until the desktop run ends -- so don't suggest it.
-      return { hint: "Wait for the desktop run to finish" };
-    case "local-terminal":
-      return { hint: "Continue in cloud to keep working from here" };
   }
 }

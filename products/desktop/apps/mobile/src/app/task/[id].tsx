@@ -32,6 +32,7 @@ import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { FloatingBackButton } from "@/components/FloatingBackButton";
 import { useAuthStore } from "@/features/auth";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
+import { ContinueInCloudBar } from "@/features/tasks/components/ContinueInCloudBar";
 import { CreateSkillFromTaskButton } from "@/features/tasks/components/CreateSkillFromTaskButton";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
@@ -80,7 +81,7 @@ import { buildCloudTaskRunConfig } from "@/features/tasks/utils/cloudTaskRunConf
 import { classifyTaskLoadError } from "@/features/tasks/utils/taskLoadError";
 import {
   classifyTaskRunPlacement,
-  getComposerLock,
+  getLocalRunState,
 } from "@/features/tasks/utils/taskRunPlacement";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import {
@@ -857,14 +858,13 @@ export default function TaskDetailScreen() {
   // a blank spinner.
   const showLoading =
     (loading || isHistoryLoading) && !optimisticPrompt && !showSnapshot;
-  // A desktop-local run gets a banner instead of a live session: the only
-  // action mobile can take is starting a fresh cloud run from it, which is
-  // exactly what the retry/resume path already does.
-  const runPlacement = classifyTaskRunPlacement(task);
-  const showLocalRunBanner = !loading && runPlacement !== "cloud";
-  // Same placement drives the banner and the composer, so they can't disagree
+  // A desktop-local run gets a notice and a "Continue in cloud" bar instead of
+  // a live session: the only action mobile can take is starting a fresh cloud
+  // run from it, which is exactly what the retry/resume path already does.
+  // One state object drives both, so the notice and the bar can't disagree
   // about whether this task is still desktop-owned.
-  const composerLock = loading ? null : getComposerLock(runPlacement);
+  const runPlacement = classifyTaskRunPlacement(task);
+  const localRunState = loading ? null : getLocalRunState(runPlacement);
   const showAutomationContext =
     fromAutomation === "1" || task?.origin_product === "automation";
   const automationContextLabel =
@@ -954,7 +954,7 @@ export default function TaskDetailScreen() {
           </View>
         )}
 
-        {showLocalRunBanner && (
+        {localRunState && (
           <View
             className="absolute inset-x-3 z-10"
             style={{
@@ -964,11 +964,7 @@ export default function TaskDetailScreen() {
                 (showAutomationContext ? 44 : 0),
             }}
           >
-            <LocalRunBanner
-              placement={runPlacement}
-              starting={retrying}
-              onContinueInCloud={handleRetry}
-            />
+            <LocalRunBanner state={localRunState} />
           </View>
         )}
 
@@ -1010,7 +1006,7 @@ export default function TaskDetailScreen() {
               modalTopOffset(insets.top) +
               60 +
               (showAutomationContext ? 44 : 0) +
-              (showLocalRunBanner ? 52 : 0),
+              (localRunState ? 44 : 0),
           }}
         />
 
@@ -1033,55 +1029,65 @@ export default function TaskDetailScreen() {
         {/* Composer below the list in flex flow — its real height
             determines how much vertical space the list above gets, so the
             last message can never sit behind the input. Stays visible on
-            terminal runs so the user can send a follow-up that resumes. */}
+            terminal runs so the user can send a follow-up that resumes.
+            On a desktop-owned task there is no cloud session to send into,
+            so the "Continue in cloud" bar takes its place entirely. */}
         <Animated.View style={inputContainerStyle}>
-          {taskId ? (
-            <QueuedMessagesDock
-              taskId={taskId}
-              canSteer={
-                !!session?.isPromptPending &&
-                !session?.isCompacting &&
-                !session?.terminalStatus
-              }
-              onSteer={handleSteerQueued}
-              onEdit={handleEditQueued}
-              onDiscard={handleDiscardQueued}
-              onMove={handleMoveQueued}
+          {localRunState ? (
+            <ContinueInCloudBar
+              state={localRunState}
+              starting={retrying}
+              onContinueInCloud={handleRetry}
             />
-          ) : null}
-          <TaskChatComposer
-            key={taskId}
-            adapter={composerAdapter}
-            canChangeAdapter={!!session?.terminalStatus}
-            onSend={handleSendPrompt}
-            restoredDraft={restoredDraft}
-            editing={!!editingQueuedId}
-            onCancelEdit={handleCancelEdit}
-            onStop={handleStop}
-            isUserTurn={!(session?.isPromptPending ?? true)}
-            disabled={!!composerLock}
-            placeholder={
-              composerLock?.hint ??
-              (session?.terminalStatus
-                ? "Resume this task..."
-                : "Ask a question")
-            }
-            initialMessage={initialComposerMessage}
-            mode={composerMode}
-            model={composerModel}
-            reasoning={composerReasoning}
-            contextWindow={composerContextWindow}
-            fastMode={composerFastMode}
-            onAdapterChange={handleAdapterChange}
-            onModeChange={handleModeChange}
-            onModelChange={handleModelChange}
-            onReasoningChange={handleReasoningChange}
-            onContextWindowChange={handleContextWindowChange}
-            onFastModeChange={handleFastModeChange}
-            messagingMode={messagingMode}
-            queuedCount={queuedCount}
-            onToggleMessagingMode={toggleMessagingMode}
-          />
+          ) : (
+            <>
+              {taskId ? (
+                <QueuedMessagesDock
+                  taskId={taskId}
+                  canSteer={
+                    !!session?.isPromptPending &&
+                    !session?.isCompacting &&
+                    !session?.terminalStatus
+                  }
+                  onSteer={handleSteerQueued}
+                  onEdit={handleEditQueued}
+                  onDiscard={handleDiscardQueued}
+                  onMove={handleMoveQueued}
+                />
+              ) : null}
+              <TaskChatComposer
+                key={taskId}
+                adapter={composerAdapter}
+                canChangeAdapter={!!session?.terminalStatus}
+                onSend={handleSendPrompt}
+                restoredDraft={restoredDraft}
+                editing={!!editingQueuedId}
+                onCancelEdit={handleCancelEdit}
+                onStop={handleStop}
+                isUserTurn={!(session?.isPromptPending ?? true)}
+                placeholder={
+                  session?.terminalStatus
+                    ? "Resume this task..."
+                    : "Ask a question"
+                }
+                initialMessage={initialComposerMessage}
+                mode={composerMode}
+                model={composerModel}
+                reasoning={composerReasoning}
+                contextWindow={composerContextWindow}
+                fastMode={composerFastMode}
+                onAdapterChange={handleAdapterChange}
+                onModeChange={handleModeChange}
+                onModelChange={handleModelChange}
+                onReasoningChange={handleReasoningChange}
+                onContextWindowChange={handleContextWindowChange}
+                onFastModeChange={handleFastModeChange}
+                messagingMode={messagingMode}
+                queuedCount={queuedCount}
+                onToggleMessagingMode={toggleMessagingMode}
+              />
+            </>
+          )}
         </Animated.View>
       </Animated.View>
     </View>
