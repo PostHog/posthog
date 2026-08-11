@@ -432,19 +432,19 @@ class TestSandboxGithubIdentityGate:
         mock_clear.assert_called_once()
         mock_apply.assert_not_called()
 
-    def test_a_self_revoked_connection_does_not_fail_the_turn(
+    def test_a_self_revoked_connection_that_cannot_clear_fails_closed(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
-        # Same actor, their own connection revoked, and the clear cannot be confirmed. There is no
-        # other actor to protect, so the turn proceeds and the agent reports the lost access rather
-        # than the thread dying on an internal error.
+        # Same actor, their own connection revoked, and the clear cannot be confirmed. Deleting the
+        # integration does not revoke the token GitHub already issued, so proceeding could leave it
+        # usable in the sandbox after the user disconnected.
         mock_authorship.return_value = PrAuthorshipMode.USER
         mock_resolve.return_value = MagicMock()
         mock_get_token.return_value = None
         mock_clear.return_value = False
         mark_sandbox_github_identity("run-1", 42)
 
-        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is True
+        assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is False
 
     def test_a_transition_that_cannot_clear_still_fails_closed(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade

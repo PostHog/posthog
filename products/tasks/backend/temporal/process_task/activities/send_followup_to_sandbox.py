@@ -40,7 +40,6 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_actor_distinct_id,
     get_imported_mcp_server_configs,
     get_pr_authorship_mode,
-    get_sandbox_github_identity_user,
     get_sandbox_github_token,
     get_sandbox_mcp_session_user,
     get_sandbox_ph_mcp_configs,
@@ -495,12 +494,10 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
     keeps a continuous actor's token rotated between transitions.
 
     Returns ``True`` when the sandbox safely reflects this actor (rebound, logged
-    out, or nothing to do) and ``False`` only when an actor *transition* could
-    neither rebind nor even clear — the previous actor's credentials may still be
-    live, so the caller fails the follow-up closed. An actor who revoked their own
-    connection is not a transition: the clear is best-effort and the turn proceeds,
-    so the agent can tell them it lost access rather than the thread dying on an
-    internal error.
+    out, or nothing to do) and ``False`` when we could neither rebind nor even
+    clear. That is fail-closed for everyone, including an actor who revoked their
+    own connection: deleting a `UserIntegration` does not revoke the token GitHub
+    already issued, so an unconfirmed clear can leave it usable in the sandbox.
     """
     if actor_user is None:
         return True
@@ -521,14 +518,6 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
     # Re-established every turn rather than skipped when the actor is unchanged: they can connect
     # or disconnect their GitHub between any two messages, and the sandbox can lose its token to a
     # resume or snapshot restore. Apply the token whenever one resolves, clear it when none does.
-    same_actor = get_sandbox_github_identity_user(scope) == actor_user.id
-
-    # Failing closed protects a *different* follow-up actor from inheriting the previous one's
-    # token. When the actor is unchanged and simply revoked their own connection there is nobody
-    # to protect, and refusing the turn would strand the thread on an internal error instead of
-    # letting the agent say it can no longer reach the code.
-    fail_closed = not same_actor
-
     sandbox = _resolve_live_sandbox(state)
     if sandbox is None:
         # We are past the same-actor fast path, so this is an unconfirmed transition. The
@@ -536,13 +525,8 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
         # would run it under the prior actor's retained credentials. A missing handle (dead
         # sandbox, or a transient control-plane lookup failure) is not proof the sandbox is
         # safe, so fail closed rather than deliver without a confirmed rebind or clear.
-        logger.info(
-            "refresh_github_no_sandbox_handle",
-            run_id=run_id,
-            user_id=actor_user.id,
-            fail_closed=fail_closed,
-        )
-        return not fail_closed
+        logger.info("refresh_github_no_sandbox_handle_fail_closed", run_id=run_id, user_id=actor_user.id)
+        return False
 
     repository = task.repository
     token: str | None = None
@@ -581,10 +565,8 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
     # owner writers acquire the same lock and re-check the marker this block advances.
     with sandbox_credential_lock(sandbox.id) as acquired:
         if not acquired:
-            logger.warning(
-                "refresh_github_lock_unavailable", run_id=run_id, user_id=actor_user.id, fail_closed=fail_closed
-            )
-            return not fail_closed
+            logger.warning("refresh_github_lock_unavailable_fail_closed", run_id=run_id, user_id=actor_user.id)
+            return False
 
         if token:
             applied = False
@@ -608,14 +590,8 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
         try:
             cleared = clear_github_credentials_from_sandbox(sandbox, repository)
         except Exception:
-            logger.warning(
-                "refresh_github_logout_failed",
-                run_id=run_id,
-                user_id=actor_user.id,
-                fail_closed=fail_closed,
-                exc_info=True,
-            )
-            return not fail_closed
+            logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, exc_info=True)
+            return False
         if cleared:
             # Still record the actor: the marker tells owner-scoped refreshes that this sandbox is
             # bound away from the run owner, and clearing it would let the scheduled refresh inject
@@ -624,8 +600,8 @@ def _refresh_sandbox_github(task_run: TaskRun, actor_user: Any, state: dict[str,
             mark_sandbox_github_identity(scope, actor_user.id)
             logger.info("refresh_github_logged_out", run_id=run_id, user_id=actor_user.id)
             return True
-        logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id, fail_closed=fail_closed)
-        return not fail_closed
+        logger.warning("refresh_github_logout_failed", run_id=run_id, user_id=actor_user.id)
+        return False
 
 
 def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
