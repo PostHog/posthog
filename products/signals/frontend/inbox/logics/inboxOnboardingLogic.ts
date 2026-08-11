@@ -86,9 +86,9 @@ export function resolveWizardState({
 }
 
 export interface OnboardingModeInputs {
-    /** Both source + scout config loaders have settled, so the set-up verdict is trustworthy. */
+    /** Every watcher loader has settled, so the set-up verdict is trustworthy. */
     isSetupLoaded: boolean
-    /** At least one signal source or scout is watching. */
+    /** At least one signal source, scout, or signal-emitting Replay Vision scanner is watching. */
     isSelfDrivingSetUp: boolean
     /** Both tab count loaders have settled (returned, or failed) – the work verdict is trustworthy. */
     areCountsResolved: boolean
@@ -161,6 +161,7 @@ export interface inboxOnboardingLogicValues {
     enabledScoutsCount: number // scoutFleetLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
     enabledSourcesCount: number // signalSourcesLogic
+    hasEmittingScanner: boolean | null // signalSourcesLogic
     sourceConfigs: SignalSourceConfig[] | null // signalSourcesLogic
     activeWorkflowId: string | null // wizardActiveSessionDetectorLogic
     hasResolvedSessionState: boolean // wizardActiveSessionDetectorLogic
@@ -194,7 +195,11 @@ export interface inboxOnboardingLogicActions {
 export interface inboxOnboardingLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isSelfDrivingSetUp: (enabledSourcesCount: number, enabledScoutsCount: number) => boolean
-        isSetupLoaded: (sourceConfigs: SignalSourceConfig[] | null, scoutConfigs: SignalScoutConfig[] | null) => boolean
+        isSetupLoaded: (
+            sourceConfigs: SignalSourceConfig[] | null,
+            scoutConfigs: SignalScoutConfig[] | null,
+            hasEmittingScanner: boolean | null
+        ) => boolean
         areCountsResolved: (
             pullsCount: number | null,
             reportsCount: number | null,
@@ -230,9 +235,10 @@ export type inboxOnboardingLogicType = MakeLogicType<
 >
 
 /**
- * Decides how the single-command self-driving onboarding presents itself. There are no in-app
- * setup steps – the user runs one wizard command in their repo – so "set up" is read straight
- * from what the wizard turns on: at least one signal source or scout watching.
+ * Decides how the single-command self-driving onboarding presents itself. The wizard is the main
+ * way in – one command in the user's repo, no in-app steps – so "set up" is read from what ends up
+ * watching: at least one signal source or scout. `enabledSourcesCount` counts Replay Vision too,
+ * which reaches the inbox on its own, without the wizard ever being run.
  *
  * When self-driving is NOT set up, the presentation depends on whether there's anything to show:
  * - nothing landed yet (no reports or PRs) → the inbox becomes a locked "Welcome" tab whose body is
@@ -249,7 +255,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
     connect(() => ({
         values: [
             signalSourcesLogic,
-            ['sourceConfigs', 'enabledSourcesCount'],
+            ['sourceConfigs', 'enabledSourcesCount', 'hasEmittingScanner'],
             scoutFleetLogic,
             ['scoutConfigs', 'enabledCount as enabledScoutsCount'],
             // Mount the pulls + reports count loaders directly (cheap limit=1 each) so we know
@@ -294,13 +300,14 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             (enabledSourcesCount: number, enabledScoutsCount: number): boolean =>
                 enabledSourcesCount + enabledScoutsCount > 0,
         ],
-        // Both source + scout config loaders have settled, so the set-up verdict is trustworthy.
+        // Every watcher loader has settled, so the set-up verdict is trustworthy.
         isSetupLoaded: [
-            (s) => [s.sourceConfigs, s.scoutConfigs],
+            (s) => [s.sourceConfigs, s.scoutConfigs, s.hasEmittingScanner],
             (
                 sourceConfigs: import('../types').SignalSourceConfig[] | null,
-                scoutConfigs: SignalScoutConfig[] | null
-            ): boolean => sourceConfigs !== null && scoutConfigs !== null,
+                scoutConfigs: SignalScoutConfig[] | null,
+                hasEmittingScanner: boolean | null
+            ): boolean => sourceConfigs !== null && scoutConfigs !== null && hasEmittingScanner !== null,
         ],
         // Counts are "resolved" once both limit=1 requests have returned, OR once neither is still
         // loading (so a failed count request can't strand the onboarding on the loading state – this
