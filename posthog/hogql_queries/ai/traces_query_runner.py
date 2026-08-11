@@ -31,7 +31,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     get_sentiment_for_generation,
     load_trace_sentiment_evaluations,
 )
-from posthog.hogql_queries.ai.utils import parse_ai_properties, parse_ai_property_value
+from posthog.hogql_queries.ai.utils import filled_property_filters, parse_ai_properties, parse_ai_property_value
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -627,9 +627,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def _get_properties_filter(self) -> ast.Expr | None:
         property_filters: list[ast.Expr] = []
-        if self.query.properties:
+        properties = filled_property_filters(self.query.properties)
+        if properties:
             with self.timings.measure("property_filters"):
-                for prop in self.query.properties:
+                for prop in properties:
                     property_filters.append(property_to_expr(prop, self.team))
 
         if not property_filters:

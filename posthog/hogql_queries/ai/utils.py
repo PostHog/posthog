@@ -1,8 +1,11 @@
 from abc import ABC
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Optional
 
 import orjson
+
+from posthog.schema import PropertyOperator
 
 from posthog.caching.utils import ThresholdMode, is_stale
 
@@ -62,6 +65,51 @@ _NUMERIC_AI_PROPERTIES: frozenset[str] = frozenset(
         "$ai_time_to_first_token",
     }
 )
+
+
+# These operators express the whole condition on their own, so a filter using one is complete without a value.
+_VALUELESS_PROPERTY_OPERATORS: frozenset[PropertyOperator] = frozenset(
+    {PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET}
+)
+
+
+def _is_filled_property_filter(prop: Any) -> bool:
+    if getattr(prop, "type", None) == "hogql":
+        # A HogQL filter carries its whole expression in `key` and has no value.
+        return bool(getattr(prop, "key", None))
+
+    if not getattr(prop, "key", None):
+        return False
+
+    if getattr(prop, "operator", None) in _VALUELESS_PROPERTY_OPERATORS:
+        return True
+
+    value = getattr(prop, "value", None)
+    if isinstance(value, list | tuple):
+        # A list of blanks (`[""]` from a cleared value editor) is as unusable as an empty one.
+        return any(item not in (None, "") for item in value)
+    if isinstance(value, str):
+        return value != ""
+    # `False` and `0` are real values for boolean and numeric properties, so only a missing value disqualifies here.
+    return value is not None
+
+
+def filled_property_filters(properties: Sequence[Any] | None) -> list[Any]:
+    """Return only the property filters that can narrow anything, dropping the half-built ones.
+
+    The taxonomic filter emits a filter as soon as a key is picked, before any value is entered, and the AI
+    observability scenes forward whatever is in state straight into the query. Handing such a filter to
+    `property_to_expr` gives two different silent failures, neither of which narrows the way the active-looking
+    filter in the UI suggests. A missing or empty-list value compiles away to a no-op that is true for every
+    event, so the list comes back completely unfiltered. An empty-string value compiles to
+    `equals(properties.foo, '')`, which never matches, because an unset property reads as NULL rather than the
+    empty string, so the list comes back empty. Dropping the filter here makes the intent explicit and keeps
+    both cases on the same behavior.
+
+    Matches `isValidPropertyFilter` in frontend/src/lib/components/PropertyFilters/utils.ts, so the UI and the
+    query runners agree on which filters count as filled.
+    """
+    return [prop for prop in (properties or []) if _is_filled_property_filter(prop)]
 
 
 def parse_ai_property_value(value: Any) -> Any:
