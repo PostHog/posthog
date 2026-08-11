@@ -116,7 +116,16 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "build_action",
     ]
 
-    _CREATOR_ONLY_ACTIONS = {"partial_update", "destroy", "publish", "edit", "draft", "promote", "revert", "build_action"}
+    _CREATOR_ONLY_ACTIONS = {
+        "partial_update",
+        "destroy",
+        "publish",
+        "edit",
+        "draft",
+        "promote",
+        "revert",
+        "build_action",
+    }
 
     @extend_schema(
         parameters=[
