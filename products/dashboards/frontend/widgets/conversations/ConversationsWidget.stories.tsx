@@ -170,10 +170,6 @@ export const Empty: Story = {
     decorators: [withConversationsProjectState(true)],
     args: { result: { results: [] } },
 }
-export const Error: Story = {
-    decorators: [withConversationsProjectState(true)],
-    args: { error: 'Request failed' },
-}
 export const SetupUnavailable: Story = {
     decorators: [withConversationsProjectState(false)],
     parameters: {
