@@ -2,9 +2,11 @@
 
 The template picker asks "what do you want to accomplish?" and this turns the answer into a ready-to-review
 scanner draft: the scanner type, a name, a description, and the type-specific config (prompt, tag vocabulary,
-score scale, or summary length). The draft is grounded in the team's real product events and screens so the
-prompt talks about THEIR product, then lands in the creation wizard where the user reviews and adjusts it.
-Nothing is persisted here; the create endpoint re-validates everything on save.
+score scale, or summary length). The draft is grounded in the team's real product events and screens, the
+scanners the caller already has (so a goal can say "like the checkout scanner but for onboarding"), and the
+company's business context (Max's core memory), so the prompt talks about THEIR product. It then lands in
+the creation wizard where the user reviews and adjusts it. Nothing is persisted here; the create endpoint
+re-validates everything on save.
 """
 
 import uuid
@@ -21,9 +23,14 @@ from pydantic import BaseModel, Field
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 
+from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tag_suggestions import _product_taxonomy
 from products.replay_vision.backend.tags import slugify_tag
+
+from ee.hogai.utils.feature_flags import is_core_memory_disabled
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +42,9 @@ _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_PROMPT_LENGTH = 20_000
 _MAX_DRAFT_TAGS = 12
 _DEFAULT_SCALE = (0, 10)
+# Bounds on assembled context so a scanner-heavy team can't blow up the prompt.
+_MAX_EXISTING_SCANNERS = 15
+_SCANNER_GIST_CHARS = 200
 
 
 class DraftError(Exception):
@@ -75,6 +85,46 @@ class ScannerDraft:
     scanner_config: dict[str, Any]
 
 
+@dataclass(frozen=True, kw_only=True)
+class _ExistingScanner:
+    """One existing scanner, condensed for the drafting prompt."""
+
+    name: str
+    scanner_type: str
+    gist: str
+
+
+def _existing_scanners(team: Team, user_access_control: UserAccessControl) -> list[_ExistingScanner]:
+    """Scanners the caller can read, newest first. Lets a goal reference them by name and keeps
+    drafts from duplicating one. Access-filtered so a private scanner's config never leaks."""
+    out: list[_ExistingScanner] = []
+    try:
+        qs = ReplayScanner.objects.filter(team_id=team.id)
+        qs = user_access_control.filter_queryset_by_access_level(qs)
+        rows = qs.order_by("-created_at").values_list("name", "scanner_type", "description", "scanner_config")
+        for name, scanner_type, description, config in rows[:_MAX_EXISTING_SCANNERS]:
+            prompt = str(config.get("prompt", "")) if isinstance(config, dict) else ""
+            gist = (description or prompt).strip()[:_SCANNER_GIST_CHARS]
+            out.append(_ExistingScanner(name=name, scanner_type=scanner_type, gist=gist))
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.existing_scanners_failed", team_id=team.id, exc_info=True)
+    return out
+
+
+def _business_context(team: Team, user: User) -> str:
+    """What the company does and is trying to learn: Max's core memory, falling back to the
+    project's product description. Empty string when neither exists."""
+    try:
+        if not is_core_memory_disabled(team, user):
+            memory = CoreMemory.objects.filter(team=team).only("text").first()
+            if memory and memory.formatted_text.strip():
+                return memory.formatted_text.strip()
+        return (team.project.product_description or "").strip() if team.project else ""
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.business_context_failed", team_id=team.id, exc_info=True)
+        return ""
+
+
 _SYSTEM_PROMPT = """
 You turn a PostHog user's goal into a draft Replay Vision scanner. A scanner watches individual session
 recordings of the user's product and produces one observation per recording. There are four scanner types:
@@ -103,24 +153,57 @@ Pick the single type that best fits the goal, then draft the scanner:
 - Fill only the fields relevant to the chosen type; leave the rest at their defaults.
 - For classifiers: 4-8 lowercase snake_case tags that are distinct, non-overlapping categories along the
   dimension. No vague catch-alls ("other", "misc").
-- Output strictly matches the provided JSON schema."""
+
+The briefing may include the company's business context and the team's existing scanners:
+- Use the business context to make the name, description, and prompt specific to THIS company's product,
+  users, and goals rather than generic.
+- If the goal references an existing scanner (e.g. "like X but for onboarding"), start from that scanner's
+  shape and adapt it to the goal.
+- Never draft a near-duplicate of an existing scanner; draft what covers the gap instead.
+
+Output strictly matches the provided JSON schema."""
 
 
-def _build_user_content(goal: str, events: list[str], screens: list[str]) -> str:
+def _build_user_content(
+    goal: str,
+    events: list[str],
+    screens: list[str],
+    *,
+    scanners: list[_ExistingScanner] | None = None,
+    business_context: str = "",
+) -> str:
     lines = [f"The user's goal:\n{goal.strip()}"]
+    if business_context:
+        lines.append(
+            "\nWhat this company does and what it's trying to learn (its business context):\n" + business_context
+        )
     if events:
         lines.append("\nThe product's most active custom events (what users do here):\n- " + "\n- ".join(events))
     if screens:
         lines.append("\nScreens/paths sessions cover:\n- " + "\n- ".join(screens))
+    if scanners:
+        lines.append(
+            "\nScanners the team already has (the goal may reference these by name):\n- "
+            + "\n- ".join(
+                f"{s.name} ({s.scanner_type}): {s.gist}" if s.gist else f"{s.name} ({s.scanner_type})" for s in scanners
+            )
+        )
     return "\n".join(lines)
 
 
-def draft_scanner_from_goal(*, team: Team, user: User, goal: str) -> ScannerDraft:
-    """Ground the goal in the team's product taxonomy and synthesize one scanner draft.
-
-    Raises DraftError on model failure."""
+def draft_scanner_from_goal(
+    *, team: Team, user: User, goal: str, user_access_control: UserAccessControl
+) -> ScannerDraft:
+    """Ground the goal in the team's product taxonomy, existing scanners, and business context,
+    then synthesize one scanner draft. Raises DraftError on model failure."""
     taxonomy = _product_taxonomy(team)
-    user_content = _build_user_content(goal, taxonomy.events, taxonomy.screens)
+    user_content = _build_user_content(
+        goal,
+        taxonomy.events,
+        taxonomy.screens,
+        scanners=_existing_scanners(team, user_access_control),
+        business_context=_business_context(team, user),
+    )
     parsed = _generate(user_content=user_content, team_id=team.id, distinct_id=str(user.uuid))
     return _finalize(parsed)
 

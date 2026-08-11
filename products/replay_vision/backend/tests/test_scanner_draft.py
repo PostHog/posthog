@@ -1,12 +1,29 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
-from products.replay_vision.backend.scanner_draft import DraftError, _build_user_content, _finalize, _LlmDraft
+from products.posthog_ai.backend.models.assistant import CoreMemory
+from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.scanner_draft import (
+    DraftError,
+    _build_user_content,
+    _business_context,
+    _existing_scanners,
+    _ExistingScanner,
+    _finalize,
+    _LlmDraft,
+)
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
+
+
+def _access_control(*, allow: bool) -> MagicMock:
+    """Stand-in for UserAccessControl: either pass the queryset through or deny everything."""
+    ac = MagicMock()
+    ac.filter_queryset_by_access_level.side_effect = (lambda qs: qs) if allow else (lambda qs: qs.none())
+    return ac
 
 
 def _draft(**overrides) -> _LlmDraft:
@@ -35,6 +52,18 @@ class TestBuildUserContent:
 
         assert "custom events" not in content
         assert "Screens/paths" not in content
+        assert "business context" not in content
+        assert "already has" not in content
+
+    def test_surfaces_business_context_and_existing_scanners(self):
+        scanner = _ExistingScanner(name="Checkout drop-off", scanner_type="monitor", gist="Flags abandoned checkouts.")
+        content = _build_user_content(
+            "goal", [], [], scanners=[scanner], business_context="Acme sells anvils to coyotes."
+        )
+
+        # Both grounding blocks must reach the model; losing one silently makes drafts generic again.
+        assert "Acme sells anvils to coyotes." in content
+        assert "Checkout drop-off (monitor): Flags abandoned checkouts." in content
 
 
 class TestFinalize:
@@ -78,6 +107,56 @@ class TestFinalize:
             _finalize(_draft(prompt="   "))
 
 
+class TestDraftGrounding(_VisionAPITestCase):
+    def test_existing_scanners_respect_object_rbac(self):
+        self._create_scanner(
+            name="Checkout drop-off",
+            scanner_type=ScannerType.MONITOR,
+            description="Flags abandoned checkouts.",
+            scanner_config={"prompt": "Did the user abandon checkout?"},
+        )
+
+        # A readable scanner is summarized for the prompt; an unreadable one must be filtered out entirely.
+        allowed = _existing_scanners(self.team, _access_control(allow=True))
+        assert allowed == [
+            _ExistingScanner(name="Checkout drop-off", scanner_type="monitor", gist="Flags abandoned checkouts.")
+        ]
+        assert _existing_scanners(self.team, _access_control(allow=False)) == []
+
+    def test_existing_scanner_gist_falls_back_to_prompt(self):
+        self._create_scanner(
+            name="Rage clicks",
+            scanner_type=ScannerType.MONITOR,
+            description="",
+            scanner_config={"prompt": "Did the user rage click anywhere?"},
+        )
+
+        (scanner,) = _existing_scanners(self.team, _access_control(allow=True))
+        assert scanner.gist == "Did the user rage click anywhere?"
+
+    @patch("products.replay_vision.backend.scanner_draft.is_core_memory_disabled", return_value=False)
+    def test_business_context_prefers_core_memory(self, _flag):
+        CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
+        self.team.project.product_description = "an anvil shop"
+        self.team.project.save()
+
+        assert _business_context(self.team, self.user) == "Acme sells anvils to coyotes."
+
+    @patch("products.replay_vision.backend.scanner_draft.is_core_memory_disabled", return_value=False)
+    def test_business_context_falls_back_to_product_description(self, _flag):
+        self.team.project.product_description = "an anvil shop"
+        self.team.project.save()
+
+        assert _business_context(self.team, self.user) == "an anvil shop"
+
+    @patch("products.replay_vision.backend.scanner_draft.is_core_memory_disabled", return_value=True)
+    def test_business_context_skips_core_memory_when_disabled(self, _flag):
+        # Teams that opted out of Max's memory must not have it fed to the draft model either.
+        CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
+
+        assert _business_context(self.team, self.user) == ""
+
+
 class TestDraftScannerEndpoint(_VisionAPITestCase):
     @property
     def draft_url(self) -> str:
@@ -107,6 +186,25 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "multi_label": False,
             },
         }
+
+    @patch("products.replay_vision.backend.scanner_draft.is_core_memory_disabled", return_value=False)
+    @patch(_GENERATE_PATH)
+    def test_grounds_the_model_call_in_scanners_and_business_context(self, mock_generate, _flag):
+        mock_generate.return_value = _draft()
+        self._create_scanner(
+            name="Checkout drop-off",
+            scanner_type=ScannerType.MONITOR,
+            description="Flags abandoned checkouts.",
+            scanner_config={"prompt": "Did the user abandon checkout?"},
+        )
+        CoreMemory.objects.create(team=self.team, text="Acme sells anvils to coyotes.")
+
+        resp = self.client.post(self.draft_url, data={"goal": "like Checkout drop-off but for signup"}, format="json")
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        user_content = mock_generate.call_args.kwargs["user_content"]
+        assert "Checkout drop-off (monitor): Flags abandoned checkouts." in user_content
+        assert "Acme sells anvils to coyotes." in user_content
 
     def test_requires_goal(self):
         resp = self.client.post(self.draft_url, data={}, format="json")

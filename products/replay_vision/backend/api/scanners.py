@@ -1848,7 +1848,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
         try:
             drafted = draft_scanner_from_goal(
-                team=self.team, user=cast(User, request.user), goal=body.validated_data["goal"]
+                team=self.team,
+                user=cast(User, request.user),
+                goal=body.validated_data["goal"],
+                user_access_control=self.user_access_control,
             )
         except DraftError:
             return Response(
