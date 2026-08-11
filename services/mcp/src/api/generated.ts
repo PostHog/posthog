@@ -5445,36 +5445,44 @@ export namespace Schemas {
       ConversationsRecentTickets: 'conversations_recent_tickets',
     } as const;
 
-    export type Status = typeof Status[keyof typeof Status];
+    /**
+     * Ticket status filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigStatus = typeof ConversationsRecentTicketsWidgetConfigStatus[keyof typeof ConversationsRecentTicketsWidgetConfigStatus];
 
 
-    export const Status = {
+    export const ConversationsRecentTicketsWidgetConfigStatus = {
       New: 'new',
       Open: 'open',
       Pending: 'pending',
       OnHold: 'on_hold',
       Resolved: 'resolved',
+      All: 'all',
     } as const;
 
-    export type Priority = typeof Priority[keyof typeof Priority];
+    export type ConversationsRecentTicketsWidgetConfigPrioritiesItem = typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem[keyof typeof ConversationsRecentTicketsWidgetConfigPrioritiesItem];
 
 
-    export const Priority = {
+    export const ConversationsRecentTicketsWidgetConfigPrioritiesItem = {
       Low: 'low',
       Medium: 'medium',
       High: 'high',
       Critical: 'critical',
     } as const;
 
-    export type Channel = typeof Channel[keyof typeof Channel];
+    /**
+     * Ticket channel filter.
+     */
+    export type ConversationsRecentTicketsWidgetConfigChannel = typeof ConversationsRecentTicketsWidgetConfigChannel[keyof typeof ConversationsRecentTicketsWidgetConfigChannel];
 
 
-    export const Channel = {
+    export const ConversationsRecentTicketsWidgetConfigChannel = {
       Widget: 'widget',
       Email: 'email',
       Slack: 'slack',
       Teams: 'teams',
       Github: 'github',
+      All: 'all',
     } as const;
 
     export interface ConversationsRecentTicketsWidgetConfig {
@@ -5485,11 +5493,11 @@ export namespace Schemas {
          */
       limit?: number;
       /** Ticket status filter. */
-      status?: Status | 'all';
+      status?: ConversationsRecentTicketsWidgetConfigStatus;
       /** Only show tickets with these priorities. Empty shows all priorities. */
-      priorities?: Priority[];
+      priorities?: ConversationsRecentTicketsWidgetConfigPrioritiesItem[];
       /** Ticket channel filter. */
-      channel?: Channel | 'all';
+      channel?: ConversationsRecentTicketsWidgetConfigChannel;
       /**
          * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
          * @maxItems 100
