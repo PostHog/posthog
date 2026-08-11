@@ -17,12 +17,14 @@ from products.tasks.backend.constants import (
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import (
+    ComputeBillingLimitError,
     CredentialUnavailableError,
     GitHubAuthenticationError,
     OAuthTokenError,
     TaskNotFoundError,
 )
 from products.tasks.backend.logic.services.agentsh import _get_debug_only_domains, enforced_egress_domains
+from products.tasks.backend.logic.services.compute_quota import is_compute_quota_exhausted
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -255,9 +257,9 @@ def _resolve_sandbox_github_token(
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
     try:
-        return Task.objects.select_related("created_by", "github_integration", "github_user_integration").get(
-            id=ctx.task_id
-        )
+        return Task.objects.select_related(
+            "created_by", "github_integration", "github_user_integration", "team", "loop"
+        ).get(id=ctx.task_id)
     except Task.DoesNotExist as e:
         raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
@@ -566,6 +568,10 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         image_source=prepared.image_source,
         **ctx.to_log_context(),
     ):
+        if settings.TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED and not (ctx.state or {}).get("await_user_message"):
+            task = _load_task(ctx)
+            if is_compute_quota_exhausted(task):
+                raise ComputeBillingLimitError({"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id})
         _emit_image_source_log(ctx, prepared)
         emit_agent_log(
             ctx.run_id,

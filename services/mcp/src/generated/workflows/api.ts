@@ -826,7 +826,12 @@ export const hogFlowsLogsRetrieveQueryLimitDefault = 50
 export const hogFlowsLogsRetrieveQueryLimitMax = 500
 
 export const HogFlowsLogsRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    after: zod.iso.datetime({ offset: true }).optional().describe('Only return entries after this ISO 8601 timestamp.'),
+    after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.'
+        ),
     before: zod.iso
         .datetime({ offset: true })
         .optional()
