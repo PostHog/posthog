@@ -74010,6 +74010,15 @@ export namespace Schemas {
       team_id: number;
       /** Whether this team's SDKs receive the slim $feature_flag_called event shape (omitting fields only needed for experiments) instead of the full legacy shape. */
       minimal_flag_called_events: boolean;
+      /**
+         * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
+         * @nullable
+         */
+      max_feature_flags_override: number | null;
+      /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
+      effective_max_feature_flags: number;
+      /** Number of feature flags the team has today, excluding soft-deleted ones, counted the same way the limit is enforced. */
+      feature_flag_count: number;
     }
 
     export interface StaffTeamConfigListResponse {
@@ -74020,8 +74029,15 @@ export namespace Schemas {
     export interface StaffTeamConfigMutation {
       /** Team id to update. Exactly one team per request. */
       team_id: number;
-      /** New value for the team's minimal_flag_called_events setting. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
-      minimal_flag_called_events: boolean;
+      /** New value for the team's minimal_flag_called_events setting. Omit to leave it unchanged. Only set true after confirming that team's SDK versions support the slim $feature_flag_called event shape. */
+      minimal_flag_called_events?: boolean;
+      /**
+         * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
+         * @minimum 1
+         * @maximum 20000
+         * @nullable
+         */
+      max_feature_flags_override?: number | null;
     }
 
     export interface StaffTeamResult {

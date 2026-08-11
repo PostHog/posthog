@@ -1,5 +1,6 @@
 import logging
 
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from posthog.models.team.extensions import register_team_extension_signal
@@ -8,13 +9,15 @@ logger = logging.getLogger(__name__)
 
 
 class TeamFeatureFlagsConfig(models.Model):
-    """Internal-only team-level feature flags behavior settings.
+    """Internal-only team-level feature flags settings, written by staff and never by customers.
 
     Never expose this model through a customer-facing serializer, API endpoint, or settings UI.
-    It gates server-controlled behavior rollouts, not customer preferences. The one exception is
-    the staff-only feature-flags-staff API (products/feature_flags/backend/api/staff_team_config.py,
-    gated by IsStaffUser), which lets staff flip minimal_flag_called_events for one team at a time
-    after manually verifying that team's SDK versions support the slim event shape.
+    It holds server-controlled behavior rollouts and staff-granted limit overrides, not
+    customer-editable preferences. The staff-only feature-flags-staff API
+    (products/feature_flags/backend/api/staff_team_config.py, gated by IsStaffUser) is the only
+    interactive write surface: it flips minimal_flag_called_events one team at a time after staff
+    manually verify that team's SDK versions support the slim event shape, and it grants per-team
+    flag-count overrides.
     Sanctioned writers: the team-creation signal below, get_or_create_team_extension, the
     staff-only feature-flags-staff API (gated by IsStaffUser), and management commands.
     """
@@ -29,6 +32,15 @@ class TeamFeatureFlagsConfig(models.Model):
     # per-team via the feature-flags-staff API once verified, or in bulk via a
     # management command.
     minimal_flag_called_events = models.BooleanField(default=False)
+
+    # Raises or lowers this team's flag-count cap. Null means no override, falling back to the
+    # global settings.MAX_FEATURE_FLAGS_PER_TEAM. Resolved by
+    # products/feature_flags/backend/flag_limits.py, and read only when a flag is created.
+    # MinValueValidator is defense in depth for management commands and Django admin, since the
+    # staff API uses a plain Serializer that never calls full_clean(); its real bounds live there.
+    max_feature_flags_override = models.PositiveIntegerField(
+        null=True, blank=True, default=None, validators=[MinValueValidator(1)]
+    )
 
 
 register_team_extension_signal(TeamFeatureFlagsConfig, logger=logger)
