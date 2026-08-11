@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.sync_teardown import teardown_schema_syncs
+from products.warehouse_sources.backend.tasks import sweep_stopped_schema_syncs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import sync_lock
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
     _ensure_tables,
@@ -142,6 +143,28 @@ class TestDisableChokepointDispatch:
             schema_id=str(schema.id),
             reason="Your account does not have access to this table",
             exclude_workflow_id=job.workflow_id,
+        )
+
+
+class TestSweepStoppedSchemaSyncs:
+    @pytest.mark.parametrize("deleted", [False, True], ids=["disabled", "deleted"])
+    def test_sweep_dispatches_teardown_only_for_stopped_schemas_with_running_jobs(self, deleted, team):
+        stopped_schema, _running_job = _create_schema_with_running_job(team)
+        _healthy_schema, _healthy_job = _create_schema_with_running_job(team)
+        idle_schema, idle_job = _create_schema_with_running_job(team)
+        idle_job.status = ExternalDataJob.Status.COMPLETED
+        idle_job.save()
+
+        update = {"deleted": True} if deleted else {"should_sync": False}
+        ExternalDataSchema.objects.filter(pk__in=[stopped_schema.pk, idle_schema.pk]).update(**update)
+
+        with patch(TASK_DELAY) as mock_delay:
+            sweep_stopped_schema_syncs()
+
+        mock_delay.assert_called_once_with(
+            team_id=team.pk,
+            schema_id=str(stopped_schema.id),
+            reason=SCHEMA_DELETED_JOB_ERROR if deleted else SYNC_DISABLED_JOB_ERROR,
         )
 
 

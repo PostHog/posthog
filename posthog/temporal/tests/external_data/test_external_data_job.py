@@ -138,6 +138,15 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     await connection.close()
 
 
+@pytest.fixture(autouse=True)
+def _stub_sync_teardown_dispatch():
+    # transaction=True plus eager Celery makes a real auto-disable run the
+    # disable-teardown task inline, reaching for the queue DB and Temporal.
+    # Tests that assert the dispatch layer their own patch over this one.
+    with mock.patch("products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"):
+        yield
+
+
 def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
     return ExternalDataSchema.objects.create(
         name=schema_name,

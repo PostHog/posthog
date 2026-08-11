@@ -19,6 +19,7 @@ from typing import Any
 
 import psycopg
 import structlog
+from prometheus_client import Counter
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 
@@ -32,6 +33,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 
 logger = structlog.get_logger(__name__)
+
+SYNC_TEARDOWN_ERRORS = Counter(
+    "dwh_sync_teardown_errors",
+    "Errors hit while tearing down in-flight sync work after a schema stopped syncing",
+)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -272,6 +278,7 @@ def teardown_schema_syncs(
         **summary.__dict__,
     )
     if errors:
+        SYNC_TEARDOWN_ERRORS.inc(errors)
         raise RuntimeError(
             f"Sync teardown for schema {schema_id} hit {errors} error(s); retry will re-run the remaining steps"
         )

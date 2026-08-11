@@ -1,7 +1,18 @@
+from django.db.models import Q
+
 import structlog
 from celery import shared_task
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    SCHEMA_DELETED_JOB_ERROR,
+    SYNC_DISABLED_JOB_ERROR,
+)
+
 logger = structlog.get_logger(__name__)
+
+# Bounds the teardown-task fanout of one sweep tick; the remainder drains on later ticks.
+STOPPED_SYNC_SWEEP_CAP = 500
 
 
 @shared_task(
@@ -35,3 +46,34 @@ def cleanup_disabled_external_data_schema(
         reason=reason,
         exclude_workflow_id=exclude_workflow_id,
     )
+
+
+@shared_task(ignore_result=True)
+def sweep_stopped_schema_syncs() -> None:
+    """Backstop for the write-time disable/delete teardown dispatch.
+
+    The model chokepoint is event-based, and events can be missed: a job created
+    concurrently with the disable, a writer the chokepoint cannot see (bulk_update,
+    raw SQL, a hard delete), or a dropped task. This sweep finds Running jobs whose
+    schema no longer syncs and dispatches the same idempotent teardown, so a missed
+    event heals on the next cycle instead of never. Overlap with a write-time
+    dispatch still in flight is harmless for the same reason.
+    """
+    stopped = list(
+        ExternalDataJob.objects.filter(status=ExternalDataJob.Status.RUNNING)
+        .filter(Q(schema__should_sync=False) | Q(schema__deleted=True))
+        .values_list("schema_id", "team_id", "schema__deleted")
+        .distinct()[: STOPPED_SYNC_SWEEP_CAP + 1]
+    )
+    if len(stopped) > STOPPED_SYNC_SWEEP_CAP:
+        logger.warning("sweep_stopped_schema_syncs_capped", cap=STOPPED_SYNC_SWEEP_CAP)
+        stopped = stopped[:STOPPED_SYNC_SWEEP_CAP]
+
+    for schema_id, team_id, deleted in stopped:
+        cleanup_disabled_external_data_schema.delay(
+            team_id=team_id,
+            schema_id=str(schema_id),
+            reason=SCHEMA_DELETED_JOB_ERROR if deleted else SYNC_DISABLED_JOB_ERROR,
+        )
+    if stopped:
+        logger.info("sweep_stopped_schema_syncs_dispatched", count=len(stopped))
