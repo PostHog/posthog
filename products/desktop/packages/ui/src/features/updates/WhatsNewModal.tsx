@@ -1,6 +1,5 @@
 import { X } from "@phosphor-icons/react";
 import { useHostTRPC } from "@posthog/host-router/react";
-import { useAnnouncementVisible } from "@posthog/ui/features/announcements/useAnnouncementVisible";
 import { ReleaseNotesSections } from "@posthog/ui/features/updates/ReleaseNotesSections";
 import {
   groupReleases,
@@ -43,7 +42,6 @@ function ChangelogSkeleton() {
 export function WhatsNewModal() {
   const isOpen = useWhatsNewStore((state) => state.isOpen);
   const close = useWhatsNewStore((state) => state.close);
-  const announcementVisible = useAnnouncementVisible();
   const prefetchForActiveUpdate = useHasActiveUpdate();
   const hostTRPC = useHostTRPC();
   const { data: currentVersion, isError: isVersionError } = useQuery(
@@ -65,7 +63,7 @@ export function WhatsNewModal() {
 
   return (
     <Dialog.Root
-      open={isOpen && !announcementVisible}
+      open={isOpen}
       onOpenChange={(open) => {
         if (!open) close();
       }}

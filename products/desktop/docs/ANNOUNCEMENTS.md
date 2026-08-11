@@ -74,8 +74,7 @@ next eligible item waits for the next launch, so overlapping announcements
 never show back to back. Required updates are exempt: one still blocks even
 after an announcement was handled in the same session.
 
-While an announcement is on stage, it hides the What's New changelog and
-`UpdateAvailableModal`.
+While an announcement is on stage, it hides `UpdateAvailableModal`.
 
 ## CTA rules
 
