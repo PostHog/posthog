@@ -1658,7 +1658,8 @@ export interface CredentialApi {
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
  * * `CosmosDB` - CosmosDB
- * * `PlanetScale` - PlanetScale
+ * * `PlanetScaleMySQL` - PlanetScaleMySQL
+ * * `PlanetScalePostgres` - PlanetScalePostgres
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -1786,6 +1787,7 @@ export interface CredentialApi {
  * * `FloatApp` - FloatApp
  * * `Flowlu` - Flowlu
  * * `Formbricks` - Formbricks
+ * * `Framer` - Framer
  * * `FreeAgent` - FreeAgent
  * * `Freightview` - Freightview
  * * `Freshcaller` - Freshcaller
@@ -2946,7 +2948,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
     CosmosDB: 'CosmosDB',
-    PlanetScale: 'PlanetScale',
+    PlanetScaleMySQL: 'PlanetScaleMySQL',
+    PlanetScalePostgres: 'PlanetScalePostgres',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -3074,6 +3077,7 @@ export const ExternalDataSourceTypeEnumApi = {
     FloatApp: 'FloatApp',
     Flowlu: 'Flowlu',
     Formbricks: 'Formbricks',
+    Framer: 'Framer',
     FreeAgent: 'FreeAgent',
     Freightview: 'Freightview',
     Freshcaller: 'Freshcaller',
