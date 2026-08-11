@@ -275,29 +275,6 @@ export default function NewTaskScreen() {
   const repositoryLoadBlocked =
     !!repositoryWarning && repositoryOptions.length === 0;
 
-  // Diagnostic breadcrumb for the blank-new-task-screen report: captures the
-  // states that can each blank the composer area. Shared values are read as
-  // point-in-time snapshots, deliberately not dependencies.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: diagnostics-only snapshot read
-  useEffect(() => {
-    log.debug("new-task screen state", {
-      integrationsLoading: isLoading,
-      integrationsError: !!error,
-      repositoryLoadBlocked,
-      hasGithubIntegration,
-      isConfigReady,
-      repositoryOptions: repositoryOptions.length,
-      restingBottom,
-    });
-  }, [
-    isLoading,
-    error,
-    repositoryLoadBlocked,
-    hasGithubIntegration,
-    isConfigReady,
-    repositoryOptions.length,
-  ]);
-
   const handleCreateTask = useCallback(async () => {
     const hasContent = !!prompt.trim() || attachments.length > 0;
     if (!hasContent || !isRepositorySelectionComplete(selection) || creating) {
@@ -522,15 +499,7 @@ export default function NewTaskScreen() {
 
   return (
     <>
-      <View
-        className="flex-1 bg-background"
-        onLayout={(e) =>
-          log.debug("new-task root layout", {
-            width: Math.round(e.nativeEvent.layout.width),
-            height: Math.round(e.nativeEvent.layout.height),
-          })
-        }
-      >
+      <View className="flex-1 bg-background">
         <DotBackground />
 
         <KeyboardAvoidingView
@@ -538,16 +507,7 @@ export default function NewTaskScreen() {
           style={{ flex: 1, paddingBottom: restingBottom }}
         >
           <View className="flex-1 justify-center px-4">
-            <View
-              style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}
-              onLayout={(e) =>
-                log.debug("new-task composer layout", {
-                  width: Math.round(e.nativeEvent.layout.width),
-                  height: Math.round(e.nativeEvent.layout.height),
-                  y: Math.round(e.nativeEvent.layout.y),
-                })
-              }
-            >
+            <View style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}>
               <View className="mb-2">
                 <RepositoryPickerInline
                   open={repoSheetOpen}

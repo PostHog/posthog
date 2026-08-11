@@ -10,8 +10,9 @@ interface ProjectSelectSheetProps {
 }
 
 /**
- * Project picker over the token's scoped teams — the one place that owns the
- * option shape, the `Project N` name fallback, and the out-of-scope alert.
+ * Project picker sheet over the token's scoped teams (Settings). The
+ * post-login full-page picker (app/select-project.tsx) renders the same
+ * options and alert copy full-screen — change both together.
  * Selecting switches the active project via the auth store (which drops
  * project-scoped query caches); the rejection alert is defensive, since the
  * options are the scoped teams themselves.

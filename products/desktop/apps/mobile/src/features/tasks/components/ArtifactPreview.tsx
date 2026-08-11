@@ -24,6 +24,8 @@ import {
   formatJsonForPreview,
 } from "../utils/artifactPreview";
 
+const MAX_TEXT_PREVIEW_BYTES = 1_000_000;
+
 interface ArtifactPreviewProps {
   taskId: string;
   runId: string;
@@ -50,13 +52,16 @@ export function ArtifactPreview({
   // Text-family kinds render from the file's body; images and the external
   // fallback only need the presigned URL.
   const needsText = artifactPreviewNeedsText(kind);
+  // A multi-megabyte log/CSV pulled into one Text node freezes the UI (or
+  // OOMs older devices); past this, fall through to "Open externally".
+  const previewTooLarge = (artifact.size ?? 0) > MAX_TEXT_PREVIEW_BYTES;
   const {
     data: text,
     isLoading: textLoading,
     isError: textError,
   } = useQuery({
     queryKey: ["artifactText", url],
-    enabled: needsText && Boolean(url),
+    enabled: needsText && Boolean(url) && !previewTooLarge,
     staleTime: Infinity,
     retry: false,
     queryFn: async (): Promise<string> => {
@@ -66,7 +71,7 @@ export function ArtifactPreview({
     },
   });
 
-  const loading = urlLoading || (needsText && textLoading);
+  const loading = urlLoading || (needsText && !previewTooLarge && textLoading);
 
   return (
     <Modal
@@ -119,7 +124,7 @@ export function ArtifactPreview({
             <View className="flex-1 items-center justify-center">
               <ActivityIndicator color={themeColors.accent[9]} />
             </View>
-          ) : !url || textError || kind === "unsupported" ? (
+          ) : !url || textError || previewTooLarge || kind === "unsupported" ? (
             <Unsupported
               url={url}
               onShare={() => url && openExternalUrl(url)}

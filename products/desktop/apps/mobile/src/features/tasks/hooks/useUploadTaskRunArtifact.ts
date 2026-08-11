@@ -40,6 +40,9 @@ export function useUploadTaskRunArtifact(
   const projectId = getProjectId();
 
   return useMutation({
+    // The mutationFn is the whole prepare -> S3 -> finalize flow; a blanket
+    // retry re-uploads up to 30MB for failures that can never succeed twice.
+    retry: false,
     mutationFn: async (attachment: PendingAttachment): Promise<void> => {
       if (!taskId || !runId) {
         throw new Error("This run can't accept files.");

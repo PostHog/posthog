@@ -47,6 +47,9 @@ export function useScoutConfigs() {
 export function useScoutRuns() {
   const projectId = useScoutProjectId();
   return useQuery<ScoutRunsWindow>({
+    // The queryFn already walks up to 10 pages; a blanket retry restarts
+    // the whole walk. Partial windows surface as complete: false instead.
+    retry: false,
     queryKey: scoutKeys.runs(),
     queryFn: () =>
       fetchScoutRunsWindow(getPostHogApiClient(), projectId as number),

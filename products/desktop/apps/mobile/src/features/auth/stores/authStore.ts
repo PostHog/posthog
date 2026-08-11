@@ -305,6 +305,13 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (tokens.scopeVersion !== OAUTH_SCOPE_VERSION) {
+            logger.warn(
+              "Stored token scope version mismatch; forcing re-auth",
+              {
+                stored: tokens.scopeVersion,
+                expected: OAUTH_SCOPE_VERSION,
+              },
+            );
             await deleteTokens();
             queryClient.clear();
             set({ ...CLEARED_AUTH_STATE, isLoading: false });

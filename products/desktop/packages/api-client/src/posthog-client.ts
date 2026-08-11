@@ -486,20 +486,6 @@ export interface ScoutManualRun {
   started: boolean;
 }
 
-/** Fleet-wide tally of what the scouts produced over the summary window. */
-export interface ScoutFindingsSummary {
-  /** Findings emitted in the window, summed over the runs that produced output. */
-  count: number;
-  /** Distinct scouts that produced output in the window. */
-  scout_count: number;
-  /** Distinct inbox reports scouts authored, deduped across runs. */
-  authored_report_count: number;
-  /** Distinct inbox reports scouts edited (excluding ones they also authored). */
-  edited_report_count: number;
-  /** ISO timestamp of the most recent output run; null when nothing was produced. */
-  latest_at: string | null;
-}
-
 export interface ScoutEmission {
   id: string;
   run_id: string;
@@ -2021,22 +2007,6 @@ export class PostHogAPIClient {
 
   async getScoutRun(projectId: number, runId: string): Promise<ScoutRun> {
     return await this.scoutGet<ScoutRun>(projectId, `runs/${runId}/`);
-  }
-
-  /**
-   * Fleet-wide tally of recent scout output in one query, instead of paging
-   * through the runs window and summing client-side. `window_hours` defaults
-   * to 72 server-side and is capped there.
-   */
-  async getScoutFindingsSummary(
-    projectId: number,
-    params?: { window_hours?: number },
-  ): Promise<ScoutFindingsSummary> {
-    return await this.scoutGet<ScoutFindingsSummary>(
-      projectId,
-      "runs/findings/summary/",
-      { window_hours: params?.window_hours },
-    );
   }
 
   /**

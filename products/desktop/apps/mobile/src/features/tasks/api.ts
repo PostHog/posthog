@@ -211,6 +211,8 @@ export async function uploadTaskRunArtifact(
   } as unknown as Blob);
 
   const upload = await globalThis.fetch(prepared.presigned_post.url, {
+    // A stalled cellular upload otherwise pins isPending forever.
+    signal: createTimeoutSignal(120_000),
     method: "POST",
     body: form,
   });

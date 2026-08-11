@@ -19,6 +19,14 @@ export const MAX_SNAPSHOT_TASKS = 20;
 /** Quiet period after a session's last event before its snapshot is written. */
 export const SNAPSHOT_DEBOUNCE_MS = 2_000;
 
+/**
+ * Byte budget per task snapshot. AsyncStorage on Android is one shared SQLite
+ * database with a ~6MB default ceiling that also backs auth and preferences —
+ * an unbounded snapshot (inline base64 images especially) could push it over
+ * and break unrelated stores' writes.
+ */
+export const MAX_SNAPSHOT_BYTES = 256_000;
+
 export interface PinnedSnapshot {
   /** Epoch ms of the write; also the eviction order. */
   savedAt: number;
@@ -35,10 +43,24 @@ export interface PinnedSnapshot {
  */
 function toSerializable(event: SessionEvent): SessionEvent | undefined {
   try {
-    const serialized = JSON.stringify(event);
+    const serialized = JSON.stringify(event, (_key, value) =>
+      // Inline base64 previews can be megabytes each; the cached tail only
+      // needs to paint a placeholder until the live session replaces it.
+      typeof value === "string" && value.startsWith("data:")
+        ? "data:dropped-from-snapshot"
+        : value,
+    );
     return serialized === undefined ? undefined : JSON.parse(serialized);
   } catch {
     return undefined;
+  }
+}
+
+function serializedSize(event: SessionEvent): number {
+  try {
+    return JSON.stringify(event)?.length ?? 0;
+  } catch {
+    return 0;
   }
 }
 
@@ -51,9 +73,15 @@ export function trimSnapshotEvents(
   events: readonly SessionEvent[],
 ): SessionEvent[] {
   const serializable: SessionEvent[] = [];
-  for (const event of events.slice(-MAX_SNAPSHOT_EVENTS)) {
+  let budget = MAX_SNAPSHOT_BYTES;
+  // Walk newest-first so the byte budget keeps the most recent events.
+  for (const event of [...events.slice(-MAX_SNAPSHOT_EVENTS)].reverse()) {
     const value = toSerializable(event);
-    if (value !== undefined) serializable.push(value);
+    if (value === undefined) continue;
+    const size = serializedSize(value);
+    if (size > budget) break;
+    budget -= size;
+    serializable.unshift(value);
   }
   return serializable;
 }

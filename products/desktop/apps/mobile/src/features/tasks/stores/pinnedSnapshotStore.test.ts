@@ -188,3 +188,34 @@ describe("usePinnedSnapshotStore", () => {
     vi.mocked(Date.now).mockRestore();
   });
 });
+
+describe("snapshot byte budget", () => {
+  it("drops inline data URIs from persisted events", () => {
+    const event = {
+      type: "session_update",
+      notification: {
+        update: {
+          attachments: [{ uri: `data:image/png;base64,${"a".repeat(100)}` }],
+        },
+      },
+    } as never;
+
+    const [trimmed] = trimSnapshotEvents([event]);
+    expect(JSON.stringify(trimmed)).toContain("data:dropped-from-snapshot");
+    expect(JSON.stringify(trimmed)).not.toContain("base64");
+  });
+
+  it("keeps the newest events when the byte budget is exceeded", () => {
+    const big = (id: number) =>
+      ({
+        type: "session_update",
+        id,
+        notification: { update: { content: { text: "x".repeat(60_000) } } },
+      }) as never;
+    const events = [big(1), big(2), big(3), big(4), big(5), big(6)];
+
+    const trimmed = trimSnapshotEvents(events) as Array<{ id: number }>;
+    expect(trimmed.length).toBeLessThan(6);
+    expect(trimmed.at(-1)?.id).toBe(6);
+  });
+});

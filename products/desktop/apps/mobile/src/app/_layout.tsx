@@ -71,7 +71,17 @@ function RootLayoutNav({ isConnected }: RootLayoutNavProps) {
         );
         return;
       }
-      if (decision.action === "switch" && setProjectId(decision.teamId)) {
+      if (decision.action === "switch") {
+        if (!setProjectId(decision.teamId)) {
+          // Unreachable while resolveNotificationProjectSwitch and
+          // setProjectId share the scopedTeams check — but if they drift,
+          // fail with an explanation instead of a wrong-project 404.
+          Alert.alert(
+            "Can't open task",
+            "This task belongs to a project your login isn't authorized for. Log out and back in to grant access to it.",
+          );
+          return;
+        }
         Alert.alert(
           "Switched project",
           "This task lives in a different project, so the app switched to it.",

@@ -10,7 +10,7 @@ import {
   PuzzlePiece,
   Tray,
 } from "phosphor-react-native";
-import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
+import { memo, type ReactNode, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -25,15 +25,9 @@ import { useTasks } from "@/features/tasks/hooks/useTasks";
 import { useSkillsAvailable } from "@/features/tasks/skills/hooks";
 import { useArchivedTasksStore } from "@/features/tasks/stores/archivedTasksStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
-import { logger } from "@/lib/logger";
 import { useThemeColors } from "@/lib/theme";
 import { useNavDrawerStore } from "../stores/navDrawerStore";
 import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
-
-const log = logger.scope("nav-drawer-view");
-
-const _OPEN_DURATION = 280;
-const _CLOSE_DURATION = 220;
 
 interface DrawerItemProps {
   icon: ReactNode;
@@ -371,13 +365,6 @@ export function NavDrawer() {
   // cannot fail that way: open renders at final position, closed renders
   // nothing. Reinstate a slide only after the static form is verified on
   // the affected device.
-  useEffect(() => {
-    return useNavDrawerStore.subscribe((state, prev) => {
-      if (state.isOpen !== prev.isOpen) {
-        log.debug("drawer state change", { isOpen: state.isOpen });
-      }
-    });
-  }, []);
 
   if (!isOpen) return null;
 
