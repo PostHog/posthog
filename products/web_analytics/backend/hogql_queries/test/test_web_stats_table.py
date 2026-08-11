@@ -572,6 +572,38 @@ class TestWebStatsTableQueryRunner(
             ["/other/123/path", (1.0, None), (1.0, None), 1 / 4, ""],
         ] == results
 
+    def test_path_cleaning_filters_with_capture_group_backreference(self):
+        s1 = str(uuid7("2023-12-02"))
+        s2 = str(uuid7("2023-12-10"))
+        s3 = str(uuid7("2023-12-11"))
+        s4 = str(uuid7("2023-12-12"))
+
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", s1, "/item/123/detail/456")]),
+                ("p2", [("2023-12-10", s2, "/item/123/detail/789")]),  # same item, different detail
+                ("p3", [("2023-12-11", s3, "/item/999/detail/111")]),
+                ("p4", [("2023-12-12", s4, "/other/1/path")]),  # Should not match
+            ]
+        )
+
+        # The alias reuses capture group 1 with re2 `\1` syntax, keeping the item id and dropping the
+        # detail segment. This is passed straight to ClickHouse `replaceRegexpAll`, so it guards that
+        # the alias is never re-escaped or treated as a literal on its way to the query.
+        results = self._run_web_stats_table_query(
+            "all",
+            "2023-12-15",
+            path_cleaning_filters=[
+                {"regex": "\\/item\\/(\\d+)\\/detail\\/\\d+", "alias": "/item/\\1"},
+            ],
+        ).results
+
+        assert [
+            ["/item/123", (2.0, None), (2.0, None), 2 / 4, ""],
+            ["/item/999", (1.0, None), (1.0, None), 1 / 4, ""],
+            ["/other/1/path", (1.0, None), (1.0, None), 1 / 4, ""],
+        ] == results
+
     def test_path_cleaning_filters_applied_in_order(self):
         s1 = str(uuid7("2023-12-02"))
         s2 = str(uuid7("2023-12-10"))
