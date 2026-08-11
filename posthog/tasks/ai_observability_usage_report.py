@@ -691,10 +691,10 @@ def get_llm_feedback_survey_metrics(
 
 
 # Bounds the scan for the already-reported lookup, which has to see every stamp a report for the
-# period could carry. Reports emitted before stamping became deterministic carry their arrival time,
-# and for a backfill that is the operator's wall clock rather than the covered day, so the window
-# reaches well past the period. A report emitted more than this long after the period it covers is
-# invisible to the lookup and would be emitted a second time.
+# period could carry. Every report emitted so far sits one or two days after the period it covers, so
+# this is far wider than the observed spread rather than a tight fit. The width costs little, because
+# team_id, the timestamp range and the event name are all a prefix of the events table sort key.
+# A report stamped more than this long after its period is invisible here and would be emitted again.
 REPORTED_LOOKUP_WINDOW = timedelta(days=90)
 
 # A claim has to outlive the run that took it, otherwise it lapses while the first dispatch is still
@@ -785,6 +785,12 @@ def _get_organizations_to_skip(period_start: datetime) -> set[str]:
     has reports, and emitting anyway would double count usage in every insight built on these events
     with no way to remove the duplicates. Raising lets Celery retry and, if the failure persists, give
     up having emitted nothing.
+
+    Two limits are worth knowing, both of which want a durable per organization and period record to
+    close properly. The evidence is an event in a project whose write token is public, so a forged
+    event carrying an organization id and a period start suppresses that organization's real report for
+    the period. And an emission is only visible here once ingested, so a run redelivered inside that
+    lag reads the period as unreported.
     """
     internal_team_id = internal_reporting_team_id()
     if internal_team_id is None:

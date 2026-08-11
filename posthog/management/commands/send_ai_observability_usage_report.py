@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.utils import timezone
 
 import structlog
+from dateutil import parser
 
 from posthog.tasks.ai_observability_usage_report import (
     USAGE_REPORT_DISPATCH_LOCK_TIMEOUT_SECONDS,
@@ -30,7 +31,7 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         dry_run = options["dry_run"]
-        date = options["date"] or timezone.now().date().isoformat()
+        date = self._normalized_date(options["date"])
         run_async = options["async"]
         org_ids_str = options.get("org_ids")
 
@@ -49,6 +50,11 @@ class Command(BaseCommand):
         # of which precede the emission loop, and the loop itself swallows and logs per-organization
         # failures rather than propagating them. Holding the claim after such a failure would lock the
         # date out while nothing had been emitted, and there is no way to clear it by hand.
+        #
+        # `Exception` rather than `BaseException` on purpose. Ctrl+C raises `KeyboardInterrupt`, which
+        # a synchronous run can take part way through the emission loop, once some organizations
+        # already have reports. Releasing the claim there would admit a second run that cannot yet see
+        # those emissions, so an interrupt deliberately keeps the date claimed until the claim expires.
         try:
             if run_async:
                 send_ai_observability_usage_reports.delay(
@@ -74,6 +80,22 @@ class Command(BaseCommand):
             if not dry_run:
                 self._release_dispatch(date)
             raise
+
+    def _normalized_date(self, date: str | None) -> str:
+        """The report date as `YYYY-MM-DD`, defaulting to today.
+
+        The task resolves this with `dateutil`, which reads `2026-08-01`, `2026-8-1` and `08/01/2026`
+        as the same day, while the claim key is a literal string. Without normalizing first, those
+        spellings take different claims for one date and both runs emit. Normalizing here also turns
+        an unparseable date into an immediate error rather than one raised later inside a worker.
+        """
+        if not date:
+            return timezone.now().date().isoformat()
+
+        try:
+            return parser.parse(date).date().isoformat()
+        except (ValueError, OverflowError) as e:
+            raise CommandError(f"Could not read '{date}' as a date. Use the format YYYY-MM-DD.") from e
 
     def _claim_dispatch(self, date: str) -> None:
         """Claim `date` for this dispatch, refusing when another dispatch already holds it.

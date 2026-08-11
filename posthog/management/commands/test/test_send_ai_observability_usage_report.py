@@ -115,6 +115,30 @@ def test_failed_dispatch_releases_the_claim() -> None:
 
 
 @freeze_time("2026-07-22T12:00:00Z")
+def test_equivalent_date_spellings_share_one_claim() -> None:
+    with patch(TASK_PATH) as mock_send_reports:
+        call_command("send_ai_observability_usage_report", "--async", "--date=2026-07-15")
+
+        with pytest.raises(CommandError, match="already dispatched"):
+            call_command("send_ai_observability_usage_report", "--async", "--date=2026-7-15")
+
+    mock_send_reports.delay.assert_called_once_with(
+        dry_run=False,
+        at="2026-07-15",
+        organization_ids=None,
+    )
+
+
+@freeze_time("2026-07-22T12:00:00Z")
+def test_unreadable_date_is_rejected_without_dispatching() -> None:
+    with patch(TASK_PATH) as mock_send_reports:
+        with pytest.raises(CommandError, match="Could not read"):
+            call_command("send_ai_observability_usage_report", "--async", "--date=not-a-date")
+
+    mock_send_reports.delay.assert_not_called()
+
+
+@freeze_time("2026-07-22T12:00:00Z")
 def test_failed_synchronous_run_releases_the_claim() -> None:
     with patch(TASK_PATH) as mock_send_reports:
         mock_send_reports.side_effect = [RuntimeError("clickhouse down"), None]
