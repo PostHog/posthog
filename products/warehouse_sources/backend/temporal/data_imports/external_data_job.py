@@ -156,6 +156,28 @@ Any_Source_Errors: dict[str, str | None] = {
 }
 
 
+UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
+
+
+def _customer_facing_error(cause: BaseException | None) -> str:
+    """`latest_error` text a customer reads, without the leaked internal exception class name.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    `ApplicationError.__str__`), so ``str(cause)`` prefixes the customer-facing error with an
+    internal Python class name that means nothing to them: ``RESTClientRetryableError`` for a
+    REST source that exhausted its retries on an HTTP 429/5xx, ``NonReportableError`` for a
+    retryable connection drop, or a raw driver ``OperationalError``. The wrapped ``message``
+    carries the same detail without that prefix. This only affects errors we don't rewrite via
+    the non-retryable map below (retryable exhaustion and unclassified failures); ``internal_error``
+    still records the full ``str(cause)`` for debugging.
+    """
+    # A wrapped ActivityError can carry no cause; `str(None)` would show the customer "None".
+    if cause is None:
+        return UNEXPECTED_ERROR_MESSAGE
+    message = getattr(cause, "message", None)
+    return message or str(cause)
+
+
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
     team_id: int
@@ -844,12 +866,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = str(e.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause)
                 raise
         except Exception as e:
             # Catch all
             update_inputs.internal_error = str(e)
-            update_inputs.latest_error = "An unexpected error has ocurred"
+            update_inputs.latest_error = UNEXPECTED_ERROR_MESSAGE
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:

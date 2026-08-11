@@ -181,6 +181,70 @@ class TestReportHeartbeatTimeoutRecording(BaseTest):
             assert event.host == "pod-abc"
             assert event.run_id == "run-1"
             assert event.gap_seconds == pytest.approx(gap_seconds)
+            # No workload reports were seeded, so evidence must be honestly absent (fails open), not 0.
+            assert event.self_phase is None and event.self_peak_buffer_bytes is None
+            assert event.self_report_age_at_death_seconds is None
+
+    def test_row_snapshots_workload_evidence_without_co_tenant_identifiers(self) -> None:
+        # The whole point of the stack: the dead attempt's own self-report and its pod's aggregates
+        # must survive onto the durable row (the Redis source expires in hours), and nothing on the
+        # row may carry another team's schema or run ids — this is a team-scoped table.
+        import json as _json
+
+        from django.forms.models import model_to_dict
+
+        from products.warehouse_sources.backend.temporal.data_imports import workload_report
+
+        schema = self._schema()
+        inputs = MagicMock(team_id=self.team.pk, schema_id=schema.id, source_id=str(uuid.uuid4()), run_id="run-1")
+        redis = workload_report._redis_client()
+        assert redis is not None
+        # Reports flushed 5s before the last heartbeat: fresh, so the rules may act on the evidence.
+        heartbeat_ts = datetime(2026, 7, 6, 12, 0, 0, tzinfo=UTC).timestamp() - 300
+        for run_id, schema_id, phase, peak, ts in (
+            ("run-1", str(schema.id), "merge", 900, heartbeat_ts - 5),
+            ("run-neighbour", "other-team-schema", "merge", 700_000, heartbeat_ts - 5),
+            # A neighbour that crashed an hour before the death: its lingering key must not
+            # reach the row's culprit evidence, however large its historical peak.
+            ("run-ancient", "other-team-schema-2", "merge", 9_000_000, heartbeat_ts - 3600),
+        ):
+            redis.setex(
+                workload_report.run_key(run_id),
+                60,
+                _json.dumps(
+                    {
+                        "run_id": run_id,
+                        "schema_id": schema_id,
+                        "host": "pod-abc",
+                        "phase": phase,
+                        "buffer_bytes": peak,
+                        "peak_buffer_bytes": peak,
+                        "ts": ts,
+                    }
+                ),
+            )
+            redis.sadd(workload_report.host_key("pod-abc"), run_id)
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.activity.info", return_value=self._info(attempt=2, gap_seconds=300)),
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+        ):
+            report_heartbeat_timeout(inputs, MagicMock())
+
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).get(schema_id=schema.id)
+        assert event.self_phase == "merge"
+        assert event.self_report_age_at_death_seconds == pytest.approx(5.0)
+        assert event.self_peak_buffer_bytes == 900
+        assert event.co_tenant_correlated_max_peak_buffer_bytes == 700_000, (
+            "stale neighbour peak must not reach the row"
+        )
+        assert event.co_tenant_report_count == 2
+        # The serialized row is what any admin, API or export surface would expose: no field on it
+        # may carry the co-tenant's identifiers, only the aggregates asserted above.
+        serialized_row = _json.dumps({field: str(value) for field, value in model_to_dict(event).items()})
+        assert "other-team-schema" not in serialized_row and "run-neighbour" not in serialized_row
+        # The culprit rule then discounts this row: a strictly larger co-tenant makes us the victim.
+        assert ExternalDataSchemaOOMEvent.recent_count(schema, days=7) == 0
 
 
 # transaction=True: handle_corrupted_delta_log writes to the DB from the async thread pool
