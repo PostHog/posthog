@@ -658,3 +658,116 @@ async fn resume_does_not_unpark() {
 
     ctx.cleanup().await.expect("cleanup");
 }
+
+/// A concocted Postgres error carrying just a SQLSTATE, so tests can hand
+/// the engine the exact errors Postgres emits for lock conflicts without
+/// manufacturing a real deadlock.
+#[derive(Debug)]
+struct FakePgError(&'static str);
+
+impl std::fmt::Display for FakePgError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "fake database error ({})", self.0)
+    }
+}
+
+impl std::error::Error for FakePgError {}
+
+impl sqlx::error::DatabaseError for FakePgError {
+    fn message(&self) -> &str {
+        "fake database error"
+    }
+
+    fn code(&self) -> Option<std::borrow::Cow<'_, str>> {
+        Some(std::borrow::Cow::Borrowed(self.0))
+    }
+
+    fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+        self
+    }
+
+    fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+        self
+    }
+
+    fn kind(&self) -> sqlx::error::ErrorKind {
+        sqlx::error::ErrorKind::Other
+    }
+}
+
+fn db_error(code: &'static str) -> SagaError {
+    SagaError::Db(sqlx::Error::Database(Box::new(FakePgError(code))))
+}
+
+#[test]
+fn database_conflicts_classify_as_retriable() {
+    for code in ["40P01", "40001", "57014"] {
+        assert!(db_error(code).is_db_conflict(), "{code} must be a conflict");
+    }
+    assert!(
+        !db_error("23505").is_db_conflict(),
+        "a unique violation is not a conflict"
+    );
+    assert!(!SagaError::Busy.is_db_conflict());
+}
+
+/// Driver whose first attempts lose a deadlock; every later attempt
+/// behaves like [`DummyDriver`]. Failing more than once exercises the
+/// repeated backoff-and-renew passes of the retry loop, not just the
+/// first.
+struct DeadlockingDriver {
+    inner: DummyDriver,
+    fail_first: usize,
+    attempts: AtomicUsize,
+}
+
+#[async_trait]
+impl OpDriver for DeadlockingDriver {
+    fn op_type(&self) -> &'static str {
+        "merge"
+    }
+
+    fn initial_step(&self) -> &'static str {
+        "started"
+    }
+
+    async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+        if self.attempts.fetch_add(1, Ordering::SeqCst) < self.fail_first {
+            return Err(db_error("40P01"));
+        }
+        self.inner.run_step(pool, op).await
+    }
+}
+
+#[tokio::test]
+async fn a_step_that_loses_a_database_conflict_is_retried_not_surfaced() {
+    let ctx = TestContext::new().await;
+    let engine = ctx.engine();
+    let driver = DeadlockingDriver {
+        inner: DummyDriver::new(),
+        fail_first: 3,
+        attempts: AtomicUsize::new(0),
+    };
+    let op_id = Uuid::now_v7();
+
+    let row = engine
+        .execute(&driver, op_id, ctx.team_id, &json!({"work": 1}))
+        .await
+        .expect("the conflict is retried inside the engine, not surfaced");
+
+    assert_eq!(row.step, STEP_COMPLETED);
+    assert_eq!(
+        driver.inner.steps_run.load(Ordering::SeqCst),
+        2,
+        "both real steps ran after the deadlocked attempts"
+    );
+    let (_, attempt, _, completed) = op_row(&ctx, op_id).await;
+    assert!(completed);
+    assert_eq!(attempt, 1, "the retry re-drives under the original claim");
+
+    ctx.cleanup().await.expect("cleanup");
+}
