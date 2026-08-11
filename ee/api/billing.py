@@ -762,6 +762,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
+        self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
 
         teams_map = self._get_teams_map(organization)
 
@@ -802,6 +803,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         serializer = BillingUsageRequestSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
+        self._check_requested_team_ids_belong_to_org(organization, serializer.validated_data.get("team_ids"))
 
         teams_map = self._get_teams_map(organization)
 
@@ -835,6 +837,21 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except Exception as e:
             capture_exception(e, {"organization_id": organization.id})
             return {}
+
+    def _check_requested_team_ids_belong_to_org(self, organization: Organization, team_ids: Optional[str]) -> None:
+        if not team_ids:
+            return
+
+        requested_team_ids = set(json.loads(team_ids))
+        if not requested_team_ids:
+            return
+
+        matching_team_ids = set(
+            Team.objects.filter(organization=organization, id__in=requested_team_ids).values_list("id", flat=True)
+        )
+
+        if requested_team_ids != matching_team_ids:
+            raise PermissionDenied("One or more requested projects are not in this organization.")
 
     def _get_org(self) -> Optional[Organization]:
         if self.request.user.is_anonymous:

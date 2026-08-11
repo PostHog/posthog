@@ -1375,6 +1375,36 @@ class TestBillingUsageAndSpendAPI(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(mock_get_usage_data.call_args[0][1]["team_ids"], f"[{other_team.pk}]")
 
+    @patch("ee.billing.billing_manager.BillingManager.get_usage_data")
+    def test_get_usage_rejects_other_org_team_ids_for_project_scoped_billing_read(self, mock_get_usage_data):
+        other_org = self.create_organization_with_features([])
+        other_team = self.create_team_with_organization(other_org)
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/usage/",
+            {"start_date": "2025-01-01", "team_ids": f"[{other_team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_usage_data.assert_not_called()
+
+    @patch("ee.billing.billing_manager.BillingManager.get_spend_data")
+    def test_get_spend_rejects_other_org_team_ids_for_project_scoped_billing_read(self, mock_get_spend_data):
+        other_org = self.create_organization_with_features([])
+        other_team = self.create_team_with_organization(other_org)
+        headers = self._personal_api_key_headers(["billing:read"], scoped_teams=[self.team.pk])
+
+        response = self.client.get(
+            "/api/billing/spend/",
+            {"start_date": "2025-01-01", "team_ids": f"[{other_team.pk}]"},
+            HTTP_AUTHORIZATION=headers["HTTP_AUTHORIZATION"],
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_get_spend_data.assert_not_called()
+
     def test_get_usage_rejects_personal_api_key_without_billing_read_scope(self):
         headers = self._personal_api_key_headers(["project:read"])
         response = self.client.get(
