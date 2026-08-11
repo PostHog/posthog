@@ -260,12 +260,12 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
     )
 }
 
-export function LogsAlertSimulation(): JSX.Element {
+export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { simulationResult, simulationResultLoading, simulationDateFrom } = useValues(logsAlertFormLogic)
     const { simulateAlert, setSimulationDateFrom } = useActions(logsAlertFormLogic)
 
     return (
-        <div className="space-y-4 p-4">
+        <div className={embedded ? 'space-y-4' : 'space-y-4 p-4'}>
             <div className="flex gap-2 items-center">
                 <LemonSelect
                     size="small"

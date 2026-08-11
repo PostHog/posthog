@@ -1,8 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconTestTube } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 
 import { AlertEditorFormDetails } from 'products/alerts/frontend/components/AlertEditor'
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
@@ -30,12 +29,8 @@ export function LogsAlertCreateModal({ isOpen, onClose }: LogsAlertCreateModalPr
 
 function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.Element {
     const formLogicProps = { alert: null, onCreateSuccess: onClose }
-    const { isAlertFormSubmitting, alertFormChanged, alertForm, isSimulationPanelOpen } = useValues(
-        logsAlertFormLogic(formLogicProps)
-    )
-    const { openSimulationPanel, closeSimulationPanel, touchAlertFormField } = useActions(
-        logsAlertFormLogic(formLogicProps)
-    )
+    const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(logsAlertFormLogic(formLogicProps))
+    const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))
     const hasLogFilter = hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
     const nameError = alertForm.name.trim() ? undefined : 'Enter an alert name.'
@@ -59,28 +54,8 @@ function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.
                         hasChanges={alertFormChanged}
                         onBack={onClose}
                         onSubmitAttempted={() => touchAlertFormField('name')}
-                        leadingActions={
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconTestTube />}
-                                onClick={openSimulationPanel}
-                                tooltip="Run this alert against historical data to see when it would have fired"
-                            >
-                                Simulate
-                            </LemonButton>
-                        }
                     />
                 </Form>
-
-                <LemonModal
-                    isOpen={isSimulationPanelOpen}
-                    onClose={closeSimulationPanel}
-                    title="Alert simulation"
-                    description="Run the alert against historical data to preview when it would have fired. Includes threshold evaluation, N-of-M noise reduction, and cooldown."
-                    width={960}
-                >
-                    <LogsAlertSimulation />
-                </LemonModal>
             </BindLogic>
         </BindLogic>
     )
@@ -114,8 +89,9 @@ function buildLogsAlertWizardSteps({
             title: 'Set trigger',
             description: 'Set the log count that fires the alert and reduce notification noise if needed.',
             content: (
-                <div className="max-w-2xl">
+                <div className="max-w-2xl space-y-6">
                     <LogsAlertTrigger />
+                    <LogsAlertSimulation embedded />
                 </div>
             ),
         },
