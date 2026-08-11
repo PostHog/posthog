@@ -80,6 +80,14 @@ interface OpsLaneEntry {
      * them.
      */
     segments: EventOps[]
+    /**
+     * Whether any folded event triggers a person update against its
+     * projection baseline, per the ignored-property rules. A lane that
+     * never turns this on holds filtered-only noise, and flush
+     * suppresses it — the same no-op classification the Postgres store
+     * applies at its flush.
+     */
+    triggersUpdate: boolean
 }
 
 /**
@@ -293,6 +301,21 @@ export class PersonhogPersonsStore {
             return Promise.resolve([person, []])
         }
 
+        // A local projection for the caller: the same application the
+        // Postgres world would perform, so the processor returns a
+        // sensible person. The leader's application at flush remains the
+        // authoritative one for this world.
+        const refined = refineEventOps(ops, person.properties ?? {}, this.options.updateAllProperties, false)
+        const [projected] = applyEventPropertyUpdates(refined, person)
+        const scalarUpdates = computeOpsScalarUpdates(ops, projected)
+        Object.assign(projected, scalarUpdates)
+        // An event triggers an update when the refinement found a
+        // non-filtered change against its baseline, or a scalar moved.
+        // Filtered-only noise leaves it false, and a lane of nothing but
+        // noise is suppressed at flush.
+        const triggersUpdate =
+            (refined.hasChanges && refined.hasNonFilteredChanges) || Object.keys(scalarUpdates).length > 0
+
         const lane = this.opsLane(batchId)
         const personKey = `${person.team_id}:${person.id}`
         const existing = lane.get(personKey)
@@ -302,8 +325,10 @@ export class PersonhogPersonsStore {
                 personId: person.id,
                 distinctId,
                 segments: [ops],
+                triggersUpdate,
             })
         } else {
+            existing.triggersUpdate = existing.triggersUpdate || triggersUpdate
             const last = existing.segments.length - 1
             const folded = foldOps(existing.segments[last], ops)
             if (folded === null) {
@@ -312,14 +337,6 @@ export class PersonhogPersonsStore {
                 existing.segments[last] = folded
             }
         }
-
-        // A local projection for the caller: the same application the
-        // Postgres world would perform, so the processor returns a
-        // sensible person. The leader's application at flush remains the
-        // authoritative one for this world.
-        const refined = refineEventOps(ops, person.properties ?? {}, this.options.updateAllProperties, false)
-        const [projected] = applyEventPropertyUpdates(refined, person)
-        Object.assign(projected, computeOpsScalarUpdates(ops, projected))
         // The memo now holds the pending projection: every distinct id
         // resolving to this person sees the change pre-flush, and the
         // next event composes on top. Merged properties are computed
@@ -511,9 +528,10 @@ export class PersonhogPersonsStore {
      * so the batch retries whole; lanes are batch-scoped, so one batch's
      * failure never discards a sibling's shipped results.
      *
-     * The leader's refinement does not apply the filtered-property rules
-     * and the wire carries no force flag, so a filtered-only change the
-     * Postgres store classifies as a no-op still updates the person here.
+     * A lane with no update-worthy change — every refined change
+     * filtered, nothing forced, no scalar movement — is suppressed here
+     * rather than shipped, the same no-op classification the Postgres
+     * store applies at its flush. The leader never sees the noise.
      */
     async flush(batchId: number): Promise<FlushResult[]> {
         const lane = this.lanes.get(batchId)
@@ -527,6 +545,10 @@ export class PersonhogPersonsStore {
         const results = await Promise.all(
             entries.map((entry) =>
                 limit(async (): Promise<FlushResult[]> => {
+                    if (!entry.triggersUpdate) {
+                        personhogStoreFlushCounter.inc({ outcome: 'filtered' })
+                        return []
+                    }
                     let finalPerson: InternalPerson | null = null
                     try {
                         for (const ops of entry.segments) {

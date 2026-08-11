@@ -16,6 +16,13 @@ export interface PropertyUpdates {
     toUnset: string[]
     hasChanges: boolean
     shouldForceUpdate: boolean // True for PERSON_EVENTS ($identify, $set, etc.) to bypass batch-level filtering
+    /**
+     * Whether any surviving change is one the ignored-property rules
+     * count as update-worthy: a new key, an unset, a non-filtered value
+     * change, or anything at all under force or update-all. False with
+     * hasChanges true is the filtered-only shape a store may suppress.
+     */
+    hasNonFilteredChanges: boolean
 }
 
 /**
@@ -142,7 +149,7 @@ export function refineEventOps(
     recordOutcomes: boolean = true
 ): PropertyUpdates {
     if (ops.denied) {
-        return { hasChanges: false, toSet: {}, toUnset: [], shouldForceUpdate: false }
+        return { hasChanges: false, toSet: {}, toUnset: [], shouldForceUpdate: false, hasNonFilteredChanges: false }
     }
 
     let hasChanges = false
@@ -215,7 +222,7 @@ export function refineEventOps(
         }
     }
 
-    return { hasChanges, toSet, toUnset, shouldForceUpdate: ops.shouldForceUpdate }
+    return { hasChanges, toSet, toUnset, shouldForceUpdate: ops.shouldForceUpdate, hasNonFilteredChanges }
 }
 
 /**

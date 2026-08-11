@@ -85,6 +85,47 @@ describe('PersonhogPersonsStore', () => {
         expect(person.properties).toEqual({ plan: 'free' })
     })
 
+    describe('flush suppression of filtered-only lanes', () => {
+        it('a lane of unforced filtered-only changes never reaches the leader', async () => {
+            person.properties = { $browser: 'Firefox' }
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { $browser: 'Chrome' } }, 'pageview'), 'd1')
+            const results = await bound.flush()
+            expect(repository.updatePersonProperties).not.toHaveBeenCalled()
+            expect(results).toEqual([])
+        })
+
+        it.each([
+            ['a person event forces the write', { $browser: 'Firefox' }, { $set: { $browser: 'Chrome' } }, '$set'],
+            ['a new key always counts', {}, { $set: { $browser: 'Chrome' } }, 'pageview'],
+            ['an unset always counts', { $browser: 'Firefox' }, { $unset: ['$browser'] }, 'pageview'],
+        ])('%s and the lane ships', async (_label, baseline, props, event) => {
+            person.properties = { ...(baseline as Record<string, string>) }
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops(props as Record<string, unknown>, event as string), 'd1')
+            await bound.flush()
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        })
+
+        it('a scalar move ships without property changes', async () => {
+            const bound = store.forBatch(0)
+            const scalarOnly = ops({}, 'pageview')
+            scalarOnly.isIdentified = true
+            await bound.applyEventOps(person, scalarOnly, 'd1')
+            await bound.flush()
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        })
+
+        it('one update-worthy event makes the whole lane ship', async () => {
+            person.properties = { $browser: 'Firefox' }
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { $browser: 'Chrome' } }, 'pageview'), 'd1')
+            await bound.applyEventOps(person, ops({ $set: { plan: 'pro' } }, 'pageview'), 'd1')
+            await bound.flush()
+            expect(repository.updatePersonProperties).toHaveBeenCalledTimes(1)
+        })
+    })
+
     it('does not fold denied events', async () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }, '$exception'), 'd1')

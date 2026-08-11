@@ -169,6 +169,21 @@ describe('person-update', () => {
                 }
             )
 
+            it('surfaces the filtered-only verdict for store-side suppression', () => {
+                const filteredOnly = computeEventPropertyUpdates(
+                    { event: 'pageview', properties: { $set: { $browser: 'Chrome' } } } as any,
+                    { $browser: 'Firefox' }
+                )
+                expect(filteredOnly.hasChanges).toBe(true)
+                expect(filteredOnly.hasNonFilteredChanges).toBe(false)
+
+                const newKey = computeEventPropertyUpdates(
+                    { event: 'pageview', properties: { $set: { $browser: 'Chrome' } } } as any,
+                    {}
+                )
+                expect(newKey.hasNonFilteredChanges).toBe(true)
+            })
+
             it('should accept blocked $geoip_* property updates at event level (filtering happens at batch level)', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
@@ -650,6 +665,7 @@ describe('person-update', () => {
                 toSet: { name: 'John', email: 'john@example.com' },
                 toUnset: ['old_prop'],
                 shouldForceUpdate: false,
+                hasNonFilteredChanges: true,
             }
 
             const person = {
@@ -675,6 +691,7 @@ describe('person-update', () => {
                 toSet: { name: 'John' },
                 toUnset: [],
                 shouldForceUpdate: false,
+                hasNonFilteredChanges: true,
             }
 
             const person = {
@@ -700,6 +717,7 @@ describe('person-update', () => {
                 toSet: { name: 'John' },
                 toUnset: [],
                 shouldForceUpdate: false,
+                hasNonFilteredChanges: false,
             }
 
             const person = {
