@@ -15,7 +15,13 @@ const POLL_INTERVAL_MS = 15_000;
 export function useTaskCommentActivity(
   taskId: string | undefined,
   options: { enabled?: boolean } = {},
-): { threads: TaskCommentThreadSummary[]; isLoading: boolean } {
+): {
+  threads: TaskCommentThreadSummary[];
+  isLoading: boolean;
+  /** The first fetch has finished (or was never asked for). The timeline waits on this so
+   *  it draws once, complete, instead of drawing thread rows and then adding comments. */
+  hasLoaded: boolean;
+} {
   const enabled = options.enabled !== false && !!taskId;
   const query = useAuthenticatedQuery<TaskCommentThreadSummary[]>(
     ["task-comment-activity", taskId ?? "none"],
@@ -26,5 +32,9 @@ export function useTaskCommentActivity(
       staleTime: POLL_INTERVAL_MS,
     },
   );
-  return { threads: query.data ?? [], isLoading: query.isLoading };
+  return {
+    threads: query.data ?? [],
+    isLoading: query.isLoading,
+    hasLoaded: !enabled || query.isSuccess || query.isError,
+  };
 }

@@ -10,9 +10,14 @@ import {
   vi,
 } from "vitest";
 
+// Mutable so a test can render the panel mid-load. Hoisted for the same reason the
+// comments flag below is: a plain `let` is initialized after the hoisted mock factories.
+const loaded = vi.hoisted(() => ({ thread: true, comments: true }));
+
 vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   useThreadConversation: () => ({
     timeline: [],
+    hasLoadedThread: loaded.thread,
     agentStatus: null,
     events: [],
     isPromptPending: false,
@@ -31,7 +36,11 @@ vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskCommentActivity", () => ({
-  useTaskCommentActivity: () => ({ threads: [], isLoading: false }),
+  useTaskCommentActivity: () => ({
+    threads: [],
+    isLoading: false,
+    hasLoaded: loaded.comments,
+  }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
   useTaskRuns: () => ({ runs: [], isLoading: false, refreshRuns: vi.fn() }),
@@ -87,6 +96,8 @@ describe("ActivityPanel", () => {
   let scrollTo: MockInstance;
 
   beforeEach(() => {
+    loaded.thread = true;
+    loaded.comments = true;
     commentsFlag.enabled = true;
     scrollTo = vi.spyOn(Element.prototype, "scrollTo");
     useCommentNavigationStore.setState({
@@ -210,5 +221,38 @@ describe("ActivityPanel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Comments" }));
 
     expect(scrollTo.mock.calls.length).toBe(timelineScrolls);
+  });
+
+  it("waits for both sources, then never takes the timeline away again", () => {
+    // The panel used to draw rows, blink a loader while the live session connected, and
+    // draw them again. The loader belongs to the first paint only.
+    loaded.thread = false;
+    loaded.comments = false;
+    // A fresh element each time: React bails out of `rerender` when handed the identical one.
+    const panel = () => (
+      <ActivityPanel
+        taskId="task-1"
+        channelId="channel-1"
+        task={task}
+        showTaskSummary={false}
+      />
+    );
+    const view = render(panel());
+    expect(screen.getByText("Loading timeline")).toBeInTheDocument();
+
+    loaded.thread = true;
+    view.rerender(panel());
+    // Comments haven't answered yet, so drawing now would show a partial timeline.
+    expect(screen.getByText("Loading timeline")).toBeInTheDocument();
+
+    loaded.comments = true;
+    view.rerender(panel());
+    expect(screen.getByText("timeline body")).toBeInTheDocument();
+
+    // A refetch flips a query back to loading; the rows must stay put.
+    loaded.thread = false;
+    view.rerender(panel());
+    expect(screen.getByText("timeline body")).toBeInTheDocument();
+    expect(screen.queryByText("Loading timeline")).toBeNull();
   });
 });

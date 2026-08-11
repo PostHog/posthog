@@ -21,7 +21,14 @@ import {
   type ActivityEvent,
   prLabel,
 } from "@posthog/core/canvas/activityEvents";
-import { cn } from "@posthog/quill";
+import {
+  cn,
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Spinner,
+} from "@posthog/quill";
 import type {
   TaskCommentThreadSummary,
   UserBasic,
@@ -62,14 +69,15 @@ export function TimelineRow({
   return (
     <div
       className={cn(
-        "flex items-start gap-2 py-1.5 pr-2 pl-2",
-        onSelect && "cursor-pointer",
+        "group flex items-start gap-2 rounded-md py-2 pr-2 pl-2 transition-colors",
+        onSelect &&
+          "cursor-pointer hover:bg-gray-3 focus-visible:bg-gray-3 focus-visible:outline-none",
       )}
       {...activation}
     >
       <div className="flex w-10 shrink-0 justify-center">{gutter}</div>
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1 text-[13px]">
+      <div className="min-w-0 flex-1 pt-0.5">
+        <div className="flex min-w-0 items-baseline gap-1.5 text-[13px] leading-5">
           <span className="min-w-0 truncate">{children}</span>
           <ThreadTimestamp dateTime={timestamp} />
         </div>
@@ -80,7 +88,7 @@ export function TimelineRow({
 
 function IconBubble({ children }: { children: ReactNode }) {
   return (
-    <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3">
+    <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3 ring-4 ring-gray-1">
       {children}
     </span>
   );
@@ -275,8 +283,9 @@ export function CommentRow({
   return (
     <div
       className={cn(
-        "flex items-start gap-2 py-1.5 pr-2 pl-2",
-        onSelect && "cursor-pointer",
+        "group flex items-start gap-2 rounded-md py-2 pr-2 pl-2 transition-colors",
+        onSelect &&
+          "cursor-pointer hover:bg-gray-3 focus-visible:bg-gray-3 focus-visible:outline-none",
       )}
       {...(onSelect
         ? {
@@ -298,7 +307,7 @@ export function CommentRow({
         </div>
       </div>
       <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-1 text-[13px]">
+        <div className="flex min-w-0 items-baseline gap-1.5 text-[13px] leading-5">
           <span className="min-w-0 truncate">
             <span className="font-medium">{name}</span>{" "}
             <span className="text-muted-foreground">{verb}</span>{" "}
@@ -306,7 +315,7 @@ export function CommentRow({
           </span>
           <ThreadTimestamp dateTime={thread.last_activity_at} />
         </div>
-        <div className="mt-1 border-border border-l-2 pl-2">
+        <div className="mt-1.5 space-y-1 rounded-md border-border border-l-2 bg-gray-2 px-2.5 py-1.5">
           {thread.selected_text && (
             <div className="truncate text-[12.5px] text-muted-foreground italic">
               “{thread.selected_text}”
@@ -368,5 +377,20 @@ export function CommentStateRow({
       {resolved ? "resolved a thread on" : "reopened a thread on"}{" "}
       <span className="font-medium">{thread.target.name}</span>
     </TimelineRow>
+  );
+}
+
+/** Shown once, on the panel's first draw. The timeline never returns to it: a loader over
+ *  rows that are already on screen reads as the content disappearing. */
+export function ActivityLoadingState() {
+  return (
+    <Empty className="h-full border-0">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Spinner />
+        </EmptyMedia>
+        <EmptyTitle>Loading timeline</EmptyTitle>
+      </EmptyHeader>
+    </Empty>
   );
 }

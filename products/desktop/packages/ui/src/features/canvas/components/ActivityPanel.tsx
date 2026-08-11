@@ -7,6 +7,7 @@ import { Button, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
+import { ActivityLoadingState } from "@posthog/ui/features/canvas/components/activityRows";
 import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
 import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
 import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
@@ -136,7 +137,7 @@ function ActivityConversation({
     agentStatus,
     events,
     isPromptPending,
-    isReady,
+    hasLoadedThread,
     members,
     currentUser,
     isTaskAuthor,
@@ -165,9 +166,17 @@ function ActivityConversation({
   );
 
   // The comment feed is its own request, and only for the tab that draws it.
-  const { threads: commentThreads } = useTaskCommentActivity(taskId, {
-    enabled: commentsEnabled && tab === "timeline",
-  });
+  const { threads: commentThreads, hasLoaded: hasLoadedComments } =
+    useTaskCommentActivity(taskId, {
+      enabled: commentsEnabled && tab === "timeline",
+    });
+  // Draw the timeline once both of its durable sources have answered, and never take it
+  // away again. Gating on the live session instead (`isReady`) is what made the panel show
+  // rows, blink a loader while the session connected, then show the rows again.
+  const hasDrawnTimeline = useRef(false);
+  const timelineReady =
+    hasDrawnTimeline.current || (hasLoadedThread && hasLoadedComments);
+  if (timelineReady) hasDrawnTimeline.current = true;
   const { runs } = useTaskRuns(taskId);
 
   const conversationItems = useMemo(
@@ -239,7 +248,7 @@ function ActivityConversation({
         />
       );
     }
-    if (!isReady) return <ThreadLoadingState />;
+    if (!timelineReady) return <ActivityLoadingState />;
     return (
       <ActivityTimeline
         task={task}
@@ -278,7 +287,7 @@ function ActivityConversation({
       )}
       <div
         ref={scrollRef}
-        aria-busy={!isReady}
+        aria-busy={!timelineReady}
         className="flex-1 overflow-y-auto"
       >
         {body()}

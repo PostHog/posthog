@@ -271,7 +271,7 @@ export function ActivityTimeline({
         return (
           <TimelineRow
             gutter={
-              <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3">
+              <span className="relative z-10 flex size-6 items-center justify-center rounded-full bg-gray-3 ring-4 ring-gray-1">
                 <PlusCircleIcon
                   size={14}
                   weight="fill"
@@ -364,12 +364,14 @@ export function ActivityTimeline({
   };
 
   return (
-    <div className="relative">
-      {/* Every row centers its node in a 2.5rem gutter inset by the row's
-          0.5rem padding, so the line runs through 0.5 + 2.5/2 = 1.75rem. */}
+    <div className="relative px-1 py-2">
+      {/* Each row centers its node in a 2.5rem gutter, inset by this container's 0.25rem
+          padding and the row's own 0.5rem, so the line runs through
+          0.25 + 0.5 + 2.5/2 = 2rem. It stops short of the first and last node, so it reads
+          as spanning them rather than running past. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute top-4 bottom-4 left-[1.75rem] w-px bg-border"
+        className="pointer-events-none absolute top-6 bottom-6 left-8 w-px bg-border"
       />
       <div className="relative z-10">
         <ThreadItemGroup>

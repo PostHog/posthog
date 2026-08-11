@@ -40,6 +40,9 @@ export interface ThreadConversation {
   events: SessionEvents;
   isPromptPending: boolean;
   isReady: boolean;
+  /** The thread's own durable content has arrived. The timeline draws on this rather than
+   *  on `isReady`, which also waits for the live session to connect. */
+  hasLoadedThread: boolean;
   members: UserBasic[];
   currentUser: { id?: number; uuid?: string; email?: string } | undefined;
   isTaskAuthor: boolean;
@@ -61,7 +64,11 @@ export function useThreadConversation(
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
 
-  const { messages, isLoading } = useTaskThread(taskId);
+  const {
+    messages,
+    isLoading,
+    hasLoaded: hasLoadedThread,
+  } = useTaskThread(taskId);
   const { postMessage, isPosting } = usePostTaskThreadMessage(taskId);
   const { postMessageToAgent, isPostingToAgent } =
     usePostTaskThreadMessageToAgent(taskId);
@@ -198,6 +205,7 @@ export function useThreadConversation(
     events,
     isPromptPending,
     isReady: !isInitializing && !isLoading,
+    hasLoadedThread,
     members,
     currentUser,
     isTaskAuthor,
