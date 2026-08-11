@@ -110,6 +110,7 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   buildAgentAnalyticsQueries,
   type HogQLGrid,
@@ -205,6 +206,17 @@ export interface TaskListOptions {
   channel?: string;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
+}
+
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface TaskSessionStorageAccess {
@@ -1592,11 +1604,15 @@ export class PostHogAPIClient {
   async getCloudTaskConfigOptions(
     adapter: Adapter = "claude",
   ): Promise<CloudTaskConfigOption[]> {
+    const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
+      parameters: {
+        header: buildPosthogProjectHeaderRecord(teamId),
+      },
     });
     return buildCloudTaskConfigOptions(
       normalizeGatewayModelsResponse(await response.json()),
@@ -2181,6 +2197,19 @@ export class PostHogAPIClient {
     return (await this.getTasksPage(options)).tasks;
   }
 
+  async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/search/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", String(limit));
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(`Failed to search tasks: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskSearchResult[];
+  }
+
   /**
    * The same list with the total behind it, for surfaces that ask for a short
    * page and still have to say how much they are not showing.
@@ -2486,15 +2515,22 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side).
-  async resolveTaskChannel(name: string): Promise<TaskChannel> {
+  // Resolve-or-create a public channel by name (idempotent server-side). `star`
+  // only applies when this call creates the channel; an existing one keeps the
+  // requester's star as it was.
+  async resolveTaskChannel(
+    name: string,
+    options: { star: boolean },
+  ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify({ name }) },
+      overrides: {
+        body: JSON.stringify({ name, star: options.star }),
+      },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);

@@ -805,6 +805,7 @@ def _get_table_fields(
             ("ip", "VARCHAR(200)"),
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ("person_properties", "JSONB"),
         ]
     else:
         return get_postgres_fields_from_record_schema(

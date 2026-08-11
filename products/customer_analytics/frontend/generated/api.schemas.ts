@@ -926,6 +926,16 @@ export interface CustomPropertySourceApi {
     readonly next_sync_at: string | null
     /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
     readonly latest_run: CustomPropertySyncRunApi | null
+    /**
+     * Person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources or when unavailable.
+     * @nullable
+     */
+    readonly external_data_source: string | null
+    /**
+     * Person and group sources only: the bound warehouse table as it is named in HogQL. Null for account sources or when unavailable.
+     * @nullable
+     */
+    readonly table_name: string | null
 }
 
 /**
