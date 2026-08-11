@@ -10,16 +10,17 @@ export const LOCAL_DEV_INTERNAL_API_SECRET = 'posthog123'
 
 /**
  * Response budget for a request to a host we don't run, used by `fetch`/`legacyFetch` in
- * common/utils/request.ts. Kept well above EXTERNAL_REQUEST_TIMEOUT_MS, which is sized for calls
- * between our own services on the same network.
+ * common/utils/request.ts. A CDP destination points at whatever API the customer configured, which
+ * is routinely in another region and under no latency obligation to us, so it has different needs
+ * from EXTERNAL_REQUEST_TIMEOUT_MS, which is sized for calls between our own services on the same
+ * network.
  *
- * A CDP destination points at whatever API the customer configured, which is routinely in another
- * region and under no latency obligation to us. At the internal-service budget, an API that
- * answers in a few seconds is cut off on every attempt, so every retry fails the same way and the
- * event is lost for good, which penalizes the destination for the third party being slow rather
- * than for being broken.
+ * Starts equal to the internal budget so the split changes no behavior on its own. Raise it with
+ * EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS to buy slower third-party APIs more headroom; an
+ * unanswered request holds its worker slot for the whole budget, so the cost lands on
+ * cdp_http_inflight_requests.
  */
-export const DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS = 10000
+export const DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS = 3000
 
 export enum KafkaSaslMechanism {
     Plain = 'plain',

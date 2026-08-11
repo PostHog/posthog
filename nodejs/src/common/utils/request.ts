@@ -406,8 +406,9 @@ export async function internalFetch(url: string, options: FetchOptions = {}): Pr
 
 /**
  * Requests to a host we don't run, meaning CDP destinations and anything else pointed at a
- * customer-supplied URL. These get the third-party response budget rather than the internal-service
- * one that `internalFetch` keeps; see DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS for why they differ.
+ * customer-supplied URL. These take the third-party response budget, which is tunable separately
+ * from the internal-service one that `internalFetch` keeps; see
+ * DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS.
  */
 export async function fetch(url: string, options: FetchOptions = {}): Promise<FetchResponse> {
     const parsed = new URL(url)

@@ -3,7 +3,7 @@ import { range } from 'lodash'
 import http from 'node:http'
 import { AddressInfo } from 'node:net'
 
-import { DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS, getExternalRequestConfig } from '~/common/config'
+import { getExternalRequestConfig } from '~/common/config'
 
 import { parseJSON } from './json-parse'
 import {
@@ -128,23 +128,32 @@ describe('fetch', () => {
             }
         })
 
-        // Each entry point has to resolve to its own budget. Sending third-party traffic through
-        // the internal one fails silently: the only symptom is slower cross-region APIs getting
-        // cut off on every retry until the invocation is dropped.
-        it.each([
-            ['fetch', DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS, fetch],
-            ['internalFetch', getExternalRequestConfig().EXTERNAL_REQUEST_TIMEOUT_MS, internalFetch],
-        ])('%s defaults the request timeout to %sms', async (_name, expectedTimeoutMs, doFetch) => {
+        // The split is only worth anything if `fetch` reads the third-party setting and
+        // `internalFetch` does not. Wiring either one to the other's budget fails silently: raising
+        // the third-party timeout would then do nothing, or internal calls would quietly inherit it.
+        it('resolves each entry point against its own timeout setting', async () => {
             const originalNodeEnv = process.env.NODE_ENV
             process.env.NODE_ENV = 'test'
+            process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS = '7654'
             try {
-                const options: FetchOptions = {}
-                await doFetch(baseUrl, options)
-                expect(options.timeoutMs).toBe(expectedTimeoutMs)
+                await jest.isolateModulesAsync(async () => {
+                    // Re-import against the isolated registry: request.ts reads the config once, at
+                    // module load, so the override only lands on a fresh copy.
+                    const fresh = require('./request')
+                    const thirdPartyOptions: FetchOptions = {}
+                    const internalOptions: FetchOptions = {}
+
+                    await fresh.fetch(baseUrl, thirdPartyOptions)
+                    await fresh.internalFetch(baseUrl, internalOptions)
+
+                    expect(thirdPartyOptions.timeoutMs).toBe(7654)
+                    expect(internalOptions.timeoutMs).toBe(getExternalRequestConfig().EXTERNAL_REQUEST_TIMEOUT_MS)
+                })
             } finally {
+                delete process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS
                 process.env.NODE_ENV = originalNodeEnv
             }
-        })
+        }, 10000)
 
         it('keeps a timeout the caller set explicitly', async () => {
             const originalNodeEnv = process.env.NODE_ENV

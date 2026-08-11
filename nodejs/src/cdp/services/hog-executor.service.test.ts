@@ -1397,11 +1397,9 @@ describe('Hog Executor', () => {
 
         it('handles timeouts', async () => {
             mockRequest.mockImplementation((_req: any, res: any) => {
-                // Never respond within the request's budget. The delay has to clear
-                // EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS, or the server answers first and there is
-                // no timeout to assert — and the socket it leaves open trips the next test.
+                // Never send response
                 clearTimeout(timeoutHandle)
-                timeoutHandle = setTimeout(() => res.end(), 30000)
+                timeoutHandle = setTimeout(() => res.end(), 10000)
             })
 
             const invocation = await createFetchInvocation({
@@ -1418,8 +1416,7 @@ describe('Hog Executor', () => {
                   "HTTP fetch failed on attempt 1 with status code (none). Error: The operation was aborted due to timeout. Retrying in 1500ms.",
                 ]
             `)
-            // The abort now waits out the third-party budget rather than the internal one.
-        }, 20000)
+        })
 
         it('handles ResponseContentLengthMismatchError', async () => {
             jest.mocked(fetch).mockImplementationOnce(() => {
