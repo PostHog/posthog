@@ -240,8 +240,12 @@ def compute_scanner_budgets(
     Settled credits come from the immutable receipt ledger, so deleting observations cannot refund a
     scanner's limit. In-flight observations and running prompt evaluations are reserved live from their
     frozen snapshot model, exactly as the org snapshot does, because a sweep tick admits many
-    observations concurrently against one read. Receipts written before `scanner_id` existed are null
-    and count toward no scanner.
+    observations concurrently against one read. Receipts written before `scanner_id` existed were
+    backfilled from their observation rows (0069); only receipts whose observation was deleted
+    before the backfill remain unattributed.
+
+    Uncapped scanners skip the aggregates entirely and report zero usage: gates read `blocked`,
+    which is always False without a limit, and the spend UI only renders for capped scanners.
 
     Pass `period` to bill against a window the caller already resolved, so an org snapshot and the
     scanner budgets taken alongside it cannot straddle a period boundary.
@@ -255,29 +259,36 @@ def compute_scanner_budgets(
         return {}
     if period is None:
         period = current_period_bounds(organization_id)
-    # Reservations are read BEFORE the receipt ledger: an observation settling between the two reads
-    # is then counted by both (a transient over-count that fails toward capped), never by neither.
-    in_flight = _scanner_in_flight_credits(organization_id, scanner_ids, period)
-    # Evaluations write receipts directly, never observation rows, so a running test would otherwise
-    # drain the cap invisibly. Not period-filtered: a live run charges whichever period it settles in.
-    in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, scanner_ids)
-    settled = {
-        row["scanner_id"]: row["total_credits"] or 0
-        for row in ReplayObservationUsage.objects.filter(
-            organization_id=organization_id,
-            scanner_id__in=scanner_ids,
-            observation_created_at__gte=period.start,
-            observation_created_at__lt=period.end,
-        )
-        .values("scanner_id")
-        .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
-    }
     # Limits are read here, not passed in: a caller that forgot them would silently disable enforcement.
     # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
     scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
         "id", "credit_limit", "model"
     )
     configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
+    # Almost every scanner is uncapped, so the spend aggregates run only for the capped ones; the
+    # rest report zero usage, and `blocked` is always False without a limit.
+    capped_ids = [scanner_id for scanner_id in scanner_ids if (configs.get(scanner_id) or (None,))[0] is not None]
+    in_flight: dict[UUID, int] = {}
+    in_flight_evaluations: dict[UUID, int] = {}
+    settled: dict[UUID, int] = {}
+    if capped_ids:
+        # Reservations are read BEFORE the receipt ledger: an observation settling between the two reads
+        # is then counted by both (a transient over-count that fails toward capped), never by neither.
+        in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
+        # Evaluations write receipts directly, never observation rows, so a running test would otherwise
+        # drain the cap invisibly. Not period-filtered: a live run charges whichever period it settles in.
+        in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, capped_ids)
+        settled = {
+            row["scanner_id"]: row["total_credits"] or 0
+            for row in ReplayObservationUsage.objects.filter(
+                organization_id=organization_id,
+                scanner_id__in=capped_ids,
+                observation_created_at__gte=period.start,
+                observation_created_at__lt=period.end,
+            )
+            .values("scanner_id")
+            .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
+        }
     result: dict[UUID, ScannerBudget] = {}
     for scanner_id in scanner_ids:
         config = configs.get(scanner_id)

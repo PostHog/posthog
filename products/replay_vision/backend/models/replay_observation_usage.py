@@ -47,8 +47,8 @@ class ReplayObservationUsage(UUIDModel):
             # Drives the daily per-team billing usage query, which buckets receipts by write time.
             models.Index(fields=["created_at", "team_id"], name="rlou_created_team_idx"),
             # Drives the per-scanner credit limit aggregate over the current billing period. Partial
-            # because receipts written before this column existed are never backfilled, and the
-            # aggregate only ever looks up concrete scanner ids.
+            # because the aggregate only ever looks up concrete scanner ids; rows left null (their
+            # observation was deleted before the 0069 backfill) are never queried.
             models.Index(
                 fields=["scanner_id", "observation_created_at"],
                 name="rlou_scanner_created_idx",

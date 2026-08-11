@@ -252,6 +252,12 @@ class TestComputeQuotaSnapshot(_VisionQuotaTestCase):
 
 
 class TestComputeScannerBudget(_VisionQuotaTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # Spend counting only runs for capped scanners; a wide-open limit keeps it from binding.
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=1_000_000)
+        self.scanner.refresh_from_db()
+
     def _other_scanner(self) -> ReplayScanner:
         return ReplayScanner.objects.create(
             team=self.team,
@@ -259,15 +265,28 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
             scanner_type=ScannerType.MONITOR,
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_6_FLASH,
+            credit_limit=1_000_000,
         )
 
     def test_no_limit_set_is_uncapped(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=None)
+        self.scanner.refresh_from_db()
         budget = compute_scanner_budget(self.scanner)
         assert budget.credit_limit is None
         assert budget.remaining is None
         assert not budget.exhausted
         assert not budget.blocked
         assert not budget.would_exceed(10**9)
+
+    def test_an_uncapped_scanner_skips_the_spend_aggregates(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=None)
+        self.scanner.refresh_from_db()
+        self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        # Uncapped budgets report zero usage by design: nothing gates on them and the spend UI
+        # only renders for capped scanners, so the aggregates are skipped entirely.
+        budget = compute_scanner_budget(self.scanner)
+        assert budget.credits_used == 0
+        assert not budget.blocked
 
     @parameterized.expand(
         [
@@ -364,6 +383,31 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
         assert budget.credits_used >= 15
 
 
+class TestBackfillUsageScannerId(_VisionQuotaTestCase):
+    def test_backfills_null_scanner_ids_only_where_the_observation_still_exists(self) -> None:
+        import uuid
+        import importlib
+
+        from django.apps import apps as django_apps
+        from django.db import connection
+
+        observation = self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        ReplayObservationUsage.objects.filter(observation_id=observation.id).update(scanner_id=None)
+        orphan = ReplayObservationUsage.objects.create(
+            organization_id=self.organization.id,
+            observation_id=uuid.uuid4(),
+            observation_created_at=timezone.now(),
+        )
+
+        migration = importlib.import_module("products.replay_vision.backend.migrations.0069_backfill_usage_scanner_id")
+        with connection.schema_editor(atomic=False) as schema_editor:
+            migration.backfill_scanner_id(django_apps, schema_editor)
+
+        assert ReplayObservationUsage.objects.get(observation_id=observation.id).scanner_id == self.scanner.id
+        orphan.refresh_from_db()
+        assert orphan.scanner_id is None
+
+
 class TestScannerBudgetBlocked(SimpleTestCase):
     @parameterized.expand(
         [
@@ -400,6 +444,27 @@ class TestScannerBudgetBlocked(SimpleTestCase):
 
     @parameterized.expand(
         [
+            # A free model spends nothing, so it scans through and past the limit without blocking.
+            ("at_the_limit_still_admits", 100, True, False),
+            ("over_the_limit_blocks", 101, True, True),
+        ]
+    )
+    def test_zero_cost_observations_block_only_when_strictly_over(
+        self, _name: str, credits_used: int, expected_exhausted: bool, expected_blocked: bool
+    ) -> None:
+        budget = ScannerBudget(
+            credit_limit=100,
+            credits_used=credits_used,
+            period_start=datetime(2026, 8, 1, tzinfo=UTC),
+            period_end=datetime(2026, 9, 1, tzinfo=UTC),
+            credits_per_observation=0,
+            settled_credits=credits_used,
+        )
+        assert budget.exhausted == expected_exhausted
+        assert budget.blocked == expected_blocked
+
+    @parameterized.expand(
+        [
             ("reservations_alone_cap_it", 30, 100, True, False),
             ("settled_spend_alone_caps_it", 95, 95, True, True),
             ("neither_caps_it", 30, 50, False, False),
@@ -426,6 +491,12 @@ class TestScannerBudgetBlocked(SimpleTestCase):
 
 
 class TestComputeScannerBudgets(_VisionQuotaTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        # Spend counting only runs for capped scanners; a wide-open limit keeps it from binding.
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=1_000_000)
+        self.scanner.refresh_from_db()
+
     def test_returns_an_entry_for_every_requested_scanner_including_unspent(self) -> None:
         unspent = ReplayScanner.objects.create(
             team=self.team,
@@ -448,6 +519,7 @@ class TestComputeScannerBudgets(_VisionQuotaTestCase):
             model=ScannerModel.GEMINI_3_6_FLASH,
             credit_limit=300,
         )
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(credit_limit=None)
         result = compute_scanner_budgets(self.organization.id, [self.scanner.id, capped.id])
         assert result[self.scanner.id].credit_limit is None
         assert result[capped.id].credit_limit == 300
