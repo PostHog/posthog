@@ -1,6 +1,5 @@
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { IconMessage } from '@posthog/icons'
-import { LemonBadge, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -9,7 +8,9 @@ import { cn } from 'lib/utils/css-classes'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
+import { channelIcon } from 'products/conversations/frontend/components/Channels/ChannelsTag'
 import { SlaDisplay } from 'products/conversations/frontend/components/SlaDisplay'
+import { channelOptions, type TicketChannel } from 'products/conversations/frontend/types'
 
 import {
     WIDGET_LIST_COUNT_TICKETS,
@@ -27,7 +28,7 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 export type ConversationsWidgetTicket = {
     id: string
     ticket_number: number
-    channel_source: string
+    channel_source: TicketChannel
     status: string
     priority: string | null
     assignee: { user: { id: number; name: string } | null; role: { id: string; name: string } | null } | null
@@ -84,6 +85,7 @@ function priorityTagType(priority: string): 'danger' | 'caution' | 'warning' | '
 
 function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket }): JSX.Element {
     const assignee = assigneeName(ticket)
+    const channelLabel = channelOptions.find((option) => option.value === ticket.channel_source)?.label
     return (
         <Link
             to={urls.supportTicketDetail(ticket.ticket_number)}
@@ -91,7 +93,9 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
             subtle
             className="flex items-center gap-3 border-b border-primary px-3 py-2 text-current hover:bg-fill-highlight-100 hover:text-current"
         >
-            <IconMessage className="size-4 shrink-0 text-muted" />
+            <Tooltip title={channelLabel}>
+                <span className="size-4 shrink-0 text-muted [&>svg]:size-4">{channelIcon[ticket.channel_source]}</span>
+            </Tooltip>
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                     <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
