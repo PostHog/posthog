@@ -128,6 +128,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlagMissing,
         isEditingFlag,
         activeTab,
+        availableTabs,
         accessDeniedToFeatureFlag,
         earlyAccessFeaturesList,
         featureFlagActiveUpdateLoading,
@@ -139,7 +140,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         restoreFeatureFlag,
         editFeatureFlag,
         createStaticCohort,
-        setActiveTab,
+        setSelectedTab,
         updateFlag,
         saveFeatureFlag,
         saveDescriptionInline,
@@ -170,7 +171,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         })
 
         if (hasVariantSurvey) {
-            setActiveTab(FeatureFlagsTab.FEEDBACK)
+            setSelectedTab(FeatureFlagsTab.FEEDBACK)
         } else {
             setIsQuickSurveyModalOpen(true)
             setQuickSurveyVariantKey(variantKey ?? null)
@@ -239,80 +240,70 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     const earlyAccessFeature = earlyAccessFeaturesList?.find((f) => f.flagKey === featureFlag.key)
 
-    const tabs = [
-        {
-            label: 'Overview',
-            key: FeatureFlagsTab.OVERVIEW,
-            content: <FeatureFlagOverview featureFlag={featureFlag} />,
-        },
-    ] as LemonTab<FeatureFlagsTab>[]
-
-    if (id) {
-        tabs.push({
-            label: 'Usage',
-            key: FeatureFlagsTab.USAGE,
-            content: <UsageTab featureFlag={featureFlag} />,
-        })
-
-        tabs.push({
-            label: 'Projects',
-            key: FeatureFlagsTab.PROJECTS,
-            content: <FeatureFlagProjects />,
-        })
-
-        tabs.push({
-            label: 'Schedule',
-            key: FeatureFlagsTab.SCHEDULE,
-            content: <FeatureFlagSchedule />,
-        })
-    }
-
-    if (featureFlag.id) {
-        tabs.push({
-            label: 'History',
-            key: FeatureFlagsTab.HISTORY,
-            content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />,
-        })
-    }
-
-    if (featureFlag.can_edit) {
-        tabs.push({
-            label: 'Permissions',
-            key: FeatureFlagsTab.PERMISSIONS,
-            content: <FeatureFlagPermissions featureFlag={featureFlag} />,
-        })
-    }
-
-    tabs.push({
-        label: 'User feedback',
-        key: FeatureFlagsTab.FEEDBACK,
-        content: <FeedbackTab featureFlag={featureFlag} />,
-    })
-
-    tabs.push({
-        label: (
-            <div className="flex flex-row">
-                <div>Experiments</div>
-            </div>
-        ),
-        key: FeatureFlagsTab.EXPERIMENTS,
-        content: <ExperimentsTab featureFlag={featureFlag} />,
-    })
-
-    if (id) {
-        tabs.push({
-            label: (
-                <div className="flex flex-row">
-                    <div>Testing</div>
-                    <LemonTag className="ml-2 float-right uppercase" type="primary">
-                        New
-                    </LemonTag>
-                </div>
-            ),
-            key: FeatureFlagsTab.TESTING,
-            content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
-        })
-    }
+    // Labels and content live here; which tabs exist is the logic's `availableTabs`, so the
+    // tab list, the active tab, and the URL can't disagree
+    const tabs = (
+        [
+            {
+                label: 'Overview',
+                key: FeatureFlagsTab.OVERVIEW,
+                content: <FeatureFlagOverview featureFlag={featureFlag} />,
+            },
+            {
+                label: 'Usage',
+                key: FeatureFlagsTab.USAGE,
+                content: <UsageTab featureFlag={featureFlag} />,
+            },
+            {
+                label: 'Projects',
+                key: FeatureFlagsTab.PROJECTS,
+                content: <FeatureFlagProjects />,
+            },
+            {
+                label: 'Schedule',
+                key: FeatureFlagsTab.SCHEDULE,
+                content: <FeatureFlagSchedule />,
+            },
+            {
+                label: 'History',
+                key: FeatureFlagsTab.HISTORY,
+                content: (
+                    <>{featureFlag.id && <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />}</>
+                ),
+            },
+            {
+                label: 'Permissions',
+                key: FeatureFlagsTab.PERMISSIONS,
+                content: <FeatureFlagPermissions featureFlag={featureFlag} />,
+            },
+            {
+                label: 'User feedback',
+                key: FeatureFlagsTab.FEEDBACK,
+                content: <FeedbackTab featureFlag={featureFlag} />,
+            },
+            {
+                label: (
+                    <div className="flex flex-row">
+                        <div>Experiments</div>
+                    </div>
+                ),
+                key: FeatureFlagsTab.EXPERIMENTS,
+                content: <ExperimentsTab featureFlag={featureFlag} />,
+            },
+            {
+                label: (
+                    <div className="flex flex-row">
+                        <div>Testing</div>
+                        <LemonTag className="ml-2 float-right uppercase" type="primary">
+                            New
+                        </LemonTag>
+                    </div>
+                ),
+                key: FeatureFlagsTab.TESTING,
+                content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
+            },
+        ] as LemonTab<FeatureFlagsTab>[]
+    ).filter((tab) => availableTabs.includes(tab.key))
 
     return (
         <>
@@ -614,7 +605,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     />
                     <LemonTabs
                         activeKey={activeTab}
-                        onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
+                        // Re-clicking the active tab must stay a no-op: the setSelectedTab listener
+                        // resets the schedule form, which would wipe in-progress edits
+                        onChange={(tab) => tab !== activeTab && setSelectedTab(tab)}
                         tabs={tabs}
                         sceneInset
                     />

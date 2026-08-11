@@ -9,6 +9,18 @@ feature: skills
 url_prefix: /skills
 ui_apps: {}
 tools:
+    community-skills-install-create:
+        operation: community_skills_install_create
+        enabled: false
+    community-skills-list:
+        operation: community_skills_list
+        enabled: false
+    community-skills-retrieve:
+        operation: community_skills_retrieve
+        enabled: false
+    community-skills-vote-create:
+        operation: community_skills_vote_create
+        enabled: false
     llm-skills-import-create:
         operation: llm_skills_import_create
         enabled: false
