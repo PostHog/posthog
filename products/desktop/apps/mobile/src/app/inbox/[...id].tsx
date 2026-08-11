@@ -705,7 +705,7 @@ export default function ReportDetailScreen() {
       <RefundReportSheet
         visible={refundOpen}
         reportId={report.id}
-        reportTitle={report.title?.trim() ? report.title : "Untitled report"}
+        reportTitle={report.title?.trim() || "Untitled report"}
         onClose={() => setRefundOpen(false)}
         onRefunded={handleRefunded}
       />
