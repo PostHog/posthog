@@ -107,6 +107,85 @@ impl TestContext {
         )
     }
 
+    /// Parks the tmp person sequence in a random high range. Collision
+    /// tests insert a real posthog_person row with a tmp person's numeric
+    /// id; without this the explicit-id insert could race another test's
+    /// sequence-assigned real id.
+    pub async fn park_tmp_person_sequence(&self) {
+        let base: i64 = rand::thread_rng().gen_range(1_000_000_000_000..2_000_000_000_000);
+        sqlx::query("SELECT setval('personhog_person_tmp_id_seq', $1)")
+            .bind(base)
+            .execute(&self.pool)
+            .await
+            .expect("park tmp person sequence");
+    }
+
+    /// Seeds this team's rows in the *real* namespace keyed by the given
+    /// numeric person id: a posthog_person row plus a mapping row and a
+    /// hash-key override referencing it. Validation-set tests plant these
+    /// so a leftover hardcoded real table in a saga query would visibly
+    /// destroy or move them.
+    pub async fn seed_real_namespace_collision(&self, person_id: i64, distinct_id: &str) {
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_person
+                (id, created_at, properties, properties_last_updated_at,
+                 properties_last_operation, team_id, is_identified, uuid, version)
+            VALUES ($1, now(), '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, $2, false,
+                    gen_random_uuid(), 0)
+            "#,
+        )
+        .bind(person_id)
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await
+        .expect("insert colliding real person");
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
+            VALUES ($1, $2, $3, 0)
+            "#,
+        )
+        .bind(distinct_id)
+        .bind(person_id)
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await
+        .expect("insert colliding real mapping");
+        sqlx::query(
+            r#"
+            INSERT INTO posthog_featureflaghashkeyoverride
+                (feature_flag_key, hash_key, person_id, team_id)
+            VALUES ('flag', 'real-hash', $1, $2)
+            "#,
+        )
+        .bind(person_id)
+        .bind(self.team_id as i32)
+        .execute(&self.pool)
+        .await
+        .expect("insert colliding real override");
+    }
+
+    /// Removes this team's rows from the real namespace tables — the
+    /// counterpart of [`seed_real_namespace_collision`] for validation-set
+    /// tests, whose [`cleanup`](Self::cleanup) only touches the configured
+    /// tables.
+    pub async fn cleanup_real_namespace(&self) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1")
+            .bind(self.team_id as i32)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM posthog_persondistinctid WHERE team_id = $1")
+            .bind(self.team_id as i32)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM posthog_person WHERE team_id = $1")
+            .bind(self.team_id as i32)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
             .bind(self.team_id as i32)

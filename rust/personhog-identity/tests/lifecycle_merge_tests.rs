@@ -1351,6 +1351,7 @@ async fn merge_works_on_a_configured_person_table() {
     // hardcoded posthog_person in any of the interpolated queries would
     // pass silently on the default table.
     let h = MergeHarness::new_with_tables(common::tmp_tables()).await;
+    h.ctx.park_tmp_person_sequence().await;
     let target = h
         .ctx
         .insert_person_with_distinct_id("tmp-merge-target")
@@ -1367,6 +1368,26 @@ async fn merge_works_on_a_configured_person_table() {
         .execute(&h.ctx.pool)
         .await
         .expect("insert colliding cohort row");
+
+    // The same collision for the other two interpolated tables: a real
+    // person sharing the source's numeric id, its mapping row, and an
+    // override on each mirror. The flip must repoint/move only the tmp
+    // rows.
+    h.ctx
+        .seed_real_namespace_collision(source, "tmp-merge-collide-real")
+        .await;
+    sqlx::query(
+        r#"
+        INSERT INTO personhog_featureflaghashkeyoverride_tmp
+            (feature_flag_key, hash_key, person_id, team_id)
+        VALUES ('flag', 'tmp-hash', $1, $2)
+        "#,
+    )
+    .bind(source)
+    .bind(h.ctx.team_id as i32)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("insert tmp override");
 
     let op_id = Uuid::now_v7();
     let outcome = h
@@ -1395,6 +1416,68 @@ async fn merge_works_on_a_configured_person_table() {
     let (target_deleted, _, _) = h.person_state(target).await;
     assert!(!target_deleted);
 
+    // The colliding real-namespace mapping still points at its own person.
+    let (real_pid, real_deleted, real_version): (i64, bool, i64) = sqlx::query_as(
+        r#"
+        SELECT person_id, is_deleted, COALESCE(version, 0)
+        FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2
+        "#,
+    )
+    .bind(h.ctx.team_id as i32)
+    .bind("tmp-merge-collide-real")
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("real mapping row exists");
+    assert_eq!(
+        real_pid, source,
+        "a validation-set merge must not repoint real-namespace mapping rows"
+    );
+    assert!(!real_deleted);
+    assert_eq!(real_version, 0);
+
+    // The tmp override moved to the target; the real one stayed put.
+    let tmp_override_owner: i64 = sqlx::query_scalar(
+        r#"
+        SELECT person_id FROM personhog_featureflaghashkeyoverride_tmp
+        WHERE team_id = $1 AND feature_flag_key = 'flag'
+        "#,
+    )
+    .bind(h.ctx.team_id as i32)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("tmp override row exists");
+    assert_eq!(
+        tmp_override_owner, target,
+        "the configured override table must move to the target"
+    );
+    let real_override_owner: i64 = sqlx::query_scalar(
+        r#"
+        SELECT person_id FROM posthog_featureflaghashkeyoverride
+        WHERE team_id = $1 AND feature_flag_key = 'flag'
+        "#,
+    )
+    .bind(h.ctx.team_id as i32)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("real override row exists");
+    assert_eq!(
+        real_override_owner, source,
+        "a validation-set merge must not move real-namespace overrides"
+    );
+
+    // The colliding real person row is untouched.
+    let real_person_deleted: bool =
+        sqlx::query_scalar("SELECT is_deleted FROM posthog_person WHERE team_id = $1 AND id = $2")
+            .bind(h.ctx.team_id as i32)
+            .bind(source)
+            .fetch_one(&h.ctx.pool)
+            .await
+            .expect("real person row exists");
+    assert!(
+        !real_person_deleted,
+        "a validation-set merge must not tombstone real-namespace persons"
+    );
+
     let colliding_rows: i64 =
         sqlx::query_scalar("SELECT count(*) FROM posthog_cohortpeople WHERE person_id = $1")
             .bind(source)
@@ -1411,5 +1494,9 @@ async fn merge_works_on_a_configured_person_table() {
         .await
         .expect("remove colliding cohort row");
 
+    h.ctx
+        .cleanup_real_namespace()
+        .await
+        .expect("cleanup real namespace");
     h.ctx.cleanup().await.expect("cleanup");
 }

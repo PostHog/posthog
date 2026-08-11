@@ -539,6 +539,7 @@ async fn full_flow_works_on_a_configured_person_table() {
     let service = ctx.lifecycle_service();
     let distinct_id = format!("tmp-table-{}", Uuid::now_v7());
 
+    ctx.park_tmp_person_sequence().await;
     let person_id = ctx.create_person_via_stub(&distinct_id).await;
 
     let key = (ctx.team_id, distinct_id.clone());
@@ -570,6 +571,25 @@ async fn full_flow_works_on_a_configured_person_table() {
         .execute(&ctx.pool)
         .await
         .expect("insert colliding cohort row");
+
+    // The same collision for the other two interpolated tables: a real
+    // person sharing the numeric id, its mapping row, and an override on
+    // each mirror. The saga must tombstone/clear only the tmp rows.
+    let real_distinct_id = format!("real-{distinct_id}");
+    ctx.seed_real_namespace_collision(person_id, &real_distinct_id)
+        .await;
+    sqlx::query(
+        r#"
+        INSERT INTO personhog_featureflaghashkeyoverride_tmp
+            (feature_flag_key, hash_key, person_id, team_id)
+        VALUES ('flag', 'tmp-hash', $1, $2)
+        "#,
+    )
+    .bind(person_id)
+    .bind(ctx.team_id as i32)
+    .execute(&ctx.pool)
+    .await
+    .expect("insert tmp override");
 
     let response = service
         .delete_persons(Request::new(delete_request(
@@ -603,6 +623,71 @@ async fn full_flow_works_on_a_configured_person_table() {
         .expect("resolve after delete succeeds");
     assert!(resolved.is_empty(), "tombstoned person must not resolve");
 
+    // The tmp mapping row tombstoned; the colliding real one untouched.
+    let tmp_mapping_deleted: bool = sqlx::query_scalar(
+        "SELECT is_deleted FROM personhog_persondistinctid_tmp WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(&distinct_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("tmp mapping row exists");
+    assert!(
+        tmp_mapping_deleted,
+        "the configured mapping table must be tombstoned"
+    );
+    let real_mapping_deleted: bool = sqlx::query_scalar(
+        "SELECT is_deleted FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(&real_distinct_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("real mapping row exists");
+    assert!(
+        !real_mapping_deleted,
+        "a validation-set delete must not tombstone real-namespace mapping rows"
+    );
+
+    // The tmp override cleared; the real-namespace one survives.
+    let tmp_overrides: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM personhog_featureflaghashkeyoverride_tmp WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("count tmp overrides");
+    assert_eq!(
+        tmp_overrides, 0,
+        "the configured override table must be cleared"
+    );
+    let real_overrides: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM posthog_featureflaghashkeyoverride WHERE team_id = $1 AND person_id = $2",
+    )
+    .bind(ctx.team_id as i32)
+    .bind(person_id)
+    .fetch_one(&ctx.pool)
+    .await
+    .expect("count real overrides");
+    assert_eq!(
+        real_overrides, 1,
+        "a validation-set delete must not clear real-namespace overrides"
+    );
+
+    // The colliding real person row is untouched.
+    let real_person_deleted: bool =
+        sqlx::query_scalar("SELECT is_deleted FROM posthog_person WHERE team_id = $1 AND id = $2")
+            .bind(ctx.team_id as i32)
+            .bind(person_id)
+            .fetch_one(&ctx.pool)
+            .await
+            .expect("real person row exists");
+    assert!(
+        !real_person_deleted,
+        "a validation-set delete must not tombstone real-namespace persons"
+    );
+
     let colliding_rows: i64 =
         sqlx::query_scalar("SELECT count(*) FROM posthog_cohortpeople WHERE person_id = $1")
             .bind(person_id)
@@ -619,5 +704,8 @@ async fn full_flow_works_on_a_configured_person_table() {
         .await
         .expect("remove colliding cohort row");
 
+    ctx.cleanup_real_namespace()
+        .await
+        .expect("cleanup real namespace");
     ctx.cleanup().await.expect("cleanup");
 }
