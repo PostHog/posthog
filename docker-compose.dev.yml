@@ -819,8 +819,7 @@ services:
         container_name: '${DYNAMODB_DOCKER_NAME:-dynamodb-main}'
         ports:
             # Not 8000 (the Django dev server) and not 18000, which the eval harness binds for its
-            # live server (products/posthog_ai/eval_harness/harness/ports.py). Sharing 18000 makes
-            # `hogli evals` fail to start on Linux whenever the dev stack is up.
+            # live server, where sharing the port fails `hogli evals` on Linux with the stack up.
             - '127.0.0.1:18010:8000'
 
     seaweedfs:

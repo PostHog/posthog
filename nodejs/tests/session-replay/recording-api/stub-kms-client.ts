@@ -36,15 +36,16 @@ export async function createStubKmsClient(): Promise<KMSClient> {
     const masterKey = sodium.crypto_aead_xchacha20poly1305_ietf_keygen()
     const nonceBytes = sodium.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES
 
-    const rejectUnknownAlias = (keyId: string | undefined): Promise<never> =>
-        Promise.reject(new NotFoundException({ $metadata: {}, message: `Alias ${keyId} is not defined` }))
+    const respond = (
+        command: GenerateDataKeyCommand | DecryptCommand
+    ): GenerateDataKeyCommandOutput | DecryptCommandOutput => {
+        const { KeyId } = command.input
+        if (KeyId !== MASTER_KEY_ALIAS) {
+            throw new NotFoundException({ $metadata: {}, message: `Alias ${KeyId} is not defined` })
+        }
 
-    const send = (command: GenerateDataKeyCommand | DecryptCommand): Promise<unknown> => {
         if (command instanceof GenerateDataKeyCommand) {
-            const { KeyId, NumberOfBytes, EncryptionContext } = command.input
-            if (KeyId !== MASTER_KEY_ALIAS) {
-                return rejectUnknownAlias(KeyId)
-            }
+            const { NumberOfBytes, EncryptionContext } = command.input
             const plaintext = sodium.randombytes_buf(NumberOfBytes ?? sodium.crypto_secretbox_KEYBYTES)
             const nonce = sodium.randombytes_buf(nonceBytes)
             const wrapped = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
@@ -54,24 +55,16 @@ export async function createStubKmsClient(): Promise<KMSClient> {
                 nonce,
                 masterKey
             )
-            const output: GenerateDataKeyCommandOutput = {
-                $metadata: {},
-                Plaintext: plaintext,
-                CiphertextBlob: Buffer.concat([Buffer.from(nonce), Buffer.from(wrapped)]),
-            }
-            return Promise.resolve(output)
+            return { $metadata: {}, Plaintext: plaintext, CiphertextBlob: Buffer.concat([nonce, wrapped]) }
         }
 
         if (command instanceof DecryptCommand) {
-            const { KeyId, CiphertextBlob, EncryptionContext } = command.input
-            if (KeyId !== MASTER_KEY_ALIAS) {
-                return rejectUnknownAlias(KeyId)
-            }
+            const { CiphertextBlob, EncryptionContext } = command.input
             if (!CiphertextBlob) {
-                return Promise.reject(new Error('DecryptCommand requires a CiphertextBlob'))
+                throw new Error('DecryptCommand requires a CiphertextBlob')
             }
             const blob = Buffer.from(CiphertextBlob)
-            const output: DecryptCommandOutput = {
+            return {
                 $metadata: {},
                 Plaintext: sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
                     null,
@@ -81,13 +74,21 @@ export async function createStubKmsClient(): Promise<KMSClient> {
                     masterKey
                 ),
             }
-            return Promise.resolve(output)
         }
 
-        return Promise.reject(new Error('Stub KMS client received an unsupported command'))
+        throw new Error('Stub KMS client received an unsupported command')
     }
 
     // The real send() is generically overloaded per command; the stub implements only the two the
     // keystore uses, so it is cast at this boundary rather than satisfying the full client type.
-    return { send, destroy: () => {} } as unknown as KMSClient
+    return {
+        send: (command: GenerateDataKeyCommand | DecryptCommand) => {
+            try {
+                return Promise.resolve(respond(command))
+            } catch (error) {
+                return Promise.reject(error)
+            }
+        },
+        destroy: () => {},
+    } as unknown as KMSClient
 }
