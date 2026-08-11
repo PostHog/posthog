@@ -3,31 +3,20 @@ import { usePathname, useRouter } from "expo-router";
 import {
   Binoculars,
   BookOpen,
-  CaretRight,
   Clock,
   GearSix,
   ListBullets,
   PuzzlePiece,
   Tray,
 } from "phosphor-react-native";
-import { memo, type ReactNode, useMemo, useState } from "react";
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { memo, type ReactNode } from "react";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OFFLINE_BANNER_HEIGHT } from "@/components/OfflineBanner";
-import { TaskStatusIcon } from "@/features/tasks/components/TaskStatusIcon";
-import { useTasks } from "@/features/tasks/hooks/useTasks";
 import { useSkillsAvailable } from "@/features/tasks/skills/hooks";
-import { useArchivedTasksStore } from "@/features/tasks/stores/archivedTasksStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useThemeColors } from "@/lib/theme";
 import { useNavDrawerStore } from "../stores/navDrawerStore";
-import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
 
 interface DrawerItemProps {
   icon: ReactNode;
@@ -60,9 +49,11 @@ interface NavDrawerContentProps {
 }
 
 /**
- * Heavy drawer body — extracted so it doesn't re-render every time the open
- * state toggles. `paddingTop` is the only prop and only changes when the
- * offline banner appears/disappears, so the memo stays effective.
+ * Drawer body — a flat list of destinations, extracted so it doesn't re-render
+ * every time the open state toggles. `paddingTop` is the only prop and only
+ * changes when the offline banner appears/disappears, so the memo stays
+ * effective. Deliberately owns no task data: the Tasks screen is the single
+ * place tasks are listed, so opening the drawer costs no extra query.
  */
 const NavDrawerContent = memo(function NavDrawerContent({
   paddingTop,
@@ -72,26 +63,7 @@ const NavDrawerContent = memo(function NavDrawerContent({
   const pathname = usePathname();
   const themeColors = useThemeColors();
   const insets = useSafeAreaInsets();
-  const { tasks } = useTasks();
   const skillsAvailable = useSkillsAvailable();
-  const { archivedTasks, unarchive } = useArchivedTasksStore();
-  const [archivedExpanded, setArchivedExpanded] = useState(false);
-
-  const { activeTasks, archivedTaskList } = useMemo(() => {
-    const active: typeof tasks = [];
-    const archived: typeof tasks = [];
-    for (const task of tasks) {
-      if (task.id in archivedTasks) {
-        archived.push(task);
-      } else {
-        active.push(task);
-      }
-    }
-    archived.sort(
-      (a, b) => (archivedTasks[b.id] ?? 0) - (archivedTasks[a.id] ?? 0),
-    );
-    return { activeTasks: active, archivedTaskList: archived };
-  }, [tasks, archivedTasks]);
 
   const navigateTo = (target: string) => {
     close();
@@ -125,11 +97,6 @@ const NavDrawerContent = memo(function NavDrawerContent({
     router.push("/mcp-servers");
   };
   const handleHome = () => navigateTo("/tasks");
-
-  const handleTaskPress = (taskId: string) => {
-    close();
-    router.push(`/task/${taskId}`);
-  };
 
   const iconColor = themeColors.gray[11];
   const iconColorActive = themeColors.gray[12];
@@ -230,94 +197,9 @@ const NavDrawerContent = memo(function NavDrawerContent({
         />
       </View>
 
-      <View className="mx-3 mb-1 border-gray-6 border-t" />
-
-      <View className="px-4 pt-3 pb-1.5">
-        <Text
-          className="font-medium text-[11px] text-gray-10 uppercase"
-          style={{ letterSpacing: 0.5 }}
-        >
-          Tasks
-        </Text>
-      </View>
-
-      <ScrollView
-        className="flex-1"
-        contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 12 }}
-      >
-        {activeTasks.length === 0 && archivedTaskList.length === 0 ? (
-          <View className="px-2.5 py-2">
-            <Text className="text-[13px] text-gray-10">No tasks yet</Text>
-          </View>
-        ) : (
-          <>
-            {activeTasks.map((task) => {
-              const taskHref = `/task/${task.id}`;
-              const active = pathname === taskHref;
-              return (
-                <Pressable
-                  key={task.id}
-                  onPress={() => handleTaskPress(task.id)}
-                  className={`flex-row items-center gap-3 rounded-md px-3 py-2.5 ${active ? "bg-gray-3" : "active:bg-gray-2"}`}
-                >
-                  <View className="h-5 w-5 shrink-0 items-center justify-center">
-                    <TaskStatusIcon task={task} size={16} />
-                  </View>
-                  <Text
-                    className="flex-1 text-[15px] text-gray-12"
-                    numberOfLines={1}
-                    ellipsizeMode="tail"
-                  >
-                    {task.title}
-                  </Text>
-                </Pressable>
-              );
-            })}
-
-            {archivedTaskList.length > 0 && (
-              <View className="mt-2">
-                <Pressable
-                  onPress={() => setArchivedExpanded((prev) => !prev)}
-                  className="flex-row items-center gap-2 rounded-md px-3 py-2 active:bg-gray-2"
-                >
-                  <CaretRight
-                    size={12}
-                    color={themeColors.gray[10]}
-                    style={{
-                      transform: [
-                        { rotate: archivedExpanded ? "90deg" : "0deg" },
-                      ],
-                    }}
-                  />
-                  <Text
-                    className="flex-1 font-medium text-[11px] text-gray-10 uppercase"
-                    style={{ letterSpacing: 0.5 }}
-                  >
-                    Archived
-                  </Text>
-                  <Text className="text-[11px] text-gray-9">
-                    {archivedTaskList.length}
-                  </Text>
-                </Pressable>
-
-                {archivedExpanded &&
-                  archivedTaskList.map((task) => {
-                    const taskHref = `/task/${task.id}`;
-                    return (
-                      <SwipeableArchivedDrawerRow
-                        key={task.id}
-                        task={task}
-                        active={pathname === taskHref}
-                        onPress={handleTaskPress}
-                        onUnarchive={unarchive}
-                      />
-                    );
-                  })}
-              </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+      {/* Pushes Settings to the bottom of the panel now that nothing
+          scrollable sits between the destinations and it. */}
+      <View className="flex-1" />
 
       <View className="mx-3 mt-1 border-gray-6 border-t" />
 
@@ -340,9 +222,9 @@ const NavDrawerContent = memo(function NavDrawerContent({
 });
 
 export function NavDrawer() {
-  // `isOpen` is read only to gate `pointerEvents`. The heavy drawer body is
-  // memoized below so this re-render is essentially free — it just flips a
-  // prop on the outer wrappers.
+  // `isOpen` is read only to gate `pointerEvents`. The drawer body is memoized
+  // above so this re-render is essentially free — it just flips a prop on the
+  // outer wrappers.
   const isOpen = useNavDrawerStore((s) => s.isOpen);
   const close = useNavDrawerStore((s) => s.close);
   const insets = useSafeAreaInsets();
