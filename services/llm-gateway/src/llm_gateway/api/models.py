@@ -1,10 +1,11 @@
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
-from llm_gateway.auth.service import get_auth_service
+from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError, get_auth_service
 from llm_gateway.config import get_settings
 from llm_gateway.products.config import (
     FREE_TIER_RESTRICTION_REASON,
@@ -80,29 +81,46 @@ def _build_response(product: str) -> ModelsResponse:
     return ModelsResponse(data=model_objects, models=model_objects)
 
 
-async def _caller_confirmed_free_tier(request: Request) -> bool:
+async def _authenticated_caller(request: Request) -> AuthenticatedUser | None:
+    """Resolve the caller when credentials are present, translating
+    project-scope errors into responses. Runs on every product listing,
+    independent of the model gate: a caller that selected a project it cannot
+    use must get an error, never a list it could read as valid for that
+    project. Anonymous callers and auth failures resolve to None."""
+    try:
+        return await get_auth_service().authenticate_request(request, request.app.state.db_pool)
+    except InvalidProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid project scope") from exc
+    except UnauthorizedProjectScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Project access denied") from exc
+    except Exception:
+        logger.warning("models_caller_resolution_failed", exc_info=True)
+        return None
+
+
+async def _caller_confirmed_free_tier(request: Request, user: AuthenticatedUser | None) -> bool:
     """Caller is authenticated, non-staff, and their org isn't billed for Code
     usage. Unidentifiable callers (anonymous, auth failure) are never marked;
     quota-fetch failures read the same last-known billing bit as enforcement,
     so marks match what requests would do. Enforcement stays the gate."""
+    if user is None:
+        return False
+    if is_usage_unlimited(user):
+        return False
+    if user.team_id is None:
+        # no team to bill: enforcement reads this caller as unbilled too
+        return True
     try:
-        user = await get_auth_service().authenticate_request(request, request.app.state.db_pool)
-        if user is None:
-            return False
-        if is_usage_unlimited(user):
-            return False
-        if user.team_id is None:
-            # no team to bill: enforcement reads this caller as unbilled too
-            return True
         quota_status = await resolve_quota_status(request, user.team_id, CreditBucket.POSTHOG_CODE_CREDITS.value)
-        return not quota_status.code_usage_billing_active
     except Exception:
         logger.warning("models_free_tier_resolution_failed", exc_info=True)
         return False
+    return not quota_status.code_usage_billing_active
 
 
 @models_router.get("/v1/models")
-async def list_models() -> ModelsResponse:
+async def list_models(request: Request) -> ModelsResponse:
+    await _authenticated_caller(request)
     return _build_response("llm_gateway")
 
 
@@ -111,9 +129,11 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
     resolved = validate_product(product)
     response = _build_response(product)
 
+    user = await _authenticated_caller(request)
+
     if resolved != "posthog_code" or not get_settings().posthog_code_model_gate_enabled:
         return response
-    if not await _caller_confirmed_free_tier(request):
+    if not await _caller_confirmed_free_tier(request, user):
         return response
 
     free_ids = set(filter_to_free_tier_models([m.id for m in response.data]))

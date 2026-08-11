@@ -23,6 +23,7 @@ import {
     MlMirrorConfig,
     getDefaultMlMirrorConfig,
     resolveMlAnonymizeMaxConcurrency,
+    resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
@@ -116,7 +117,8 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
 
-        const pools = buildSessionReplayRedisPools(this.config)
+        // Another system writes the event restriction list, so every lane reads one copy of it.
+        const pools = buildSessionReplayRedisPools(this.config, resolveMlMirrorRedisConnection(this.config))
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
 
@@ -168,10 +170,17 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                     this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
                         ? {
                               outputs,
-                              pseudonymSecret,
                               producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
                           }
-                        : undefined
+                        : undefined,
+                    {
+                        pseudonymSecret,
+                        // Producing the images is what makes collecting them useful, so the image
+                        // lane follows its producer flag. The URL lane has no producer yet and
+                        // measures on its own, so it follows only its own flag.
+                        collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                        collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
+                    }
                 ),
             // Isolate the mirror's session tracker/filter keys from the main lane. Sharing them would let
             // the cleartext mirror mark a session seen without the main lane's KMS key, so the main lane

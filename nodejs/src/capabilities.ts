@@ -127,17 +127,9 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
-            return {
-                cdpCyclotronWorkerHogFlowLegacyPg: true,
-            }
         case PluginServerMode.cdp_cyclotron_worker_email:
             return {
                 cdpCyclotronWorkerEmail: true,
-            }
-        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
-            return {
-                cdpCyclotronWorkerEmailLegacyPg: true,
             }
         case PluginServerMode.cdp_precalculated_filters:
             // The consumer is gone. Boot with no capabilities so a pod that charts still

@@ -5,6 +5,7 @@ import html as html_mod
 import unicodedata
 from collections.abc import Iterable
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 JSON = dict[str, Any]
@@ -773,6 +774,79 @@ def slack_to_content_and_rich_content(
 
     markdown_content = slack_mrkdwn_to_content(text, user_names)
     return _normalize_single_newlines_to_markdown(markdown_content), None
+
+
+# Hosts Slack serves file permalinks from. A file object is attacker-controlled (anyone in an
+# externally-shared channel can upload), so its permalink only becomes a link when it points at
+# one of these — otherwise it would be an arbitrary outbound link rendered inside a discussion.
+_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
+
+# One Slack message can carry many files; render a bounded number so an upload burst can't
+# flood the mirrored comment.
+MAX_SLACK_FILE_PLACEHOLDERS = 10
+
+
+def _slack_file_permalink(url: object) -> str | None:
+    """The permalink to hang a placeholder off, or None when it isn't safely linkable."""
+    if not isinstance(url, str) or not url:
+        return None
+    # Whitespace or a closing paren ends the markdown link early, spilling the rest of the URL
+    # out as text and leaving the link pointing somewhere other than it appears to.
+    if ")" in url or any(char.isspace() for char in url):
+        return None
+    # urlparse reads a backslash as an ordinary character, while the WHATWG parser browsers use
+    # reads it as a path separator. That splits the host checked below from the host a reader
+    # lands on, so reject the character instead of depending on who normalizes it first.
+    if "\\" in url:
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme != "https":
+        return None
+    host = (parsed.hostname or "").lower()
+    if not any(host == suffix or host.endswith(f".{suffix}") for suffix in _SLACK_FILE_HOST_SUFFIXES):
+        return None
+    return url
+
+
+def _escape_slack_file_name(name: object) -> str:
+    """Escape a Slack-supplied filename for use as markdown link text."""
+    # Collapse every run of whitespace, not just the ends. A blank line inside the name would
+    # close the paragraph holding the link, dropping the rest of the name into one of its own
+    # where a bare URL renders as a live autolink.
+    text = " ".join(name.split()) if isinstance(name, str) else ""
+    if not text:
+        # A truncated file object still deserves a visible marker — "something was attached"
+        # is strictly better than the message appearing to be empty.
+        return "Attachment"
+    # Brackets would close the link text early. Escaping "[" also neutralizes a leading "!["
+    # for free, so a crafted filename can't turn the placeholder into an inline image.
+    return text.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def slack_files_to_placeholder_lines(files: list[Any] | None) -> list[str]:
+    """Render one markdown placeholder line per file attached to an inbound Slack message.
+
+    PostHog never downloads the file: the discussion shows a link back to it in Slack, which
+    needs nothing beyond the metadata Slack already puts in the message event. That keeps this
+    working on installs that never granted ``files:read``, where downloading is impossible.
+
+    ``files`` is the raw array off the Slack event, so every element is checked rather than
+    assumed to be a well-formed file object.
+    """
+    if not files:
+        return []
+
+    lines: list[str] = []
+    for file in files[:MAX_SLACK_FILE_PLACEHOLDERS]:
+        if not isinstance(file, dict):
+            continue
+        name = _escape_slack_file_name(file.get("name") or file.get("title"))
+        permalink = _slack_file_permalink(file.get("permalink"))
+        lines.append(f"📎 [{name}]({permalink})" if permalink else f"📎 {name}")
+    return lines
 
 
 def _escape_html(text: str) -> str:

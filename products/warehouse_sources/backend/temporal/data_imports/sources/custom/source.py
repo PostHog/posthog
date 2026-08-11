@@ -880,6 +880,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # is entirely manifest-driven, so a 400 is deterministic: the same request recurs on
             # every retry. Stop retrying and point at the config the user can actually change.
             "400 Client Error": "The upstream API rejected the request with HTTP 400. Check the resource's path, query params, and — for an incremental sync — the cursor's date format in the manifest, then try again.",
+            # A configured URL or resource path that doesn't exist. The request shape is
+            # manifest-driven, so the 404 recurs on every retry — stop and point at the config.
+            # The message omits the URL, which carries the customer's hostname.
+            "404 Client Error": "The upstream API returned HTTP 404 Not Found. Check that the base URL and the resource's path in the manifest are correct and that the endpoint exists, then try again.",
             # A schema points to a resource the manifest no longer defines (renamed or removed
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.

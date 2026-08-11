@@ -35,6 +35,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
 
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
+import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
 import { CopySurveyLink } from './CopySurveyLink'
 import { HostedSurveyCanvas } from './hosted-canvas/HostedSurveyCanvas'
@@ -552,6 +553,7 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
                     onCancel={handleCancelClick}
                     onConvertToInApp={convertToInAppSurvey}
                 />
+                <SurveyPublicContentNotice />
                 <div className="grid min-h-[640px] grid-cols-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
                     <HostedSurveyQuestionRail
                         id={id}

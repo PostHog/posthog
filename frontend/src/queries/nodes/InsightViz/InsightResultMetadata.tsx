@@ -20,7 +20,7 @@ export const InsightResultMetadata = ({
     disableLastComputationRefresh,
 }: InsightResultMetadataProps): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
-    const { samplingFactor, trendsFilter, dateRange, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { samplingFactor, dateRange, querySource } = useValues(insightVizDataLogic(insightProps))
 
     // Only insights that apply daysOfWeek server-side get the note
     const excludedDays = querySupportsDaysOfWeek(querySource) ? getExcludedDaysOfWeek(dateRange) : []
@@ -40,12 +40,6 @@ export const InsightResultMetadata = ({
                 <span className="text-secondary">
                     <span className="mx-1">•</span>
                     Excluding {excludedText}
-                </span>
-            ) : null}
-            {trendsFilter?.hideWeekends ? (
-                <span className="text-secondary">
-                    <span className="mx-1">•</span>
-                    Weekends hidden
                 </span>
             ) : null}
             {dateRange?.excludeIncompletePeriods ? (
