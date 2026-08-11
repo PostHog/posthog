@@ -1,4 +1,6 @@
-import { getSeriesColor } from 'lib/colors'
+import { mixColors } from '@posthog/quill-charts'
+
+import { dataColorVars, getSeriesColor } from 'lib/colors'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
@@ -66,7 +68,7 @@ describe('sqlPieGraphAdapter', () => {
 
             expect(buildPieSlices(xData, yData)).toEqual([
                 { label: 'alpha', value: 7, color: getSeriesColor(0) },
-                { label: 'beta', value: 3, color: getSeriesColor(1) },
+                { label: 'beta', value: 3, color: getSeriesColor(4) },
             ])
         })
 
@@ -137,8 +139,86 @@ describe('sqlPieGraphAdapter', () => {
 
             expect(buildPieSlices(noXAxis, yData)).toEqual([
                 { label: 'apples', value: 3, color: getSeriesColor(0) },
-                { label: 'oranges', value: 7, color: getSeriesColor(1) },
+                { label: 'oranges', value: 7, color: getSeriesColor(4) },
             ])
+        })
+
+        describe('slice colors', () => {
+            const categories = (count: number): AxisSeries<string> => ({
+                column: { name: 'category', type: { name: 'STRING', isNumerical: false }, label: 'c', dataIndex: 0 },
+                data: Array.from({ length: count }, (_, index) => `label-${index}`),
+            })
+
+            const ones = (count: number): AxisSeries<number | null>[] => [
+                {
+                    column: { name: 'value', type: { name: 'INTEGER', isNumerical: true }, label: 'v', dataIndex: 1 },
+                    data: Array.from({ length: count }, () => 1),
+                    settings: {},
+                },
+            ]
+
+            const paletteSize = dataColorVars.length
+
+            beforeEach(() => {
+                // getSeriesColor resolves CSS variables off the body, and jsdom loads no
+                // stylesheet — without these every palette entry returns the same fallback and
+                // any assertion about which entry a slice got would hold no matter what.
+                dataColorVars.forEach((name, index) => {
+                    document.body.style.setProperty(`--${name}`, `#0000${index.toString(16).padStart(2, '0')}`)
+                })
+            })
+
+            afterEach(() => {
+                dataColorVars.forEach((name) => document.body.style.removeProperty(`--${name}`))
+            })
+
+            it('uses every palette entry exactly once before it repeats', () => {
+                // Also the guard on the hand-ordered sequence in the adapter: adding a palette
+                // color without extending that sequence drops it from every pie, silently.
+                const slices = buildPieSlices(categories(paletteSize), ones(paletteSize))
+                expect(new Set(slices.map((slice) => slice.color)).size).toEqual(paletteSize)
+            })
+
+            /** Positions of slices drawn in any of `colors`, and whether two of them touch. */
+            const familyTouches = (slices: { color: string }[], colors: string[]): boolean => {
+                const at = slices.flatMap((slice, index) => (colors.includes(slice.color) ? [index] : []))
+                return at.some((a) =>
+                    at.some((b) => a !== b && (Math.abs(a - b) === 1 || Math.abs(a - b) === slices.length - 1))
+                )
+            }
+
+            // The palette's look-alikes read as one color when they share an edge. A sequential
+            // assignment puts several of them side by side, which is what the ordering undoes.
+            // 15 slices is the documented exception and is covered by its own case below.
+            it.each([
+                ['the blues', [0, 7]],
+                ['the teals', [2, 10, 14]],
+                ['the purples', [1, 13]],
+            ])('never lets %s touch', (_name, entries) => {
+                const colors = entries.map(getSeriesColor)
+                for (const count of [6, 8, 12, 17]) {
+                    const slices = buildPieSlices(categories(count), ones(count))
+                    expect({ count, touches: familyTouches(slices, colors) }).toEqual({ count, touches: false })
+                }
+            })
+
+            it('mutes the palette color toward the chart ground', () => {
+                const [slice] = buildPieSlices(categories(1), ones(1), '#ffffff')
+                expect(slice.color).not.toEqual(getSeriesColor(0))
+                expect(slice.color).toEqual(mixColors(getSeriesColor(0), '#ffffff', 0.26))
+            })
+
+            it('leaves a color the user picked at full strength', () => {
+                const yData: AxisBreakdownSeries<number | null>[] = [
+                    {
+                        name: 'chosen',
+                        breakdownValue: 'chosen',
+                        data: [1],
+                        settings: { display: { color: '#abcdef' } },
+                    },
+                ]
+                expect(buildPieSlices(categories(1), yData, '#ffffff')[0].color).toEqual('#abcdef')
+            })
         })
     })
 

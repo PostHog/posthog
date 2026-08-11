@@ -138,6 +138,10 @@ export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
 export type { ThemeFromCssOptions } from './core/theme'
 
+// Color helpers — a host that resolves its own series colors needs the same blend the charts
+// use internally, so a swatch it renders outside the canvas matches the mark inside it.
+export { dimColor, mixColors, resolveCssColor } from './core/color-utils'
+
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look

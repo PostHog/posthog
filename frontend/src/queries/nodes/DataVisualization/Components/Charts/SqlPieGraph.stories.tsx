@@ -85,3 +85,28 @@ export const BreakdownColors: Story = {
             chartSettings: { ...baseSettings, showLegend: true },
         }),
 }
+
+// A long-tailed category count, where the palette's look-alike pairs and its wrap both come into
+// play. This is the shape the slice color ordering exists for, so it is the one worth snapshotting.
+const manyCategories: AxisSeries<string> = {
+    column: { name: 'intent', type: { name: 'STRING', isNumerical: false }, label: 'intent', dataIndex: 0 },
+    data: Array.from({ length: 17 }, (_, index) => `Category ${index + 1}`),
+}
+
+const longTail: AxisSeries<number | null>[] = [
+    {
+        column: { name: 'sessions', type: { name: 'INTEGER', isNumerical: true }, label: 'sessions', dataIndex: 1 },
+        data: [400, 180, 60, 40, 36, 32, 28, 24, 20, 16, 16, 12, 12, 12, 8, 8, 8],
+        settings: {},
+    },
+]
+
+export const ManyCategories: Story = {
+    render: () =>
+        render({
+            xData: manyCategories,
+            yData: longTail,
+            visualizationType: ChartDisplayType.ActionsPie,
+            chartSettings: { ...baseSettings, showLegend: true, pie: { sliceContent: 'labels' } },
+        }),
+}

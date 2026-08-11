@@ -28,7 +28,12 @@ export const SqlPieGraph = ({
 }: SqlChartProps): JSX.Element => {
     const theme = useChartTheme()
 
-    const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
+    // The ground is what slice colors mute toward, so it has to track the active theme. The
+    // chart theme re-reads its CSS vars on a theme flip, which keeps the blend from going stale.
+    const slices = useMemo(
+        () => buildPieSlices(xData, yData, theme.backgroundColor),
+        [xData, yData, theme.backgroundColor]
+    )
     const formattingSettings = yData[0]?.settings
     const series = useMemo(() => buildPieSeries(slices), [slices])
     const total = useMemo(() => slices.reduce((sum, slice) => sum + slice.value, 0), [slices])
