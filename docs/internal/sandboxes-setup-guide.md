@@ -223,10 +223,9 @@ Self-driving membership is derived from the task's `origin_product` (`SELF_DRIVI
 The split is for metering only: same image, same resources, same isolation, and images and snapshots are
 workspace-scoped in Modal, so a self-driving box still restores a snapshot baked under the default app.
 
-The `MODAL_DOCKER` and `MODAL_EVALS` providers shadow the default, notebook, and self-driving names
-(`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), so those runs stay out of the production apps.
-`STREAMLIT_BASE` is the exception: its app name is a module constant with no per-provider override, so a local
-or eval Streamlit box still lands in `posthog-sandbox-streamlit`.
+Each name above is a class attribute on `ModalSandbox`, and the `MODAL_DOCKER` and `MODAL_EVALS` providers
+override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), so local and eval runs never land
+in a production app. A new app name has to be a class attribute for that to keep holding.
 
 ### Sandbox templates
 

@@ -675,6 +675,7 @@ def _get_modal_docker_sandbox_class() -> SandboxClass:
     class ModalDockerSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-modal-docker-default"
         NOTEBOOK_APP_NAME = "posthog-sandbox-modal-docker-notebook"
+        STREAMLIT_APP_NAME = "posthog-sandbox-modal-docker-streamlit"
         SELF_DRIVING_APP_NAME = "posthog-sandbox-modal-docker-self-driving"
 
     return ModalDockerSandbox
@@ -689,6 +690,7 @@ def _get_modal_evals_sandbox_class() -> SandboxClass:
     class ModalEvalsSandbox(ModalSandbox):
         DEFAULT_APP_NAME = "posthog-sandbox-evals"
         NOTEBOOK_APP_NAME = "posthog-sandbox-evals"
+        STREAMLIT_APP_NAME = "posthog-sandbox-evals"
         # Evals are their own cost centre already — a self-driving eval stays in the evals app.
         SELF_DRIVING_APP_NAME = "posthog-sandbox-evals"
 

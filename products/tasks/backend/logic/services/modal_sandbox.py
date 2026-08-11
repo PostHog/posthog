@@ -638,6 +638,7 @@ class ModalSandbox(SandboxBase):
     provision_diagnostics: SandboxProvisionDiagnostics | None
     DEFAULT_APP_NAME = DEFAULT_MODAL_APP_NAME
     NOTEBOOK_APP_NAME = NOTEBOOK_MODAL_APP_NAME
+    STREAMLIT_APP_NAME = STREAMLIT_MODAL_APP_NAME
     SELF_DRIVING_APP_NAME = SELF_DRIVING_MODAL_APP_NAME
 
     def __init__(self, sandbox: modal.Sandbox, config: SandboxConfig, sandbox_url: str | None = None):
@@ -662,10 +663,8 @@ class ModalSandbox(SandboxBase):
         """
         if template == SandboxTemplate.NOTEBOOK_BASE:
             return cls.NOTEBOOK_APP_NAME
-        # Unlike the class-attribute names, this constant has no per-provider override, so local
-        # and eval Streamlit boxes share the production Streamlit app.
         if template == SandboxTemplate.STREAMLIT_BASE:
-            return STREAMLIT_MODAL_APP_NAME
+            return cls.STREAMLIT_APP_NAME
         return None
 
     @classmethod
