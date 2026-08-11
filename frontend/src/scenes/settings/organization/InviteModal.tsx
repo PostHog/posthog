@@ -44,7 +44,7 @@ export function EmailUnavailableForInvitesBanner(): JSX.Element {
 }
 
 export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }): JSX.Element {
-    const { invitesToSend, availableProjects, projectAccessControls } = useValues(inviteLogic)
+    const { invitesToSend, availableProjects, projectAccessControls, hasPrivateProjects } = useValues(inviteLogic)
     const {
         updateInviteAtIndex,
         addProjectAccess: addProjectAccessAction,
@@ -112,6 +112,13 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                     This user will have{' '}
                     <span className="font-bold italic">{OrganizationMembershipLevel[invite.level].toLowerCase()}</span>{' '}
                     access on the organization level, which will override any project-specific access controls.
+                </LemonBanner>
+            )}
+
+            {!isOrgLevelAdminOrOwner && hasPrivateProjects && selectedProjects.length === 0 && (
+                <LemonBanner type="warning" className="text-xs">
+                    Some projects in this organization are private. This user won't be able to open them unless you add
+                    project access here.
                 </LemonBanner>
             )}
 

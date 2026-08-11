@@ -174,6 +174,8 @@ def report_team_member_invited(
     current_member_count: int,
     is_bulk: bool,
     email_available: bool,
+    organization_level: int,
+    private_project_access_count: int,
     current_url: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> None:
@@ -188,6 +190,8 @@ def report_team_member_invited(
         "current_member_count": current_member_count,
         "email_available": email_available,
         "is_bulk": is_bulk,
+        "organization_level": organization_level,  # org membership level granted by the invite
+        "private_project_access_count": private_project_access_count,  # number of projects the invite grants access to
     }
 
     inviting_user_properties = {

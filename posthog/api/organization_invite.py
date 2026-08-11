@@ -344,6 +344,8 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             ).count(),
             is_bulk=self.context.get("bulk_create", False),
             email_available=is_email_available(with_absolute_urls=True),
+            organization_level=invite.level,
+            private_project_access_count=len(invite.private_project_access or []),
             current_url=self.context.get("current_url"),
             session_id=self.context.get("session_id"),
         )

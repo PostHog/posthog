@@ -230,6 +230,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             "current_member_count": 1,
             "email_available": True,
             "is_bulk": False,
+            "organization_level": OrganizationMembership.Level.MEMBER,
+            "private_project_access_count": 0,
         }
 
         # Assert capture call for invitee
@@ -627,6 +629,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "current_member_count": 1,
                 "email_available": True,
                 "is_bulk": True,
+                "organization_level": OrganizationMembership.Level.MEMBER,
+                "private_project_access_count": 0,
             },
             groups={"instance": ANY, "organization": str(self.team.organization_id)},
         )
