@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { Lifecycle } from '@/http/app.js'
-import { logger } from '@/lib/logging.js'
-import { scheduleJittered } from '@/lib/schedule.js'
-import { register, servingStaleSeconds } from '@/metrics.js'
-import { SnapshotManager } from '@/snapshot.js'
-import type { SecretStore } from '@/store/types.js'
-import type { SecretsSnapshot } from '@/types.js'
+import type { Lifecycle } from '@/http/app'
+import { logger } from '@/lib/logging'
+import { scheduleJittered } from '@/lib/schedule'
+import { register, servingStaleSeconds } from '@/metrics'
+import { SnapshotManager } from '@/snapshot'
+import type { SecretStore } from '@/store/types'
+import type { SecretsSnapshot } from '@/types'
 
 const NOW = Date.parse('2026-08-10T12:00:00.000Z')
 

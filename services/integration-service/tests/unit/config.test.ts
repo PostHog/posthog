@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { loadConfig } from '@/lib/config.js'
+import { loadConfig } from '@/lib/config'
 
 const VAR = 'INTEGRATION_SERVICE_RELOAD_SECONDS'
 

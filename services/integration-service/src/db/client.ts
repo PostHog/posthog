@@ -8,7 +8,7 @@
 
 import { Pool } from 'pg'
 
-import { logger } from '../lib/logging.js'
+import { logger } from '../lib/logging'
 
 // Idempotent DDL, applied at boot. Three small tables do not justify a migration runner.
 const SCHEMA = `

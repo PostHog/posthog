@@ -11,11 +11,11 @@
 // `missing` covers both an unknown key name and a manifest key with no value here. Both
 // are reported per key rather than failing the batch.
 
-import { logger } from '../lib/logging.js'
-import { observeResolve, previousVersionServedTotal } from '../metrics.js'
-import { providerForKey } from '../providers.js'
-import type { CallerIdentity, ResolveOutcome, SecretsSnapshot } from '../types.js'
-import type { UsageRecorder } from '../usage/recorder.js'
+import { logger } from '../lib/logging'
+import { observeResolve, previousVersionServedTotal } from '../metrics'
+import { providerForKey } from '../providers'
+import type { CallerIdentity, ResolveOutcome, SecretsSnapshot } from '../types'
+import type { UsageRecorder } from '../usage/recorder'
 
 /** Stand-in label for anything a caller named that the provider manifest does not define. */
 const UNKNOWN_LABEL = 'unknown'

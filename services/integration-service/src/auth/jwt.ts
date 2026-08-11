@@ -13,10 +13,10 @@
 
 import { decodeJwt, jwtVerify } from 'jose'
 
-import { productLabel } from '../products.js'
-import type { CallerIdentity } from '../types.js'
-import type { SigningKeyLoader } from './registry.js'
-import { AUDIENCE, AuthError, type Verifier } from './types.js'
+import { productLabel } from '../products'
+import type { CallerIdentity } from '../types'
+import type { SigningKeyLoader } from './registry'
+import { AUDIENCE, AuthError, type Verifier } from './types'
 
 // Caps on the `keys` claim. Without them a holder of a valid signing key could grow this
 // process's memory without bound, since every distinct key name becomes an entry in the

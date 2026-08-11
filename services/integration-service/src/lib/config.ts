@@ -1,8 +1,8 @@
 // Configuration, read from the environment once at boot. Anything missing or malformed
 // that the service cannot safely run without fails the boot rather than a request later.
 
-import { getEnv } from './env.js'
-import { logger } from './logging.js'
+import { getEnv } from './env'
+import { logger } from './logging'
 
 export interface Config {
     port: number

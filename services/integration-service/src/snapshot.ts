@@ -6,11 +6,11 @@
 // previous snapshot, so a transient mount blip does not take a warm fleet out of rotation,
 // and an empty mount at boot recovers on its own once ESO syncs, without a crash loop.
 
-import type { Lifecycle } from './http/app.js'
-import { logger } from './lib/logging.js'
-import { secretAgeSeconds, servingStaleSeconds, storeErrorsTotal } from './metrics.js'
-import type { SecretStore } from './store/types.js'
-import type { SecretsSnapshot } from './types.js'
+import type { Lifecycle } from './http/app'
+import { logger } from './lib/logging'
+import { secretAgeSeconds, servingStaleSeconds, storeErrorsTotal } from './metrics'
+import type { SecretStore } from './store/types'
+import type { SecretsSnapshot } from './types'
 
 export interface SnapshotManagerOptions {
     store: SecretStore

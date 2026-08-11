@@ -17,10 +17,10 @@
 //
 // Held in process memory only. These are the keys that authenticate callers.
 
-import { logger } from '../lib/logging.js'
-import { signingKeyReloadFailuresTotal, signingKeysLastLoadedTimestamp } from '../metrics.js'
-import { readSigningKeys } from '../store/fileStore.js'
-import type { SigningKeys } from './types.js'
+import { logger } from '../lib/logging'
+import { signingKeyReloadFailuresTotal, signingKeysLastLoadedTimestamp } from '../metrics'
+import { readSigningKeys } from '../store/fileStore'
+import type { SigningKeys } from './types'
 
 export const CALLER_KEY_PREFIX = 'CALLER_KEY_'
 

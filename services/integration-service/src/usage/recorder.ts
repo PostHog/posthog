@@ -10,7 +10,7 @@
 
 import type { Pool } from 'pg'
 
-import { logger } from '../lib/logging.js'
+import { logger } from '../lib/logging'
 
 interface Pending {
     key: string

@@ -5,7 +5,7 @@
 // service reads the mount (fileStore.ts). OpenBao is the eventual destination, and becomes a
 // second implementation of this interface rather than a rewrite.
 
-import type { SecretsSnapshot } from '../types.js'
+import type { SecretsSnapshot } from '../types'
 
 export interface SecretStore {
     /**

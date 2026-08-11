@@ -6,7 +6,7 @@
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { CallerIdentity, ResolveOutcome } from './types.js'
+import type { CallerIdentity, ResolveOutcome } from './types'
 
 export const register = new Registry()
 

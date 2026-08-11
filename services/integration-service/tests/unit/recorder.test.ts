@@ -1,7 +1,7 @@
 import type { Pool } from 'pg'
 import { describe, expect, it, vi } from 'vitest'
 
-import { UsageRecorder } from '@/usage/recorder.js'
+import { UsageRecorder } from '@/usage/recorder'
 
 interface Call {
     sql: string

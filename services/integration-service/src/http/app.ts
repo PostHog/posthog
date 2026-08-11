@@ -5,11 +5,11 @@
 import { Hono } from 'hono'
 import { createHash, timingSafeEqual } from 'node:crypto'
 
-import { bearerToken, type JwtVerifier } from '../auth/jwt.js'
-import { AuthError } from '../auth/types.js'
-import { logger } from '../lib/logging.js'
-import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal, register, shuttingDown } from '../metrics.js'
-import { resolveKeys, type ResolveDeps } from '../policy/resolve.js'
+import { bearerToken, type JwtVerifier } from '../auth/jwt'
+import { AuthError } from '../auth/types'
+import { logger } from '../lib/logging'
+import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal, register, shuttingDown } from '../metrics'
+import { resolveKeys, type ResolveDeps } from '../policy/resolve'
 
 export const RESOLVE_PATH = '/v1/secrets/resolve'
 

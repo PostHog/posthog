@@ -5,9 +5,9 @@ import { join } from 'node:path'
 import type { Pool } from 'pg'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { AUDIENCE } from '@/auth/types.js'
-import type { Config } from '@/lib/config.js'
-import { IntegrationServer } from '@/server.js'
+import { AUDIENCE } from '@/auth/types'
+import type { Config } from '@/lib/config'
+import { IntegrationServer } from '@/server'
 
 const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 const SIGNING_KEY = 'server-test-signing-key'

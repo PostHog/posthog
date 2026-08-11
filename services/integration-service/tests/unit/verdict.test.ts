@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SecretsSnapshot } from '@/types.js'
-import { buildUsageMap, type UsageMap } from '@/usage/verdict.js'
+import type { SecretsSnapshot } from '@/types'
+import { buildUsageMap, type UsageMap } from '@/usage/verdict'
 
 const ACTIVATED_AT = '2026-08-01T00:00:00.000Z'
 const BEFORE = Date.parse('2026-07-30T00:00:00.000Z')

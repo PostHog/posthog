@@ -1,7 +1,7 @@
 import type { Pool } from 'pg'
 import { describe, expect, it, vi } from 'vitest'
 
-import { applySchema } from '@/db/client.js'
+import { applySchema } from '@/db/client'
 
 describe('applySchema', () => {
     it('retries once when concurrent boots race the catalog', async () => {

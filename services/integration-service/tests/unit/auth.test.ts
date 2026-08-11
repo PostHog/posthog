@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { JwtVerifier, bearerToken } from '@/auth/jwt.js'
-import { SigningKeyLoader } from '@/auth/registry.js'
-import { AUDIENCE, AuthError, type SigningKeys } from '@/auth/types.js'
+import { JwtVerifier, bearerToken } from '@/auth/jwt'
+import { SigningKeyLoader } from '@/auth/registry'
+import { AUDIENCE, AuthError, type SigningKeys } from '@/auth/types'
 
 const DW = 'temporal-worker-data-warehouse'
 const DJANGO = 'posthog-django'

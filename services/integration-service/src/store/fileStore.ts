@@ -10,10 +10,10 @@ import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import { logger } from '../lib/logging.js'
-import { PROVIDERS } from '../providers.js'
-import type { ResolvedSecret, SecretsSnapshot } from '../types.js'
-import { FALLBACK_SUFFIX, RECOVERY_KEYS, type SecretStore } from './types.js'
+import { logger } from '../lib/logging'
+import { PROVIDERS } from '../providers'
+import type { ResolvedSecret, SecretsSnapshot } from '../types'
+import { FALLBACK_SUFFIX, RECOVERY_KEYS, type SecretStore } from './types'
 
 /** Kubelet's own bookkeeping inside a projected secret volume. Never a credential. */
 const IGNORED_ENTRIES = new Set(['..data'])

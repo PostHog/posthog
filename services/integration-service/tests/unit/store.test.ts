@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { createFileStore, readSigningKeys } from '@/store/fileStore.js'
-import type { SecretStore } from '@/store/types.js'
+import { createFileStore, readSigningKeys } from '@/store/fileStore'
+import type { SecretStore } from '@/store/types'
 
 const dirs: string[] = []
 

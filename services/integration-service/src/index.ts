@@ -1,8 +1,8 @@
 // Entry point: load config, construct the server, start it.
 
-import { loadConfig } from './lib/config.js'
-import { logger } from './lib/logging.js'
-import { IntegrationServer } from './server.js'
+import { loadConfig } from './lib/config'
+import { logger } from './lib/logging'
+import { IntegrationServer } from './server'
 
 new IntegrationServer(loadConfig()).start().catch((err: unknown) => {
     logger.error('fatal', { error: err instanceof Error ? err.message : String(err) })

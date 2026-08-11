@@ -5,8 +5,8 @@
 // The rollup carries no credential values — caller names, key names, counts, timestamps
 // and rotation state only.
 
-import { providerForKey } from '../providers.js'
-import type { SecretsSnapshot, SecretState } from '../types.js'
+import { providerForKey } from '../providers'
+import type { SecretsSnapshot, SecretState } from '../types'
 
 export interface UsageCallerEntry {
     /** The calling deployment, as authenticated by its signing key. */

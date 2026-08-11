@@ -3,7 +3,7 @@
 // touching the routes or the policy layer, removing the last long-lived secret from caller
 // pods.
 
-import type { CallerIdentity } from '../types.js'
+import type { CallerIdentity } from '../types'
 
 export const AUDIENCE = 'posthog:integration_service'
 

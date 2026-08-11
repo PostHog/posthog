@@ -6,7 +6,7 @@
 
 import pino from 'pino'
 
-import { getEnv } from './env.js'
+import { getEnv } from './env'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 

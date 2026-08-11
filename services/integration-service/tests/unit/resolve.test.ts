@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { register, resolveTotal } from '@/metrics.js'
-import { resolveKeys, type ResolveDeps } from '@/policy/resolve.js'
-import type { CallerIdentity, SecretsSnapshot } from '@/types.js'
-import type { UsageRecorder } from '@/usage/recorder.js'
+import { register, resolveTotal } from '@/metrics'
+import { resolveKeys, type ResolveDeps } from '@/policy/resolve'
+import type { CallerIdentity, SecretsSnapshot } from '@/types'
+import type { UsageRecorder } from '@/usage/recorder'
 
 function snapshot(secrets: SecretsSnapshot['secrets']): SecretsSnapshot {
     return {
