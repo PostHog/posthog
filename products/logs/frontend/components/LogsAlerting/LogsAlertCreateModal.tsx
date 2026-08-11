@@ -97,7 +97,7 @@ function buildLogsAlertWizardSteps({
     return [
         {
             key: 'configure',
-            title: 'Configure alert',
+            title: 'Configure',
             description: 'Select matching logs and set when this alert fires.',
             canAdvance: !configurationCannotAdvanceReason,
             cannotAdvanceReason: configurationCannotAdvanceReason,
