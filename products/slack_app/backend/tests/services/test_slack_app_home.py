@@ -399,6 +399,9 @@ class TestRenderHomeView:
         )
 
 
+_TASK_TITLES = ("Fix flaky retention test", "Refactor mention dispatcher")
+
+
 class TestTasksCard:
     def _kwargs(self, **overrides):
         base = {
@@ -435,7 +438,9 @@ class TestTasksCard:
             if (
                 block.get("type") == "section"
                 and isinstance(block.get("text"), dict)
-                and "https://app/project/" in block["text"].get("text", "")
+                and "|Fix flaky retention test>" in block["text"].get("text", "")
+                or block.get("type") == "section"
+                and "|Refactor mention dispatcher>" in block.get("text", {}).get("text", "")
             ):
                 title = block["text"]["text"]
                 neighbour = blocks[index + 1] if index + 1 < len(blocks) else None
@@ -470,10 +475,11 @@ class TestTasksCard:
         # Title is the full-size mrkdwn section; meta lives under it in a
         # context block so Slack renders it smaller/dimmer than the title.
         title, sub = items[0]
-        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        # The title opens the Slack thread — the conversation this row summarises.
+        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
         assert "🔄 in progress" in sub
         assert "`posthog/posthog`" in sub
-        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub
         assert "_Updated 5m ago_" in sub
 
@@ -492,9 +498,9 @@ class TestTasksCard:
         )
         view = render_home_view(**self._kwargs(tasks_state=state))
         title, sub = self._task_items(view, expected_count=1)[0]
-        assert title == "*<https://app/project/1/tasks/abc|Fix flaky retention test>*"
+        assert title == "*<https://slack.com/archives/C1/p1234567890123456|Fix flaky retention test>*"
         # The supporting context block stacks the error message above the
-        # standard status/repo/thread/PR/updated meta. Error never replaces
+        # standard status/repo/links/PR/updated meta. Error never replaces
         # the surrounding state.
         sub_rows = sub.split("\n\n")
         assert len(sub_rows) == 2
@@ -503,9 +509,35 @@ class TestTasksCard:
         assert sub_rows[0] == "`boom: timed out waiting for runner stack trace omitted`"
         assert "❌ failed" in sub_rows[1]
         assert "`posthog/posthog`" in sub_rows[1]
-        assert "<https://slack.com/archives/C1/p1234567890123456|Thread>" in sub_rows[1]
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub_rows[1]
         assert "<https://github.com/posthog/posthog/pull/123|PR>" in sub_rows[1]
         assert "_Updated 5m ago_" in sub_rows[1]
+
+    @pytest.mark.parametrize(
+        "desktop_url,expected",
+        [
+            ("posthog-code://task/abc", "<posthog-code://task/abc|View on desktop>"),
+            (None, None),
+        ],
+    )
+    def test_desktop_link_appears_only_for_a_viewer_who_can_open_it(self, desktop_url, expected):
+        # A `posthog-code://` link dead-ends for anyone without the app, so it rides
+        # alongside the web link rather than replacing it.
+        state = TasksState(
+            items=(self._item(desktop_url=desktop_url),),
+            has_any_tasks=True,
+            page=0,
+            total_pages=1,
+            total_filtered=1,
+        )
+        view = render_home_view(**self._kwargs(tasks_state=state))
+        _, sub = self._task_items(view, expected_count=1)[0]
+
+        assert "<https://app/project/1/tasks/abc|View on web>" in sub
+        if expected:
+            assert expected in sub
+        else:
+            assert "View on desktop" not in sub
 
     def test_task_with_no_repo_or_pr_skips_those_meta_parts(self):
         state = TasksState(

@@ -250,6 +250,7 @@ class TaskItem:
     pr_url: str | None
     thread_url: str | None
     updated_at_label: str
+    desktop_url: str | None = None  # omitted for viewers without PostHog Code access
     error_message: str | None = None  # surfaced on row 2 in place of the normal meta line
 
 
@@ -705,25 +706,32 @@ def _task_item_block(item: TaskItem) -> list[dict]:
     """One task row split across two Block Kit blocks for visual hierarchy.
 
     The title goes in a `section` (full-size mrkdwn); the optional error
-    message and the status · repo · thread · PR · updated meta go in a single
+    message and the status · repo · links · PR · updated meta go in a single
     `context` block underneath. Context renders text noticeably smaller and
     dimmer than section, so the supporting detail recedes while the title
     stays scannable.
+
+    The title opens the Slack thread, because that is where the conversation the
+    row summarises actually happened and it keeps the reader in Slack. The web
+    and desktop views are the alternatives, so they sit in the meta line.
 
     Failed tasks surface the error and the meta line — error context never
     replaces the surrounding state. Newlines in the upstream error message
     collapse to spaces so a traceback doesn't blow the row open vertically.
     """
     status_label = _TASK_STATUS_LABELS.get(item.status or "", "")
-    title_line = f"*<{item.posthog_url}|{item.title}>*" if item.posthog_url else f"*{item.title}*"
+    title_target = item.thread_url or item.posthog_url
+    title_line = f"*<{title_target}|{item.title}>*" if title_target else f"*{item.title}*"
 
     meta_parts: list[str] = []
     if status_label:
         meta_parts.append(status_label)
     if item.repository:
         meta_parts.append(f"`{item.repository}`")
-    if item.thread_url:
-        meta_parts.append(f"<{item.thread_url}|Thread>")
+    if item.posthog_url:
+        meta_parts.append(f"<{item.posthog_url}|View on web>")
+    if item.desktop_url:
+        meta_parts.append(f"<{item.desktop_url}|View on desktop>")
     if item.pr_url:
         meta_parts.append(f"<{item.pr_url}|PR>")
     if item.updated_at_label:
@@ -1698,6 +1706,7 @@ def _resolve_tasks_state(
     from django.utils import timezone as django_timezone
 
     from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.services.run_footer import DESKTOP_URL_SCHEME
     from products.tasks.backend.facade import api as tasks_facade
 
     slack_team_id = integration.integration_id
@@ -1731,6 +1740,9 @@ def _resolve_tasks_state(
     mapping_by_task = {str(m["task_id"]): m for m in mappings}
 
     site_url = (settings.SITE_URL or "").rstrip("/")
+    # The desktop link only resolves for someone who has the app, so it is offered
+    # alongside the web one rather than instead of it.
+    show_desktop = _viewer_has_desktop_access(integration, slack_user_id)
     now = django_timezone.now()
     all_items: list[TaskItem] = []
     repos_seen: list[str] = []
@@ -1751,6 +1763,7 @@ def _resolve_tasks_state(
                 thread_url=_slack_thread_permalink(mapping.get("channel", ""), mapping.get("thread_ts", "")),
                 updated_at_label=_format_relative(mapping.get("updated_at"), now=now),
                 error_message=run.error_message if run else None,
+                desktop_url=f"{DESKTOP_URL_SCHEME}://task/{t.id}" if show_desktop else None,
             )
         )
         if t.repository and t.repository not in seen_repo_set:
@@ -1818,6 +1831,26 @@ def _format_relative(when: datetime | None, *, now: datetime) -> str:
     if seconds < 7 * 86400:
         return f"{seconds // 86400}d ago"
     return when.strftime("%b %d")
+
+
+def _viewer_has_desktop_access(integration: Integration, slack_user_id: str) -> bool:
+    """Whether the Slack user reading the Home tab can open a `posthog-code://` link.
+
+    Fail closed, like every other PostHog Code gate: an unlinked Slack identity or a
+    flag-service error means no desktop link rather than one that dead-ends.
+    """
+    from products.tasks.backend.facade.access import has_tasks_access  # noqa: PLC0415
+
+    try:
+        linked_user = find_linked_posthog_user(
+            slack_user_id=slack_user_id,
+            slack_team_id=integration.integration_id,
+            candidate_org_ids=_workspace_org_ids(integration.integration_id),
+        )
+        return linked_user is not None and has_tasks_access(linked_user)
+    except Exception:
+        logger.exception("slack_app_home_desktop_access_check_failed", integration_id=integration.id)
+        return False
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
