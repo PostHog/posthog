@@ -1339,6 +1339,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 if (!goalDraft) {
                     return
                 }
+                // The model call can take a while; if the user picked a template or navigated away
+                // meanwhile, their newer state wins and the stale draft is dropped.
+                if (!router.values.location.pathname.endsWith(urls.replayVisionScannerTemplate('new'))) {
+                    return
+                }
                 actions.resetScanner(newScanner())
                 // Applied as form values (not baked into the reset) so the draft persists like hand-edited
                 // input and survives a reload of the configure step.

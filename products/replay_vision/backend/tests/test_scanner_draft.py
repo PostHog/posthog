@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from posthog.rate_limit import AIBurstRateThrottle
+
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_draft import (
@@ -20,7 +22,6 @@ _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
 
 
 def _access_control(*, allow: bool) -> MagicMock:
-    """Stand-in for UserAccessControl: either pass the queryset through or deny everything."""
     ac = MagicMock()
     ac.filter_queryset_by_access_level.side_effect = (lambda qs: qs) if allow else (lambda qs: qs.none())
     return ac
@@ -236,3 +237,14 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
 
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert "allow AI analysis" in resp.content.decode()
+
+    def test_is_gated_by_the_shared_ai_throttles(self):
+        # Denying the throttle and asserting the status proves it is wired into the request path;
+        # inspecting get_throttles() alone passes even if DRF never consults it.
+        with (
+            patch.object(AIBurstRateThrottle, "allow_request", return_value=False),
+            patch.object(AIBurstRateThrottle, "wait", return_value=None),
+        ):
+            resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS

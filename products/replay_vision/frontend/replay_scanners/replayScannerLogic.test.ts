@@ -109,6 +109,7 @@ describe('replayScannerLogic', () => {
                 scanner_config: { prompt: 'Classify the session by intent.', tags: ['browsing'], multi_label: false },
             }
             draftSpy.mockReturnValue([200, draft])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
 
             await expectLogic(logic, () =>
                 logic.actions.draftScannerFromGoal('understand what users come here to do')
@@ -123,6 +124,25 @@ describe('replayScannerLogic', () => {
             })
             // The test router prefixes paths with /project/:id, so match on the suffix.
             expect(router.values.location.pathname).toContain(urls.replayVisionScannerConfigure('new'))
+        })
+
+        it('drops a stale draft when the user has left the template step mid-request', async () => {
+            draftSpy.mockReturnValue([
+                200,
+                { name: 'Stale', description: '', scanner_type: 'classifier', scanner_config: { prompt: 'x' } },
+            ])
+            router.actions.push(urls.replayVisionScannerTemplate('new'))
+            // Simulate picking a template while the model call is still in flight.
+            logic.actions.setScannerValue('name', 'My template pick')
+            router.actions.push(urls.replayVisionScannerConfigure('new'))
+            const pathBefore = router.values.location.pathname
+
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal('understand what users come here to do')
+            ).toFinishAllListeners()
+
+            expect(logic.values.scanner).toMatchObject({ name: 'My template pick', scanner_type: 'monitor' })
+            expect(router.values.location.pathname).toEqual(pathBefore)
         })
 
         it('keeps the form untouched when drafting fails', async () => {

@@ -29,6 +29,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
@@ -1734,11 +1735,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             503: OpenApiResponse(response=ReplayVisionErrorSerializer, description="The draft couldn't be generated."),
         },
     )
+    # Each call is an inline LLM request, so it gets the shared AI rate limits like prompt suggestions.
     @action(
         detail=False,
         methods=["post"],
         url_path="draft",
         required_scopes=["replay_scanner:read", "session_recording:read"],
+        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
     )
     def draft(self, request: Request, **kwargs: Any) -> Response:
         """Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow."""
