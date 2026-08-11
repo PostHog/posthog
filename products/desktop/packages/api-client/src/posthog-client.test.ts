@@ -210,13 +210,8 @@ describe("PostHogAPIClient", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       new URL("https://gateway.eu.posthog.com/posthog_code/v1/models"),
-      expect.objectContaining({
-        method: "GET",
-        headers: expect.any(Headers),
-      }),
+      expect.objectContaining({ method: "GET" }),
     );
-    const requestHeaders = fetch.mock.calls[0]?.[1]?.headers as Headers;
-    expect(requestHeaders.get("X-PostHog-Project-Id")).toBe("123");
     expect(options.find((option) => option.category === "model")).toMatchObject(
       {
         currentValue: "claude-opus-4-8",

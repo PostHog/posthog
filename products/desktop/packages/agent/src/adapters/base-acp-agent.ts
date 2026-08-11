@@ -143,7 +143,6 @@ export abstract class BaseAcpAgent implements Agent {
     currentModelOverride?: string,
     gatewayUrl?: string,
     gatewayAuthToken?: string,
-    projectId?: number,
   ): Promise<{
     currentModelId: string;
     options: SessionConfigSelectOption[];
@@ -151,9 +150,7 @@ export abstract class BaseAcpAgent implements Agent {
     // Authenticated so the gateway can mark plan-restricted models —
     // anonymous fetches see everything allowed.
     this.gatewayModels = await fetchGatewayModels(
-      gatewayUrl
-        ? { gatewayUrl, authToken: gatewayAuthToken, projectId }
-        : undefined,
+      gatewayUrl ? { gatewayUrl, authToken: gatewayAuthToken } : undefined,
     );
 
     const adapterModels = this.gatewayModels

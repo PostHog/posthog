@@ -2,7 +2,6 @@ import {
   type GatewayModel,
   normalizeGatewayModelsResponse,
 } from "@posthog/shared";
-import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 
 export {
   BLOCKED_GATEWAY_MODEL_IDS,
@@ -33,7 +32,6 @@ export interface FetchGatewayModelsOptions {
   gatewayUrl: string;
   /** Bearer token; required for accurate free-tier marks. */
   authToken?: string;
-  projectId?: number;
 }
 
 const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
@@ -53,34 +51,19 @@ interface ModelsCache<T> {
   expiry: number;
   url: string;
   token: string | null;
-  projectId: number | null;
 }
 
 function readModelsCache<T>(
   cache: ModelsCache<T> | null,
   url: string,
   token: string | null,
-  projectId: number | null,
 ): T[] | null {
-  if (
-    !cache ||
-    cache.url !== url ||
-    cache.token !== token ||
-    cache.projectId !== projectId
-  )
-    return null;
+  if (!cache || cache.url !== url || cache.token !== token) return null;
   return Date.now() < cache.expiry ? cache.models : null;
 }
 
-function authHeaders(
-  authToken?: string,
-  projectId?: number,
-): Record<string, string> | undefined {
-  if (!authToken && !projectId) return undefined;
-  return {
-    ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    ...buildPosthogProjectHeaderRecord(projectId),
-  };
+function authHeaders(authToken?: string): Record<string, string> | undefined {
+  return authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
 }
 
 let gatewayModelsCache: ModelsCache<GatewayModel> | null = null;
@@ -94,20 +77,14 @@ export async function fetchGatewayModels(
   }
 
   const token = options?.authToken ?? null;
-  const projectId = options?.projectId ?? null;
-  const cached = readModelsCache(
-    gatewayModelsCache,
-    gatewayUrl,
-    token,
-    projectId,
-  );
+  const cached = readModelsCache(gatewayModelsCache, gatewayUrl, token);
   if (cached) return cached;
 
   const modelsUrl = `${gatewayUrl}/v1/models`;
 
   try {
     const response = await fetch(modelsUrl, {
-      headers: authHeaders(options?.authToken, options?.projectId),
+      headers: authHeaders(options?.authToken),
       signal: AbortSignal.timeout(GATEWAY_FETCH_TIMEOUT_MS),
     });
 
@@ -121,7 +98,6 @@ export async function fetchGatewayModels(
       expiry: Date.now() + CACHE_TTL,
       url: gatewayUrl,
       token,
-      projectId,
     };
     return models;
   } catch {
@@ -147,14 +123,13 @@ export async function fetchModelsList(
   }
 
   const token = options?.authToken ?? null;
-  const projectId = options?.projectId ?? null;
-  const cached = readModelsCache(modelsListCache, gatewayUrl, token, projectId);
+  const cached = readModelsCache(modelsListCache, gatewayUrl, token);
   if (cached) return cached;
 
   try {
     const modelsUrl = `${gatewayUrl}/v1/models`;
     const response = await fetch(modelsUrl, {
-      headers: authHeaders(options?.authToken, options?.projectId),
+      headers: authHeaders(options?.authToken),
       signal: AbortSignal.timeout(GATEWAY_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -173,7 +148,6 @@ export async function fetchModelsList(
       expiry: Date.now() + CACHE_TTL,
       url: gatewayUrl,
       token,
-      projectId,
     };
     return results;
   } catch {

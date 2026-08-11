@@ -27,12 +27,6 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
 } from "@posthog/shared";
-import {
-  buildPosthogPropertiesHeaderLines,
-  buildPosthogPropertiesHeaderRecord,
-  buildPosthogScopedPropertyHeaderLines,
-  buildPosthogScopedPropertyHeaderRecord,
-} from "@posthog/shared/posthog-property-headers";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -97,7 +91,14 @@ import type {
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
 import { AsyncMutex } from "../utils/async-mutex";
-import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
+import {
+  buildGatewayPropertiesHeader,
+  buildGatewayPropertiesHeaderRecord,
+  buildGatewayPropertyHeaderRecord,
+  buildGatewayPropertyHeaders,
+  resolveGatewayProduct,
+  resolveGatewayTarget,
+} from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
@@ -1621,7 +1622,6 @@ export class AgentServer {
       void fetchGatewayModels({
         gatewayUrl: gatewayEnv.anthropicBaseUrl,
         authToken: gatewayEnv.anthropicAuthToken,
-        projectId: Number(gatewayEnv.posthogProjectId) || undefined,
       }).catch(() => {});
     }
 
@@ -4071,23 +4071,17 @@ ${commonInstructions}
         ai_product: aiProduct,
         team_id: projectId,
       };
-      customHeaders = buildPosthogPropertiesHeaderLines(properties);
-      openaiCustomHeaders = buildPosthogPropertiesHeaderRecord(properties);
+      customHeaders = buildGatewayPropertiesHeader(properties);
+      openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
     } else {
-      customHeaders = buildPosthogScopedPropertyHeaderLines(
-        gatewayProperties,
-        projectId,
-      );
+      customHeaders = buildGatewayPropertyHeaders(gatewayProperties);
       // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
       // blob keys, so the session id would be silently dropped there.
-      openaiCustomHeaders = buildPosthogScopedPropertyHeaderRecord(
-        {
-          ...gatewayProperties,
-          team_id: projectId,
-          $ai_session_id: taskId,
-        },
-        projectId,
-      );
+      openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
+        ...gatewayProperties,
+        team_id: projectId,
+        $ai_session_id: taskId,
+      });
     }
 
     // Server-level constants that don't vary per task — safe to keep in

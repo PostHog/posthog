@@ -1,7 +1,6 @@
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { classifyGatewayLimitError } from "@posthog/shared";
 import {
-  buildPosthogProjectHeaderRecord,
   buildPosthogPropertyHeaderRecord,
   type PosthogProperties,
 } from "@posthog/shared/posthog-property-headers";
@@ -57,7 +56,6 @@ export class LlmGatewayService {
     this.auth = host;
     this.endpoints = host;
     this.log = logger.scope("llm-gateway");
-    this.authService = authService;
     let orgId = authService.getState().currentOrgId;
     authService.on(AuthServiceEvent.StateChanged, (state) => {
       if (state.currentOrgId === orgId) return;
@@ -69,7 +67,6 @@ export class LlmGatewayService {
   private readonly auth: LlmGatewayAuth;
   private readonly endpoints: LlmGatewayEndpoints;
   private readonly log: LlmGatewayLogger;
-  private readonly authService: AuthService;
 
   private lastKnownCodeUsageSubscribed: boolean | null = null;
 
@@ -170,7 +167,6 @@ export class LlmGatewayService {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...this.projectScopeHeaders(),
       ...(posthogProperties
         ? buildPosthogPropertyHeaderRecord(posthogProperties)
         : {}),
@@ -264,9 +260,7 @@ export class LlmGatewayService {
 
     let response: Response;
     try {
-      response = await this.auth.authenticatedFetch(usageUrl, {
-        headers: this.projectScopeHeaders(),
-      });
+      response = await this.auth.authenticatedFetch(usageUrl);
     } catch (err) {
       this.log.warn("Usage fetch network error", {
         error: err instanceof Error ? err.message : String(err),
@@ -289,11 +283,5 @@ export class LlmGatewayService {
       this.lastKnownCodeUsageSubscribed = usage.code_usage_subscribed;
     }
     return usage;
-  }
-
-  private projectScopeHeaders(): Record<string, string> {
-    return buildPosthogProjectHeaderRecord(
-      this.authService.getState().currentProjectId,
-    );
   }
 }
