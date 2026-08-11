@@ -16202,6 +16202,22 @@ export namespace Schemas {
       ticket_number: number;
     }
 
+    export interface ComputeRateCard {
+      /** Stable identifier for this rate card. */
+      version: string;
+      /** Time when this rate card became effective. */
+      effective_at: string;
+      /**
+         * Time when this rate card stopped applying, or null while it remains current.
+         * @nullable
+         */
+      expires_at: string | null;
+      /** USD charged per CPU core-second as an exact decimal string. */
+      cpu_core_second_usd: string;
+      /** USD charged per GiB-second of memory as an exact decimal string. */
+      memory_gib_second_usd: string;
+    }
+
     /**
      * * `won` - won
      * * `lost` - lost
@@ -67623,6 +67639,13 @@ export namespace Schemas {
       name?: string;
       /** Free-text content. Only for `text` attachments. */
       value?: string;
+    }
+
+    export interface SandboxComputePricing {
+      /** Currently effective sandbox compute rate card, or null before pricing is published. */
+      current: ComputeRateCard | null;
+      /** Expired sandbox compute rate cards, newest first. */
+      history: ComputeRateCard[];
     }
 
     /**
