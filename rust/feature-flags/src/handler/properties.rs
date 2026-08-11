@@ -50,8 +50,8 @@ pub fn prepare_overrides(
 /// wins. The lookup still overwrites them.
 ///
 /// Sizes the population that letting request values win would affect, so that change can be
-/// measured before it ships rather than after. A JSON null counts as absent: callers clear a
-/// property with `$unset`, so a null is a missing value that would be filled either way.
+/// measured before it ships rather than after. A JSON null counts as absent: it carries no
+/// value to compare against the lookup, so it can't be a divergence.
 fn record_geoip_divergence(
     person_properties: &HashMap<String, Value>,
     geoip_props: &HashMap<String, String>,

@@ -181,8 +181,8 @@ fn test_geoip_person_property_overrides(
     }
 }
 
-/// `supplied` is the value the request sends for `$geoip_country_code`, or `None` to send no
-/// person properties at all.
+/// `supplied` is the value the request sends for `$geoip_country_code`, or `None` for a request
+/// that sends person properties without that key at all (the `unrelated_key_only` case).
 #[rstest]
 #[case::differs(false, Some(Value::String("DE".to_string())), true)]
 #[case::matches_lookup(false, Some(Value::String("US".to_string())), false)]

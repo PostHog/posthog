@@ -184,7 +184,7 @@ Before changing that, the affected population is being measured:
 - The canonical log line carries the same fact as `geoip_properties_differ_from_lookup`. The counter has no labels, so query the log line in Loki to attribute a spike to a team or SDK.
 
 Both only measure. Nothing about evaluation changes until the precedence flip ships, and both are removable once it has settled.
-A JSON null in the request counts as absent for this purpose, since callers clear a property with `$unset` and a null would be filled rather than kept.
+A JSON null in the request counts as absent for this purpose, since it carries no value to compare against the lookup.
 
 ### `FlagsResponse` (v2 response)
 
