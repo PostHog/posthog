@@ -10,20 +10,23 @@ import {
   PuzzlePiece,
   Tray,
 } from "phosphor-react-native";
-import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
+  memo,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  Animated,
+  Easing,
   Pressable,
   ScrollView,
   StyleSheet,
   useWindowDimensions,
   View,
 } from "react-native";
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { OFFLINE_BANNER_HEIGHT } from "@/components/OfflineBanner";
 import { TaskStatusIcon } from "@/features/tasks/components/TaskStatusIcon";
@@ -371,50 +374,41 @@ export function NavDrawer() {
   const drawerTop = isConnected ? 0 : insets.top + OFFLINE_BANNER_HEIGHT;
   const drawerPaddingTop = isConnected ? insets.top + 12 : 12;
 
-  // Drive the slide off a SharedValue so the animation can start on the UI
-  // thread the instant the store updates, with no React render in the
-  // critical path. Imperative subscription avoids re-rendering NavDrawer
-  // before kicking off `withTiming`.
-  const progress = useSharedValue(0);
+  // Core RN Animated (JS-driven), deliberately not Reanimated: on some dev
+  // builds the worklets runtime silently fails to initialize, and every
+  // Reanimated style no-ops — which left this drawer permanently translated
+  // off-screen while its state said "open". The JS driver has no such
+  // dependency and animating opacity/transform stays on the native driver.
+  const progress = useRef(new Animated.Value(0)).current;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: drawerWidth is only read for diagnostics inside the subscription
   useEffect(() => {
-    progress.value = useNavDrawerStore.getState().isOpen ? 1 : 0;
+    progress.setValue(useNavDrawerStore.getState().isOpen ? 1 : 0);
     return useNavDrawerStore.subscribe((state, prev) => {
       if (state.isOpen === prev.isOpen) return;
-      log.debug("drawer state change", {
-        isOpen: state.isOpen,
-        drawerWidth,
-      });
-      progress.value = withTiming(state.isOpen ? 1 : 0, {
+      log.debug("drawer state change", { isOpen: state.isOpen });
+      Animated.timing(progress, {
+        toValue: state.isOpen ? 1 : 0,
         duration: state.isOpen ? OPEN_DURATION : CLOSE_DURATION,
         easing: state.isOpen
           ? Easing.out(Easing.cubic)
           : Easing.in(Easing.cubic),
-      });
-      // Watchdog: if the timing animation hasn't visibly moved the drawer
-      // shortly after an open, snap it fully open so a stalled animation
-      // driver (seen on iPad) degrades to a jump cut instead of an
-      // invisible, stuck-open drawer.
-      if (state.isOpen) {
-        setTimeout(() => {
-          log.debug("drawer progress watchdog", { progress: progress.value });
-          if (useNavDrawerStore.getState().isOpen && progress.value < 0.05) {
-            log.warn("drawer animation stalled; snapping open");
-            progress.value = 1;
-          }
-        }, 500);
-      }
+        useNativeDriver: true,
+      }).start();
     });
   }, [progress]);
 
-  const drawerStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -drawerWidth + progress.value * drawerWidth }],
-  }));
+  const drawerStyle = {
+    transform: [
+      {
+        translateX: progress.interpolate({
+          inputRange: [0, 1],
+          outputRange: [-drawerWidth, 0],
+        }),
+      },
+    ],
+  };
 
-  const backdropStyle = useAnimatedStyle(() => ({
-    opacity: progress.value,
-  }));
+  const backdropStyle = { opacity: progress };
 
   return (
     <View
