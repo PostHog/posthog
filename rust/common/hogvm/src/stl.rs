@@ -1574,7 +1574,7 @@ fn to_datetime(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     let zone = zone.as_deref();
     let dt_seconds = match args[0].deref(&vm.heap)? {
         HogLiteral::Number(n) => n.to_float(),
-        HogLiteral::String(s) => parse_datetime_to_seconds(s, zone)?,
+        HogLiteral::String(s) => parse_datetime_native(s, zone)?,
         other => {
             return Err(VmError::NativeCallFailed(format!(
                 "toDateTime expects a number or string, got {}",
@@ -1593,7 +1593,7 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
     assert_argc(&args, 1, "toDate")?;
     let seconds = match args[0].deref(&vm.heap)? {
         HogLiteral::Number(n) => n.to_float(),
-        HogLiteral::String(s) => parse_datetime_to_seconds(s, None)?,
+        HogLiteral::String(s) => parse_datetime_native(s, None)?,
         other => {
             return Err(VmError::NativeCallFailed(format!(
                 "toDate expects a number or string, got {}",
@@ -1615,16 +1615,23 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
 /// `common/hogvm/python/stl/date.py` (`_parse_date_like`) mirror it and must be changed together.
 ///
 /// ```text
-/// input := WS* date ( SEP time frac? zone? )? WS*
-/// date  := YYYY "-" MM "-" DD              # extended format only
+/// input := WS* date ( SEP time zone? )? WS*
+/// date  := YYYY "-" MM "-" DD              # extended format only, YYYY >= 0001
 /// SEP   := "T" | "t" | " "
-/// time  := HH ":" MM ( ":" SS )?
+/// time  := HH ":" MM ( ":" SS frac? )?     # HH <= 23; a fraction requires seconds
 /// frac  := ("." | ",") DIGIT{1,9}          # truncated to milliseconds
-/// zone  := "Z" | "z" | ("+"|"-") HH ( ":"? MM )?
+/// zone  := "Z" | "z" | ("+"|"-") HH ( ":"? MM )?   # offset HH <= 23, MM <= 59
 /// ```
 ///
 /// No zone ⇒ UTC (or the explicit `zone` argument when one was passed to `toDateTime`), *never* the
 /// process-local timezone. The result is `f64` epoch seconds at millisecond resolution.
+///
+/// Every numeric field is range-bounded here rather than left to each runtime's own parser, because
+/// the three disagreed on exactly the leftovers: luxon normalized `24:00` to the next midnight while
+/// chrono and `datetime` rejected it, an offset like `+24:00` made Python's `datetime.timezone`
+/// *raise* where luxon accepted and chrono rejected, and year `0000` is valid to chrono and luxon
+/// but not to `datetime`. A fraction is tied to seconds for the same reason — luxon rejects
+/// `HH:MM.sss` where the other two accepted it.
 ///
 /// Deliberately rejected everywhere: bare numeric strings, partial dates (`2024`, `2024-01`), the
 /// compact basic format (`20240101`), ISO week (`2024-W05`) and ordinal (`2024-001`) dates, and
@@ -1635,14 +1642,17 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
 /// (`YYYY-MM-DD`, ClickHouse `YYYY-MM-DD HH:MM:SS`, and JS `YYYY-MM-DDTHH:MM:SS.sssZ`), and every
 /// rejected form is either ambiguous with an ordinary string property or vanishingly rare. A
 /// time-only `12:30` resolving to *today's* date, as luxon did, is the failure mode to avoid.
+///
+/// Note this is the grammar for the *implicit* comparison coercion. The explicit `toDateTime`/
+/// `toDate` natives accept one form on top of it; see [`parse_datetime_native`].
 static DATE_LIKE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
         r"(?x)
         ^(\d{4})-(\d{2})-(\d{2})
         (?:
-            [Tt\x20](\d{2}):(\d{2})(?::(\d{2}))?
-            (?:[.,](\d{1,9}))?
-            (Z|z|[+-]\d{2}(?::?\d{2})?)?
+            [Tt\x20]([01]\d|2[0-3]):([0-5]\d)
+            (?::([0-5]\d)(?:[.,](\d{1,9}))?)?
+            (Z|z|[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?)?
         )?$",
     )
     .expect("date-like grammar is a valid regex")
@@ -1658,10 +1668,15 @@ pub(crate) fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Resu
     let caps = DATE_LIKE.captures(input.trim()).ok_or_else(unparseable)?;
     let num = |i: usize| caps.get(i).map(|m| m.as_str().parse::<u32>().unwrap_or(0));
 
-    // `from_ymd_opt`/`and_hms_milli_opt` reject out-of-range dates and times the regex can't (month
-    // 13, Feb 30, hour 24), so this is the only validation the calendar needs.
+    // The regex bounds the time fields; `from_ymd_opt` still has to reject the calendar-invalid
+    // dates it can't express (month 13, Feb 30). Year 0 is valid to chrono but not to Python's
+    // `datetime`, so it is excluded explicitly to keep the three accept-sets identical.
+    let year = caps[1].parse::<i32>().map_err(|_| unparseable())?;
+    if year < 1 {
+        return Err(unparseable());
+    }
     let date = NaiveDate::from_ymd_opt(
-        caps[1].parse::<i32>().map_err(|_| unparseable())?,
+        year,
         num(2).ok_or_else(unparseable)?,
         num(3).ok_or_else(unparseable)?,
     )
@@ -1693,11 +1708,32 @@ pub(crate) fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Resu
             let minutes: i32 = digits.get(2..4).unwrap_or("0").parse().unwrap_or(0);
             let offset = FixedOffset::east_opt(sign * (hours * 3600 + minutes * 60))
                 .ok_or_else(unparseable)?;
-            let dt = naive.and_local_timezone(offset).single().ok_or_else(unparseable)?;
+            let dt = naive
+                .and_local_timezone(offset)
+                .single()
+                .ok_or_else(unparseable)?;
             Ok(datetime_to_seconds(dt))
         }
         None => naive_to_seconds(naive, zone),
     }
+}
+
+/// [`parse_datetime_to_seconds`] plus a bare-numeric-string fallback, for the *explicit*
+/// `toDateTime`/`toDate` natives only.
+///
+/// ClickHouse — the parity oracle for the realtime cohort evaluator, the only production consumer
+/// that reaches this — reads an all-digit string as a unix timestamp, and the compiled cohort leaf
+/// shape `toDateTime(toString(person.properties.X))` relies on it for numeric date properties
+/// (`rust/cohort-stream-processor/tests/fixtures/hogvm_parity/`). Dropping it would turn those
+/// filters into a `VmError`, which `cohort-core`'s executor collapses to a silent `false`.
+///
+/// It is deliberately *not* part of [`DATE_LIKE`], because that grammar also drives the implicit
+/// string-vs-temporal comparison coercion, where treating every numeric-looking property as an
+/// instant would silently change the meaning of comparisons no one marked as date comparisons.
+/// The reference Python/TS VMs accept neither form here; this is a documented Rust-only extension
+/// of the explicit native, not a divergence introduced by the shared grammar.
+fn parse_datetime_native(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
+    parse_datetime_to_seconds(input, zone).or_else(|e| input.trim().parse::<f64>().map_err(|_| e))
 }
 
 fn naive_to_seconds(naive: NaiveDateTime, zone: Option<&str>) -> Result<f64, VmError> {
@@ -2016,7 +2052,7 @@ fn unix_timestamp_seconds(
             },
             None => None,
         };
-        return Ok(parse_datetime_to_seconds(s, zone.as_deref()).ok());
+        return Ok(parse_datetime_native(s, zone.as_deref()).ok());
     }
     temporal_seconds(vm, &args[0], name).map(Some)
 }

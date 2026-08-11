@@ -82,10 +82,10 @@ def toTimeZone(date: dict, timezone: str):
 DATE_LIKE = re.compile(
     r"""^(\d{4})-(\d{2})-(\d{2})
         (?:
-            [Tt\ ](\d{2}):(\d{2})(?::(\d{2}))?
-            (?:[.,](\d{1,9}))?
-            (Z|z|[+-]\d{2}(?::?\d{2})?)?
-        )?$""",
+            [Tt\ ]([01]\d|2[0-3]):([0-5]\d)
+            (?::([0-5]\d)(?:[.,](\d{1,9}))?)?
+            (Z|z|[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?)?
+        )?\Z""",
     re.VERBOSE,
 )
 
@@ -116,25 +116,32 @@ def _parse_date_like(input: str, timezone: Optional[str] = None) -> Optional[dat
     # baseline (see `datetime_to_seconds` in the Rust STL).
     microsecond = int(fraction[:3].ljust(3, "0")) * 1000 if fraction else 0
 
-    if offset in ("Z", "z"):
-        tzinfo: datetime.tzinfo = datetime.UTC
-    elif offset:
-        digits = offset[1:].replace(":", "")
-        delta = datetime.timedelta(hours=int(digits[:2]), minutes=int(digits[2:4] or 0))
-        tzinfo = datetime.timezone(-delta if offset[0] == "-" else delta)
-    else:
-        tzinfo = pytz.timezone(timezone or "UTC")
-
     try:
+        if offset in ("Z", "z"):
+            tzinfo: datetime.tzinfo = datetime.UTC
+        elif offset:
+            digits = offset[1:].replace(":", "")
+            delta = datetime.timedelta(hours=int(digits[:2]), minutes=int(digits[2:4] or 0))
+            tzinfo = datetime.timezone(-delta if offset[0] == "-" else delta)
+        else:
+            tzinfo = pytz.timezone(timezone or "UTC")
+
         naive = datetime.datetime(
             int(year), int(month), int(day), int(hour or 0), int(minute or 0), int(second or 0), microsecond
         )
-    except ValueError:  # out-of-range calendar date or time, e.g. 2024-02-30 or hour 24
+    except ValueError:
+        # Out-of-range calendar date (2024-02-30) or year 0. The tz construction is inside the `try`
+        # deliberately: an unknown zone name, or an offset the regex admits but `datetime.timezone`
+        # rejects, must return None like any other parse failure — this function is called from
+        # `unify_comparison_types` on every comparison opcode, where a bare ValueError would escape
+        # the VM entirely rather than leaving the operands uncoerced.
         return None
     # `localize` rather than `tzinfo=` — pytz zones carry a historical LMT offset that only
-    # `localize` resolves to the right one for the date in question.
+    # `localize` resolves to the right one for the date in question. `is_dst=True` picks the first
+    # of an ambiguous pair during a DST fold, matching Rust's `LocalResult::Ambiguous(dt, _)` and
+    # luxon; pytz's default (`is_dst=False`) would pick the second and land an hour off.
     localize = getattr(tzinfo, "localize", None)
-    return localize(naive) if localize else naive.replace(tzinfo=tzinfo)
+    return localize(naive, is_dst=True) if localize else naive.replace(tzinfo=tzinfo)
 
 
 def toDate(input):

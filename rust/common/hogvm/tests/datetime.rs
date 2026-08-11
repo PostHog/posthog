@@ -65,8 +65,8 @@ fn returning(fragment: &[Value]) -> Vec<Value> {
 /// The shared date-like grammar. The canonical spec is above `parse_datetime_to_seconds` in
 /// `src/stl.rs`; the same table is driven by `common/hogvm/python/test/test_date.py` and
 /// `common/hogvm/typescript/src/__tests__/date.test.ts`. All three must agree — before this was
-/// pinned, only 4 of these 22 inputs produced the same answer in all three VMs.
-const ACCEPTED: [(&str, f64); 13] = [
+/// pinned, only 4 of these 34 inputs produced the same answer in all three VMs.
+const ACCEPTED: [(&str, f64); 16] = [
     ("2024-01-01", 1704067200.0),
     ("2024-01-01T00:00:00Z", 1704067200.0),
     ("2024-01-01t00:00:00z", 1704067200.0), // RFC3339 says the designators are case-insensitive
@@ -80,25 +80,58 @@ const ACCEPTED: [(&str, f64); 13] = [
     ("2024-01-01T00:00:00.123Z", 1704067200.123),
     ("2024-01-01T00:00:00.123456Z", 1704067200.123), // truncated to ms, not rounded
     ("  2024-01-01  ", 1704067200.0),
+    ("2024-01-01T00:00:00+05", 1704049200.0), // offset hours only
+    ("2024-01-01T00:00:00,123Z", 1704067200.123), // comma fraction separator
+    ("1960-01-01T00:00:00.123Z", -315619199.877), // pre-epoch: truncation must not flip sign
 ];
 
-const REJECTED: [&str; 11] = [
+const REJECTED: [&str; 18] = [
     "2024", // luxon accepted these five as instants; a string property could plausibly hold any
     "2024-01",
     "20240101", // Python's `fromisoformat` accepted this and `2024-W05`; the others never did
     "2024-W05",
     "2024-001",
     "12:30",      // luxon resolved this against *today's* date
-    "1700000000", // this VM used to accept a bare numeric string as unix seconds; neither other did
+    "1700000000", // the explicit toDateTime native still reads this as unix seconds; the implicit
+    // comparison coercion must not, and neither reference VM accepts it anywhere
     "not-a-date",
     "",
     "2024-13-01",
     "2024-02-30",
+    "2024-01-01T24:00:00Z", // luxon normalized hour 24 to the next midnight; the others rejected
+    "2024-01-01T00:00.123Z", // a fraction requires seconds; luxon rejected what the others took
+    "2024-01-01T00:00:00+24:00", // made Python datetime.timezone RAISE out of the comparison path
+    "2024-01-01T00:00:00+99:99", // same
+    "0000-01-01",           // valid to chrono and luxon, not to Python datetime
+    "2024-01-01T25:00:00Z", // out-of-range hour
+    "2024-01-01T00:60:00Z", // out-of-range minute
 ];
+
+/// Does the *implicit* string-vs-temporal coercion — the shared grammar — accept `input`?
+///
+/// `Lt(<bare string>, toDateTime("9999-12-31"))`: a date-like string coerces to `true`, while an
+/// uncoerced String-vs-Object pair reaches the generic arms and is a `CannotCoerce` error. This is
+/// the grammar the ACCEPTED/REJECTED tables define, and is deliberately *not* the explicit
+/// `toDateTime` native, which accepts bare numeric strings on top of it (see
+/// `numeric_strings_are_unix_seconds_to_the_native_but_never_to_the_comparison_coercion`).
+fn grammar_accepts(input: &str) -> bool {
+    let program = Program::new(compare(
+        &[json!(OP_STRING), json!(input)],
+        &to_datetime("9999-12-31"),
+        OP_LT,
+    ))
+    .expect("valid program");
+    let ctx = ExecutionContext::with_defaults(program)
+        .with_globals(json!({}))
+        .with_coercing_comparisons();
+    matches!(sync_execute(&ctx, false), Ok(Value::Bool(true)))
+}
 
 #[test]
 fn date_like_accept_set_matches_the_shared_grammar() {
     for (input, expected) in ACCEPTED {
+        assert!(grammar_accepts(input), "grammar should accept {input:?}");
+        // The native agrees with the grammar on every non-numeric string, so it can supply the value.
         let dt = run(returning(&to_datetime(input)));
         assert_eq!(
             dt["dt"].as_f64().expect("parsed to a number"),
@@ -107,12 +140,7 @@ fn date_like_accept_set_matches_the_shared_grammar() {
         );
     }
     for input in REJECTED {
-        // `err_to_null` turns the parse failure into Null; see below.
-        assert_eq!(
-            run(returning(&to_datetime(input))),
-            Value::Null,
-            "should reject {input:?}"
-        );
+        assert!(!grammar_accepts(input), "grammar should reject {input:?}");
     }
 }
 
@@ -152,6 +180,48 @@ fn to_datetime_arity2_interprets_naive_string_in_the_given_zone() {
     assert_eq!(
         ny["dt"].as_f64().unwrap() - utc["dt"].as_f64().unwrap(),
         4.0 * 3600.0,
+    );
+}
+
+#[test]
+fn numeric_strings_are_unix_seconds_to_the_native_but_never_to_the_comparison_coercion() {
+    // ClickHouse — the oracle for the realtime cohort evaluator, the only production consumer of
+    // the coercing path — reads an all-digit string as a unix timestamp, and the compiled leaf
+    // shape `toDateTime(toString(person.properties.X))` depends on it for numeric date properties.
+    // So the explicit native keeps it.
+    assert_eq!(
+        run(returning(&to_datetime("1700000000")))["dt"]
+            .as_f64()
+            .unwrap(),
+        1_700_000_000.0
+    );
+
+    // But the *implicit* string-vs-temporal coercion must not: treating every numeric-looking
+    // property as an instant would silently change the meaning of comparisons nobody marked as date
+    // comparisons, and the Python/TS VMs reject it. `Lt` against a far-future date coerces to `true`
+    // for a date-like string; an uncoerced String-vs-Object pair is a `CannotCoerce` error instead.
+    let far_future = to_datetime("9999-12-31");
+    assert_eq!(
+        run(compare(
+            &[json!(OP_STRING), json!("2024-01-01")],
+            &far_future,
+            OP_LT
+        )),
+        Value::Bool(true),
+        "a date-like string coerces"
+    );
+    let program = Program::new(compare(
+        &[json!(OP_STRING), json!("1700000000")],
+        &far_future,
+        OP_LT,
+    ))
+    .expect("valid program");
+    let ctx = ExecutionContext::with_defaults(program)
+        .with_globals(json!({}))
+        .with_coercing_comparisons();
+    assert!(
+        sync_execute(&ctx, false).is_err(),
+        "a bare numeric string must NOT be coerced to an instant by a comparison"
     );
 }
 

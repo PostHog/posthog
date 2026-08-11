@@ -91,22 +91,32 @@ export function toTimeZone(input: HogDateTime, zone: string): HogDateTime | HogD
  * returned `{dt: NaN}`. Validating against the grammar first fixes both directions.
  */
 const DATE_LIKE =
-    /^(\d{4}-\d{2}-\d{2})(?:[Tt ](\d{2}:\d{2}(?::\d{2})?)(?:[.,](\d{1,9}))?(Z|z|[+-]\d{2}(?::?\d{2})?)?)?$/
+    /^(\d{4})(-\d{2}-\d{2})(?:[Tt ]((?:[01]\d|2[0-3]):[0-5]\d)(?::([0-5]\d)(?:[.,](\d{1,9}))?)?(Z|z|[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?)?)?$/
 
 /** Luxon `DateTime` for a string matching the shared grammar, else null. `zone` applies only to input carrying no zone of its own. */
 export function parseDateLike(input: string, zone?: string): DateTime | null {
+    // Callers reach here with whatever an event property held — `toUnixTimestamp(event.properties.x)`
+    // passes its argument through unchecked — so a non-string must return null, not throw on `.trim`.
+    if (typeof input !== 'string') {
+        return null
+    }
     const match = DATE_LIKE.exec(input.trim())
     if (!match) {
         return null
     }
-    const [, date, time, fraction, offset] = match
+    const [, year, monthDay, hourMinute, second, fraction, offset] = match
+    // Year 0 is valid to luxon and chrono but not to Python's `datetime`; excluded so the three
+    // accept-sets stay identical.
+    if (year === '0000') {
+        return null
+    }
     // Sub-millisecond digits are truncated, not rounded, to match luxon's own precision and Rust's
     // `timestamp_millis`. Keeping microseconds (as Python's `datetime` does) surfaced as a
     // `result_mismatch` against the Node baseline.
     const millis = fraction ? `.${fraction.slice(0, 3).padEnd(3, '0')}` : ''
     // Normalize to strict ISO so luxon's parser accepts it: `T` separator, uppercase `Z`.
-    const normalized = time ? `${date}T${time}${millis}${offset?.toUpperCase() ?? ''}` : date
-    const dt = DateTime.fromISO(normalized, { zone: zone || 'UTC' })
+    const time = hourMinute ? `T${hourMinute}${second ? `:${second}${millis}` : ''}${offset?.toUpperCase() ?? ''}` : ''
+    const dt = DateTime.fromISO(`${year}${monthDay}${time}`, { zone: zone || 'UTC' })
     return dt.isValid ? dt : null
 }
 

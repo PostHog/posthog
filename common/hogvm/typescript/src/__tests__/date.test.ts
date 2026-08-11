@@ -4,7 +4,7 @@ import { dateStringToSeconds, toDate, toDateTime, toUnixTimestamp } from '../stl
  * The shared date-like grammar. The canonical spec lives above `parse_datetime_to_seconds` in
  * `rust/common/hogvm/src/stl.rs`; the same table is driven by `rust/common/hogvm/tests/datetime.rs`
  * and `common/hogvm/python/test/test_date.py`. All three must agree — before this was pinned, only
- * 4 of these 22 inputs produced the same answer in all three VMs.
+ * 4 of these 34 inputs produced the same answer in all three VMs.
  */
 const ACCEPTED: [string, number][] = [
     ['2024-01-01', 1704067200],
@@ -20,6 +20,9 @@ const ACCEPTED: [string, number][] = [
     ['2024-01-01T00:00:00.123Z', 1704067200.123],
     ['2024-01-01T00:00:00.123456Z', 1704067200.123], // truncated to ms, not rounded
     ['  2024-01-01  ', 1704067200],
+    ['2024-01-01T00:00:00+05', 1704049200], // offset hours only
+    ['2024-01-01T00:00:00,123Z', 1704067200.123], // comma fraction separator
+    ['1960-01-01T00:00:00.123Z', -315619199.877], // pre-epoch: truncation must not flip sign
 ]
 
 const REJECTED = [
@@ -29,11 +32,18 @@ const REJECTED = [
     '2024-W05',
     '2024-001',
     '12:30', // luxon resolved this against *today's* date
-    '1700000000', // only Rust accepted this, as unix seconds
+    '1700000000', // only Rust accepted this, and now only via its explicit native (see its tests)
     'not-a-date',
     '',
     '2024-13-01',
     '2024-02-30',
+    '2024-01-01T24:00:00Z', // luxon normalized hour 24 to the next midnight; the others rejected
+    '2024-01-01T00:00.123Z', // a fraction requires seconds; luxon rejected what the others took
+    '2024-01-01T00:00:00+24:00', // made Python datetime.timezone RAISE out of the comparison path
+    '2024-01-01T00:00:00+99:99', // same
+    '0000-01-01', // valid to chrono and luxon, not to Python datetime
+    '2024-01-01T25:00:00Z', // out-of-range hour
+    '2024-01-01T00:60:00Z', // out-of-range minute
 ]
 
 describe('date-like string grammar', () => {
@@ -72,5 +82,26 @@ describe('date-like string grammar', () => {
         // Not a good failure mode, but each VM's is different (Python raises, Rust errors into a
         // null) and converging them is a separate change from converging what parses.
         expect(toDateTime('not-a-date').dt).toBeNaN()
+    })
+
+    test.each([[1700000000], [null], [{ a: 1 }], [['x']]])(
+        'non-string input %p yields NaN rather than throwing',
+        (input) => {
+            // `toUnixTimestamp` guards only the two Hog temporal shapes and passes everything else
+            // to the parser, and callers hand it raw event properties — so a non-string has to fall
+            // through to the pre-existing NaN, not throw `input.trim is not a function` out of the VM.
+            // (A number reaching `toDateTime` is separate: that has an explicit epoch-seconds branch.)
+            expect(toUnixTimestamp(input as any)).toBeNaN()
+        }
+    )
+
+    test.each([[null], [{ a: 1 }], [['x']]])('toDateTime(%p) yields NaN rather than throwing', (input) => {
+        expect(toDateTime(input as any).dt).toBeNaN()
+    })
+
+    test('an ambiguous local time takes the first of the DST fold', () => {
+        // 01:30 happens twice on 2024-11-03 in New York; Rust's `LocalResult::Ambiguous(dt, _)` and
+        // luxon take the first (-04:00). Pinned because pytz's `localize` defaults to the second.
+        expect(toUnixTimestamp('2024-11-03 01:30:00', 'America/New_York')).toBe(1730611800)
     })
 })
