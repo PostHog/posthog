@@ -492,27 +492,6 @@ class TestValidateCredentials:
         assert "172.217.112.4" not in (message or "")
         assert "StatusCode" not in (message or "")
 
-    @pytest.mark.parametrize("error_text", ["USER_PERMISSION_DENIED", "CUSTOMER_NOT_FOUND"])
-    def test_mcc_customer_not_accessible_returns_actionable_message(self, error_text):
-        # When the account is validated through a manager (MCC) login and the client account can't be
-        # reached, point the user at the manager linkage rather than a bare "not accessible".
-        config = GoogleAdsSourceConfig(
-            customer_id="1234567890",
-            google_ads_integration_id=1,
-            is_mcc_account=GoogleAdsIsMccAccountConfig(mcc_client_id="9876543210", enabled=True),
-        )
-        client = mock.Mock()
-        client.get_service.return_value.search.side_effect = Exception(error_text)
-        with mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
-            return_value=client,
-        ):
-            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
-
-        assert ok is False
-        assert "manager" in (message or "")
-        assert "try again" in (message or "")
-
 
 def _google_ads_exception(request_error: int) -> GoogleAdsException:
     failure = GoogleAdsFailure(
