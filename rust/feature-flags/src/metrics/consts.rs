@@ -5,6 +5,11 @@ pub const GROUP_TYPE_CACHE_ENTRIES_GAUGE: &str = "flags_group_type_cache_entries
 pub const DB_GROUP_TYPE_READS_COUNTER: &str = "flags_db_group_type_reads_total";
 pub const DB_GROUP_TYPE_ERRORS_COUNTER: &str = "flags_db_group_type_errors_total";
 
+// Best-effort writes of person property definitions harvested from request-time
+// `personProperties` overrides, so override-only keys show up in the release-condition picker.
+// Labels: result="success" | "error".
+pub const OVERRIDE_PROPERTY_DEF_WRITES_COUNTER: &str = "flags_override_property_def_writes_total";
+
 // Flag evaluation counters
 pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";

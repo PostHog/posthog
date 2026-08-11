@@ -172,6 +172,25 @@ impl Library {
         }
     }
 
+    /// Whether this SDK runs server-side. Request-time `personProperties` overrides are a
+    /// server-side practice, so this scopes override-only property registration to that population
+    /// and keeps browser and mobile traffic (which `$set`s the same keys via ingestion) off it.
+    pub const fn is_server_side(&self) -> bool {
+        matches!(
+            self,
+            Library::PosthogNode
+                | Library::PosthogPython
+                | Library::PosthogPhp
+                | Library::PosthogRuby
+                | Library::PosthogGo
+                | Library::PosthogJava
+                | Library::PosthogDotnet
+                | Library::PosthogElixir
+                | Library::PosthogRs
+                | Library::PosthogServer
+        )
+    }
+
     /// All known library variants (excluding Other).
     ///
     /// Used by tests to verify that all SDK names from UserAgentInfo are recognized.
@@ -279,6 +298,19 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("user-agent", ua.parse().unwrap());
         headers
+    }
+
+    #[rstest]
+    #[case(Library::PosthogNode, true)]
+    #[case(Library::PosthogPython, true)]
+    #[case(Library::PosthogRs, true)]
+    #[case(Library::PosthogServer, true)]
+    #[case(Library::PosthogJs, false)]
+    #[case(Library::PosthogAndroid, false)]
+    #[case(Library::PosthogReactNative, false)]
+    #[case(Library::Other, false)]
+    fn test_is_server_side(#[case] library: Library, #[case] expected: bool) {
+        assert_eq!(library.is_server_side(), expected);
     }
 
     #[rstest]

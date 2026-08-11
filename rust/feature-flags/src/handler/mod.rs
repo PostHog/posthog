@@ -8,6 +8,7 @@ pub mod decoding;
 pub mod error_tracking;
 pub mod evaluation;
 pub mod flags;
+pub mod override_property_defs;
 pub mod phases;
 pub mod properties;
 pub mod session_recording;
@@ -26,6 +27,7 @@ use crate::{
     team::team_models::Team,
 };
 use std::collections::HashMap;
+use std::sync::Arc;
 use tracing::{debug, instrument};
 
 #[cfg(test)]
@@ -262,6 +264,29 @@ async fn process_request_inner(
                 tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 
                 let property_overrides = properties::prepare_overrides(&context, &request)?;
+
+                // Register request-time `personProperties` override keys as person property
+                // definitions so they become selectable in the release-condition picker, without
+                // writing any value to a person profile. Scoped to server-side SDKs (where
+                // request-time overrides are the norm) and gated on `skip_writes`, mirroring the
+                // best-effort PAK-usage write. Runs off the response path.
+                if !*context.state.config.skip_writes && metrics_data.library.is_server_side() {
+                    if let (Some(project_id), Some(person_properties)) =
+                        (team.project_id, request.person_properties.as_ref())
+                    {
+                        if !person_properties.is_empty() {
+                            let names: Vec<String> = person_properties.keys().cloned().collect();
+                            let redis = context.state.redis_client.clone();
+                            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
+                                context.state.database_pools.non_persons_writer.clone();
+                            tokio::spawn(
+                                override_property_defs::register_override_person_properties(
+                                    redis, pg_writer, team.id, project_id, names,
+                                ),
+                            );
+                        }
+                    }
+                }
 
                 // Evaluate flags (this will return empty if is_flags_disabled is true)
                 let response = {
