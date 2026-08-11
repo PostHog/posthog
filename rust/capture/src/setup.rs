@@ -30,6 +30,7 @@ use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
 use crate::sinks::Event;
+use limiters::byte_rate::ByteRateLimiter;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -371,6 +372,19 @@ pub async fn build_components(
             None
         };
 
+    // Only built when an operator opts in with a nonzero per-second budget;
+    // `0` (the default) leaves the AI lane byte-unbounded, matching the
+    // pre-limiter behavior.
+    let ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>> =
+        std::num::NonZeroU32::new(config.ai_byte_limit_per_second).map(|per_second| {
+            let burst = std::num::NonZeroU32::new(config.ai_byte_limit_burst).unwrap_or(per_second);
+            Arc::new(ByteRateLimiter::new(
+                per_second,
+                burst,
+                config.ai_byte_limit_overrides.clone(),
+            ))
+        });
+
     let v1_sink_router = if !config.capture_v1_sinks.is_empty() {
         Some(
             create_v1_sink_router(&config, &sink_env, v1_sink_handles)
@@ -409,6 +423,7 @@ pub async fn build_components(
         config.capture_v1_max_decompressed_body_bytes,
         overflow_limiter,
         ai_events_overflow_limiter,
+        ai_byte_rate_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,

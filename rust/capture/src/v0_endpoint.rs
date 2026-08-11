@@ -71,6 +71,7 @@ pub async fn event(
                 state.ingestion_warning_emitter.clone(),
                 events,
                 &context,
+                state.ai_byte_rate_limiter.clone(),
             )
             .await
             {

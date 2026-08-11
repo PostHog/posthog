@@ -17,13 +17,14 @@ use serde_json;
 use tracing::{error, instrument, warn, Span};
 use uuid::Uuid;
 
+use limiters::byte_rate::ByteRateLimiter;
 use limiters::overflow::OverflowLimiter;
 
 use crate::{
     api::CaptureError,
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
-    events::overflow_stamping::stamp_overflow_reason,
+    events::{ai_byte_limit::drop_ai_byte_limited, overflow_stamping::stamp_overflow_reason},
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     ingestion_warnings::{
         emit_distinct_id_truncated_warning, emit_rate_limit_warning,
@@ -254,6 +255,7 @@ pub async fn process_events(
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
+    ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
 ) -> Result<(), CaptureError> {
     // The whole request fails on the first hard error, so the abort warning
     // charges the full batch, matching what the endpoint's
@@ -274,6 +276,7 @@ pub async fn process_events(
         ingestion_warning_emitter,
         events,
         context,
+        ai_byte_rate_limiter,
     )
     .await;
 
@@ -295,6 +298,7 @@ async fn process_events_inner(
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
     events: Vec<RawEvent>,
     context: &ProcessingContext,
+    ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
 ) -> Result<(), CaptureError> {
     let chatty_debug_enabled = context.chatty_debug_enabled;
 
@@ -397,6 +401,8 @@ async fn process_events_inner(
     });
 
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "filtered by token_dropper");
+
+    drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref());
 
     // Apply event restrictions, looking each event up under its `DataType`'s
     // pipeline. The single restriction service holds entries for all
@@ -680,6 +686,7 @@ mod tests {
         overflow_limiter: Option<Arc<OverflowLimiter>>,
         ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
         ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+        ai_byte_rate_limiter: Option<Arc<ByteRateLimiter>>,
     }
 
     impl Default for PipelineOptions {
@@ -692,6 +699,7 @@ mod tests {
                 overflow_limiter: None,
                 ai_events_overflow_limiter: None,
                 ingestion_warning_emitter: None,
+                ai_byte_rate_limiter: None,
             }
         }
     }
@@ -713,6 +721,7 @@ mod tests {
             options.ingestion_warning_emitter,
             events,
             context,
+            options.ai_byte_rate_limiter,
         )
         .await
     }
@@ -1387,6 +1396,86 @@ mod tests {
             .unwrap();
         assert_eq!(pageview.metadata.data_type, expected.pageview_data_type);
         assert_eq!(pageview.metadata.redirect_to_topic, None);
+    }
+
+    /// End-to-end proof that `process_events` actually invokes
+    /// `drop_ai_byte_limited`: drives the real pipeline into a real
+    /// `KafkaSinkBase` (mirroring `overflow_parity.rs::run_v0`) with a small
+    /// byte budget, and asserts the oversized `$ai_generation` event never
+    /// reaches the sink while a normal-sized one does. `CaptureMode::Events`
+    /// is what makes `$ai_*` events resolve to `DataType::AiEvents` (see
+    /// `CaptureMode::routes_ai_events`) — the byte limiter only ever acts on
+    /// that lane.
+    #[tokio::test]
+    async fn ai_events_over_byte_budget_are_dropped_end_to_end() {
+        use crate::sinks::kafka::{test_topics, KafkaSinkBase};
+        use crate::sinks::producer::MockKafkaProducer;
+
+        // A normal $ai_generation event serializes to ~160 bytes; one with a
+        // large property serializes to ~680 bytes. A 300-byte burst admits
+        // the former outright and rejects the latter as InsufficientCapacity
+        // (weight > burst can never fit), regardless of timing.
+        let limiter = Some(Arc::new(ByteRateLimiter::new(
+            NonZeroU32::new(300).unwrap(),
+            NonZeroU32::new(300).unwrap(),
+            None,
+        )));
+
+        let producer = MockKafkaProducer::new();
+        let sink = Arc::new(KafkaSinkBase::with_producer(
+            producer.clone(),
+            test_topics(),
+        ));
+
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let small_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        let mut oversized_event = create_test_event_with_name(
+            "$ai_generation",
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        );
+        oversized_event
+            .properties
+            .insert("$ai_input".to_string(), json!("x".repeat(500)));
+
+        process_events(
+            sink,
+            Arc::new(TokenDropper::default()),
+            None,
+            router::HistoricalConfig::new(false, 1),
+            None,
+            None,
+            None,
+            None,
+            vec![small_event, oversized_event],
+            &context,
+            limiter,
+        )
+        .await
+        .expect("process_events must accept the batch even though one event is dropped");
+
+        let records = producer.get_records();
+        assert_eq!(
+            records.len(),
+            1,
+            "only the under-budget AI event must reach the sink"
+        );
+        let topics = test_topics();
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
+        assert_eq!(
+            records[0].topic, ai_topic,
+            "the surviving record must be on the AI lane"
+        );
     }
 
     /// A diverted `$ai_*` event is governed by ai-scoped restrictions (the

@@ -195,6 +195,7 @@ fn setup_ai_test_router() -> Router {
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // ai_events_overflow_limiter
+        None,                             // ai_byte_rate_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
@@ -249,6 +250,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         256,
         10 * 1024 * 1024,
         50 * 1024 * 1024,
+        None,
         None,
         None,
         None,
@@ -1718,6 +1720,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // ai_events_overflow_limiter
+        None,                             // ai_byte_rate_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
@@ -2635,6 +2638,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // ai_events_overflow_limiter
+        None,                             // ai_byte_rate_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
@@ -2847,6 +2851,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         50 * 1024 * 1024,                 // capture_v1_max_decompressed_body_bytes
         None,                             // overflow_limiter
         None,                             // ai_events_overflow_limiter
+        None,                             // ai_byte_rate_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
         8,                                // capture_v1_scatter_gather_min_batch
@@ -3004,6 +3009,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         Some(overflow_limiter),
         None,  // ai_events_overflow_limiter
+        None,  // ai_byte_rate_limiter
         None,  // replay_overflow_limiter
         None,  // v1_sink_router
         8,     // capture_v1_scatter_gather_min_batch
@@ -3145,6 +3151,7 @@ fn ai_router(
         50 * 1024 * 1024,
         None,
         None, // ai_events_overflow_limiter
+        None, // ai_byte_rate_limiter
         None,
         None,
         8,
