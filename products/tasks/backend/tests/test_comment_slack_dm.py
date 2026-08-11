@@ -6,6 +6,8 @@ from posthog.models import Comment, OrganizationMembership, User
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
+from products.canvas.backend.models import Canvas
+from products.tasks.backend.logic.services.comment_slack_dm import send_comment_slack_dms
 from products.tasks.backend.models import TaskCommentActivity
 from products.tasks.backend.tests.test_comment_activity import CommentActivityTestCase
 
@@ -31,12 +33,12 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self.slack_client = MagicMock()
         client_patch.start().return_value.client = self.slack_client
 
-    def _link_slack(self, user, slack_user_id: str) -> None:
+    def _link_slack(self, user, slack_user_id: str, workspace_id: str = SLACK_WORKSPACE_ID) -> None:
         UserIntegration.objects.create(
             user=user,
             kind=UserIntegration.IntegrationKind.SLACK,
             integration_id=slack_user_id,
-            config={"slack_team_id": SLACK_WORKSPACE_ID},
+            config={"slack_team_id": workspace_id},
         )
 
     def _opt_in(self, user, enabled: bool = True) -> None:
@@ -67,6 +69,41 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self._record_activity(self._comment(), [self.author.id])
 
         assert self._dm_channels() == []
+
+    def test_deleted_comment_is_not_sent_after_delivery_is_enqueued(self):
+        comment = self._comment()
+        comment.deleted = True
+        comment.save(update_fields=["deleted"])
+
+        send_comment_slack_dms(
+            team_id=self.team.id,
+            comment_id=comment.id,
+            task_id=self.task.id,
+            recipients={self.author.id: TaskCommentActivity.Kind.MENTION},
+        )
+
+        assert self._dm_channels() == []
+
+    def test_removed_organization_member_does_not_receive_a_dm(self):
+        OrganizationMembership.objects.filter(user=self.author, organization=self.organization).delete()
+
+        self._record_activity(self._comment(), [self.author.id])
+
+        assert self._dm_channels() == []
+
+    def test_canvas_comment_dms_a_recipient_who_can_access_its_task(self):
+        canvas = Canvas.objects.create(
+            team=self.team,
+            channel=self.channel,
+            name="Launch canvas",
+            created_by=self.peer,
+            generation_task_id=self.task.id,
+        )
+        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+
+        self._record_activity(comment, [self.author.id])
+
+        assert self._dm_channels() == ["U-author"]
 
     @parameterized.expand(
         [
@@ -104,6 +141,17 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         assert self._dm_channels() == ["U-author"]
         lookup.assert_not_called()
+
+    def test_linked_workspace_selects_the_matching_slack_integration(self):
+        second_workspace = "T456"
+        Integration.objects.create(
+            team=self.team, kind="slack", integration_id=second_workspace, config={"scope": "chat:write"}
+        )
+        self._link_slack(self.author, "U-author-second-workspace", second_workspace)
+
+        self._record_activity(self._comment(), [self.author.id])
+
+        assert self._dm_channels() == ["U-author-second-workspace"]
 
     @parameterized.expand(
         [
@@ -154,3 +202,14 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self._record_activity(comment, [self.author.id])
 
         assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, comment=comment).exists()
+
+    def test_a_slack_failure_for_one_recipient_does_not_skip_the_next_recipient(self):
+        third = User.objects.create_user(email="carol@example.com", first_name="Carol", password="password")
+        self.organization.members.add(third)
+        self._link_slack(third, "U-carol")
+        self._opt_in(third)
+        self.slack_client.chat_postMessage.side_effect = [Exception("slack down"), None]
+
+        self._record_activity(self._comment(), [self.author.id, third.id])
+
+        assert self._dm_channels() == ["U-author", "U-carol"]

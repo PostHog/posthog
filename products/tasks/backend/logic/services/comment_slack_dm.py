@@ -21,6 +21,7 @@ from posthog.comment.formatting import escape_slack_mrkdwn, rich_content_to_slac
 from posthog.helpers.slack_identity import resolve_slack_user
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
@@ -54,7 +55,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     if not recipients:
         return
 
-    comment = Comment.objects.filter(team_id=team_id, id=comment_id).select_related("created_by").first()
+    comment = Comment.objects.filter(team_id=team_id, id=comment_id, deleted=False).select_related("created_by").first()
     if comment is None:
         return _skip(comment_id, "comment_missing")
     skip_reason = _skip_reason(comment)
@@ -67,42 +68,63 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
     if not wanted:
         return _skip(comment_id, "no_opted_in_recipient")
 
-    integration = Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK).first()
-    if integration is None or not integration.integration_id:
+    integrations = list(
+        Integration.objects.filter(team_id=team_id, kind=Integration.IntegrationKind.SLACK)
+        .exclude(integration_id__isnull=True)
+        .exclude(integration_id="")
+        .order_by("id")
+    )
+    if not integrations:
         return _skip(comment_id, "no_slack_integration")
     # The flag that gates the Slack identity link itself. Gating delivery on it too means an org
     # that never had the link flow can't receive DMs, and turning it off halts delivery without a
     # deploy. Skipped in local dev, where flags evaluate against the developer's own instance and
     # the gate would otherwise fail closed on every machine — the same default-on-in-dev treatment
     # the desktop flags get.
-    if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
-        return _skip(comment_id, "slack_app_oauth_disabled")
-
     task = Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
     if task is None:
         return _skip(comment_id, "task_missing")
 
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return _skip(comment_id, "team_missing")
     emails = dict(User.objects.filter(id__in=list(wanted)).values_list("id", "email"))
-    slack = SlackIntegration(integration)
-    client = slack.client
+    integration_by_workspace = {integration.integration_id: integration for integration in integrations}
+    slack_clients: dict[int, SlackIntegration] = {}
     for user_id, kind in wanted.items():
         # Re-checked at send time rather than trusting the projected recipient set: the in-app feed
         # re-checks visibility on every read, and a DM can't be taken back.
+        if not OrganizationMembership.objects.filter(organization_id=organization_id, user_id=user_id).exists():
+            _skip(comment_id, "recipient_left_organization", user_id=user_id)
+            continue
         if not target_is_accessible(
-            team_id=team_id, user_id=user_id, task_id=task_id, scope=comment.scope, item_id=comment.item_id
+            team_id=team_id,
+            user_id=user_id,
+            task_id=task_id,
+            scope="task" if comment.scope == "desktop_canvas" else comment.scope,
+            item_id=str(task_id) if comment.scope == "desktop_canvas" else comment.item_id,
         ):
             _skip(comment_id, "recipient_lost_access", user_id=user_id)
             continue
-        slack_user_id = _resolve_slack_user_id(
-            user_id=user_id, email=emails.get(user_id) or "", integration=integration, slack=slack
-        )
-        if not slack_user_id:
-            _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
-            continue
-        fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=organization_id)
         try:
-            client.chat_postMessage(channel=slack_user_id, text=fallback, blocks=blocks, unfurl_links=False)
+            integration = _integration_for_recipient(
+                user_id=user_id, integrations=integrations, integration_by_workspace=integration_by_workspace
+            )
+            if integration is None:
+                _skip(comment_id, "ambiguous_slack_workspace", user_id=user_id)
+                continue
+            if not settings.DEBUG and not is_slack_app_oauth_enabled(integration, integration.integration_id):
+                _skip(comment_id, "slack_app_oauth_disabled", user_id=user_id)
+                continue
+            slack = slack_clients.setdefault(integration.id, SlackIntegration(integration))
+            slack_user_id = _resolve_slack_user_id(
+                user_id=user_id, email=emails.get(user_id) or "", integration=integration, slack=slack
+            )
+            if not slack_user_id:
+                _skip(comment_id, "recipient_not_found_in_slack", user_id=user_id)
+                continue
+            fallback, blocks = _message(kind=kind, comment=comment, task=task, organization_id=organization_id)
+            slack.client.chat_postMessage(channel=slack_user_id, text=fallback, blocks=blocks, unfurl_links=False)
         except Exception as exc:
             logger.warning("comment_slack_dm_failed", comment_id=str(comment_id), user_id=user_id, error=str(exc))
 
@@ -178,6 +200,21 @@ def _resolve_slack_user_id(
     if link:
         return link.integration_id
     return _slack_user_id_by_email(email=email, integration=integration, slack=slack)
+
+
+def _integration_for_recipient(
+    *, user_id: int, integrations: list[Integration], integration_by_workspace: Mapping[str | None, Integration]
+) -> Integration | None:
+    """Use a recipient's linked workspace; email lookup is safe only with one destination."""
+    linked_workspace = (
+        UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK)
+        .order_by("-created_at")
+        .values_list("config__slack_team_id", flat=True)
+        .first()
+    )
+    if isinstance(linked_workspace, str):
+        return integration_by_workspace.get(linked_workspace)
+    return integrations[0] if len(integrations) == 1 else None
 
 
 def _slack_user_id_by_email(*, email: str, integration: Integration, slack: SlackIntegration) -> str | None:
