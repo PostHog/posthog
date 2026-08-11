@@ -38,6 +38,7 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
         123,
         scopes="read_only",
         application=application,
+        sandbox_task_id=task.id,
         include_mcp_builtin_agent_scope=True,
     )
 
@@ -62,6 +63,7 @@ def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
         123,
         scopes="read_only",
         application="posthog_ai",
+        sandbox_task_id=task.id,
     )
 
 
@@ -85,6 +87,7 @@ def test_built_in_agent_origin_keeps_member_token_until_gateway_flag_rollout(
         123,
         scopes="read_only",
         application="array",
+        sandbox_task_id=task.id,
     )
 
 
@@ -104,6 +107,7 @@ def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> No
         123,
         scopes="read_only",
         application="array",
+        sandbox_task_id=task.id,
     )
 
 
@@ -279,4 +283,5 @@ def test_non_loop_run_keeps_loop_write_scope(mock_create: MagicMock) -> None:
         123,
         scopes=["loop:read", "loop:write", "task:read"],
         application="array",
+        sandbox_task_id=task.id,
     )

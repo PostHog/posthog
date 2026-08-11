@@ -84,9 +84,16 @@ export function createHogFlowInvocation(
             event: globals.event,
             actionStepCount: 0,
             variables: mergedVariables,
+            // Seeded at run start and persisted with the state, because the flow itself isn't: the
+            // job is re-loaded by functionId on every resume, so by the time a conversion lands the
+            // manager may be serving a newer version. A message step re-pins this to the version
+            // that actually sent (see HogFunctionHandler); until then this is the best answer.
+            flowVersion: hogFlow.version,
         },
         teamId: hogFlow.team_id,
-        functionId: hogFlow.id, // TODO: Include version?
+        // The version lives on `state.flowVersion` rather than here — functionId is the cyclotron
+        // lookup key and re-loads the current flow by design.
+        functionId: hogFlow.id,
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
         groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
@@ -128,6 +135,10 @@ function buildEnrollmentEvent(invocation: CyclotronJobInvocationHogFlow): HogFun
         properties: {
             $workflow_id: invocation.hogFlow.id,
             $workflow_run_id: invocation.id,
+            // Read from state, not the live flow, to match how the conversion side resolves its
+            // version. Without it the denominator would be version-agnostic while the numerator is
+            // versioned, so a per-version rate would divide by every run of every version.
+            $workflow_version: invocation.state.flowVersion,
         },
     }
 }
@@ -216,8 +227,16 @@ export class HogFlowExecutorService {
                 filterGlobals,
             })
 
-            // Add any generated metrics and logs to our collections
-            metrics.push(...filterResults.metrics)
+            // Add any generated metrics and logs to our collections. These are queued straight by the
+            // pipeline rather than riding an invocation result, so the workflow version is stamped here
+            // — otherwise `filtered` would be missing from the per-version series, and a trigger change
+            // that filters everyone out would look identical to no traffic at all.
+            metrics.push(
+                ...filterResults.metrics.map((metric) => ({
+                    ...metric,
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                }))
+            )
             logs.push(...filterResults.logs)
 
             if (!filterResults.match) {
@@ -423,6 +442,7 @@ export class HogFlowExecutorService {
                     properties: {
                         $workflow_id: hogFlow.id,
                         $workflow_run_id: invocation.id,
+                        $workflow_version: hogFlow.version,
                         $workflow_conversion_type: 'property',
                     },
                 }

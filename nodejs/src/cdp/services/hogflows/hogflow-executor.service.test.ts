@@ -1489,6 +1489,7 @@ describe('Hogflow Executor', () => {
                         // Joins this conversion to the run's enrollment event, which is how a
                         // conversion is attributed to the run that earned it.
                         $workflow_run_id: invocation.id,
+                        $workflow_version: hogFlow.version,
                         $workflow_conversion_type: 'property',
                     },
                 })
@@ -2168,6 +2169,15 @@ describe('Hogflow Executor', () => {
 
             // Should not match because email contains @posthog.com
             expect(result.invocations).toHaveLength(0)
+            // These metrics are queued straight by the pipeline, not via an invocation result, so they
+            // need the version stamped here or a trigger change that filters everyone out is invisible
+            // in the per-version series.
+            expect(result.metrics).toEqual([
+                expect.objectContaining({
+                    metric_name: 'filtered',
+                    app_source_version: { id: hogFlow.id, version: hogFlow.version },
+                }),
+            ])
         })
 
         it('should allow external users without @posthog.com email', async () => {

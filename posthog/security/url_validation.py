@@ -31,6 +31,9 @@ DISALLOWED_SCHEMES = {"file", "ftp", "gopher", "ws", "wss", "data", "javascript"
 # Cloud metadata service hosts that should be blocked to prevent SSRF
 METADATA_HOSTS = {"169.254.169.254", "metadata.google.internal"}
 
+# Percent-encoded forms of the characters that end a URL authority ("/", "?", "#", "@")
+ENCODED_AUTHORITY_TERMINATORS = ("%2f", "%3f", "%23", "%40")
+
 # Internal domain patterns that should never be accessed
 # These are common internal TLDs and suffixes used in private networks
 INTERNAL_DOMAIN_PATTERNS = (
@@ -149,6 +152,36 @@ def _is_private_ip_literal(host: str) -> bool:
     )
 
 
+def has_ambiguous_authority(url: str) -> bool:
+    """
+    Reject a URL whose authority any client could read differently than ``urlparse`` does.
+
+    This is the strict rule, for a URL we hand back to a client: a redirect target, an
+    OAuth ``redirect_uri``, a link in an email. Those are delivered with the authority
+    intact, so the host we validated has to be the host the recipient resolves.
+
+    On top of the backslash cases, it rejects ``ENCODED_AUTHORITY_TERMINATORS`` anywhere
+    in the authority. A consumer that percent-decodes before splitting sees the authority
+    end at the terminator, so ``https://good.example%2F@evil.example/`` reads as
+    ``good.example`` there and as ``evil.example`` under ``urlparse``.
+
+    Outbound fetches deliberately do not get this rule. Percent-encoded characters are
+    ordinary in credentials (an email username encodes ``@`` as ``%40``, a password may
+    encode ``/``, ``?``, or ``#``), so applying it there would reject routine basic auth.
+    A URL we hand to someone else has no business carrying credentials in the first place.
+
+    Pass a full URL: a bare host has no authority to inspect. The same sequences in a
+    path, query, or fragment are ordinary encoded data and are ignored.
+    """
+    if has_authority_bypass_chars(url):
+        return True
+    try:
+        authority = urlparse.urlparse(url).netloc.lower()
+    except ValueError:
+        return True
+    return any(terminator in authority for terminator in ENCODED_AUTHORITY_TERMINATORS)
+
+
 def has_authority_bypass_chars(url: str) -> bool:
     """
     Detect characters that produce a parser-vs-client disagreement on the URL authority.
@@ -160,6 +193,10 @@ def has_authority_bypass_chars(url: str) -> bool:
 
     URLs containing these characters cannot be safely validated by host, because
     the validated host differs from the host the client will actually connect to.
+
+    This is the lenient rule, for URLs we are about to fetch ourselves. Only the SSRF
+    validator in this module uses it. Anything that hands a URL back to a client wants
+    ``has_ambiguous_authority`` instead.
     """
     if "\\" in url:
         return True

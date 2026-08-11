@@ -6540,8 +6540,8 @@ class TestCohortTypeIntegration(APIBaseTest):
 
     def test_person_metadata_cohort_not_classified_realtime(self):
         """person_metadata cohorts must route to the non-realtime path: the realtime
-        precalculated_person_properties table only carries JSON-blob values, not top-level
-        persons-table columns, so HogQLRealtimeCohortQuery raises for them."""
+        evaluator's person scope exposes only person.id and person.properties, not
+        top-level persons-table columns."""
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",

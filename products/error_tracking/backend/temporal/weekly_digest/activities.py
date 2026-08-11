@@ -90,7 +90,9 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     """Send one combined weekly error tracking digest per user in an org via the delivery workflow.
 
     ``attempt`` is Temporal's 1-based attempt counter; ``attempt >= inputs.max_attempts`` marks
-    the final attempt, which sends partial digests instead of deferring recipients.
+    the final attempt, which sends partial digests instead of deferring recipients. On the last
+    two attempts, a team whose filtered build fails is rebuilt without its test account filters,
+    with the section flagged so the email can disclose it.
     """
     org_id = inputs.org_id
     try:
@@ -123,7 +125,14 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     daily_rows_by_team: dict[int, list] = {}
     if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
         for tid in team_ids_with_exceptions:
-            daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
+            try:
+                daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
+            except Exception:
+                # A team whose filtered query is permanently broken (bad regex, deleted cohort) must
+                # not sink the whole org here, before the build loop below can defer or fall back.
+                # It just goes unranked, so auto-select can't enroll anyone onto it.
+                logger.exception("et_weekly_digest.autoselect_rank_failed", team_id=tid, org_id=org_id)
+                continue
             summary = weekly_digest.get_exception_summary_for_team(all_org_teams[tid], daily_rows_by_team[tid])
             if summary and summary["exception_count"] > 0:
                 autoselect_counts[tid] = summary
@@ -186,13 +195,30 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     # Temporal retries it.
     team_digest_data: dict[int, dict] = {}
     failed_team_ids: list[int] = []
+    # A team still failing this deep into the retries is most likely failing because of its test
+    # account filters (broken regex, deleted cohort), which no retry will fix. The last two attempts
+    # trade filtered accuracy for delivery: rebuild without the filters, and flag the section so the
+    # email can disclose it. Keeping it off earlier attempts means a transient ClickHouse error
+    # can't produce an unfiltered digest for a team whose filters work fine.
+    unfiltered_fallback = attempt >= inputs.max_attempts - 1
     for team_id in needed_team_ids:
         try:
             data = weekly_digest.build_team_digest_data(all_org_teams[team_id], daily_rows_by_team.get(team_id))
         except Exception:
-            logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
-            failed_team_ids.append(team_id)
-            continue
+            if not unfiltered_fallback:
+                logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
+                failed_team_ids.append(team_id)
+                continue
+            logger.exception("et_weekly_digest.team_build_filtered_failed", team_id=team_id, org_id=org_id)
+            try:
+                # No cached daily_rows: those were queried with the filters applied, and the
+                # rebuilt sections must be consistently unfiltered.
+                data = weekly_digest.build_team_digest_data(all_org_teams[team_id], filter_test_accounts=False)
+            except Exception:
+                logger.exception("et_weekly_digest.team_build_failed", team_id=team_id, org_id=org_id)
+                failed_team_ids.append(team_id)
+                continue
+            logger.warning("et_weekly_digest.team_built_without_test_account_filters", team_id=team_id, org_id=org_id)
         if data:
             team_digest_data[team_id] = data
 

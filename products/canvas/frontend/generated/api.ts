@@ -21,6 +21,7 @@ import type {
     CanvasSourceResponseApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
+    CanvasesBuildsRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesVersionsRetrieveParams,
@@ -137,8 +138,20 @@ export const canvasesDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
-export const getCanvasesBuildsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/canvases/${id}/builds/`
+export const getCanvasesBuildsRetrieveUrl = (projectId: string, id: string, params?: CanvasesBuildsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/builds/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/builds/`
 }
 
 /**
@@ -151,9 +164,10 @@ export const getCanvasesBuildsRetrieveUrl = (projectId: string, id: string) => {
 export const canvasesBuildsRetrieve = async (
     projectId: string,
     id: string,
+    params?: CanvasesBuildsRetrieveParams,
     options?: RequestInit
 ): Promise<CanvasBuildsResponseApi> => {
-    return apiMutator<CanvasBuildsResponseApi>(getCanvasesBuildsRetrieveUrl(projectId, id), {
+    return apiMutator<CanvasBuildsResponseApi>(getCanvasesBuildsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

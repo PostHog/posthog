@@ -1,1 +1,1 @@
-1286_cleanup_orphaned_identity_provider_configs
+1298_user_stripped_alias_index

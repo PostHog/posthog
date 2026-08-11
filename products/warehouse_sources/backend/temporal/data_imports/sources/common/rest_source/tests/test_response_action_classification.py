@@ -86,6 +86,30 @@ class TestResponseActionClassification:
 
     @patch("tenacity.nap.time.sleep")
     @patch(f"{MODULE}.make_tracked_session")
+    def test_ignore_action_with_non_json_body_is_skipped(self, MockSession, _sleep) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        # A 404 whose body is empty (not JSON) — the shape an endpoint returns for a missing
+        # resource. The ignore must skip it, not blow up parsing the body.
+        resp = Response()
+        resp.status_code = 404
+        resp.reason = "Not Found"
+        resp._content = b""
+        resp.url = "https://api.example.com/items"
+        mock_session.send.return_value = resp
+        hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+
+        client = RESTClient(base_url="https://api.example.com", max_retry_attempts=1)
+        pages = list(
+            client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator(), hooks=hooks)
+        )
+
+        assert pages == []
+        assert mock_session.send.call_count == 1
+
+    @patch("tenacity.nap.time.sleep")
+    @patch(f"{MODULE}.make_tracked_session")
     def test_unmatched_4xx_still_raises_for_status(self, MockSession, _sleep) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}

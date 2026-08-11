@@ -13,18 +13,13 @@ import {
     LemonTabs,
     Link,
     Spinner,
-    SpinnerOverlay,
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
@@ -135,17 +130,7 @@ export function ReplayScannersScene(): JSX.Element {
         useActions(replayScannersLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { featureFlagsTimedOut } = useValues(appLogic)
     const { showUsd } = useValues(visionQuotaLogic)
-
-    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
-        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
-        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
-            return <SpinnerOverlay sceneLevel />
-        }
-        return <NotFound object="page" />
-    }
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
@@ -330,9 +315,9 @@ export function ReplayScannersScene(): JSX.Element {
                     ) : null}
 
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-base m-0">Scanners</h3>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex flex-wrap items-center gap-2">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search scanners..."

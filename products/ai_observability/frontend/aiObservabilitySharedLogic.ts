@@ -15,10 +15,13 @@ import {
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import type { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils/objects'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -49,6 +52,7 @@ const STALE_PARAMS = new Set(['event', 'timestamp', 'msg'])
 
 export type AIObservabilityTabId =
     | 'dashboard'
+    | 'self-driving'
     | 'generations'
     | 'reviews'
     | 'traces'
@@ -69,6 +73,9 @@ export interface SortState {
     column: string
     direction: SortDirection
 }
+
+// Cadence of the setup-detection re-check while the team has no AI events yet.
+const SETUP_POLL_INTERVAL_MS = 20000
 
 const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
@@ -133,6 +140,8 @@ export function buildApplyUrlStatePayload({
 export interface aiObservabilitySharedLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     filterTestAccountsDefault: boolean // filterTestAccountsDefaultsLogic
+    setupStatus: ProductSetupStatus // productSetupStatusLogic
+    currentProjectId: number | null // projectLogic
     sceneKey: string | null // sceneLogic
     user: UserType | null // userLogic
     activeTab: AIObservabilityTabId
@@ -158,6 +167,9 @@ export interface aiObservabilitySharedLogicActions {
     setLocalDefault: (value: boolean) => {
         value: boolean
     } // filterTestAccountsDefaultsLogic
+    setDetectedStatus: (status: ProductSetupStatus) => {
+        status: ProductSetupStatus
+    } // productSetupStatusLogic
     addProductIntent: (properties: ProductIntentProperties) => ProductIntentProperties // teamLogic
     applyUrlState: (state: ApplyUrlStatePayload) => ApplyUrlStatePayload
     loadAIEventDefinition: () => any
@@ -228,8 +240,19 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             ['user'],
             filterTestAccountsDefaultsLogic,
             ['filterTestAccountsDefault'],
+            productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }),
+            ['status as setupStatus'],
+            projectLogic,
+            ['currentProjectId'],
         ],
-        actions: [teamLogic, ['addProductIntent'], filterTestAccountsDefaultsLogic, ['setLocalDefault']],
+        actions: [
+            teamLogic,
+            ['addProductIntent'],
+            filterTestAccountsDefaultsLogic,
+            ['setLocalDefault'],
+            productSetupStatusLogic({ productKey: ProductKey.AI_OBSERVABILITY }),
+            ['setDetectedStatus'],
+        ],
     })),
 
     actions({
@@ -309,10 +332,22 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         },
     })),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadAIEventDefinitionSuccess: ({ hasSentAiEvent }) => {
+            // Feed the app-wide setup-status layer (drives the scene empty-state gate).
+            actions.setDetectedStatus(hasSentAiEvent ? 'has-data' : 'needs-setup')
             if (hasSentAiEvent) {
+                cache.disposables.dispose('setupPoll')
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.IngestFirstLlmEvent)
+            }
+        },
+        loadAIEventDefinitionFailure: () => {
+            // A failing detection query must not strand the empty-state gate on its
+            // spinner. If nothing (preload included) has answered yet, publish
+            // `unknown` so the gate fails open to the real scene. A failure never
+            // downgrades an existing answer.
+            if (values.setupStatus === 'loading') {
+                actions.setDetectedStatus('unknown')
             }
         },
         setShouldFilterTestAccounts: ({ shouldFilterTestAccounts }) => {
@@ -327,7 +362,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey: string | null): AIObservabilityTabId => {
-                if (sceneKey === 'aiObservabilityGenerations') {
+                if (sceneKey === 'aiObservabilitySelfDriving') {
+                    return 'self-driving'
+                } else if (sceneKey === 'aiObservabilityGenerations') {
                     return 'generations'
                 } else if (sceneKey === 'aiObservabilityReviews') {
                     return 'reviews'
@@ -444,6 +481,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applySearchParams(searchParams)
                 startDashboardTimer()
             },
+            [urls.aiObservabilitySelfDriving()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityGenerations()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityReviews()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTraces()]: (_, searchParams) => applyNonDashboard(searchParams),
@@ -525,8 +563,24 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         }
     }),
 
-    afterMount(({ actions, values }) => {
-        actions.loadAIEventDefinition()
+    afterMount(({ actions, values, cache }) => {
+        // The API layer takes the project id from bootstrap state, not from the URL, so a detection
+        // fired before the project resolves throws instead of answering. Skipping those ticks keeps
+        // the answer at "not known yet"; the poll below picks the check up once bootstrap settles.
+        const detectAIEventsIfProjectKnown = (): void => {
+            if (values.currentProjectId) {
+                actions.loadAIEventDefinition()
+            }
+        }
+
+        detectAIEventsIfProjectKnown()
+        // While the empty state (or its post-skip reminder banner) is up, re-check on a
+        // timer so the page flips to the real product on its own once events land.
+        // Disposed as soon as data is detected; paused automatically on hidden tabs.
+        cache.disposables.add(() => {
+            const id = window.setInterval(detectAIEventsIfProjectKnown, SETUP_POLL_INTERVAL_MS)
+            return () => clearInterval(id)
+        }, 'setupPoll')
         globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.TrackCosts)
 
         const urlHasTestAccountsParam = 'filter_test_accounts' in router.values.searchParams

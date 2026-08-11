@@ -1262,9 +1262,28 @@ export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> 
     original_experiment?: Record<string, any>
 }
 
-/** Concurrency context for experiment PATCHes: the version last read plus the metric collections
- * that version belongs to, so the server can merge concurrent metric edits safely and reject
- * everything else with a 409 instead of letting a stale write clobber it. */
+/** The scalar fields experiment surfaces PATCH, sent as base values so the server can three-way
+ * merge them per field: a stale write only conflicts when the same field changed on both sides. */
+const CONCURRENCY_SCALAR_BASE_FIELDS = [
+    'name',
+    'description',
+    'start_date',
+    'end_date',
+    'exposure_criteria',
+    'stats_config',
+    'running_time_calculation',
+    'holdout_id',
+    'conclusion',
+    'conclusion_comment',
+    'excluded_variants',
+    'only_count_matured_users',
+    'parameters',
+] as const
+
+/** Concurrency context for experiment PATCHes: the version last read plus the state that version
+ * belongs to (metric collections and scalar bases), so the server can merge concurrent edits per
+ * metric uuid / per field and reject only true same-field conflicts with a 409, instead of letting
+ * a stale write clobber them. */
 export function toConcurrencyPayload(
     unmodified: Experiment | null
 ): Pick<ExperimentUpdatePayload, 'version' | 'original_experiment'> {
@@ -1280,6 +1299,9 @@ export function toConcurrencyPayload(
                 id: sharedMetric.saved_metric,
                 metadata: sharedMetric.metadata,
             })),
+            // Explicit null over undefined: a missing base key makes the server fall back to
+            // rejecting any change to that field, while null means "the field was empty".
+            ...Object.fromEntries(CONCURRENCY_SCALAR_BASE_FIELDS.map((field) => [field, unmodified[field] ?? null])),
         },
     }
 }

@@ -59,7 +59,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             # variant too, or the same credential rejection retries the whole activity budget.
             "400 Client Error:  for url: https://accounts.zoho": "Zoho CRM rejected your OAuth credentials. Check that the client ID, client secret, and refresh token all belong to the same self client.",
             "401 Client Error: Unauthorized for url": "Your Zoho CRM access token is invalid or expired. Reconnect the source to issue a new one.",
-            "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL and ZohoCRM.settings.fields.READ scopes.",
+            "403 Client Error: Forbidden for url": "Your Zoho CRM token is missing a scope for this module. Re-authorize with the ZohoCRM.modules.ALL, ZohoCRM.settings.fields.READ, and ZohoCRM.settings.modules.READ scopes.",
         }
 
     @property
@@ -72,7 +72,7 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Connect your Zoho CRM account to pull leads, contacts, deals, and your other modules into the PostHog Data warehouse.
 
-In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a refresh token for the scopes `ZohoCRM.modules.ALL` and `ZohoCRM.settings.fields.READ`. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
+In the [Zoho API console](https://api-console.zoho.com), create a **Self Client** and generate a refresh token for the scopes `ZohoCRM.modules.ALL`, `ZohoCRM.settings.fields.READ`, and `ZohoCRM.settings.modules.READ`. Paste the client ID, client secret, and refresh token below, then pick the data center your Zoho account lives in.""",
             iconPath="/static/services/zoho_crm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoho-crm",
             fields=cast(

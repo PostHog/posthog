@@ -23,7 +23,7 @@ from posthog.models import User
 from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
 from posthog.user_permissions import UserPermissions
 
-from products.tasks.backend.logic.services.code_usage_gate import cloud_usage_limit_response
+from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
 from products.tasks.backend.metrics import observe_loop_auto_paused, observe_loop_fire
@@ -501,7 +501,7 @@ def _record_fire_outcome(fire: LoopFire, reason: str) -> _FireDecision:
 def _usage_gate_blocked(loop: Loop) -> bool:
     if loop.created_by is None:
         return False
-    return cloud_usage_limit_response(loop.created_by, loop.team_id) is not None
+    return usage_limit_response(loop.created_by, loop.team_id) is not None
 
 
 # The rate caps bound actual dispatched runs, so they count only fires that created one

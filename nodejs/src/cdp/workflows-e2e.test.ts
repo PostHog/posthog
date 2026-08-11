@@ -69,7 +69,6 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
-import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
@@ -100,10 +99,8 @@ jest.mock('node:dns/promises', () => ({
 // Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
-const CYCLOTRON_DB_URL =
-    process.env.CYCLOTRON_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
 
-describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)', (mode) => {
+describe('Workflows E2E (postgres-v2)', () => {
     jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
@@ -122,7 +119,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     beforeAll(() => {
         cyclotronPool = new Pool({
-            connectionString: mode === 'postgres-v2' ? CYCLOTRON_NODE_DB_URL : CYCLOTRON_DB_URL,
+            connectionString: CYCLOTRON_NODE_DB_URL,
         })
     })
 
@@ -177,12 +174,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
 
-        // Build the hogflow queue for the current mode
-        if (mode === 'postgres-v2') {
-            hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
-        } else {
-            hogflowQueue = new CyclotronJobQueuePostgres(hub.CONSUMER_BATCH_SIZE, hub)
-        }
+        hogflowQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
 
         // Events consumer — only start as producer (skip Kafka consumer connection).
         // We call processBatch() directly so the Kafka consumer is not needed.
@@ -198,7 +190,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
         await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
 
-        // Start hogflow worker (consumer side — polls from the mode's backend)
+        // Start hogflow worker (consumer side — polls the postgres-v2 backend)
         hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
         await hogflowWorker.start()
 
@@ -239,15 +231,11 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     }
 
-    // v1 stores lifecycle in `state` (and vm payload in `vm_state`);
-    // v2 stores lifecycle in `status` (and state payload in `state`).
-    // Normalize so tests can use `.status` regardless of mode.
-    const statusColumn = mode === 'postgres-v2' ? 'status' : 'state'
+    // v2 stores job lifecycle in the `status` column.
+    const statusColumn = 'status'
 
     async function queryCyclotronJobs(): Promise<any[]> {
-        const result = await cyclotronPool.query(
-            `SELECT *, ${statusColumn} AS status FROM cyclotron_jobs ORDER BY created ASC`
-        )
+        const result = await cyclotronPool.query(`SELECT * FROM cyclotron_jobs ORDER BY created ASC`)
         return result.rows
     }
 
@@ -397,8 +385,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     describe('simple workflow: trigger → function → exit', () => {
+        let workflowId: string
+
         beforeEach(async () => {
-            await createWorkflow({
+            workflowId = await createWorkflow({
                 actions: {
                     trigger: trigger(),
                     function_1: fetchAction('https://example.com/webhook'),
@@ -426,7 +416,9 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
             // Verify metrics were produced to Kafka
             await waitForExpect(() => {
-                const metrics = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                const metrics = mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                 expect(metrics.length).toBeGreaterThanOrEqual(1)
             }, 5000)
 
@@ -435,6 +427,24 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 const logs = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
                 expect(logs.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+
+        it('mirrors every metric of the run under the workflow version that produced it', async () => {
+            await triggerWorkflow(globals)
+
+            const namesFor = (appSource: string, appSourceId: string): string[] =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === appSource && m.value.app_source_id === appSourceId)
+                    .map((m: any) => m.value.metric_name)
+                    .sort()
+
+            // The version-scoped series has to carry the whole run, not just the run-level outcome —
+            // a per-version step funnel is only readable if every step's metric is mirrored.
+            await waitForExpect(() => {
+                expect(namesFor('hog_flow', workflowId)).toContain('succeeded')
+                expect(namesFor('hog_flow_version', `${workflowId}/1`)).toEqual(namesFor('hog_flow', workflowId))
+            }, 10000)
         })
     })
 
@@ -742,6 +752,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             await waitForExpect(() => {
                 const metricNames = mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .map((m: any) => m.value.metric_name)
                 expect(metricNames).toContain('exited_workflow_changed')
                 expect(metricNames).not.toContain('failed')
@@ -880,11 +891,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
-    // The matcher reads parked jobs via `CYCLOTRON_NODE_DATABASE_URL` (the postgres-v2 backend).
-    // In legacy `postgres` mode the worker parks the job in a different DB the matcher cannot see,
-    // so wakes are postgres-v2-only.
-    const describeMatcher = mode === 'postgres-v2' ? describe : describe.skip
-    describeMatcher('wait_until_condition: subscription matcher wakes parked jobs', () => {
+    describe('wait_until_condition: subscription matcher wakes parked jobs', () => {
         let matcher: CdpHogflowSubscriptionMatcherConsumer
 
         // trigger → wait_condition → (matched branch | timeout continue) → exit
@@ -1671,6 +1678,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             const conversionCount = (): number =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter((m: any) => m.value.metric_name === 'conversion')
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2198,106 +2206,100 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
     })
 
-    // Heartbeat + janitor is postgres-v2-only. Skipping on the legacy postgres
-    // mode where the heartbeat wrapper is a no-op.
-    if (mode === 'postgres-v2') {
-        describe('heartbeat during long batches', () => {
-            let janitor: CyclotronV2Janitor
+    describe('heartbeat during long batches', () => {
+        let janitor: CyclotronV2Janitor
 
-            beforeEach(async () => {
-                // Restart the worker with a short heartbeat interval so the
-                // interval fires several times inside the test's ~1s fetch delay.
-                // Default is 10s — nothing would fire in a test.
-                await hogflowWorker.stop()
-                hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
-                hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
-                await hogflowWorker.start()
+        beforeEach(async () => {
+            // Restart the worker with a short heartbeat interval so the
+            // interval fires several times inside the test's ~1s fetch delay.
+            // Default is 10s — nothing would fire in a test.
+            await hogflowWorker.stop()
+            hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
+            hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, deps, hogflowQueue)
+            await hogflowWorker.start()
 
-                // Aggressive stall/poison thresholds so the test observes the
-                // exact regression the heartbeat guards against: without heartbeats
-                // firing, a 1.2s fetch would exceed the 300ms stall window and
-                // the janitor would reset the row on the very first runOnce().
-                // cleanupGraceMs is huge so terminal jobs stay queryable after
-                // completion — we assert on their final janitor_touch_count.
-                janitor = new CyclotronV2Janitor({
-                    pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
-                    stallTimeoutMs: 300,
-                    maxTouchCount: 2,
-                    cleanupGraceMs: 99_999_000,
-                    cleanupBatchSize: 100,
-                    cleanupIntervalMs: 60_000,
-                })
-
-                await createWorkflow({
-                    actions: {
-                        trigger: trigger(),
-                        slow_fetch: fetchAction('https://example.com/slow'),
-                        exit: exitAction(),
-                    },
-                    edges: [
-                        { from: 'trigger', to: 'slow_fetch', type: 'continue' },
-                        { from: 'slow_fetch', to: 'exit', type: 'continue' },
-                    ],
-                })
-                globals = createGlobals()
+            // Aggressive stall/poison thresholds so the test observes the
+            // exact regression the heartbeat guards against: without heartbeats
+            // firing, a 1.2s fetch would exceed the 300ms stall window and
+            // the janitor would reset the row on the very first runOnce().
+            // cleanupGraceMs is huge so terminal jobs stay queryable after
+            // completion — we assert on their final janitor_touch_count.
+            janitor = new CyclotronV2Janitor({
+                pool: { dbUrl: CYCLOTRON_NODE_DB_URL },
+                stallTimeoutMs: 300,
+                maxTouchCount: 2,
+                cleanupGraceMs: 99_999_000,
+                cleanupBatchSize: 100,
+                cleanupIntervalMs: 60_000,
             })
 
-            afterEach(async () => {
-                await janitor?.stop()
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    slow_fetch: fetchAction('https://example.com/slow'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'slow_fetch', type: 'continue' },
+                    { from: 'slow_fetch', to: 'exit', type: 'continue' },
+                ],
             })
-
-            it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
-                // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
-                // interval firing every 100ms is the only thing preventing
-                // last_heartbeat from going stale.
-                mockFetch.mockImplementation(
-                    () =>
-                        new Promise((resolve) =>
-                            setTimeout(
-                                () =>
-                                    resolve({
-                                        status: 200,
-                                        headers: { 'Content-Type': 'application/json' },
-                                        json: () => Promise.resolve({ ok: true }),
-                                        text: () => Promise.resolve(JSON.stringify({ ok: true })),
-                                        dump: () => Promise.resolve(),
-                                    }),
-                                1200
-                            )
-                        )
-                )
-
-                await triggerWorkflow(globals)
-
-                // Wait long enough for the worker to dequeue and start the fetch,
-                // then check the janitor mid-flight. Without heartbeats,
-                // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
-                await new Promise((r) => setTimeout(r, 700))
-                const midResult = await janitor.runOnce()
-                expect(midResult.stalled).toBe(0)
-                expect(midResult.poisoned).toBe(0)
-
-                // Wait for the workflow to complete
-                await waitForExpect(async () => {
-                    const jobs = await queryCyclotronJobs()
-                    expect(jobs.some((j) => j.status === 'completed')).toBe(true)
-                }, 10000)
-
-                // Final check: no row ever accumulated a touch. This is the
-                // load-bearing assertion — regressions to the setInterval or
-                // its cleanup would flip this to >= 1.
-                const jobs = await queryCyclotronJobs()
-                for (const row of jobs) {
-                    expect(row.janitor_touch_count).toBe(0)
-                }
-            })
+            globals = createGlobals()
         })
-    }
+
+        afterEach(async () => {
+            await janitor?.stop()
+        })
+
+        it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
+            // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
+            // interval firing every 100ms is the only thing preventing
+            // last_heartbeat from going stale.
+            mockFetch.mockImplementation(
+                () =>
+                    new Promise((resolve) =>
+                        setTimeout(
+                            () =>
+                                resolve({
+                                    status: 200,
+                                    headers: { 'Content-Type': 'application/json' },
+                                    json: () => Promise.resolve({ ok: true }),
+                                    text: () => Promise.resolve(JSON.stringify({ ok: true })),
+                                    dump: () => Promise.resolve(),
+                                }),
+                            1200
+                        )
+                    )
+            )
+
+            await triggerWorkflow(globals)
+
+            // Wait long enough for the worker to dequeue and start the fetch,
+            // then check the janitor mid-flight. Without heartbeats,
+            // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
+            await new Promise((r) => setTimeout(r, 700))
+            const midResult = await janitor.runOnce()
+            expect(midResult.stalled).toBe(0)
+            expect(midResult.poisoned).toBe(0)
+
+            // Wait for the workflow to complete
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j) => j.status === 'completed')).toBe(true)
+            }, 10000)
+
+            // Final check: no row ever accumulated a touch. This is the
+            // load-bearing assertion — regressions to the setInterval or
+            // its cleanup would flip this to >= 1.
+            const jobs = await queryCyclotronJobs()
+            for (const row of jobs) {
+                expect(row.janitor_touch_count).toBe(0)
+            }
+        })
+    })
 })
 
-// Email queue routing is postgres-v2 only — the email worker reschedules jobs
-// between queue names on the same v2 backend. We keep this block outside the
-// `describe.each` so the legacy postgres mode doesn't also try to exercise it.
+// Email queue routing: the email worker reschedules jobs between queue names on the same v2 backend.
 describe('Workflows E2E (email queue)', () => {
     jest.setTimeout(30000)
 
@@ -2508,6 +2510,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2579,6 +2582,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2792,6 +2796,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -2900,6 +2905,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -3011,6 +3017,7 @@ describe('Workflows E2E (email queue)', () => {
             const sumCounts = (filter: (m: any) => boolean) =>
                 mockProducerObserver
                     .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.app_source === 'hog_flow')
                     .filter(filter)
                     .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
@@ -3103,6 +3110,7 @@ describe('Workflows E2E (email queue)', () => {
         const emailsSent = () =>
             mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
 
@@ -3212,6 +3220,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)
@@ -3318,6 +3327,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(3)
@@ -3464,6 +3474,7 @@ describe('Workflows E2E (email queue)', () => {
         await waitForExpect(() => {
             const emailSentCount = mockProducerObserver
                 .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.app_source === 'hog_flow')
                 .filter((m: any) => m.value.metric_name === 'email_sent')
                 .reduce((sum: number, m: any) => sum + m.value.count, 0)
             expect(emailSentCount).toBe(1)

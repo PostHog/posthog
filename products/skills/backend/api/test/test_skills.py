@@ -230,7 +230,7 @@ class TestLLMSkillAPI(APIBaseTest):
                 "name": "many-files-skill",
                 "description": "Has too many files.",
                 "body": "# Body",
-                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(51)],
+                "files": [{"path": f"file-{i}.txt", "content": "content"} for i in range(201)],
             },
             format="json",
         )
@@ -478,6 +478,23 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["version"] == 2
         assert data["body"] == "# V2 - improved"
         assert data["is_latest"] is True
+
+    def test_publish_stores_version_description(self):
+        self.create_skill(name="described-skill", body="# V1")
+
+        response = self.client.patch(
+            self._url("name/described-skill"),
+            data={"body": "# V2", "base_version": 1, "version_description": "  Tightened the steps.  "},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version_description"] == "Tightened the steps."
+
+        resolve = self.client.get(self._url("resolve/name/described-skill"))
+        versions = resolve.json()["versions"]
+        assert versions[0]["version_description"] == "Tightened the steps."
+        assert versions[1]["version_description"] is None
 
     def test_publish_carries_forward_unchanged_fields(self):
         self.create_skill(

@@ -36,6 +36,22 @@ const timestampField: BIField = {
     source: { table: 'events' },
 }
 
+const browserField: BIField = {
+    id: 'warehouse:events:properties.$browser',
+    name: 'browser',
+    expression: 'properties.$browser',
+    type: 'string',
+    source: { table: 'events' },
+}
+
+const countryField: BIField = {
+    id: 'warehouse:events:properties.$geoip_country_name',
+    name: 'country',
+    expression: 'properties.$geoip_country_name',
+    type: 'string',
+    source: { table: 'events' },
+}
+
 describe('BI editor query generation', () => {
     it('builds a visualization node with dimensions, aggregations, and filters', () => {
         const expectedQuery = [
@@ -85,6 +101,33 @@ describe('BI editor query generation', () => {
         })
 
         expect(result?.query).toContain('count(*) AS count')
+    })
+
+    it('maps every BI row and column dimension to pivot table axes', () => {
+        const result = buildBIQuery({
+            source: { table: 'events' },
+            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+            rows: [eventField, timestampField],
+            columns: [browserField, countryField],
+            values: [{ field: revenueField, aggregation: 'sum' }],
+            filters: [],
+            limit: 50000,
+        })
+
+        expect(result?.query).toContain('toJSONString(tuple(event, timestamp)) AS bi_rows')
+        expect(result?.query).toContain(
+            'toJSONString(tuple(properties.$browser, properties.$geoip_country_name)) AS bi_columns'
+        )
+        expect(result?.query).toContain('LIMIT 1000')
+        expect(result?.node.chartSettings).toEqual({
+            heatmap: {
+                xAxisColumn: 'bi_columns',
+                yAxisColumn: 'bi_rows',
+                valueColumn: 'sum_revenue',
+                xAxisLabel: 'browser / country',
+                yAxisLabel: 'event / timestamp',
+            },
+        })
     })
 
     it('ignores blank shelf fields until they are configured', () => {

@@ -294,7 +294,10 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert by_number[13].author.is_bot is True  # '[bot]' suffix branch
         assert by_number[16].author.is_bot is True  # KNOWN_BOT_HANDLES allowlist branch
         # pushes = distinct head SHAs across runs attributed to the PR; rerun_cycles = 2nd+ attempts.
+        # PR 10 also has a merge-queue gate run credited to it. That run is CI the PR paid for, but
+        # its head SHA is a rebase the queue made, so it must not inflate the author's push count.
         assert (by_number[10].pushes, by_number[10].rerun_cycles) == (2, 1)
+        assert {sample.head_sha for sample in by_number[10].push_history} == {"sha10", "sha10b"}
         assert (by_number[11].pushes, by_number[11].rerun_cycles) == (1, 0)
         assert by_number[12].pushes == 0  # no runs attributed to this PR
         assert by_number[10].estimated_cost_usd is None  # no jobs source seeded here → no cost figure

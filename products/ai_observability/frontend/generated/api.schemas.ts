@@ -96,6 +96,10 @@ export interface _DayBreakdownRowApi {
     event_count: number
     /** Total cost in USD on this day for the scoped product. */
     cost_usd: number
+    /** Sum of `$ai_input_tokens` on this day for the scoped product. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` on this day for the scoped product. */
+    output_tokens: number
 }
 
 export interface _DayBreakdownApi {
@@ -103,6 +107,24 @@ export interface _DayBreakdownApi {
     items: _DayBreakdownRowApi[]
     /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
     truncated: boolean
+}
+
+export interface _DayModelBreakdownRowApi {
+    /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+    day: string
+    /**
+     * Model name for one of the highest-cost models in the selected window. Null is the aggregate of all remaining models, including events without a model.
+     * @nullable
+     */
+    model: string | null
+    /** Total cost in USD for this model on this day. */
+    cost_usd: number
+    /** Sum of `$ai_input_tokens` for this model on this day. */
+    input_tokens: number
+    /** Sum of `$ai_output_tokens` for this model on this day. */
+    output_tokens: number
+    /** Number of $ai_generation + $ai_embedding events for this model on this day. */
+    generation_count: number
 }
 
 export interface _BucketBreakdownRowApi {
@@ -177,6 +199,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_model: _ModelBreakdownApi
     /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
     by_day: _DayBreakdownApi
+    /** Daily model spend for the scoped product, ordered by day and cost. Includes the six highest-cost models in the selected window plus a null-model row for the remaining models. */
+    by_day_model: _DayModelBreakdownRowApi[]
     /** Spend grouped by UTC time bucket with per-bucket cost/token components, ordered ascending. Scoped to `product`. Only present when the request set `bucket_minutes`. */
     by_bucket?: _BucketBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
@@ -261,10 +285,10 @@ export interface DatasetItemReadApi {
     /** Dataset that owns the item. */
     readonly dataset: string
     /**
-     * Optional caller-owned stable key.
+     * Optional caller-owned stable key that cannot be changed.
      * @nullable
      */
-    readonly external_id: string | null
+    readonly client_item_id: string | null
     readonly version: number
     /** ID of this immutable item version. */
     readonly version_id: string
@@ -320,11 +344,11 @@ export interface DatasetItemCreateApi {
     /** Dataset that will own the item. */
     dataset: string
     /**
-     * Optional case-sensitive stable key used for idempotent creates.
+     * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
      * @maxLength 255
      * @nullable
      */
-    external_id?: string | null
+    client_item_id?: string | null
     /** Input supplied to the system under test. Any non-null JSON value is accepted. */
     input: DatasetJSONValueApi
     /** Optional user-authored expected output. */
@@ -357,7 +381,8 @@ export interface DatasetItemCreateApi {
  * * `dataset_name_conflict` - dataset_name_conflict
  * * `dataset_item_archived` - dataset_item_archived
  * * `dataset_item_active` - dataset_item_active
- * * `external_id_conflict` - external_id_conflict
+ * * `client_item_id_conflict` - client_item_id_conflict
+ * * `limit_reached` - limit_reached
  * * `stale_version` - stale_version
  */
 export type CodeEnumApi = (typeof CodeEnumApi)[keyof typeof CodeEnumApi]
@@ -367,8 +392,22 @@ export const CodeEnumApi = {
     DatasetNameConflict: 'dataset_name_conflict',
     DatasetItemArchived: 'dataset_item_archived',
     DatasetItemActive: 'dataset_item_active',
-    ExternalIdConflict: 'external_id_conflict',
+    ClientItemIdConflict: 'client_item_id_conflict',
+    LimitReached: 'limit_reached',
     StaleVersion: 'stale_version',
+} as const
+
+/**
+ * * `datasets` - datasets
+ * * `dataset_items` - dataset_items
+ * * `dataset_item_versions` - dataset_item_versions
+ */
+export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+
+export const ResourceEnumApi = {
+    Datasets: 'datasets',
+    DatasetItems: 'dataset_items',
+    DatasetItemVersions: 'dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -378,7 +417,8 @@ export interface DatasetConflictResponseApi {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `external_id_conflict` - external_id_conflict
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version */
     code: CodeEnumApi
     /** Explanation of how to resolve the conflict. */
@@ -389,10 +429,20 @@ export interface DatasetConflictResponseApi {
      */
     current_version?: number | null
     /**
-     * Existing item ID when the conflict concerns an external ID.
+     * Existing item ID when the conflict concerns a client item ID.
      * @nullable
      */
     current_item_id?: string | null
+    /** Resource whose configured limit was reached.
+     *
+     * * `datasets` - datasets
+     * * `dataset_items` - dataset_items
+     * * `dataset_item_versions` - dataset_item_versions */
+    resource?: ResourceEnumApi
+    /** Number of resources that already exist. */
+    current_count?: number
+    /** Maximum number of resources allowed. */
+    limit?: number
 }
 
 export interface DatasetItemArchiveApi {
@@ -422,6 +472,9 @@ export interface DatasetItemRestoreApi {
  */
 export type DatasetReadApiMetadata = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface DatasetReadApi {
     readonly id: string
     readonly name: string
@@ -445,6 +498,11 @@ export interface DatasetReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the dataset. */
     readonly team_id: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedDatasetReadListApi {
@@ -496,6 +554,48 @@ export interface PatchedDatasetUpdateApi {
     metadata?: PatchedDatasetUpdateApiMetadata
 }
 
+export interface DatasetExportCreateApi {
+    /**
+     * Dataset revision to export. Defaults to the latest revision when the export is created.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export type DatasetExportReadStatusEnumApi =
+    (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
+
+export const DatasetExportReadStatusEnumApi = {
+    Pending: 'pending',
+    Complete: 'complete',
+    Failed: 'failed',
+} as const
+
+export interface DatasetExportReadApi {
+    /** Export ID used to check status and download the file. */
+    readonly id: number
+    /** Current export state: pending, complete, or failed. */
+    readonly status: DatasetExportReadStatusEnumApi
+    /** Immutable dataset revision included in the export. */
+    readonly dataset_revision: number
+    /** Generated JSONL filename. */
+    readonly filename: string
+    /** When the export was requested. */
+    readonly created_at: string
+    /** When the generated file expires. */
+    readonly expires_after: string
+    /**
+     * Reason the export failed, or null while it is pending or complete.
+     * @nullable
+     */
+    readonly exception: string | null
+}
+
+export interface DatasetExportErrorApi {
+    /** Why the export cannot be created or downloaded yet. */
+    detail: string
+}
+
 export interface DatasetRevisionReadApi {
     readonly id: string
     /** Dataset this revision belongs to. */
@@ -514,6 +614,38 @@ export interface PaginatedDatasetRevisionReadListApi {
     /** @nullable */
     previous?: string | null
     results: DatasetRevisionReadApi[]
+}
+
+export interface EvaluationDirectoryApi {
+    readonly id: string
+    /**
+     * Directory name shown in the online evals list.
+     * @maxLength 400
+     */
+    name: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who created the directory. */
+    readonly created_by: UserBasicApi | null
+    /** Number of active evaluations in the directory. */
+    readonly evaluation_count: number
+}
+
+export interface PatchedEvaluationDirectoryApi {
+    readonly id?: string
+    /**
+     * Directory name shown in the online evals list.
+     * @maxLength 400
+     */
+    name?: string
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** User who created the directory. */
+    readonly created_by?: UserBasicApi | null
+    /** Number of active evaluations in the directory. */
+    readonly evaluation_count?: number
 }
 
 export interface EvaluationRunRequestApi {
@@ -740,6 +872,11 @@ export interface EvaluationApi {
     name: string
     /** Optional description of what this evaluation checks. */
     description?: string
+    /**
+     * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+     * @nullable
+     */
+    directory_id?: string | null
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
@@ -778,7 +915,8 @@ export interface EvaluationApi {
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
-    readonly created_by: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
@@ -863,6 +1001,11 @@ export interface PatchedEvaluationApi {
     name?: string
     /** Optional description of what this evaluation checks. */
     description?: string
+    /**
+     * Directory containing the evaluation. Pass null to move the evaluation to the top level.
+     * @nullable
+     */
+    directory_id?: string | null
     /** Whether the evaluation runs automatically on new $ai_generation events. */
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
@@ -901,7 +1044,8 @@ export interface PatchedEvaluationApi {
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
-    readonly created_by?: UserBasicApi
+    /** User who created the evaluation. */
+    readonly created_by?: UserBasicApi | null
     /** Set to true to soft-delete the evaluation. */
     deleted?: boolean
 }
@@ -2947,6 +3091,14 @@ export type DatasetItemsListParams = {
     revision?: number
 }
 
+export type DatasetItemsRetrieveParams = {
+    /**
+     * Return the item as it appeared at this exact dataset revision.
+     * @minimum 1
+     */
+    revision?: number
+}
+
 /**
  * Replacement input. Omit to keep the current value.
  */
@@ -3043,6 +3195,14 @@ export type DatasetsRevisionsListParams = {
 export type EvaluationRunsCreate200 = { [key: string]: unknown }
 
 export type EvaluationsListParams = {
+    /**
+     * Filter evaluations by directory UUID.
+     */
+    directory_id?: string
+    /**
+     * Filter evaluations by whether they are at the top level.
+     */
+    directory_id__isnull?: boolean
     /**
      * Filter by enabled status
      */

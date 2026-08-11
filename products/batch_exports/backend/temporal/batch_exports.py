@@ -157,6 +157,7 @@ def default_fields() -> list[BatchExportField]:
             expression="set_once",
             alias="set_once",
         ),
+        BatchExportField(expression="person_properties", alias="person_properties"),
     ]
 
 
@@ -174,6 +175,7 @@ def events_model_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="properties", alias="properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
+        BatchExportField(expression="person_properties", alias="person_properties"),
     ]
 
 
@@ -365,9 +367,13 @@ def iter_records(
     yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
 
 
-def get_data_interval(
-    interval: str, data_interval_end: str | None, timezone: str | None = None
-) -> tuple[dt.datetime, dt.datetime]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class DataInterval:
+    start: dt.datetime
+    end: dt.datetime
+
+
+def get_data_interval(interval: str, data_interval_end: str | None, timezone: str | None = None) -> DataInterval:
     """Return the start and end of an export's data interval.
 
     Args:
@@ -383,7 +389,7 @@ def get_data_interval(
         ValueError: If passing an unsupported interval value.
 
     Returns:
-        A tuple of two dt.datetime indicating start and end of the data_interval.
+        A DataInterval with the start and end of the data interval.
     """
     data_interval_end_str = data_interval_end
 
@@ -432,7 +438,7 @@ def get_data_interval(
     else:
         raise ValueError(f"Unsupported interval: '{interval}'")
 
-    return (data_interval_start_dt, data_interval_end_dt)
+    return DataInterval(start=data_interval_start_dt, end=data_interval_end_dt)
 
 
 @dataclasses.dataclass

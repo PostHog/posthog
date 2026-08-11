@@ -4,6 +4,7 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { certificationsLogic } from './certificationsLogic'
+import type { CertificationsFilters } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
     dataCatalogCertificationsCreate,
@@ -79,6 +80,29 @@ describe('certificationsLogic', () => {
 
     it('counts only proposed certifications as pending', () => {
         expect(logic.values.proposedCount).toEqual(1)
+    })
+
+    it.each<[Partial<CertificationsFilters>, string[]]>([
+        [{ status: 'proposed' }, ['cert-1', 'cert-4']],
+        [{ status: 'certified' }, ['cert-2']],
+        [{ search: 'invoices' }, ['cert-2']],
+        [{ status: 'proposed', search: 'legacy' }, ['cert-4']],
+    ])('narrows filteredCertifications with filters %o', (filters, expectedIds) => {
+        logic.actions.loadCertificationsSuccess([
+            buildCertification({ id: 'cert-1', status: 'proposed', target_name: 'stripe_charges' }),
+            buildCertification({ id: 'cert-2', status: 'certified', target_name: 'stripe_invoices' }),
+            buildCertification({ id: 'cert-3', status: 'deprecated', target_name: 'old_revenue' }),
+            // A proposed deprecation keeps raw status "proposed", so it must land under the Proposed filter.
+            buildCertification({
+                id: 'cert-4',
+                status: 'proposed',
+                proposed_status: 'deprecated',
+                target_name: 'legacy_events',
+            }),
+        ])
+        logic.actions.setFilters(filters)
+
+        expect(logic.values.filteredCertifications.map((certification) => certification.id)).toEqual(expectedIds)
     })
 
     it('replaces the row status from the response when certifying', async () => {

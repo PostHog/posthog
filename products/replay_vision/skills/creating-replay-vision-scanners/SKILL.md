@@ -1,6 +1,6 @@
 ---
 name: creating-replay-vision-scanners
-description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating observation volume and checking the org's monthly quota before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against a single session on demand (vision-scanners-scan-session)."
+description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating observation volume and checking the org's monthly quota before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against a single session on demand (vision-scanners-scan-session). For a one-off question about sessions you already have, use vision-scanners-inline-scan-create rather than creating a scanner — the skill's first section covers when that applies."
 ---
 
 # Creating Replay Vision scanners
@@ -15,6 +15,22 @@ That schedule is exactly why creation needs a gut-check: a scanner with a permis
 starts consuming quota automatically and can drain the whole month's budget within its first few sweeps.
 Creation itself does **not** check quota — that protection only kicks in at observation time, by which point
 the budget may already be gone.
+
+## First: is a scanner even the right thing?
+
+A scanner is a **standing watch over future recordings**. If the user has specific sessions in front of them
+and a question about those sessions, they don't want a scanner at all — they want `vision-scanners-inline-scan-create`,
+which takes `session_ids` plus a `prompt`, saves nothing, and schedules nothing.
+
+Use an inline scan when the sessions are already known: "what went wrong in these five recordings", "did any
+of yesterday's checkout sessions hit the coupon bug", anything you'd otherwise answer by creating a scanner
+and deleting it afterwards. It costs the same credits per session and reuses answers when the same question
+is asked twice, so re-asking is cheap.
+
+Create a scanner only when the user wants recordings that **haven't happened yet** to be scanned automatically.
+If you find yourself planning to create a scanner, read its results once, and delete it, stop and run an
+inline scan instead — a throwaway scanner leaves a scheduled sweep running against every future recording that
+matches its query.
 
 ## Core principle: size before you ship
 
@@ -49,6 +65,10 @@ The `query` is a `RecordingsQuery` shape that selects which recordings the scann
 `date_to` are **ignored** (the schedule controls time), so don't bother setting them. Narrow the query to the
 sessions that actually matter — by event, URL, person property, duration, etc. A narrow query is the single
 biggest lever on cost.
+
+When the target is one experiment's exposed population, that's its own job — use the
+`scanning-experiments-with-replay-vision` skill, which derives this query from the experiment's exposure
+criteria instead of hand-building it.
 
 `sampling_rate` (0..1, default 1.0) is a random downsample applied _after_ the query matches. Lower it to
 trade coverage for budget.

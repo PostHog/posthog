@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
+import { toast } from "../../../primitives/toast";
 import { track } from "../../../shell/analytics";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
@@ -42,7 +43,16 @@ import { useTaskCreation } from "../../task-detail/hooks/useTaskCreation";
 import { resolveWorkspaceModePreference } from "../../task-detail/hooks/workspaceModePreference";
 import { channelFeedQueryKey } from "../hooks/useChannelFeed";
 import { useGenerateFreeformCanvas } from "../hooks/useGenerateFreeformCanvas";
+import { useUpdateTaskChannelRepositories } from "../hooks/useTaskChannels";
+import {
+  resolveTaskRepositoryDraft,
+  useTaskRepositoryDraftStore,
+} from "../stores/taskRepositoryDraftStore";
 import type { PendingKickoff } from "./ChannelFeedView";
+import {
+  TaskRepositoryChip,
+  TaskRepositoryDialog,
+} from "./TaskRepositoryDialog";
 
 export interface ChannelHomeComposerHandle {
   /** Drop a starter prompt into the editor and apply its mode, if any. */
@@ -55,6 +65,8 @@ interface ChannelHomeComposerProps {
   channelName?: string;
   /** Channel CONTEXT.md, attached to the created task as background. */
   channelContext?: string;
+  channelRepositories?: string[];
+  channelGithubIntegration?: number | null;
   onTaskCreated: (task: Task) => void;
   /** Post an optimistic kickoff to the feed the instant a submit is accepted. */
   onPendingStart: (kickoff: PendingKickoff) => void;
@@ -64,10 +76,10 @@ interface ChannelHomeComposerProps {
 
 // The prompt box at the bottom of a channel's homepage. A trimmed-down sibling
 // of TaskInput: it reuses the same task-creation pipeline (model/mode/reasoning
-// preview config + useTaskCreation) but drops the repo/branch pickers — channel
-// tasks run repo-less and the agent attaches a repo lazily if it needs one. The
-// starter-prompt suggestions render in the parent above the box; this owns the
-// local/cloud selector.
+// preview config + useTaskCreation) but drops the branch picker. Tasks default
+// to the space's repositories; the chip beside the local/cloud selector swaps
+// in a task-specific repository or folder selection. The starter-prompt
+// suggestions render in the parent above the box; this owns the selector row.
 export const ChannelHomeComposer = forwardRef<
   ChannelHomeComposerHandle,
   ChannelHomeComposerProps
@@ -76,6 +88,8 @@ export const ChannelHomeComposer = forwardRef<
     channelId,
     channelName,
     channelContext,
+    channelRepositories = [],
+    channelGithubIntegration = null,
     onTaskCreated,
     onPendingStart,
     onPendingEnd,
@@ -178,6 +192,21 @@ export const ChannelHomeComposer = forwardRef<
   const [selectedCustomImageId, setSelectedCustomImageId] = useState<
     string | null
   >(null);
+  const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
+  const repositoryDraft = useTaskRepositoryDraftStore(
+    (s) => s.drafts[channelId],
+  );
+  const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const {
+    repositories: taskRepositories,
+    githubIntegration: taskGithubIntegration,
+    folder: taskFolder,
+  } = resolveTaskRepositoryDraft(
+    repositoryDraft,
+    channelRepositories,
+    channelGithubIntegration,
+  );
+  const updateChannelRepositories = useUpdateTaskChannelRepositories();
   const setWorkspaceMode = useCallback(
     (mode: WorkspaceMode) => {
       setWorkspaceModeState(mode);
@@ -322,7 +351,12 @@ export const ChannelHomeComposer = forwardRef<
   const { isCreatingTask, canSubmit, handleSubmit } = useTaskCreation({
     editorRef,
     sessionId,
-    selectedDirectory: "",
+    selectedDirectory: taskFolder,
+    repositories: workspaceMode === "cloud" ? taskRepositories : undefined,
+    githubIntegrationId:
+      workspaceMode === "cloud"
+        ? (taskGithubIntegration ?? undefined)
+        : undefined,
     workspaceMode,
     sandboxEnvironmentId:
       workspaceMode === "cloud" && selectedCloudEnvId
@@ -474,8 +508,44 @@ export const ChannelHomeComposer = forwardRef<
             size="1"
             disabled={isBusy}
           />
+          <TaskRepositoryChip
+            cloud={workspaceMode === "cloud"}
+            repositoryCount={taskRepositories.length}
+            hasFolder={!!taskFolder}
+            disabled={isBusy}
+            onOpen={() => setRepositoryDialogOpen(true)}
+          />
         </div>
       )}
+
+      <TaskRepositoryDialog
+        open={repositoryDialogOpen}
+        onOpenChange={setRepositoryDialogOpen}
+        cloud={workspaceMode === "cloud"}
+        repositories={taskRepositories}
+        integrationId={taskGithubIntegration}
+        folder={taskFolder}
+        onApply={(selection) => {
+          setRepositoryDraft(channelId, {
+            repositories: selection.repositories,
+            githubIntegration: selection.integrationId,
+            folder: selection.folder,
+          });
+          if (selection.saveToSpace && workspaceMode === "cloud") {
+            updateChannelRepositories.mutate(
+              {
+                channelId,
+                githubIntegration: selection.integrationId,
+                repositories: selection.repositories,
+              },
+              {
+                onError: () =>
+                  toast.error("Couldn't save repositories to the space"),
+              },
+            );
+          }
+        }}
+      />
 
       <PromptInput
         ref={editorRef}

@@ -159,6 +159,13 @@ class SignalReportSummaryWorkflow:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
         # structlog renderer skips producing when team_id isn't in the event dict).
         log = logger.bind(team_id=inputs.team_id, report_id=inputs.report_id)
+        # Wait before researching so a burst of signals lands in one run. This workflow already holds
+        # the report's workflow ID, so every signal arriving while it waits is swallowed by the
+        # WorkflowAlreadyStartedError handler in grouping rather than spawning its own run, and the
+        # fetch below then picks up the whole burst. patched(): in-flight histories predate the timer.
+        if inputs.debounce_seconds and workflow.patched("signals-research-debounce"):
+            log.info("Debouncing research", debounce_seconds=inputs.debounce_seconds)
+            await workflow.sleep(timedelta(seconds=inputs.debounce_seconds))
         # If new signals arrived after the report was generated - loop back to process them also
         max_iterations = 10  # Basic safety guard
         for _ in range(max_iterations):

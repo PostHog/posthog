@@ -165,7 +165,13 @@ class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer = LoopWriteSerializer(
             data=data,
             partial=partial,
-            context={"team": self.team, "team_id": self.team.id, "user_id": self._user_id()},
+            context={
+                "team": self.team,
+                "team_id": self.team.id,
+                "user_id": self._user_id(),
+                # Model entitlement is evaluated per acting user, so the write path needs the request.
+                "request": self.request,
+            },
         )
         serializer.is_valid(raise_exception=True)
         return serializer
