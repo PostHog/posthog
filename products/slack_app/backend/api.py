@@ -2213,7 +2213,7 @@ def route_posthog_code_event_to_relevant_region(
     else:
         # Every other event type reaching this fallthrough (``app_uninstalled``) is workspace-wide,
         # so any install for the workspace serves it.
-        link_target = LinkSharedTarget(link_result.candidates[0] if link_result.candidates else None, "workspace")
+        link_target = LinkSharedTarget(link_result.resolved_or_first(), "workspace")
 
     local_match = link_target.integration
     if local_match:
@@ -3080,7 +3080,12 @@ class LinkSharedTarget:
 
 
 def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
-    """Team ids named by ``/project/:id`` segments across the event's links."""
+    """Team ids named by ``/project/:id`` in the event's links, counting only unfurlable ones.
+
+    A shared replay or settings link carries a project id but can never produce an unfurl, so
+    letting it name the project would route a resource link in the same message to a project that
+    doesn't hold it.
+    """
     team_ids: set[int] = set()
     links = event.get("links")
     if not isinstance(links, list):
@@ -3089,7 +3094,7 @@ def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
         if not isinstance(link, dict):
             continue
         url = link.get("url")
-        if not isinstance(url, str):
+        if not isinstance(url, str) or parse_posthog_resource_link(url) is None:
             continue
         parts = [part for part in urlparse(url).path.split("/") if part]
         if len(parts) >= 2 and parts[0] == "project":
@@ -3134,11 +3139,10 @@ def _link_shared_target(
         channel=event.get("channel") if isinstance(event.get("channel"), str) else None,
         thread_ts=thread_ts if isinstance(thread_ts, str) else None,
     )
-    if resolution.integration is not None:
-        return LinkSharedTarget(resolution.integration, resolution.source)
     # No thread mapping and no default in a multi-project workspace: there is no picker to fall
-    # back on for a pasted link, so keep serving the first install rather than nothing at all.
-    return LinkSharedTarget(candidates[0] if candidates else None, resolution.source)
+    # back on for a pasted link, so ``resolved_or_first`` still answers with an install — the same
+    # id-ordered tie-break the other must-pick-something surfaces use.
+    return LinkSharedTarget(resolution.resolved_or_first(), resolution.source)
 
 
 def _extract_context_token(payload: dict) -> str:
