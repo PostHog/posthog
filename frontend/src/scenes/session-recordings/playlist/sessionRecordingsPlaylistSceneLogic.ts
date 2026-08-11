@@ -250,11 +250,10 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     if (!values.playlist?.short_id) {
                         return values.playlist
                     }
-                    return updatePlaylist(
-                        values.playlist?.short_id,
-                        properties ?? { filters: values.filters || undefined },
-                        silent
-                    )
+                    // Collections keep pinned recordings, not filters, so never fall back to sending filters for one
+                    const fallback =
+                        values.playlist.type === 'collection' ? {} : { filters: values.filters || undefined }
+                    return updatePlaylist(values.playlist.short_id, properties ?? fallback, silent)
                 },
                 duplicatePlaylist: async () => {
                     return duplicatePlaylist(values.playlist ?? {}, true)

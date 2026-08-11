@@ -603,7 +603,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         if instance.type == "collection" and len(validated_data.get("filters", {})) > 0:
             # Allow empty filters object, only reject if it has actual filter keys
-            raise ValidationError("You cannot update a collection to add filters")
+            raise ValidationError("Collections hold pinned recordings, not filters. Save this as a filter instead.")
         if instance.type == "filters" and len(validated_data.get("filters", {})) == 0:
             raise ValidationError("You cannot remove all filters when updating a saved filter")
 

@@ -31,6 +31,7 @@ import {
     Popover,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
@@ -61,6 +62,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
@@ -454,6 +457,7 @@ const SaveFiltersModal = ({
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
 
     const [savedFilterName, setSavedFilterName] = useState('')
+    const [isSaving, setIsSaving] = useState(false)
 
     const { reportRecordingPlaylistCreated } = useActions(sessionRecordingEventUsageLogic)
 
@@ -463,15 +467,22 @@ const SaveFiltersModal = ({
     }
 
     const addSavedFilter = async (): Promise<void> => {
-        const f = await createPlaylist(
-            { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
-            false
-        )
-        reportRecordingPlaylistCreated('new')
-        loadSavedFilters()
-        setIsOpen(false)
-        setSavedFilterName('')
-        setAppliedSavedFilter(f)
+        setIsSaving(true)
+        try {
+            const f = await createPlaylist(
+                { name: savedFilterName, filters: stripSessionIds(filters), type: 'filters' },
+                false
+            )
+            reportRecordingPlaylistCreated('new')
+            loadSavedFilters()
+            setIsOpen(false)
+            setSavedFilterName('')
+            setAppliedSavedFilter(f)
+        } catch (error: any) {
+            lemonToast.error(error?.detail || 'Could not save filters. Try again.')
+        } finally {
+            setIsSaving(false)
+        }
     }
 
     return (
@@ -497,14 +508,22 @@ const SaveFiltersModal = ({
                     <LemonButton type="secondary" onClick={closeSaveFiltersModal} tooltip="Close">
                         Close
                     </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        disabledReason={savedFilterName.length === 0 ? 'Enter a name' : undefined}
-                        onClick={() => void addSavedFilter()}
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
                     >
-                        Save filters
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            loading={isSaving}
+                            disabledReason={savedFilterName.length === 0 ? 'Enter a name' : undefined}
+                            onClick={() => {
+                                addSavedFilter().catch(() => {})
+                            }}
+                        >
+                            Save filters
+                        </LemonButton>
+                    </AccessControlAction>
                 </div>
             </div>
         </LemonModal>
