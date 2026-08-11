@@ -30658,6 +30658,8 @@ export namespace Schemas {
       date_range: DateRange;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
+      /** True when the experiment has zero exposures, the test-account filter is on, and the project has test-account filters configured — the filter is likely hiding the user's own test traffic. Absent otherwise. */
+      test_account_filter_hiding_exposures?: boolean | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: ExperimentExposureQueryResponseTotalExposures;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
@@ -64341,6 +64343,8 @@ export namespace Schemas {
       date_range: DateRange;
       kind?: 'ExperimentExposureQuery';
       sample_ratio_mismatch?: SampleRatioMismatch | null;
+      /** True when the experiment has zero exposures, the test-account filter is on, and the project has test-account filters configured — the filter is likely hiding the user's own test traffic. Absent otherwise. */
+      test_account_filter_hiding_exposures?: boolean | null;
       timeseries: ExperimentExposureTimeSeries[];
       total_exposures: QueryResponseAlternative19TotalExposures;
       /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
