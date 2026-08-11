@@ -3,10 +3,11 @@ import { PropsWithChildren, UIEvent, useCallback, useMemo, useRef } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconChevronRight, IconTrending } from '@posthog/icons'
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { ErrorTrackingSpikeEvent } from 'lib/components/Errors/types'
 import { dayjs } from 'lib/dayjs'
+import { Skeleton } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
@@ -188,7 +189,11 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
     return (
         <span className="contents">
             {match([loading])
-                .with([true], () => <LemonSkeleton className="w-[50px] h-2" />)
+                .with([true], () => (
+                    <Skeleton className="h-2 w-[50px]">
+                        <span>Loading…</span>
+                    </Skeleton>
+                ))
                 .with([false], () => (
                     <Tooltip title={tooltip} delayMs={0} placement="right">
                         <div className="flex items-center gap-1">

@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
 from django.db import models, transaction
+from django.db.models import Func, Value
+from django.db.models.functions import Lower
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
@@ -325,6 +327,16 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     # DEPRECATED - Replaced by toolbar OAuth flow. Kept for schema compatibility only;
     # we never drop columns to avoid failures during rolling deploys.
     temporary_token = deprecate_field(models.CharField(max_length=200, null=True, blank=True, unique=True))
+
+    class Meta:
+        verbose_name = _("user")
+        verbose_name_plural = _("users")
+        indexes = [
+            models.Index(
+                Func(Lower("email"), Value(r"\+[^@]*@"), Value("@"), function="regexp_replace"),
+                name="user_stripped_alias_idx",
+            ),
+        ]
 
     # Remove unused attributes from `AbstractUser`
     username = cast(Any, None)

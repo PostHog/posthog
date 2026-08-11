@@ -1316,6 +1316,10 @@ snapshots:
         hash: v1.k794b7964.e5991874972a9382c736026b9be0ba23f478f5cad7fb1a6c0b95ad697549b2b0.MlZppqkWPobycZrk6InXacMCB_Otr0Mh5rfsEaZl-6k
     components-mcp-hint-toast--sql-execute--light:
         hash: v1.k794b7964.0f1ab3bce13fe8842d1c1082aa3958d4f3036f45e22b446492de1ea952a1ddf2.I1aMoYXTWQHQ7HLM_sBl7E_ivm0w1OS4uyBXusN5xkQ
+    components-mcp-use-case-card--ai-observability-evaluations-create--dark:
+        hash: v1.k794b7964.4c2ec3fdb53e346b6d7b85968a96f05e8bef9cf0e4ed0d3e59774d544f420c3e.AyRsIVMIdQVCIuvWbROr4r4C7cLb1thsT0ngYxja9V4
+    components-mcp-use-case-card--ai-observability-evaluations-create--light:
+        hash: v1.k794b7964.c9f282f6b43684e6efc0b463e80d48cdaf6f86a548beb804fdc89c328e97c2ef.cafG-QYpXNUv3DfQrSVoLaOCAAhjVdHoJoQlBGT0IyQ
     components-mcp-use-case-card--dashboards-create--dark:
         hash: v1.k794b7964.f11cb9fd9e4bf81c9809fca5a6e01b60feb1504d84a6a49eef90ed5313f66063.Nqxa-pxylBl5wjNLEyblqWq8gIqrUty24HUzaMxa9tU
     components-mcp-use-case-card--dashboards-create--light:
@@ -2821,9 +2825,13 @@ snapshots:
     insights-trendspiechart--breakdown--light:
         hash: v1.k794b7964.cd52243e5d45d2eb6397a1efffcb6b6c9a5f98ef4a265fab0abc5974c69c0999.o7kqH91XGiMQ5kLrepa2Q239mYYNmPIfReNgQ1Yitm4
     insights-trendspiechart--breakdown-with-labels--dark:
-        hash: v1.k794b7964.a1db52280a6847809525237e6d95e6bb391971fc5b2411e52f4de8678e216411.VAUJc_fxkrZphfILbhEle0WmBPCQpePnjb3OJRSXdng
+        hash: v1.k794b7964.9124fefd31f3ecfc8527722abfe6ca9acef42a2b794bf070088d9f248c1f7990.4Z7Us6eurT0pTvf6V30CMoVH_886UHYFCHkywPcEAsM
     insights-trendspiechart--breakdown-with-labels--light:
-        hash: v1.k794b7964.38531b76bea1607447173363d39eaedf7f1737b7d35fdd0a37604e1f747d374e.KTBq1R0DXgzatb3NFlpNjeFMMCivSMIxo94HFYKjqcI
+        hash: v1.k794b7964.dc0682ea67efaf5cfd942ac9fceda88aa381304aaf404b45a1ac0bdb40e1dab8.DKmd5t2iOJCCJCCN16BLCOFcGVFCSX-FfGKFNQ3iSTM
+    insights-trendspiechart--breakdown-with-value-and-percentage--dark:
+        hash: v1.k794b7964.3c11a1a4addd149737de271f5d7ae769b82f4acefb9fd35ee65338078012a328.B3l_O20nxIi2mzX2X0-N3PDuRGQ4PspU8RnwtpEfzuo
+    insights-trendspiechart--breakdown-with-value-and-percentage--light:
+        hash: v1.k794b7964.958cc72969776dcd098a5c9495453416071c907bcc9c7e6cb87edf7152cdde66.WZQXn3lgyOVUrPbyBrDY5Y8l3O8v2HiSh64osAq-414
     insights-trendspiechart--default--dark:
         hash: v1.k794b7964.6a12fde8bafde8512108c5b628d9b2e6e283d393ae2ed693704b4919c8a09a74.uLxKWKPhM06nOSIxUCw4GXdsfmp45YXAG0yss_yimaQ
     insights-trendspiechart--default--light:
@@ -5914,10 +5922,14 @@ snapshots:
         hash: v1.k794b7964.effa172f53e0be752b64baf59ec6eb6d8d1394084844090bc09e7ef90a7bad06.Ez9jT5d8PoIOaqzCrvVXd1-PgMzu_wVuE69ziQkNYEA
     scenes-app-errortracking--group-page--light:
         hash: v1.k794b7964.ec5dcd889de8bf9fff7fe365a739272b442202e9e16287424f1fbbcfb9ba66f5.73VkDZwxaOr8lS6XVTl-77-nkJnWYud2zj9tfDIH0QA
+    scenes-app-errortracking--group-page-loading--dark:
+        hash: v1.k794b7964.9039f3f13e03d9546145b8158c0dc2343a2f0d689b0e1886999a730844326678.VhSeZB_vduqN8mmG2pLlYqYuz5xvItxvmOyAws6IdAQ
+    scenes-app-errortracking--group-page-loading--light:
+        hash: v1.k794b7964.1842e7909e950d59be4d3302ae9e6ada8e9860a79d116dd4a645a7ac5958eda9.w-1LVrCGpRQ6TINTHvufsTWDsGfLe1M_LJ9W5ZYzj7E
     scenes-app-errortracking--group-page-with-self-driving--dark:
-        hash: v1.k794b7964.95abde46e14e06256c141eb15aac3c3db588f720db2c7515461a71bcd16f571d.r6tURZmk4glz5LGEfYDPNVqo6NC0SNya16D8kNGnY7A
+        hash: v1.k794b7964.91621c05d1d7cd3e7199addfb39c61e7bade523fed3c2fda0a3cf54c1b9e9309.snphNnQjReEqqnodEXJsljN0iTO0j2r-ev3-aEdW0bE
     scenes-app-errortracking--group-page-with-self-driving--light:
-        hash: v1.k794b7964.6f40e8d5a1f3730b7842b30e4471b9cbd6123de32ed5edb9197a0bcc78f72bc2.Wg52Oi9DhUX2bPxOyYR5DJynIvhUxhldJveDE2-HmF0
+        hash: v1.k794b7964.6f92e665bb93faf3c56a0c3ce2b539f7af479198acf4fe860880227049ed4173.rBYaujVCRGRAkcFatI2HJdBGNXDXZtAtwDWtdGShtXk
     scenes-app-errortracking--list-page--dark:
         hash: v1.k794b7964.f474d0d6caf49e7b9a4cfd469546ab9de031039030fb9da704293bc40d87e69a.WxsvGwytEdwdnq8_Ywy_dgGBBYoSYCX9hX72AB42bgs
     scenes-app-errortracking--list-page--light:

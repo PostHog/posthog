@@ -1,4 +1,5 @@
 use sqlx::postgres::PgPool;
+use sqlx::Row;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::DistinctIdMapping;
@@ -10,6 +11,7 @@ use crate::storage::types::DistinctIdMapping;
 /// expansion, so callers can switch sources without behavior change.
 pub(super) async fn get_distinct_ids_for_persons(
     pool: &PgPool,
+    pdi_table: &str,
     team_id: i64,
     person_ids: &[i64],
     limit_per_person: Option<i64>,
@@ -20,8 +22,7 @@ pub(super) async fn get_distinct_ids_for_persons(
 
     let rows = match limit_per_person {
         Some(limit) if limit > 0 => {
-            sqlx::query_as!(
-                DistinctIdMapping,
+            let sql = format!(
                 r#"
                 SELECT l.person_id, l.distinct_id, l.version
                 FROM UNNEST($2::bigint[]) AS pid(id)
@@ -29,35 +30,44 @@ pub(super) async fn get_distinct_ids_for_persons(
                     SELECT capped.person_id, capped.distinct_id, capped.version
                     FROM (
                         SELECT person_id, distinct_id, version, id
-                        FROM posthog_persondistinctid
+                        FROM {pdi_table}
                         WHERE team_id = $1 AND person_id = pid.id AND is_deleted = false
                         LIMIT 2500
                     ) capped
-                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id
+                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){{4}}[a-z0-9]+$'), capped.id
                     LIMIT $3
                 ) l
-                "#,
-                team_id as i32,
-                person_ids,
-                limit
-            )
-            .fetch_all(pool)
-            .await?
+                "#
+            );
+            sqlx::query(&sql)
+                .bind(team_id as i32)
+                .bind(person_ids)
+                .bind(limit)
+                .fetch_all(pool)
+                .await?
         }
         _ => {
-            sqlx::query_as!(
-                DistinctIdMapping,
+            let sql = format!(
                 r#"
                 SELECT person_id, distinct_id, version
-                FROM posthog_persondistinctid
+                FROM {pdi_table}
                 WHERE team_id = $1 AND person_id = ANY($2) AND is_deleted = false
-                "#,
-                team_id as i32,
-                person_ids
-            )
-            .fetch_all(pool)
-            .await?
+                "#
+            );
+            sqlx::query(&sql)
+                .bind(team_id as i32)
+                .bind(person_ids)
+                .fetch_all(pool)
+                .await?
         }
     };
-    Ok(rows)
+    rows.into_iter()
+        .map(|row| {
+            Ok(DistinctIdMapping {
+                person_id: row.try_get("person_id")?,
+                distinct_id: row.try_get("distinct_id")?,
+                version: row.try_get("version")?,
+            })
+        })
+        .collect()
 }
