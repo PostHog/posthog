@@ -75,6 +75,7 @@ def _to_issue_preview(issue) -> contracts.ErrorTrackingIssuePreview:
     return contracts.ErrorTrackingIssuePreview(
         id=issue.id,
         status=issue.status,
+        severity=issue.severity,
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),
@@ -86,6 +87,7 @@ def _to_issue(issue) -> contracts.ErrorTrackingIssue:
     return contracts.ErrorTrackingIssue(
         id=issue.id,
         status=issue.status,
+        severity=issue.severity,
         name=issue.name,
         description=issue.description,
         first_seen=getattr(issue, "first_seen", None),

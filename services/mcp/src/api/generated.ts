@@ -27660,12 +27660,24 @@ export namespace Schemas {
       includeSparkline?: boolean;
     }
 
+    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
+
+
+    export const ErrorTrackingIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
     export interface ErrorTrackingIssueRead {
       id: string;
       status: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name: string | null;
       /** @nullable */
@@ -27739,6 +27751,8 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
       status?: ErrorTrackingIssueWriteStatusEnum;
+      /** Issue severity to set, or null to remove the assigned severity. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * Optional issue display name.
          * @nullable
@@ -54316,6 +54330,8 @@ export namespace Schemas {
     export interface PatchedErrorTrackingIssueRead {
       id?: string;
       status?: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name?: string | null;
       /** @nullable */
@@ -54334,6 +54350,8 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
       status?: ErrorTrackingIssueWriteStatusEnum;
+      /** Issue severity to set, or null to remove the assigned severity. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * Optional issue display name.
          * @nullable
