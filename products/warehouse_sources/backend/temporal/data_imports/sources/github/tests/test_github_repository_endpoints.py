@@ -278,8 +278,9 @@ class TestNotFoundTolerance:
             # would break the whole schema for every personal repository.
             ("issue_types", True),
             ("repository_teams", True),
-            # A plain repo-scoped table keeps 404 fatal, so a genuinely wrong or revoked repository
-            # still fails loud instead of quietly syncing an empty table forever.
+            # A plain repo-scoped table keeps 404 fatal once the repository probe 404s too, so a
+            # genuinely wrong or revoked repository still fails loud instead of quietly syncing an
+            # empty table forever.
             ("labels", False),
         ]
     )
@@ -289,7 +290,7 @@ class TestNotFoundTolerance:
 
         with mock.patch.object(github, "make_tracked_session", return_value=session):
             if not tolerated:
-                with pytest.raises(requests.exceptions.HTTPError):
+                with pytest.raises(github.GithubRepositoryNotFoundError):
                     _run_over_transport(endpoint)
                 return
             assert _run_over_transport(endpoint) == []

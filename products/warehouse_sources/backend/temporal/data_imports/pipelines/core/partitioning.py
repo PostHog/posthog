@@ -249,6 +249,5 @@ def append_partition_key_to_table(
                 raise ValueError(f"Partition mode '{mode}' not supported")
 
     new_column = pa.array(partition_array, type=pa.string())
-    logger.debug(f"append_partition_key_to_table: Partition key added with mode={mode}")
 
     return table.append_column(PARTITION_KEY, new_column), mode, partition_format, normalized_partition_keys

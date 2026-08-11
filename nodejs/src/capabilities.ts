@@ -32,9 +32,8 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpHogflowSubscriptionMatcher: isDevEnv(),
 }
 
-/** Realtime Cohorts - precalculated filters and cohort membership */
+/** Realtime Cohorts - cohort membership persistence */
 export const CAPABILITIES_REALTIME_COHORTS: PluginServerCapabilities = {
-    cdpPrecalculatedFilters: true,
     cdpCohortMembership: true,
 }
 
@@ -128,22 +127,14 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlow: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_hogflow_legacy_pg:
-            return {
-                cdpCyclotronWorkerHogFlowLegacyPg: true,
-            }
         case PluginServerMode.cdp_cyclotron_worker_email:
             return {
                 cdpCyclotronWorkerEmail: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
-            return {
-                cdpCyclotronWorkerEmailLegacyPg: true,
-            }
         case PluginServerMode.cdp_precalculated_filters:
-            return {
-                cdpPrecalculatedFilters: true,
-            }
+            // The consumer is gone. Boot with no capabilities so a pod that charts still
+            // launches in this mode idles instead of crash-looping on an unknown mode.
+            return {}
         case PluginServerMode.cdp_hogflow_subscription_matcher:
             return {
                 cdpHogflowSubscriptionMatcher: true,

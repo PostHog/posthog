@@ -67,6 +67,19 @@ class DuplicatePrimaryKeysException(Exception):
     pass
 
 
+# Matched as a substring by the shared non-retryable classification (`Any_Source_Errors`) and by the
+# v3 load consumer, so both keep recognizing the condition — keep the wording in step with them.
+MISSING_PRIMARY_KEYS_ERROR = "Primary key required for incremental syncs"
+
+
+class MissingPrimaryKeysException(Exception):
+    """An incremental table has no primary key to merge on, so it can't be merged into the
+    already-written Delta table. Permanent until the user picks a key or switches the sync type."""
+
+    def __init__(self, message: str = MISSING_PRIMARY_KEYS_ERROR) -> None:
+        super().__init__(message)
+
+
 class QueryTimeoutException(Exception):
     pass
 

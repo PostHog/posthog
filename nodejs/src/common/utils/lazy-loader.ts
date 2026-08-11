@@ -64,6 +64,16 @@ export type LoaderRetryOptions = {
     maxElapsedMs: number
 }
 
+/**
+ * Shared retry policy for loaders backed by transient-blip-prone dependencies (e.g. Postgres
+ * behind PgBouncer). Sized to ride out a pooler restart without stalling callers for long.
+ */
+export const DEFAULT_LOADER_RETRY: LoaderRetryOptions = {
+    retryIntervalMs: 250,
+    retryJitterMs: 250,
+    maxElapsedMs: 5000,
+}
+
 export type LazyLoaderOptions<T> = {
     name: string
     /** Function to load the values */

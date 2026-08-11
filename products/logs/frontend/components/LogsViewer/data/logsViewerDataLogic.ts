@@ -40,6 +40,7 @@ import { JsonType, PropertyGroupFilter, UniversalFiltersGroup, UniversalFiltersG
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
+import { OTHER_BREAKDOWN_LABEL, OTHER_BREAKDOWN_VALUE } from 'products/logs/frontend/sparklineOtherBreakdown'
 
 import type { ProductIntentProperties } from '../../../../../../frontend/src/lib/utils/product-intents'
 import type { DateRange, LogSeverityLevel } from '../../../../../../frontend/src/queries/schema/schema-general'
@@ -896,7 +897,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     {} as Record<string, number[]>
                 )
 
+                // The endpoint folds everything past its top-N into one bucket under a sentinel key.
+                // Left as-is that sorts to the front (it starts with '$') and draws as a breakdown
+                // value literally named "$$_posthog_breakdown_other_$$".
                 const data = Object.entries(accumulated)
+                    .filter(([name]) => name !== OTHER_BREAKDOWN_VALUE)
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([name, values], index) => ({
                         name,
@@ -913,6 +918,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                                       trace: 'muted-alt',
                                   }[name],
                     }))
+                const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
+                if (otherValues) {
+                    // Last and muted, so it reads as an aggregate rather than as another breakdown value.
+                    data.push({ name: OTHER_BREAKDOWN_LABEL, values: otherValues as number[], color: 'muted' })
+                }
 
                 return { data, labels, dates }
             },

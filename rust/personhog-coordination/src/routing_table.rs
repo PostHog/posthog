@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use assignment_coordination::store::parse_watch_value;
 
+use crate::authority::AuthorityClock;
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
 use crate::types::{HandoffPhase, HandoffState, RegisteredPod, RegisteredRouter, RouterFreezeAck};
@@ -286,7 +287,7 @@ pub struct RoutingTable {
 
 impl RoutingTable {
     pub fn new(store: Arc<PersonhogStore>, config: RoutingTableConfig) -> Self {
-        let renewal_margin = Duration::from_secs(config.lease_ttl.max(0) as u64).mul_f64(2.0 / 3.0);
+        let renewal_margin = AuthorityClock::renewal_margin(config.lease_ttl);
         assert!(
             config.heartbeat_interval < renewal_margin,
             "heartbeat_interval ({:?}) must be well under the keepalive renewal margin \
@@ -494,7 +495,7 @@ impl RoutingTable {
             let token = cancel.child_token();
             tasks.spawn(async move {
                 util::run_lease_keepalive(
-                    store, lease_id, interval, lease_ttl, granted_at, "router", token,
+                    store, lease_id, interval, lease_ttl, granted_at, "router", None, token,
                 )
                 .await
             });
@@ -1112,11 +1113,11 @@ impl RoutingTable {
                 }
 
                 // Pre-update the routing table before draining so that any
-                // new request arriving between drain and the independent
-                // assignment-watch dispatch routes to the new owner rather
-                // than to the old owner (which has already released). The
-                // assignment watch will later re-set the same value
-                // idempotently.
+                // new request arriving mid-drain routes to the new owner
+                // rather than to the old owner (which has already
+                // released). The reconcile pass converges the table
+                // against the assignment keys each tick and re-sets the
+                // same value idempotently.
                 table
                     .write()
                     .await

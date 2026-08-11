@@ -16,6 +16,7 @@ use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
 use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer, FutureRecord};
+use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
 use rdkafka::{Offset, TopicPartitionList};
 
 /// Build a Person proto with deterministic fields — enough that the
@@ -37,6 +38,7 @@ fn make_person(team_id: i64, person_id: i64) -> Person {
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: false,
     }
 }
 
@@ -375,6 +377,7 @@ async fn warming_fails_loudly_on_properties_json_error() {
         is_identified: false,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: false,
     };
     produce_person_to_partition(&producer, 0, &bad).await;
 
@@ -577,5 +580,90 @@ async fn warm_up_fills_every_slot() {
         pools.warming.created_count(),
         3,
         "prewarming three slots must create three distinct clients"
+    );
+}
+
+/// A broker blip inside the consume loop must not fail the warm.
+/// librdkafka reports a still-reconnecting client through the same
+/// channel as a dead one and marks the difference itself; treating the
+/// non-fatal variant as a failed read aborted the warm, and because
+/// event-triggered convergence is fatal to the run, one partition's blip
+/// tore down every partition that pod was converging.
+#[tokio::test]
+async fn warming_tolerates_a_transient_consumer_error() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    for person_id in 1..=3 {
+        let person = make_person(1, person_id);
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    // Fail the first attempt's fetches at the transport layer, the shape
+    // an MSK coordinator reload produced in dev.
+    cluster.request_errors(
+        RDKafkaApiKey::Fetch,
+        &[
+            RDKafkaRespErr::RD_KAFKA_RESP_ERR__TRANSPORT,
+            RDKafkaRespErr::RD_KAFKA_RESP_ERR__TRANSPORT,
+        ],
+    );
+
+    let cache = PartitionedCache::new(1 << 20);
+    let (cfg, pools) = warming_config_for("warmer-transient", &cluster);
+
+    warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0)
+        .await
+        .expect("a non-fatal consumer error must not fail the warm");
+
+    assert!(cache.has_partition(0), "partition 0 must be marked owned");
+    for person_id in 1..=3 {
+        let key = PersonCacheKey {
+            team_id: 1,
+            person_id,
+        };
+        assert!(
+            matches!(cache.get(0, &key), CacheLookup::Found(_)),
+            "person_id={person_id} must be warmed after the blip"
+        );
+    }
+}
+
+/// A persistent non-connection consumer error must still end the warm
+/// inside the stall budget with nothing installed. Under the ride-out
+/// pattern the cause surfaces via the counter and warn logs rather than
+/// the error string, but the warm must never hang past its budget or
+/// publish a partial cache.
+#[tokio::test]
+async fn warming_still_fails_on_a_persistent_stop_class_error() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    for person_id in 1..=3 {
+        let person = make_person(1, person_id);
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    // An auth failure stops the partition's fetch rather than resolving
+    // by reconnection; the warm rides the error events, goes quiet, and
+    // the stall budget must end it.
+    cluster.request_errors(
+        RDKafkaApiKey::Fetch,
+        &[RDKafkaRespErr::RD_KAFKA_RESP_ERR_TOPIC_AUTHORIZATION_FAILED; 64],
+    );
+
+    let cache = PartitionedCache::new(1 << 20);
+    let (mut cfg, pools) = warming_config_for("warmer-stop-class", &cluster);
+    cfg.recv_timeout = Duration::from_secs(2);
+
+    let result = warm_from_kafka(&cfg, &pools, &cache, &DirtyIndex::new(1_000_000), 0).await;
+    let err = result.expect_err("a persistent stop-class error must end the warm");
+    // The stall path, not an immediate abort: riding the error out means
+    // the warm ends only when the budget expires with no records read.
+    assert!(
+        err.to_string().contains("consumed 0 msgs"),
+        "expected the stall budget to end the warm, got: {err}"
+    );
+    assert!(
+        !cache.has_partition(0),
+        "a failed warm must install nothing"
     );
 }

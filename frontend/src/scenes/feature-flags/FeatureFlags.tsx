@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconArchive, IconLock, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -60,11 +60,11 @@ import {
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
-import { openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
+import { openBulkArchiveFlagsDialog, openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
-import { flagSelectionLogic } from './flagSelectionLogic'
+import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
 
@@ -372,8 +372,8 @@ export function OverviewTab({
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { paramsFromFilters } = useValues(featureFlagsLogic({}))
-    const { bulkDeleteResponseLoading } = useValues(flagSelectionLogic)
-    const { bulkDeleteFlags, openBulkCopyModal } = useActions(flagSelectionLogic)
+    const { bulkDeleteResponseLoading, bulkArchiveRunning, bulkArchiveProgress } = useValues(flagSelectionLogic)
+    const { bulkDeleteFlags, bulkArchiveFlags, openBulkCopyModal } = useActions(flagSelectionLogic)
 
     const [matchingFlagIds, setMatchingFlagIds] = useState<readonly number[] | null>(null)
     const [matchingFlagIdsLoading, setMatchingFlagIdsLoading] = useState(false)
@@ -576,6 +576,17 @@ export function OverviewTab({
             <BulkDeleteResultsModal />
             <BulkCopyFlagsModal />
 
+            {/*
+             * Outside the selection toolbar, which unmounts as soon as the selection is cleared.
+             * The region stays mounted and only its text changes, so screen readers announce each
+             * update as a mutation — a region that appears already populated is not announced.
+             */}
+            <div className="text-muted text-sm" role="status" aria-live="polite">
+                {bulkArchiveRunning && bulkArchiveProgress
+                    ? `Archiving flags… ${bulkArchiveProgress.done} of ${bulkArchiveProgress.total}`
+                    : null}
+            </div>
+
             <LemonTable
                 dataSource={displayedFlags}
                 columns={columns}
@@ -674,6 +685,30 @@ export function OverviewTab({
                                         setMatchingFlagIds(null)
                                     }}
                                 />
+                                {/* Nothing to archive when the list is already filtered to archived flags */}
+                                {filters.archived !== 'true' && (
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconArchive />}
+                                        data-attr="bulk-archive-flags-button"
+                                        loading={bulkArchiveRunning}
+                                        disabledReason={
+                                            ctx.selectedCount > BULK_ARCHIVE_MAX_FLAGS
+                                                ? `Archiving supports up to ${BULK_ARCHIVE_MAX_FLAGS} flags at once`
+                                                : undefined
+                                        }
+                                        onClick={() => {
+                                            openBulkArchiveFlagsDialog(ctx.selectedCount, () => {
+                                                bulkArchiveFlags([...ctx.selectedKeys])
+                                                ctx.clearSelection()
+                                                setMatchingFlagIds(null)
+                                            })
+                                        }}
+                                    >
+                                        Archive selected
+                                    </LemonButton>
+                                )}
                                 <LemonButton
                                     type="primary"
                                     status="danger"

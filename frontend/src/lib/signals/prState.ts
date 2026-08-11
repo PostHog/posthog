@@ -1,4 +1,4 @@
-import { SignalReportStatus } from '~/scenes/inbox/types'
+import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 export const PR_BADGE_STATE = {
     open: {

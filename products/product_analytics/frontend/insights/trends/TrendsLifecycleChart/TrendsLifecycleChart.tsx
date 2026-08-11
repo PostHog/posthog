@@ -19,6 +19,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
@@ -80,10 +81,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
-    const hasData =
-        !!indexedResults?.[0] &&
-        !!indexedResults[0].data &&
-        indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
+    const hasData = hasTrendsChartData(indexedResults)
 
     const formatValue = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),

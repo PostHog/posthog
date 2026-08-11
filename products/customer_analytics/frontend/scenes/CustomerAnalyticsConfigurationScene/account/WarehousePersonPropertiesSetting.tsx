@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonTable, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -31,11 +31,24 @@ const TAG_TYPE_BY_RUN_STATUS: Record<string, LemonTagType> = {
     failed: 'danger',
 }
 
+// The stored trigger values, as something a person reading their run history can act on. 'manual' is
+// the Backfill button; 'backfill' is the one the system runs itself when a mapping is set up.
+const RUN_TRIGGERS: Record<string, { label: string; type: LemonTagType }> = {
+    scheduled: { label: 'Scheduled', type: 'default' },
+    sync: { label: 'Sync now', type: 'option' },
+    manual: { label: 'Backfill', type: 'option' },
+    backfill: { label: 'Auto backfill', type: 'default' },
+}
+
 // Labels that differ between the person- and group-target views of the same warehouse-sync machinery.
 type ProfileLabels = { entity: string; entityPlural: string; keyColumn: string }
 const LABELS_BY_TARGET: Record<'person' | 'group', ProfileLabels> = {
     person: { entity: 'person', entityPlural: 'people', keyColumn: 'Distinct ID column' },
     group: { entity: 'group', entityPlural: 'groups', keyColumn: 'Group key column' },
+}
+
+function RunCount({ value }: { value: number }): JSX.Element {
+    return <span className={value ? 'font-medium' : 'text-secondary'}>{value}</span>
 }
 
 // Run history for one source, loaded lazily when its row is expanded.
@@ -46,12 +59,19 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
     const columns: LemonTableColumns<CustomPropertySyncRunApi> = [
         {
             title: 'Status',
+            tooltip:
+                'Whether the run finished. A completed run that updated nobody is normal: a sync only looks at rows the warehouse import itself changed.',
             render: (_, run) => {
                 const note = runOutcomeNote(run, labels.entityPlural)
                 return (
                     <div className="flex items-center gap-2">
                         <Tooltip title={run.error ?? undefined}>
-                            <LemonTag type={TAG_TYPE_BY_RUN_STATUS[run.status] ?? 'default'}>{run.status}</LemonTag>
+                            <LemonTag
+                                type={TAG_TYPE_BY_RUN_STATUS[run.status] ?? 'default'}
+                                icon={run.status === 'running' ? <Spinner /> : undefined}
+                            >
+                                {run.status}
+                            </LemonTag>
                         </Tooltip>
                         {note && (
                             <Tooltip title={note.tooltip}>
@@ -62,29 +82,36 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
                 )
             },
         },
-        { title: 'Trigger', dataIndex: 'trigger' },
         {
-            title: (
-                <Tooltip title="Warehouse rows this sync staged. A sync only stages rows the import itself added or changed, so a quiet table reads zero.">
-                    <span>Rows read</span>
-                </Tooltip>
-            ),
-            render: (_, run) => run.rows_read,
+            title: 'Trigger',
+            tooltip: 'What started the run: the table\'s sync schedule, or a "Sync now" or "Backfill" you asked for.',
+            render: (_, run) => {
+                const trigger = RUN_TRIGGERS[run.trigger]
+                return <LemonTag type={trigger?.type ?? 'default'}>{trigger?.label ?? run.trigger}</LemonTag>
+            },
         },
         {
-            title: (
-                <Tooltip title="Rows whose mapped values differ from what was last sent. Rows that already match are skipped, even on a full refresh.">
-                    <span>Changed</span>
-                </Tooltip>
-            ),
-            render: (_, run) => run.changed,
+            title: 'Rows read',
+            tooltip:
+                'Warehouse rows this sync staged. A sync only stages rows the import itself added or changed, so a quiet table reads zero.',
+            align: 'right',
+            render: (_, run) => <RunCount value={run.rows_read} />,
         },
         {
-            title: `Affected ${labels.entityPlural}`,
-            render: (_, run) => run.existing,
+            title: 'Updated',
+            tooltip: `How many ${labels.entityPlural} this run updated, out of the rows whose mapped values changed. Rows that already hold the values last sent are skipped, even on a full refresh.`,
+            align: 'right',
+            render: (_, run) => (
+                <span className="whitespace-nowrap">
+                    <RunCount value={run.existing} />
+                    <span className="text-secondary"> of {run.changed} changed</span>
+                </span>
+            ),
         },
         {
             title: `Skipped (no ${labels.entity})`,
+            tooltip: `Changed rows dropped because their key column value matched no existing ${labels.entity}. The most common reason a property never shows up.`,
+            align: 'right',
             render: (_, run) => <span className="text-secondary">{run.skipped_missing_person}</span>,
         },
         {
@@ -106,6 +133,7 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
             loading={runsLoadingBySourceId[sourceId] ?? false}
             rowKey="id"
             size="small"
+            nouns={['run', 'runs']}
             emptyState="No runs yet."
         />
     )
@@ -115,7 +143,7 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
 // column mappings, shows the next scheduled sync, lets you trigger a sync or backfill, and expands to
 // run history. Parametrized by target so the person and group settings entries share one implementation.
 function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person' | 'group' }): JSX.Element {
-    const { definitions, definitionsLoading, triggeringSourceIds } = useValues(customPropertyDefinitionsLogic)
+    const { definitions, definitionsInitialLoading, triggeringSourceIds } = useValues(customPropertyDefinitionsLogic)
     const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
@@ -147,6 +175,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
         },
         {
             title: labels.keyColumn,
+            tooltip: `The warehouse column holding each row's ${targetType === 'person' ? 'distinct ID' : 'group key'}. It's how a row is matched to ${labels.entityPlural} — rows with no match are skipped.`,
             render: (_, definition) =>
                 definition.source?.key_column ? (
                     <code>{definition.source.key_column}</code>
@@ -156,6 +185,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
         },
         {
             title: 'Mapped properties',
+            tooltip: `Which warehouse column is written to which ${labels.entity} property.`,
             render: (_, definition) => {
                 const map = (definition.source?.column_property_map ?? {}) as Record<string, string>
                 const entries = Object.entries(map)
@@ -175,15 +205,25 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
         },
         {
             title: 'Sync',
+            tooltip: 'State of the most recent run. Expand the row to see the full history.',
             render: (_, definition) => {
                 if (!definition.source) {
                     return <span className="text-secondary">—</span>
+                }
+                const latestRun = definition.source.latest_run
+                if (latestRun?.status === 'running') {
+                    return (
+                        <Tooltip title="A sync or backfill is running for this table right now.">
+                            <LemonTag type="primary" icon={<Spinner />}>
+                                Syncing
+                            </LemonTag>
+                        </Tooltip>
+                    )
                 }
                 const status = sourceSyncStatus(definition.source)
                 // Only report an affected count for a finished run — an in-progress/failed run's count
                 // isn't "the last run". status.tooltip is undefined for the synced/pending states, so
                 // build the title from the present parts rather than interpolating undefined into it.
-                const latestRun = definition.source.latest_run
                 const affected = latestRun?.status === 'completed' ? latestRun.existing : undefined
                 const tooltipTitle =
                     [
@@ -199,7 +239,6 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             {status.level === 'synced' && definition.source.last_synced_at && (
                                 <TZLabel time={definition.source.last_synced_at} className="text-secondary" />
                             )}
-                            {affected != null && <IconInfo className="text-secondary" />}
                         </span>
                     </Tooltip>
                 )
@@ -207,6 +246,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
         },
         {
             title: 'Next sync',
+            tooltip: "When the table's warehouse sync is next due. Approximate — it drifts if the schedule was paused.",
             render: (_, definition) =>
                 definition.source?.next_sync_at ? (
                     <TZLabel time={definition.source.next_sync_at} className="text-secondary" />
@@ -231,7 +271,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             icon={<IconRefresh />}
                             tooltip="Sync now — re-runs the warehouse sync for this table"
                             onClick={() => source && triggerSync({ sourceId: source.id })}
-                            loading={triggering}
+                            loading={triggering || running}
                             disabledReason={disabledReason}
                         />
                         <LemonButton
@@ -281,7 +321,9 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
             <LemonTable
                 columns={columns}
                 dataSource={profileDefinitions}
-                loading={definitionsLoading}
+                // Only the first load blanks the table. Polling for a running sync refreshes the same
+                // list every few seconds, and a skeleton on every poll would make the page unusable.
+                loading={definitionsInitialLoading}
                 rowKey="id"
                 expandable={{
                     rowExpandable: (definition) => !!definition.source,

@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import dataclasses
+from collections.abc import Callable
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -103,11 +104,19 @@ def v2_activity_environment():
     return env
 
 
-async def _wait_for_queue_entries(queue: QueueCapture) -> None:
-    for _ in range(100):
-        if queue.entries:
+async def _wait_for_queue_entries(queue: QueueCapture, matches: Callable[[dict], bool] | None = None) -> None:
+    # Produced lines reach the queue via `run_coroutine_threadsafe` from a thread-pool
+    # executor, so a line can still be in flight after the activity returns. Wait for the
+    # message we actually assert on — not just the first line to land — with real
+    # wall-clock time, otherwise a generic log line can satisfy the wait before the routed
+    # entry arrives and the assertion sees zero routed messages.
+    for _ in range(200):
+        if matches is None:
+            if queue.entries:
+                return
+        elif any(matches(json.loads(entry.decode("utf-8"))) for entry in queue.entries):
             return
-        await asyncio.sleep(0)
+        await asyncio.sleep(0.01)
     raise TimeoutError("Timed out waiting for produced log messages")
 
 
@@ -144,7 +153,7 @@ async def test_v2_activity_log_lines_are_routed_to_the_saved_query(
                 update_node=False,
             ),
         )
-    await _wait_for_queue_entries(queue)
+    await _wait_for_queue_entries(queue, matches=lambda m: m.get("log_source") == "data_modeling_run")
 
     messages = [json.loads(entry.decode("utf-8")) for entry in queue.entries]
     routed_messages = [m for m in messages if m["log_source"] == "data_modeling_run"]
@@ -169,7 +178,7 @@ async def test_failure_logs_do_not_expose_clickhouse_hostnames(
             update_node=False,
         ),
     )
-    await _wait_for_queue_entries(queue)
+    await _wait_for_queue_entries(queue, matches=lambda m: bool(m.get("log_source")))
 
     routed_messages = [
         json.loads(entry.decode("utf-8")) for entry in queue.entries if json.loads(entry.decode("utf-8"))["log_source"]

@@ -1,7 +1,10 @@
 import type { PiRemoteRpcClient } from "@posthog/agent/pi/remote-rpc-client";
 import type { AuthService } from "@posthog/core/auth/auth";
 import type { TaskService } from "@posthog/core/task-detail/taskService";
-import type { AgentConversationEvent } from "@posthog/shared";
+import type {
+  AgentConversationEvent,
+  McpToolPermissionRequest,
+} from "@posthog/shared";
 import { describe, expect, it, vi } from "vitest";
 import {
   PiOperationError,
@@ -79,6 +82,40 @@ function createSession(): PiSession {
 }
 
 describe("PiSessionController", () => {
+  it("queues concurrent MCP permission requests", async () => {
+    const session = createSession();
+    let onRequest: ((request: McpToolPermissionRequest) => void) | undefined;
+    session.onMcpToolPermissionRequest = vi.fn((callback) => {
+      onRequest = callback;
+      return () => {};
+    });
+    session.respondMcpToolPermission = vi.fn(async () => {});
+    const controller = createController(session);
+    await controller.ensureConnected("task-1");
+    const first = {
+      requestId: "call-1",
+      serverName: "Cloudflare",
+      toolName: "search",
+      installationId: "installation-1",
+      arguments: {},
+    };
+    const second = { ...first, requestId: "call-2" };
+
+    onRequest?.(first);
+    onRequest?.(second);
+
+    expect(
+      controller.store.getState().sessions["task-1"]?.mcpToolPermissionRequests
+        .size,
+    ).toBe(2);
+    await controller.respondMcpToolPermission("task-1", first, "reject");
+    expect(
+      controller.store
+        .getState()
+        .sessions["task-1"]?.mcpToolPermissionRequests.has("call-2"),
+    ).toBe(true);
+  });
+
   it.each([
     {
       text: "hello",

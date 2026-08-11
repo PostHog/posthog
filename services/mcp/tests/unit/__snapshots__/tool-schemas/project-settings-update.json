@@ -3778,7 +3778,7 @@
         },
         "modifiers": {},
         "name": {
-            "description": "Human-readable project name.",
+            "description": "Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.",
             "maxLength": 200,
             "minLength": 1,
             "type": "string"

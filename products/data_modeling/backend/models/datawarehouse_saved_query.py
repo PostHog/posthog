@@ -203,6 +203,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             UnsatisfiableFrequencyError,
             UnsupportedFrequencyTargetError,
         )
+        from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
             bootstrap_dag_to_tiers,
@@ -222,22 +223,29 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
             # that, if it fails, we honor the failure contract below rather than leaving
             # is_materialized=True with no schedule backing it.
-            on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            on_v2 = self.id in get_v2_saved_query_ids([self.id], team_id=self.team_id)
+            node = (
+                Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
+                .select_related("dag", "dag__team")
+                .first()
+            )
             dag_to_bootstrap = None
             if not on_v2:
                 # Nothing creates a DAG's first v2 schedule outside the migration commands, so a
                 # brand-new team would fall through to v1 forever. Bootstrap it instead — declined
                 # unless the DAG has never been scheduled at all.
-                node = (
-                    Node.objects.filter(team_id=self.team_id, saved_query_id=self.id)
-                    .select_related("dag", "dag__team")
-                    .first()
-                )
                 if node is not None and node.dag is not None and dag_can_bootstrap_to_tiers(node.dag):
                     dag_to_bootstrap = node.dag
                     on_v2 = True
 
             if on_v2:
+                if node is None:
+                    # v2 executes nodes, so scheduling without one would report success while
+                    # nothing ever materializes the query. Fail into the contract below instead,
+                    # which clears is_materialized and captures the error.
+                    raise MissingDagNodeError(
+                        f"Saved query {self.id} is on a v2 team but has no DAG node to schedule through"
+                    )
                 # Tiered v2: the interval is one-shot transport for frequency intent — consume
                 # it into the node target(s) and reconcile. Validation raises before the
                 # nulling below, so a rejected frequency stays visible for retry. A call with
