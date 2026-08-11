@@ -169,9 +169,8 @@ tools:
             Update a metric's fields. 'name' picks the metric to update. Editing an approved metric's definition,
             description, unit, or name resets it to 'proposed' (it must be re-approved by a human). Pass 'new_name' to
             rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs,
-            later tool calls) must switch to the new name. When editing 'description', keep it to 1-3
-            sentences of business meaning, not a narration of the query; rationale for the definition belongs in
-            'reasoning'.
+            later tool calls) must switch to the new name. When editing 'description', keep it to 1-3 sentences of
+            business meaning, not a narration of the query; rationale for the definition belongs in 'reasoning'.
         exclude_params:
             - created_source
         inject_body:
