@@ -19,6 +19,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
@@ -30,6 +31,7 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
+from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
 
 from ..hog import compile_ai_observability_hog
@@ -37,8 +39,14 @@ from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
-    TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
-    TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MAX_MAX_AGE_SECONDS,
+    SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MAX_WINDOW_SECONDS,
+    SESSION_EVAL_MIN_MAX_AGE_SECONDS,
+    SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+    SESSION_EVAL_MIN_WINDOW_SECONDS,
+    SESSION_TEST_HOG_MAX_SAMPLES,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_MAX_AGE_SECONDS,
     TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
@@ -53,6 +61,7 @@ from ..models.evaluation_configs import (
     validate_evaluation_configs,
     validate_target_config,
 )
+from ..models.evaluation_directories import EvaluationDirectory
 from ..models.evaluation_reports import EvaluationReport
 from ..models.evaluations import Evaluation, EvaluationTarget
 from ..models.model_configuration import LLMModelConfiguration
@@ -134,23 +143,25 @@ class _OutputConfigField(serializers.JSONField):
             {
                 "type": "object",
                 "title": "Fixed window settle config",
+                "required": ["strategy"],
                 "properties": {
                     "strategy": {
                         "type": "string",
                         "enum": ["fixed_window"],
-                        "default": "fixed_window",
                         "description": "Wait a fixed window after the first matching generation, then evaluate.",
                     },
                     "window_seconds": {
                         "type": "integer",
                         "description": (
                             "Seconds to wait after the first matching generation before evaluating the whole "
-                            "trace. Captured when the run is scheduled — editing it does not change runs "
-                            "already in flight."
+                            "unit. Captured when the run is scheduled — editing it does not change runs "
+                            "already in flight. The accepted range depends on `target`: "
+                            f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
+                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
+                            "The default also depends on `target`; see the field-level help_text."
                         ),
-                        "minimum": TRACE_EVAL_MIN_WINDOW_SECONDS,
-                        "maximum": TRACE_EVAL_MAX_WINDOW_SECONDS,
-                        "default": TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+                        "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
+                        "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
                     },
                 },
                 "additionalProperties": False,
@@ -163,24 +174,32 @@ class _OutputConfigField(serializers.JSONField):
                     "strategy": {
                         "type": "string",
                         "enum": ["inactivity"],
-                        "description": "Evaluate once the trace has had no new activity for the quiet period.",
+                        "description": "Evaluate once the unit has had no new activity for the quiet period.",
                     },
                     "quiet_period_seconds": {
                         "type": "integer",
-                        "description": "Seconds without new trace activity before the trace counts as settled.",
-                        "minimum": TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS,
-                        "maximum": TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
-                        "default": TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+                        "description": (
+                            "Seconds without new activity before the unit counts as settled. The accepted "
+                            f"range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
+                            f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
+                            f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
+                            "for 'session'. The default also depends on `target`; see the field-level help_text."
+                        ),
+                        "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
+                        "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
                     },
                     "max_age_seconds": {
                         "type": "integer",
                         "description": (
                             "Hard cap in seconds on the total wait from the first matching generation, even "
-                            "if the trace stays active. Must be at least quiet_period_seconds."
+                            "if the unit stays active. Must be at least quiet_period_seconds. The accepted "
+                            f"range depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–"
+                            f"{TRACE_EVAL_MAX_MAX_AGE_SECONDS} for 'trace', "
+                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'. "
+                            "The default also depends on `target`; see the field-level help_text."
                         ),
-                        "minimum": TRACE_EVAL_MIN_MAX_AGE_SECONDS,
-                        "maximum": TRACE_EVAL_MAX_MAX_AGE_SECONDS,
-                        "default": TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
+                        "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
+                        "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
                     },
                 },
                 "additionalProperties": False,
@@ -246,7 +265,18 @@ class EvaluationConditionSerializer(serializers.Serializer):
 
 
 class EvaluationSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+    created_by = UserBasicSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="User who created the evaluation.",
+    )
+    directory_id = TeamScopedPrimaryKeyRelatedField(
+        source="directory",
+        queryset=EvaluationDirectory.objects.unscoped(),
+        required=False,
+        allow_null=True,
+        help_text="Directory containing the evaluation. Pass null to move the evaluation to the top level.",
+    )
     model_configuration = ModelConfigurationSerializer(
         required=False,
         allow_null=True,
@@ -280,9 +310,11 @@ class EvaluationSerializer(serializers.ModelSerializer):
     target_config = _TargetConfigField(
         required=False,
         help_text=(
-            "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — "
-            "'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. "
-            "Missing strategy means fixed_window. Empty for 'generation'."
+            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
+            "`strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
+            "max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, "
+            "using per-target defaults, and the accepted bounds also depend on `target`. "
+            "Empty for 'generation'."
         ),
     )
     conditions = EvaluationConditionSerializer(
@@ -301,6 +333,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "directory_id",
             "enabled",
             "status",
             "status_reason",
@@ -347,11 +380,13 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "target": {
                 "help_text": (
                     "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event "
-                    "individually. 'trace' evaluates the whole trace once: the first matching generation schedules "
-                    "a run that waits for the trace to settle, then evaluates all of its events together. "
-                    "Condition filters still match individual generations — a trace is evaluated when any of its "
-                    "generations matches, and sampling applies per trace. When and how the trace run fires is "
-                    "controlled by target_config's settle strategy."
+                    "individually. 'trace' evaluates the whole trace once and 'session' the whole "
+                    "$ai_session_id session once: the first matching generation schedules a run that waits "
+                    "for the unit to settle, then evaluates all of its events together. Condition filters "
+                    "still match individual generations — a unit is evaluated when any of its generations "
+                    "matches, and sampling applies per unit. A 'session' evaluation only fires for "
+                    "generations that carry $ai_session_id. When and how the run fires is controlled by "
+                    "target_config's settle strategy."
                 )
             },
             "deleted": {"help_text": "Set to true to soft-delete the evaluation."},
@@ -407,23 +442,30 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"config": str(e)})
 
         # Sentiment is addressed per-message within one generation event ($ai_target_event_id +
-        # message index). A trace target emits a single evaluation event for the whole trace, where
-        # the message index is ambiguous and that per-generation linkage is absent. Trace-level
-        # sentiment is already produced by aggregating generation-target sentiment evals at read time.
+        # message index). An aggregate target emits a single evaluation event for the whole unit,
+        # where the message index is ambiguous and that per-generation linkage is absent.
+        # Aggregate-level sentiment is already produced by aggregating generation-target sentiment
+        # evals at read time.
         effective_target = data.get("target") or getattr(self.instance, "target", None) or EvaluationTarget.GENERATION
-        if evaluation_type == EvaluationType.SENTIMENT.value and effective_target == EvaluationTarget.TRACE.value:
+        if evaluation_type == EvaluationType.SENTIMENT.value and effective_target != EvaluationTarget.GENERATION.value:
             raise serializers.ValidationError(
-                {"target": "Sentiment evaluations can't target a whole trace. Use the 'generation' target."}
+                {"target": "Sentiment evaluations can only target each generation. Choose the 'generation' target."}
             )
 
         # Validate target_config against the effective target (request value, else the stored one).
         # Surfaces a clean field error for an out-of-range window; the model's save() re-runs this
         # so untouched requests still get normalized.
         if "target" in data or "target_config" in data:
-            target = data.get("target") or getattr(self.instance, "target", None) or "generation"
+            stored_target = getattr(self.instance, "target", None)
+            target = data.get("target") or stored_target or "generation"
             config = data.get("target_config")
             if config is None:
-                config = getattr(self.instance, "target_config", {})
+                # Carrying the stored bag across a target change would keep the old target's
+                # strategy — a trace's fixed_window surviving onto a session means grading 30
+                # minutes into a conversation instead of when it goes quiet, which is exactly what
+                # DEFAULT_SETTLE_STRATEGY_BY_TARGET exists to prevent. Reseed instead, matching
+                # what the form does client-side.
+                config = {} if target != stored_target else getattr(self.instance, "target_config", {})
             try:
                 data["target_config"] = validate_target_config(target, config or {})
             except ValueError as e:
@@ -613,6 +655,15 @@ class EvaluationSerializer(serializers.ModelSerializer):
 
 class EvaluationFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
+    directory_id = django_filters.UUIDFilter(
+        field_name="directory_id",
+        help_text="Filter evaluations by directory UUID.",
+    )
+    directory_id__isnull = django_filters.BooleanFilter(
+        field_name="directory_id",
+        lookup_expr="isnull",
+        help_text="Filter evaluations by whether they are at the top level.",
+    )
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
     evaluation_type = django_filters.ChoiceFilter(
         choices=EvaluationType.choices,
@@ -677,6 +728,16 @@ class TestHogTargetConfigSerializer(serializers.Serializer):
         max_value=TRACE_EVAL_MAX_WINDOW_SECONDS,
         help_text="Aggregation window for trace samples, in seconds.",
     )
+    quiet_period_seconds = serializers.IntegerField(
+        required=False,
+        default=SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
+        min_value=SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
+        max_value=SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
+        help_text=(
+            "For session samples: only sessions with no activity for this long are previewed, "
+            "matching when a session evaluation would actually run."
+        ),
+    )
 
 
 class TestHogRequestSerializer(serializers.Serializer):
@@ -707,8 +768,8 @@ class TestHogRequestSerializer(serializers.Serializer):
         default=EvaluationTarget.GENERATION,
         help_text=(
             "What the evaluation runs against: 'generation' samples individual generations, "
-            "'trace' samples whole traces and runs against trace-level globals — matching how the "
-            "evaluation runs online."
+            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
+            "quiet. Each target runs against the same globals it would run against online."
         ),
     )
     target_config = TestHogTargetConfigSerializer(
@@ -722,14 +783,14 @@ class TestHogRequestSerializer(serializers.Serializer):
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
-    sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation or trace.")
+    sample_id = serializers.CharField(help_text="Stable identifier for the sampled generation, trace, or session.")
     sample_type = serializers.ChoiceField(
         choices=EvaluationTarget.choices,
-        help_text="Type of sampled unit: generation or trace.",
+        help_text="Type of sampled unit: generation, trace, or session.",
     )
     event_uuid = serializers.CharField(
         allow_null=True,
-        help_text="UUID of the sampled $ai_generation event, or null for a trace sample.",
+        help_text="UUID of the sampled $ai_generation event, or null for a trace or session sample.",
     )
     trace_id = serializers.CharField(allow_null=True, help_text="Trace ID if available.")
     input_preview = serializers.CharField(help_text="First 200 characters of input from the sampled unit.")
@@ -744,6 +805,87 @@ class TestHogResponseSerializer(serializers.Serializer):
     message = serializers.CharField(
         required=False, help_text="Optional message, e.g. when no recent events were found."
     )
+
+
+def _humanize_seconds(seconds: int) -> str:
+    """Whole units only: this reads back the quiet period the user just set, so "24 hours" beats
+    "1440 minutes"."""
+    if seconds >= 3600 and seconds % 3600 == 0:
+        hours = seconds // 3600
+        return f"{hours} hour" if hours == 1 else f"{hours} hours"
+    if seconds >= 60:
+        minutes = seconds // 60
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+    return f"{seconds} second" if seconds == 1 else f"{seconds} seconds"
+
+
+def _test_hog_over_sessions(
+    *,
+    request: Request,
+    team: Team,
+    bytecode: list[Any],
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    allows_na: bool,
+    conditions: list[dict[str, Any]],
+    quiet_period_seconds: int,
+) -> Response:
+    """Session-target variant of `test_hog`: sample sessions that have gone quiet and run the code
+    against session-level globals, so the editor preview matches how a session eval runs online."""
+    tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+    try:
+        session_results = run_hog_eval_over_recent_sessions(
+            team=team,
+            bytecode=bytecode,
+            condition_filter=condition_filter,
+            sample_count=sample_count,
+            allows_na=allows_na,
+            quiet_period_seconds=quiet_period_seconds,
+        )
+    except AIEventsUnavailableError:
+        session_results = []
+
+    results = [
+        {
+            "sample_id": r.session_id,
+            "sample_type": EvaluationTarget.SESSION.value,
+            "event_uuid": None,
+            "trace_id": None,
+            "input_preview": r.input_preview,
+            "output_preview": r.output_preview,
+            "result": r.verdict,
+            "reasoning": r.reasoning,
+            "error": r.error,
+        }
+        for r in session_results
+    ]
+
+    report_user_action(
+        request.user,
+        "llma evaluation hog code tested",
+        {
+            "sample_count": sample_count,
+            "results_count": len(results),
+            "target": EvaluationTarget.SESSION.value,
+            "condition_count": len(conditions),
+        },
+        team=team,
+    )
+
+    if not results:
+        # An empty sample here is a real answer, not a failure: at a long quiet period there may
+        # genuinely be no settled session yet. Say which window came up empty so it does not
+        # read as broken.
+        return Response(
+            {
+                "results": [],
+                "message": (
+                    f"No sessions have been quiet for {_humanize_seconds(quiet_period_seconds)} in the last "
+                    f"{EVALUATION_TEST_LOOKBACK_DAYS} days, so there is nothing to preview yet."
+                ),
+            }
+        )
+    return Response({"results": results})
 
 
 def _test_hog_over_traces(
@@ -907,6 +1049,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         for field in [
             "name",
             "description",
+            "directory",
             "enabled",
             "evaluation_type",
             "output_type",
@@ -1041,6 +1184,20 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             condition_filter = condition_exprs[0]
         elif condition_exprs:
             condition_filter = ast.Or(exprs=condition_exprs)
+
+        if target == EvaluationTarget.SESSION.value:
+            return _test_hog_over_sessions(
+                request=request,
+                team=team,
+                bytecode=bytecode,
+                condition_filter=condition_filter,
+                sample_count=min(sample_count, SESSION_TEST_HOG_MAX_SAMPLES),
+                allows_na=allows_na,
+                conditions=conditions,
+                quiet_period_seconds=target_config.get(
+                    "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
+                ),
+            )
 
         if target == EvaluationTarget.TRACE.value:
             return _test_hog_over_traces(

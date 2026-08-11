@@ -56,6 +56,7 @@ export type CommandMenuAction =
   | "open-channel"
   | "open-command-center"
   | "open-inbox"
+  | "open-archived"
   | "open-loops"
   | "open-usage"
   | "search-files"
@@ -850,9 +851,10 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes";
+  setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
   new_value: boolean | number;
-  old_value: boolean | number;
+  /** Null when the backend predates the setting and never sent a value. */
+  old_value: boolean | number | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }
@@ -1045,6 +1047,26 @@ export interface CanvasPromptSentProperties {
   prompt_length_chars: number;
 }
 
+export interface CanvasRenderedProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact rendered; absent for head-source renders. */
+  build_id?: string;
+}
+
+export interface CanvasRuntimeErrorProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact threw; absent for head-source renders. */
+  build_id?: string;
+  /**
+   * The error's class name (e.g. "TypeError"), or "unknown". Deliberately not the
+   * raw message: canvas source is user/agent-authored and its exceptions can carry
+   * source fragments, query results, or secrets that must not cross into analytics.
+   */
+  error_type: string;
+}
+
 export type ContextActionType = "save_version" | "generate_started" | "discard";
 
 export interface ContextActionProperties {
@@ -1097,11 +1119,6 @@ export interface UpgradePromptClickedProperties {
 export interface CloudTaskUsageBlockedProperties {
   bucket: "burst" | "sustained" | null;
   is_pro: boolean;
-}
-
-export interface UsageBillingAnnouncementAcknowledgedProperties {
-  /** Stamps the acknowledgment on the person for support auditability. */
-  $set: { code_usage_billing_acknowledged_at: string };
 }
 
 // Claude Code session import events
@@ -1274,6 +1291,23 @@ export interface LoopLinkCopiedProperties {
   visibility: "personal" | "team";
 }
 
+export interface AnnouncementProperties {
+  announcement_id: string;
+  announcement_kind: "announcement" | "required-update";
+  announcement_style: "banner" | "modal";
+}
+
+export interface AnnouncementCtaClickedProperties
+  extends AnnouncementProperties {
+  cta_type: "external" | "deeplink" | "update";
+}
+
+export interface AnnouncementAcknowledgedProperties
+  extends AnnouncementProperties {
+  /** "ok" = the ack button; "update" = an update action counted as the ack. */
+  ack_type: "ok" | "update";
+}
+
 // Event names as constants
 export const ANALYTICS_EVENTS = {
   // App lifecycle
@@ -1429,24 +1463,25 @@ export const ANALYTICS_EVENTS = {
   UPGRADE_PROMPT_SHOWN: "Upgrade prompt shown",
   UPGRADE_PROMPT_CLICKED: "Upgrade prompt clicked",
   CLOUD_TASK_USAGE_BLOCKED: "Cloud task usage blocked",
-  USAGE_BILLING_ANNOUNCEMENT_ACKNOWLEDGED:
-    "Usage billing announcement acknowledged",
 
   // Project Bluebird (Channels) events
   CHANNELS_SPACE_VIEWED: "Channels space viewed",
   CHANNEL_ACTION: "Channel action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_RENDERED: "Canvas rendered",
+  CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
 
-  // Loops promo events
-  LOOPS_PROMO_OPENED: "Loops promo opened",
-  LOOPS_PROMO_DISMISSED: "Loops promo dismissed",
-  LOOPS_PROMO_LEARN_MORE_CLICKED: "Loops promo learn more clicked",
+  // Remote in-app announcement events
+  ANNOUNCEMENT_SHOWN: "Announcement shown",
+  ANNOUNCEMENT_DISMISSED: "Announcement dismissed",
+  ANNOUNCEMENT_CTA_CLICKED: "Announcement CTA clicked",
+  ANNOUNCEMENT_ACKNOWLEDGED: "Announcement acknowledged",
 
   // Loops events
   LOOP_LIST_VIEWED: "Loop list viewed",
@@ -1608,7 +1643,6 @@ export type EventPropertyMap = {
   // Subscription events
   [ANALYTICS_EVENTS.UPGRADE_PROMPT_SHOWN]: UpgradePromptShownProperties;
   [ANALYTICS_EVENTS.UPGRADE_PROMPT_CLICKED]: UpgradePromptClickedProperties;
-  [ANALYTICS_EVENTS.USAGE_BILLING_ANNOUNCEMENT_ACKNOWLEDGED]: UsageBillingAnnouncementAcknowledgedProperties;
   [ANALYTICS_EVENTS.CLOUD_TASK_USAGE_BLOCKED]: CloudTaskUsageBlockedProperties;
 
   // Project Bluebird (Channels) events
@@ -1616,16 +1650,19 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
+  [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
 
-  // Loops promo events
-  [ANALYTICS_EVENTS.LOOPS_PROMO_OPENED]: never;
-  [ANALYTICS_EVENTS.LOOPS_PROMO_DISMISSED]: never;
-  [ANALYTICS_EVENTS.LOOPS_PROMO_LEARN_MORE_CLICKED]: never;
+  // Remote in-app announcement events
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_DISMISSED]: AnnouncementProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_CTA_CLICKED]: AnnouncementCtaClickedProperties;
+  [ANALYTICS_EVENTS.ANNOUNCEMENT_ACKNOWLEDGED]: AnnouncementAcknowledgedProperties;
 
   // Loops events
   [ANALYTICS_EVENTS.LOOP_LIST_VIEWED]: LoopListViewedProperties;

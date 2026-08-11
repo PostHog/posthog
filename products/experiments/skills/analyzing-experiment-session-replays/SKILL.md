@@ -98,7 +98,7 @@ For each variant in the experiment, construct recording filters that match users
 
 **Key points:**
 
-- The `$feature/<flag_key>` event property records which variant the user saw — filtering on it matches recordings containing at least one event from that variant
+- The `$feature/<flag_key>` event property records the flag's value on each event — filtering on it matches recordings where the flag was active with that variant. This is an approximation of exposure, broader than the experiment's exposure event (`$feature_flag_called`, or `$experiment_exposure` on the new rollout — both deduped per identity): right for browsing behavior across variants, but not an exact mirror of the analysis population — the `scanning-experiments-with-replay-vision` skill derives that exact filter when you need it
 - `value` is an array of variant key strings (e.g. `["control"]`); for boolean flags use `["true"]` or `["false"]`
 - Avoid the `type: "flag"` / `flag_evaluates_to` property filter for variant scoping — the recordings query accepts it but silently ignores it, returning unfiltered results (last verified 2026-06-10). If you want to try it anyway, verify it actually filters first: a query with a nonexistent flag key should return zero recordings
 - Set the date range to the experiment's start and end dates

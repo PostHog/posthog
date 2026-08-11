@@ -39,11 +39,10 @@ import { useChannelItems } from "@posthog/ui/features/canvas/hooks/useChannelIte
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { PERSONAL_CHANNEL_NAME } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
+import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
-import { useTasks } from "@posthog/ui/features/tasks/useTasks";
-import { navigateToCommandCenter } from "@posthog/ui/router/navigationBridge";
 import { logger } from "@posthog/ui/shell/logger";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -259,14 +258,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const { renameTask } = useRenameTask();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
-  const assignTaskToCommandCenter = useCommandCenterStore(
-    (state) => state.assignTask,
-  );
-  const { data: allTasks = [] } = useTasks({ showAllUsers: true });
-  const allTaskIds = useMemo(
-    () => new Set(allTasks.map((task) => task.id)),
-    [allTasks],
-  );
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -323,18 +314,8 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // stays while the list is narrowed, so you can undo whatever emptied it.
   const showRecent = listState === "ready";
 
-  // The first free command-centre cell, or nothing if every cell is taken by a
-  // task that still exists.
-  const commandCenterAssigner = (taskId: string) => {
-    const cellIndex = commandCenterCells.findIndex(
-      (cellTaskId) => cellTaskId == null || !allTaskIds.has(cellTaskId),
-    );
-    if (cellIndex === -1) return undefined;
-    return () => {
-      assignTaskToCommandCenter(cellIndex, taskId);
-      navigateToCommandCenter();
-    };
-  };
+  const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
+    placeTaskInCommandCenter(taskId, taskTitle);
 
   const taskRow = (item: (typeof items)[number]) => (
     <ChannelItemRow
@@ -352,7 +333,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
       // greyed-out one.
       onAddToCommandCenter={
         item.kind === "task" && !commandCenterCells.includes(item.id)
-          ? commandCenterAssigner(item.id)
+          ? commandCenterAssigner(item.id, item.title)
           : undefined
       }
       onEditSubmit={

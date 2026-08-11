@@ -32,7 +32,6 @@ function canvas(over: Partial<DashboardRecord> = {}): DashboardRecord {
     name: "Canvas",
     templateId: "freeform",
     context: "",
-    isHome: false,
     createdAt: 0,
     updatedAt: 1_000,
     ...over,

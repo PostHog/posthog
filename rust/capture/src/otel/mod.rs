@@ -4,6 +4,7 @@ mod fan_out;
 mod filtering;
 mod identity;
 mod ingestion;
+mod provenance;
 mod providers;
 
 use axum::body::Body;
@@ -104,6 +105,17 @@ pub async fn otel_handler(
     } else {
         "unknown"
     };
+    let normalized_content_type = match format {
+        "protobuf" => "application/x-protobuf",
+        "json" => "application/json",
+        _ => "unknown",
+    };
+    let content_encoding = headers
+        .get("content-encoding")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .unwrap_or("")
+        .to_ascii_lowercase();
     counter!("capture_ai_otel_requests_total", "format" => format).increment(1);
 
     let auth_header = headers
@@ -128,6 +140,16 @@ pub async fn otel_handler(
         report_dropped_events("token_dropper", 1);
         return Ok(Json(json!({})));
     }
+
+    let gateway_provenance = provenance::verify(
+        &headers,
+        state.ai_gateway_signing_secret.as_deref(),
+        token,
+        normalized_content_type,
+        &content_encoding,
+        &body,
+        state.timesource.current_time(),
+    );
 
     let request = ingestion::parse_request(&body, &headers, OTEL_BODY_SIZE).map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_parsing");
@@ -169,7 +191,15 @@ pub async fn otel_handler(
 
     let received_at = Utc::now();
     let request_fallback_distinct_id = identity::request_fallback_distinct_id();
-    let span_events = fan_out::expand_into_events(&request, &request_fallback_distinct_id);
+    let mut span_events = fan_out::expand_into_events(&request, &request_fallback_distinct_id);
+    provenance::apply(
+        &mut span_events,
+        gateway_provenance,
+        headers.contains_key(crate::gateway_provenance::SIGNATURE_HEADER),
+        headers
+            .get(crate::gateway_provenance::REQUEST_ID_HEADER)
+            .and_then(|value| value.to_str().ok()),
+    );
     let span_count = span_events.len();
     let dropped_span_count = raw_span_count.saturating_sub(span_count);
 
@@ -216,7 +246,14 @@ pub async fn otel_handler(
     let token = token.to_string();
 
     // All-or-nothing quota check: reject the entire batch if any span is over quota
-    if let Err(outcome) = filtering::check_quota(&state.quota_limiter, &token, &span_events).await {
+    if let Err(outcome) = filtering::check_quota(
+        &state.quota_limiter,
+        &token,
+        &span_events,
+        gateway_provenance == provenance::Provenance::Verified,
+    )
+    .await
+    {
         return match outcome {
             filtering::QuotaOutcome::Dropped => Err(non_retryable_rejection("quota exceeded")),
             filtering::QuotaOutcome::Error(e) => {

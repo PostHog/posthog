@@ -128,9 +128,12 @@ describe("MAX_CONNECTED_SESSIONS", () => {
     const allPresets: Record<LayoutPreset, true> = {
       "1x1": true,
       "2x1": true,
+      "3x1": true,
       "1x2": true,
       "2x2": true,
       "3x2": true,
+      "1x3": true,
+      "2x3": true,
       "3x3": true,
     };
     const largestGrid = Math.max(

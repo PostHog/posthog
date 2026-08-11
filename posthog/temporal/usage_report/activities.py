@@ -22,6 +22,7 @@ from posthog.tasks.usage_report import get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_sandbox_compute_patch_defaults,
     batched,
     build_manifest,
     build_org_reports,
@@ -129,6 +130,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
             description="Aggregate per-query S3 results into org-report chunks.",
         ):
             all_data = await sync_to_async(load_all_data)(inputs.query_results)
+            add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
 
             @database_sync_to_async
             def aggregate_per_org() -> dict[str, Any]:

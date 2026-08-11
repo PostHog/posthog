@@ -6,10 +6,6 @@ import type {
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
-import {
-  COLLAPSE_MODE_DEFAULT,
-  type CollapseMode,
-} from "@posthog/ui/features/sessions/components/new-thread/conversationThreadConfig";
 import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -238,8 +234,6 @@ interface SettingsStore {
   setTerminalGpuRendering: (enabled: boolean) => void;
 
   // Conversation thread (new-thread)
-  conversationCollapseMode: CollapseMode;
-  setConversationCollapseMode: (mode: CollapseMode) => void;
 
   // Sidebar
   // Shows a per-repo "Worktrees" dropdown of task-less worktrees a click can
@@ -255,10 +249,6 @@ interface SettingsStore {
   downloadUpdatesAutomatically: boolean;
   dismissibleUpdateBanners: boolean;
   lastSeenChangelogVersion: string | null;
-  // Renders the conversation with the new ChatX (quill) primitives instead of
-  // the virtualized ConversationView. Local A/B toggle while the rebuild bakes.
-  useNewChatThread: boolean;
-  setUseNewChatThread: (enabled: boolean) => void;
   setHedgehogMode: (enabled: boolean) => void;
   setSlotMachineMode: (enabled: boolean) => void;
   setBrainrotMode: (enabled: boolean) => void;
@@ -473,9 +463,6 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ terminalGpuRendering: enabled }),
 
       // Conversation thread (new-thread)
-      conversationCollapseMode: COLLAPSE_MODE_DEFAULT,
-      setConversationCollapseMode: (mode) =>
-        set({ conversationCollapseMode: mode }),
 
       // Sidebar
       showSidebarWorktrees: false,
@@ -490,8 +477,6 @@ export const useSettingsStore = create<SettingsStore>()(
       downloadUpdatesAutomatically: true,
       dismissibleUpdateBanners: false,
       lastSeenChangelogVersion: null,
-      useNewChatThread: false,
-      setUseNewChatThread: (enabled) => set({ useNewChatThread: enabled }),
       setHedgehogMode: (enabled) => set({ hedgehogMode: enabled }),
       setSlotMachineMode: (enabled) => set({ slotMachineMode: enabled }),
       setBrainrotMode: (enabled) => set({ brainrotMode: enabled }),
@@ -615,7 +600,6 @@ export const useSettingsStore = create<SettingsStore>()(
         terminalGpuRendering: state.terminalGpuRendering,
 
         // Conversation thread (new-thread)
-        conversationCollapseMode: state.conversationCollapseMode,
 
         // Sidebar
         showSidebarWorktrees: state.showSidebarWorktrees,
@@ -628,7 +612,6 @@ export const useSettingsStore = create<SettingsStore>()(
         downloadUpdatesAutomatically: state.downloadUpdatesAutomatically,
         dismissibleUpdateBanners: state.dismissibleUpdateBanners,
         lastSeenChangelogVersion: state.lastSeenChangelogVersion,
-        useNewChatThread: state.useNewChatThread,
 
         // Onboarding hints
         hints: state.hints,

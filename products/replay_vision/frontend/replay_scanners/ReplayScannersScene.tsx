@@ -330,9 +330,9 @@ export function ReplayScannersScene(): JSX.Element {
                     ) : null}
 
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-semibold text-base m-0">Scanners</h3>
-                            <div className="ml-auto flex items-center gap-2">
+                            <div className="ml-auto flex flex-wrap items-center gap-2">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search scanners..."

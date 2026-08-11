@@ -30,6 +30,34 @@ SAMPLING_REDUCTION_FACTOR = 0.9  # Safety margin when reducing target line count
 # Tool formatting
 DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5  # Collapse tool lists longer than this
 
+# OpenAI Responses API item shapes. Unlike Chat Completions messages, these keep their payload
+# outside `content`: tool calls in `arguments` / `input`, tool results in `output`, model
+# reasoning in `summary`. A formatter that reads only `content` renders them as a bare header.
+RESPONSES_TOOL_CALL_TYPES = frozenset({"function_call", "custom_tool_call"})
+RESPONSES_TOOL_OUTPUT_TYPES = frozenset({"function_call_output", "custom_tool_call_output"})
+# Rendered in an unrecognized item's signature line, so its payload dump can skip them.
+RESPONSES_ITEM_METADATA_KEYS = frozenset(
+    {"type", "id", "call_id", "name", "arguments", "input", "status", "encrypted_content"}
+)
+# Any of these makes a dict a Chat Completions message, not a Responses item.
+CHAT_COMPLETIONS_MESSAGE_KEYS = frozenset({"role", "content", "tool_calls"})
+# Blocks that are already plain text, so a `[TYPE]` label would only restate them.
+PLAIN_TEXT_BLOCK_TYPES = frozenset({"text", "input_text", "output_text", "summary_text"})
+# Non-Responses tool blocks with a dedicated renderer in `_format_special_block`.
+SPECIAL_BLOCK_TYPES = frozenset({"tool-call", "tool_use", "function"})
+
+# An unrecognized item dumps its own fields, and one of them can be a base64 image or screenshot.
+# Capping per field keeps the item's shape readable without pushing megabytes into the trace view,
+# where `truncate_content`'s expand marker would otherwise carry the whole value.
+MAX_RESPONSES_FIELD_CHARS = 2000
+OVERSIZED_FIELD_NOTE = "[{chars:,} chars not shown]"
+
+# Placeholders for evidence the event never carried. Without them a reader, or an LLM judge
+# grading the trace, cannot tell a tool that returned nothing from a payload we failed to record.
+MISSING_TOOL_OUTPUT_NOTE = "[tool output not recorded]"
+MISSING_REASONING_NOTE = "[reasoning summary not recorded]"
+MISSING_TOOLS_NOTE = "[tool catalog not recorded]"
+
 # Tree rendering
 MAX_TREE_DEPTH = 10  # Maximum depth for hierarchical trace tree rendering
 

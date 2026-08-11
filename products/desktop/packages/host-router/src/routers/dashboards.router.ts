@@ -4,13 +4,13 @@ import {
   canvasBuildRecordSchema,
 } from "@posthog/core/canvas/canvasBuildSchemas";
 import {
+  canvasBuildsInput,
   canvasSourceInput,
   canvasSourceSchema,
   canvasVersionSchema,
   createDashboardInput,
   dashboardIdInput,
   dashboardRecordSchema,
-  ensureHomeCanvasInput,
   listDashboardsInput,
   renameDashboardInput,
   revertCanvasInput,
@@ -63,12 +63,12 @@ export const dashboardsRouter = router({
         .revertToVersion(input),
     ),
   builds: publicProcedure
-    .input(dashboardIdInput)
+    .input(canvasBuildsInput)
     .output(canvasBuildLifecycleSchema)
     .query(({ ctx, input }) =>
       ctx.container
         .get<IDashboardsService>(DASHBOARDS_SERVICE)
-        .getBuilds(input.id),
+        .getBuilds(input),
     ),
   actOnBuild: publicProcedure
     .input(canvasBuildActionInputSchema)
@@ -113,22 +113,6 @@ export const dashboardsRouter = router({
     .output(dashboardRecordSchema)
     .mutation(({ ctx, input }) =>
       ctx.container.get<IDashboardsService>(DASHBOARDS_SERVICE).rename(input),
-    ),
-  ensureHomeCanvas: publicProcedure
-    .input(ensureHomeCanvasInput)
-    .output(dashboardRecordSchema)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<IDashboardsService>(DASHBOARDS_SERVICE)
-        .ensureHomeCanvas(input.channelId),
-    ),
-  resetHomeCanvas: publicProcedure
-    .input(ensureHomeCanvasInput)
-    .output(dashboardRecordSchema)
-    .mutation(({ ctx, input }) =>
-      ctx.container
-        .get<IDashboardsService>(DASHBOARDS_SERVICE)
-        .resetHomeCanvas(input.channelId),
     ),
   delete: publicProcedure
     .input(dashboardIdInput)

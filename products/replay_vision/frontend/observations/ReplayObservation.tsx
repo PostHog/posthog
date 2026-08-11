@@ -61,6 +61,7 @@ import {
     failureKindDescription,
     ineligibleKindDescription,
     modelLabel,
+    modelNamingVariant,
     parseFailureReason,
     parseIneligibleReason,
     OBSERVATION_TRIGGER_TAG,
@@ -115,6 +116,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -491,6 +493,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         <LabeledRow label="Session">
                             <Link
                                 to={urls.sessionProfile(observation.session_id)}
+                                className="break-all lg:break-normal"
                                 data-attr="vision-observation-session-link"
                             >
                                 {observation.session_id}
@@ -498,11 +501,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                         </LabeledRow>
                         <LabeledRow label="Person">
                             {observation.distinct_id ? (
-                                <Link to={urls.personByDistinctId(observation.distinct_id)}>
+                                <Link
+                                    to={urls.personByDistinctId(observation.distinct_id)}
+                                    className="break-all lg:break-normal"
+                                >
                                     {observation.recording_subject_email ?? observation.distinct_id}
                                 </Link>
                             ) : observation.recording_subject_email ? (
-                                <span>{observation.recording_subject_email}</span>
+                                <span className="break-all lg:break-normal">{observation.recording_subject_email}</span>
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
@@ -539,7 +545,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <div className="flex flex-col gap-3 text-sm">
                         {snapshot?.model && (
                             <LabeledRow label="Model">
-                                <span>{modelLabel(snapshot.model)}</span>
+                                <span>{modelLabel(snapshot.model, namingVariant)}</span>
                             </LabeledRow>
                         )}
                         {summarizerLength && (

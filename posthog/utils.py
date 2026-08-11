@@ -58,7 +58,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_ambiguous_authority
 
 tracer = trace.get_tracer(__name__)
 
@@ -121,7 +121,7 @@ def absolute_uri(url: Optional[str] = None) -> str:
     if not url:
         return settings.SITE_URL
 
-    if has_authority_bypass_chars(url):
+    if has_ambiguous_authority(url):
         raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
@@ -1618,6 +1618,14 @@ def get_safe_cache(cache_key: str):
         except Exception:
             pass
     return None
+
+
+def ensure_utc(value: dt.datetime) -> dt.datetime:
+    """Treat a tz-naive datetime as UTC, so it can be compared against tz-aware values.
+
+    ClickHouse and some third-party APIs hand back naive datetimes that are UTC by contract.
+    """
+    return value if value.tzinfo else value.replace(tzinfo=dt.UTC)
 
 
 def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> None:

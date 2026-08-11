@@ -1,4 +1,4 @@
-"""Fold a shadow-topic message stream into converged per-cohort membership state.
+"""Fold a drained message stream into converged per-cohort membership state.
 
 Max last_updated per (cohort_id, person_id) wins, matching the argMax convergence of the
 old side's ClickHouse table. In practice that is also arrival order (messages are keyed

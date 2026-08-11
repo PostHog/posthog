@@ -102,13 +102,29 @@ class GoogleAdsSource(
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Order matters: the finalization activity shows the message of the *first* pattern that
+        # matches, and Google returns several of the specific codes below under the generic
+        # `PERMISSION_DENIED` / `UNAUTHENTICATED` gRPC statuses. Specific codes therefore come first,
+        # so a scope or deleted-account failure doesn't get the generic access message.
         return {
-            "PERMISSION_DENIED": None,
-            "UNAUTHENTICATED": None,
-            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
-            "Account has been deleted": None,
-            "INVALID_CUSTOMER_ID": None,
+            "ACCESS_TOKEN_SCOPE_INSUFFICIENT": "Your Google Ads connection is missing the access PostHog needs. Reconnect your Google Ads account and allow access to your Google Ads data.",
+            "Account has been deleted": "The Google Ads account this source syncs from has been deleted, so there's nothing left to import. Point the source at an active customer ID, or delete the source.",
+            "INVALID_CUSTOMER_ID": "The customer ID on this source isn't a valid Google Ads account. Update it to the 10-digit customer ID shown in your Google Ads account, then re-enable the sync.",
             "REQUESTED_METRICS_FOR_MANAGER": "Metrics cannot be requested for a Google Ads manager (MCC) account. Reconfigure this source with a client account customer ID, or enable the MCC option and provide both the manager and client customer IDs.",
+            # A gRPC PERMISSION_DENIED (and its ads-level USER_PERMISSION_DENIED counterpart) means the
+            # connected Google login can't reach this customer ID. The sync already retries as the
+            # manager account that can reach it (see `GoogleAdsSearchService`), so anything landing here
+            # is access the login genuinely doesn't have. Its str() is a raw gRPC status and protobuf
+            # dump (with a per-request peer IP) the user can't act on, so replace it.
+            "PERMISSION_DENIED": (
+                "The connected Google login can't access this Google Ads account. Check the customer ID "
+                "is correct and still shared with that login, and if it's a client account under a "
+                'manager (MCC) account, enable "Using MCC account?" and enter your manager\'s customer '
+                "ID. Then reconnect your Google Ads account and re-enable the sync."
+            ),
+            # A gRPC UNAUTHENTICATED means Google rejected the credentials outright. Same story: the raw
+            # status dump is unusable and only reconnecting recovers.
+            "UNAUTHENTICATED": "Your Google Ads connection could not be authenticated. Please reconnect your Google Ads account.",
             # google.auth.exceptions.RefreshError raised when the stored OAuth refresh token
             # has been revoked, expired, or is otherwise rejected by Google's token endpoint.
             # Retrying cannot recover — the user must reconnect their Google Ads account.

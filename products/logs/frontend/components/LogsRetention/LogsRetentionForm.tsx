@@ -1,7 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSegmentedButtonOption,
+    LemonSwitch,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { userLogic } from 'scenes/userLogic'
@@ -16,11 +23,14 @@ import { RETENTION_DAYS_OPTIONS, logsRetentionFormLogic } from './logsRetentionF
 import { buildRetentionProjection, retentionProjectionText } from './retentionStorageProjection'
 
 export function LogsRetentionForm(): JSX.Element {
-    const { retentionForm, retentionFormErrors } = useValues(logsRetentionFormLogic)
-    const { setRetentionFormValue } = useActions(logsRetentionFormLogic)
+    const { retentionForm, retentionFormErrors, suggestedName, suggestedNameLoading } =
+        useValues(logsRetentionFormLogic)
+    const { setRetentionFormValue, applySuggestedName } = useActions(logsRetentionFormLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const hasFilters = retentionForm.filter_group.values.length > 0
+    // Hide the hint once it matches what's in the field — the link would be a no-op.
+    const showSuggestion = !!suggestedName?.name && suggestedName.name !== retentionForm.name.trim()
 
     // Gate paid tiers on the org entitlement, mirroring the team-wide LogsRetentionSettings — the
     // backend rejects an unentitled tier with a 403, so disable it here rather than fail on save.
@@ -36,7 +46,22 @@ export function LogsRetentionForm(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
             <div className="flex flex-col gap-3">
-                <LemonField.Pure label="Name" error={retentionFormErrors.name}>
+                <LemonField.Pure
+                    label="Name"
+                    error={retentionFormErrors.name}
+                    help={
+                        suggestedNameLoading ? (
+                            <span>Suggesting a name…</span>
+                        ) : showSuggestion ? (
+                            <span className="flex items-center gap-1 flex-wrap">
+                                <span>
+                                    Suggested: <span className="font-medium">{suggestedName.name}</span>
+                                </span>
+                                <Link onClick={applySuggestedName}>Use suggested name</Link>
+                            </span>
+                        ) : undefined
+                    }
+                >
                     <LemonInput
                         value={retentionForm.name}
                         onChange={(v) => setRetentionFormValue('name', v)}

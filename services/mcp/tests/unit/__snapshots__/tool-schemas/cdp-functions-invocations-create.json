@@ -10,9 +10,15 @@
             "type": "object"
         },
         "configuration": {
-            "description": "Full function configuration to test.",
+            "description": "Full function configuration to test. Omit when use_draft is true.",
             "properties": {
                 "_create_in_folder": {
+                    "type": "string"
+                },
+                "base_updated_at": {
+                    "description": "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
                 },
                 "batch_export_id": {
@@ -125,6 +131,22 @@
                 "description": {
                     "description": "Human-readable description of what this function does.",
                     "type": "string"
+                },
+                "draft": {
+                    "description": "Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear."
+                },
+                "draft_updated_at": {
+                    "anyOf": [
+                        {
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "When config was last staged for review, or null when nothing is staged."
                 },
                 "enabled": {
                     "description": "Whether the function is active and processing events.",
@@ -816,6 +838,10 @@
                     "format": "date-time",
                     "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
+                },
+                "version": {
+                    "description": "Incremented every time the live config changes. See the revisions endpoint.",
+                    "type": "number"
                 }
             },
             "type": "object"
@@ -847,8 +873,13 @@
             "default": true,
             "description": "When true (default), async functions like fetch() are simulated.",
             "type": "boolean"
+        },
+        "use_draft": {
+            "default": false,
+            "description": "Test the function's staged draft instead of passing a configuration. Staged secret inputs are used; secrets the draft doesn't change fall back to the live values. 400 when nothing is staged.",
+            "type": "boolean"
         }
     },
-    "required": ["id", "configuration"],
+    "required": ["id"],
     "type": "object"
 }

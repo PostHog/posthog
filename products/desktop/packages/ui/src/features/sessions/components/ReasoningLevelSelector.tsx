@@ -18,7 +18,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -37,10 +36,15 @@ import {
 } from "@posthog/shared/domain-types";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import {
+  type AgentHarness,
+  HarnessSubmenu,
+} from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
+import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { AnimatePresence, motion } from "framer-motion";
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { flattenSelectOptions } from "../sessionStore";
 import { useRetainedConfigOption } from "../useRetainedConfigOption";
 import {
@@ -49,11 +53,6 @@ import {
   type ReasoningLevelOption,
   ReasoningSliderFace,
 } from "./ReasoningLevelDropdown";
-
-const ADAPTER_LABELS: Record<AgentAdapter, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-};
 
 // Separates model and effort in a slider stop key; never appears in ids.
 const STOP_SEPARATOR = "|";
@@ -67,36 +66,11 @@ interface ReasoningLevelSelectorProps {
   onChange?: (value: string) => void;
   onModelChange?: (value: string) => void;
   onAdapterChange?: (adapter: AgentAdapter) => void;
+  onHarnessChange?: (harness: AgentHarness) => void;
+  includePiHarness?: boolean;
   onConfigOptionChange?: (configId: string, value: string) => void;
   disabled?: boolean;
   isLoading?: boolean;
-}
-
-/** Tweens the menu's height between the slider and advanced views so the
- * popup morphs instead of snapping when the content swaps. */
-function AnimatedHeight({ children }: { children: React.ReactNode }) {
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [height, setHeight] = useState<number | "auto">("auto");
-
-  useLayoutEffect(() => {
-    const node = contentRef.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setHeight(node.offsetHeight));
-    observer.observe(node);
-    setHeight(node.offsetHeight);
-    return () => observer.disconnect();
-  }, []);
-
-  return (
-    <motion.div
-      initial={false}
-      animate={{ height }}
-      transition={{ duration: 0.18, ease: [0.3, 0.9, 0.3, 1] }}
-      className="overflow-hidden"
-    >
-      <div ref={contentRef}>{children}</div>
-    </motion.div>
-  );
 }
 
 function toDropdownOptions(
@@ -125,6 +99,8 @@ export function ReasoningLevelSelector({
   onChange,
   onModelChange,
   onAdapterChange,
+  onHarnessChange,
+  includePiHarness,
   onConfigOptionChange,
   disabled,
   isLoading,
@@ -396,34 +372,30 @@ export function ReasoningLevelSelector({
                 transition={{ duration: 0.12, ease: "easeOut" }}
               >
                 {onNotch && <BackRow onClick={() => setAdvanced(false)} />}
-                {onAdapterChange && adapter && (
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger>
-                      <span>Harness</span>
-                      <span className="flex-1 text-right text-muted-foreground">
-                        {ADAPTER_LABELS[adapter]}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuRadioGroup
-                        value={adapter}
-                        onValueChange={(value) => {
-                          if (value !== adapter) {
-                            selectAndClose(() =>
-                              onAdapterChange(value as AgentAdapter),
-                            );
-                          }
-                        }}
-                      >
-                        <DropdownMenuRadioItem value="claude">
-                          Claude Code
-                        </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="codex">
-                          Codex
-                        </DropdownMenuRadioItem>
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                {adapter && (onAdapterChange || onHarnessChange) && (
+                  <HarnessSubmenu
+                    value={adapter}
+                    includePi={includePiHarness && !!onHarnessChange}
+                    onChange={(harness) => {
+                      if (harness === adapter) {
+                        return;
+                      }
+
+                      selectAndClose(() => {
+                        if (harness === "pi") {
+                          onHarnessChange?.(harness);
+                          return;
+                        }
+
+                        if (onHarnessChange) {
+                          onHarnessChange(harness);
+                          return;
+                        }
+
+                        onAdapterChange?.(harness);
+                      });
+                    }}
+                  />
                 )}
                 {modelSelect && (
                   <DropdownMenuSub>

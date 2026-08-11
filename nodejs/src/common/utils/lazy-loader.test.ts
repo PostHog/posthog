@@ -380,6 +380,14 @@ describe('LazyLoader', () => {
             // so this observes a scheduled reload without waiting out the buffer for it to surface.
             expect(loadSpy).toHaveBeenCalledTimes(0)
             expect(loader).toHaveBeenCalledTimes(0)
+
+            // Past where the background deadline would sit if the null were stamped with
+            // refreshBackgroundAgeMs (start+3.5min), still inside the null TTL that runs to
+            // start+4.5min.
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 4)
+            expect(await lazyLoader.get('key1')).toBeNull()
+            expect(loadSpy).toHaveBeenCalledTimes(0)
+            expect(loader).toHaveBeenCalledTimes(0)
         })
 
         it('re-caches a key that reloads from null to null', async () => {
@@ -481,6 +489,21 @@ describe('LazyLoader', () => {
             expect(Object.keys(cache).length).toBe(2)
             // When all have the same lastUsed time, eviction order depends on iteration order
             // Just verify we have exactly 2 entries
+        })
+
+        it('evicts down to maxSize when the loader omits every requested key', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                maxSize: 2,
+                refreshJitterMs: 0,
+            })
+
+            // Nulls for omitted keys are cached like any other value, so they count against maxSize.
+            loader.mockResolvedValueOnce({})
+            await customLoader.getMany(['key1', 'key2', 'key3'])
+
+            expect(Object.keys(customLoader.getCache()).length).toBe(2)
         })
     })
 

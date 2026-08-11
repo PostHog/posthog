@@ -160,7 +160,7 @@ const meta: Meta<typeof EditAlertModal> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-07-16',
-        featureFlags: [FEATURE_FLAGS.ALERTS_REDESIGNED_EDIT_MODAL, FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS],
+        featureFlags: [FEATURE_FLAGS.ALERTS_INLINE_NOTIFICATIONS],
         testOptions: { viewport: { width: 1300, height: 900 } },
     },
 }
