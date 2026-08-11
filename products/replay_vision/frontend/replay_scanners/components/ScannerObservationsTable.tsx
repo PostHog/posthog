@@ -12,9 +12,9 @@ import { urls } from 'scenes/urls'
 import { DateMappingOption } from '~/types'
 
 import { FilterPill } from '../../components/FilterPill'
+import { NumericRangeFilterPill } from '../../components/NumericRangeFilterPill'
 import { ObservationResultSummary, ObservationStatusTag } from '../../components/ObservationCard'
 import { ObservationRetryButton } from '../../components/ObservationRetryButton'
-import { ScoreRangeFilterPill } from '../../components/ScoreRangeFilterPill'
 import type { ReplayObservationApi } from '../../generated/api.schemas'
 import { observationDetailUrl } from '../../observations/replayObservationLogic'
 import {
@@ -289,12 +289,14 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     />
                                 )}
                                 {scannerType === 'scorer' && (
-                                    <ScoreRangeFilterPill
+                                    <NumericRangeFilterPill
+                                        label="Score"
                                         min={observationMinScoreFilter}
                                         max={observationMaxScoreFilter}
                                         scaleMin={scoreScale?.min}
                                         scaleMax={scoreScale?.max}
                                         onChange={setObservationScoreRange}
+                                        dataAttr="vision-observations-score-filter"
                                     />
                                 )}
                                 {scannerType === 'classifier' && tagFilterOptions.length > 0 && (
