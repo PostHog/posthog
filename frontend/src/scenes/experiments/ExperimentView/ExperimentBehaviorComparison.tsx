@@ -115,9 +115,9 @@ function WatchCard({
 }
 
 /**
- * One card per metric event rather than one per (event, variant), which on a five-variant
- * experiment was ten near-identical cards claiming nothing beside one real finding. The variant
- * chips carry what those cards carried: each picks that variant's own recordings.
+ * One card per metric event rather than one per (event, variant): the per-variant shape puts ten
+ * near-identical cards claiming nothing beside one real finding on a five-variant experiment. The
+ * variant chips do the per-variant work, each picking that variant's own recordings.
  */
 function MetricEventCard({
     event,
@@ -148,15 +148,16 @@ function MetricEventCard({
                                 size="xsmall"
                                 type="secondary"
                                 active={selected}
+                                aria-pressed={selected}
                                 onClick={() => onSelect(selected ? null : card)}
                                 tooltip={`${pluralize(card.recording_count, 'recording')} in ${card.variant}`}
                                 data-attr="experiment-watch-metric-variant"
                             >
                                 <span className="flex items-center gap-1.5">
                                     <VariantTag variantKey={card.variant} fontSize={11} />
-                                    {/* The count the collapsed cards used to carry on their face.
-                                        Losing it to a tooltip would make two variants of the same
-                                        event look interchangeable. */}
+                                    {/* The count stays on the chip's face rather than in the
+                                        tooltip: without it two variants of the same event look
+                                        interchangeable. */}
                                     <span className="text-xs text-secondary">{card.recording_count}</span>
                                 </span>
                             </LemonButton>
@@ -279,11 +280,13 @@ function HighlightList({
     onOpenHighlight: (card: ExperimentWatchCardApi, sessionId: string, position: number) => void
 }): JSX.Element {
     if (card.highlights.length === 0) {
-        // Silence here would read as the strip being broken; that no recording carries a signal
-        // is itself the answer to "which one should I open?".
+        // Silence here would read as the strip being broken; an empty strip is itself the answer
+        // to "which one should I open?". Worded without a claim about the recordings themselves,
+        // because highlights can also be missing when the viewer can't open the recordings that
+        // carried them.
         return (
             <div className="text-xs text-muted" data-attr="experiment-watch-no-highlights">
-                None of these recordings stands out from the rest. Start with any of them in the list below.
+                No standout recordings to suggest here. Start with any of them in the list below.
             </div>
         )
     }
@@ -358,7 +361,8 @@ export function ExperimentBehaviorComparison({
     onWatchRecording,
 }: {
     experiment: Experiment
-    onWatchRecording: (sessionId: string) => void
+    /** Opens a recording in the playlist below; returns false when nothing could be opened. */
+    onWatchRecording: (sessionId: string) => boolean
 }): JSX.Element | null {
     const logic = experimentReplayTabLogic({ experiment })
     const {
@@ -399,8 +403,12 @@ export function ExperimentBehaviorComparison({
                     onSelect={selectWatchCard}
                     recordingsById={loadedRecordingsById}
                     onOpenHighlight={(card, sessionId, position) => {
-                        watchHighlightOpened(card, position)
-                        onWatchRecording(sessionId)
+                        // Reported only when a recording actually opened: this event is the
+                        // feature's success metric, and a click that silently did nothing must
+                        // not count toward it.
+                        if (onWatchRecording(sessionId)) {
+                            watchHighlightOpened(card, position)
+                        }
                     }}
                 />
             )}

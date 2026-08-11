@@ -16,6 +16,7 @@ import { loaders } from 'kea-loaders'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { groupBy } from 'lib/utils/arrays'
 import {
     ExperimentRecordingsBucketFailedContext,
     ExperimentRecordingsBucketLoadedContext,
@@ -52,6 +53,7 @@ import {
     experimentsSessionContextsCreate,
     experimentsSessionEventDeltasCreate,
 } from 'products/experiments/frontend/generated/api'
+import { ExperimentWatchCardKindEnumApi } from 'products/experiments/frontend/generated/api.schemas'
 import type {
     ExperimentSessionBucketResponseApi,
     ExperimentSessionBucketEnumApi,
@@ -175,7 +177,6 @@ export interface experimentReplayTabLogicValues {
     exposureUnlinkable: boolean
     loadedRecordings: ExperimentReplayRecording[]
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
-    loadedSessionIds: string[]
     metricFilterMode: ExperimentReplayMetricFilterMode
     metricOptions: ExperimentReplayMetricOption[]
     recordingsFilters: RecordingUniversalFilters
@@ -351,7 +352,6 @@ export interface experimentReplayTabLogicActions {
 export interface experimentReplayTabLogicMeta {
     key: ExperimentIdType
     __keaTypeGenInternalSelectorTypes: {
-        loadedSessionIds: (loadedRecordings: ExperimentReplayRecording[]) => string[]
         loadedRecordingsById: (loadedRecordings: ExperimentReplayRecording[]) => Map<string, ExperimentReplayRecording>
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
@@ -623,11 +623,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         ],
     }),
     selectors({
-        loadedSessionIds: [
-            (s) => [s.loadedRecordings],
-            (loadedRecordings: ExperimentReplayRecording[]): string[] =>
-                loadedRecordings.map((recording) => recording.id),
-        ],
         loadedRecordingsById: [
             (s) => [s.loadedRecordings],
             (loadedRecordings: ExperimentReplayRecording[]): Map<string, ExperimentReplayRecording> =>
@@ -905,6 +900,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     // against replay existence, so unlike an event filter this list can't come
                     // back empty.
                     session_ids: selectedWatchCard ? selectedWatchCard.session_ids : bucketSessionIds,
+                    // A card's sessions are picked with no duration floor, so the default "more
+                    // than 5 active seconds" filter would silently drop the short ones (a rage
+                    // click and an abandon can fit in less) and the list would show fewer
+                    // recordings than the card promises.
+                    duration: selectedWatchCard ? [] : DEFAULT_RECORDING_FILTERS.duration,
                     date_from: experiment.start_date ?? DEFAULT_RECORDING_FILTERS.date_from,
                     date_to: experiment.end_date ?? null,
                     filter_test_accounts: experiment.exposure_criteria?.filterTestAccounts ?? false,
@@ -971,14 +971,17 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (!sessionEventDeltas) {
                 return
             }
-            const kindCount = (kind: string): number =>
-                sessionEventDeltas.cards.filter((card) => card.kind === kind).length
+            // Counted through the generated enum rather than string literals, so a renamed or
+            // added kind breaks the compile here instead of silently reporting zero in the
+            // telemetry the evidence floors are tuned from.
+            const cardsByKind = groupBy(sessionEventDeltas.cards, (card) => card.kind)
+            const kindCount = (kind: ExperimentWatchCardKindEnumApi): number => cardsByKind[kind]?.length ?? 0
             actions.reportExperimentBehaviorComparisonLoaded(props.experiment.id, {
                 too_early: sessionEventDeltas.too_early,
-                behavior_cards: kindCount('behavior'),
-                friction_cards: kindCount('friction'),
-                variant_only_cards: kindCount('variant_only'),
-                metric_cards: kindCount('metric'),
+                behavior_cards: kindCount(ExperimentWatchCardKindEnumApi.Behavior),
+                friction_cards: kindCount(ExperimentWatchCardKindEnumApi.Friction),
+                variant_only_cards: kindCount(ExperimentWatchCardKindEnumApi.VariantOnly),
+                metric_cards: kindCount(ExperimentWatchCardKindEnumApi.Metric),
             })
         },
         selectWatchCard: ({ card }) => {
@@ -1014,7 +1017,9 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         // and cache reads; only expired entries recompute. The opened recording is excluded —
         // the player is fetching it right now, and including it would compute it twice.
         recordingOpened: ({ sessionId }) => {
-            actions.prefetchSessionContexts(values.loadedSessionIds.filter((id) => id !== sessionId))
+            actions.prefetchSessionContexts(
+                values.loadedRecordings.map((recording) => recording.id).filter((id) => id !== sessionId)
+            )
             actions.reportExperimentRecordingOpened(props.experiment.id, {
                 variant: values.effectiveVariantKey,
                 metric_filter_mode: values.metricFilterMode,

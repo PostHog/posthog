@@ -907,6 +907,7 @@ describe('experimentReplayTabLogic', () => {
             logic.actions.setMetricFilterMode('no_metric_activity')
         }).toFinishAllListeners()
         expect(logic.values.recordingsFilters.session_ids).toEqual(['bucket-1', 'bucket-2'])
+        expect(logic.values.recordingsFilters.duration).not.toEqual([])
 
         await expectLogic(logic, () => {
             logic.actions.selectWatchCard(DELTA_RESPONSE.cards[0] as any)
@@ -920,6 +921,9 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.metricFilterMode).toBe('fired_all')
         expect(logic.values.selectedMetricUuids).toEqual([])
         expect(logic.values.recordingsFilters.session_ids).toEqual(['card-session-1', 'card-session-2'])
+        // The card's sessions are picked with no duration floor, so the default active-seconds
+        // filter must not thin out the list the card's count promises.
+        expect(logic.values.recordingsFilters.duration).toEqual([])
         // The card's ids already encode the event condition, so no event filter is added on top —
         // only the exposure filter stays, keeping the list's definition visible.
         expect(logic.values.recordingsFilters.filter_group.values).toEqual([

@@ -4030,7 +4030,7 @@
         "feature": "experiments",
         "summary": "Find recordings worth watching per variant",
         "title": "Find recordings worth watching per variant",
-        "required_scopes": ["experiment:read"],
+        "required_scopes": ["experiment:read", "session_recording:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

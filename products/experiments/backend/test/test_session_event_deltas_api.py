@@ -352,6 +352,26 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         assert data["metric_events"] == ["purchase", "server charge"]
 
     @rank_anything
+    def test_a_metric_event_whose_comparison_card_has_no_recordings_falls_back_to_shortcuts(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        self._arm("control", [["purchase"], ["purchase"], [], []])
+        # `purchase` over-fires in test, so the comparison candidate lands there — but none of
+        # test's sessions were recorded, so that card dies on the replay existence check. The
+        # shortcut route must come back for the other arms' playable recordings, or the
+        # experiment's own metric vanishes from the shelf entirely.
+        for _ in range(4):
+            self._session(variants=["test"], events=["purchase"], recorded=False)
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        assert self._cards(data, "behavior") == []
+        metric_cards = self._cards(data, "metric")
+        assert [(card["event"], card["variant"], card["metric_name"]) for card in metric_cards] == [
+            ("purchase", "control", "Purchases")
+        ]
+
+    @rank_anything
     @patch.object(session_event_deltas, "MAX_METRIC_CARD_EVENTS", 1)
     def test_metric_shortcut_cards_follow_the_experiments_own_metric_order(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC])

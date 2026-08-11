@@ -1960,8 +1960,8 @@ class ExperimentWatchCardSerializer(serializers.Serializer):
             "each one carries: recordings showing several kinds of signal at once come before recordings "
             "showing more of a single kind. Offer these before the full list: the recordings list orders "
             "by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share "
-            "an event are otherwise indistinguishable in it. Empty when none of the card's recordings carries a "
-            "signal, which is worth saying rather than hiding."
+            "an event are otherwise indistinguishable in it. Empty when no recording the viewer can open "
+            "carries a signal, which is worth saying rather than hiding."
         ),
     )
 

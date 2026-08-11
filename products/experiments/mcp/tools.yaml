@@ -1361,11 +1361,12 @@ tools:
         enabled: true
         scopes:
             - experiment:read
+            - session_recording:read
         annotations:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
+        enrich_url: '{params.id}'
         title: Find recordings worth watching per variant
         description: >
             Requires a launched experiment's ID. If you don't have the ID, load the finding-experiments skill to resolve

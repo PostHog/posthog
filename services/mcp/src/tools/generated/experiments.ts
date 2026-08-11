@@ -1278,7 +1278,7 @@ const experimentsSessionEventDeltasCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/session_event_deltas/`,
         })
-        return await withPostHogUrl(context, result, `/experiments/${result.id}`)
+        return await withPostHogUrl(context, result, `/experiments/${params.id}`)
     },
 })
 

@@ -31130,7 +31130,7 @@ export namespace Schemas {
       recording_count: number;
       /** The recordings themselves, most recent first, ready to hand to the recordings list as-is. */
       session_ids: string[];
-      /** Which of the card's recordings to open first, at most 3, ranked by how much each one carries: recordings showing several kinds of signal at once come before recordings showing more of a single kind. Offer these before the full list: the recordings list orders by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share an event are otherwise indistinguishable in it. Empty when none of the card's recordings carries a signal, which is worth saying rather than hiding. */
+      /** Which of the card's recordings to open first, at most 3, ranked by how much each one carries: recordings showing several kinds of signal at once come before recordings showing more of a single kind. Offer these before the full list: the recordings list orders by its own sort, so session_ids order never reaches the viewer, and twenty recordings that share an event are otherwise indistinguishable in it. Empty when no recording the viewer can open carries a signal, which is worth saying rather than hiding. */
       highlights: ExperimentWatchHighlight[];
     }
 
