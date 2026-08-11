@@ -45,6 +45,7 @@ import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -3372,6 +3373,47 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const isWidgetTile = !!tile.widget
             const removedMessage = isWidgetTile ? 'widget removed' : 'has been removed from the dashboard'
             const toastId = `remove-tile-${tile.id}`
+            const otherDashboardIds = new Set(
+                (
+                    tile.insight?.dashboard_tiles?.map((dashboardTile) => dashboardTile.dashboard_id) ??
+                    tile.insight?.dashboards ??
+                    []
+                ).filter((dashboardId) => dashboardId !== props.id)
+            )
+            const deleteInsight = (): void => {
+                if (!tile.insight) {
+                    return
+                }
+
+                const otherDashboardCount = otherDashboardIds.size
+                const dashboardSuffix = otherDashboardCount === 1 ? '' : 's'
+                const otherDashboardDescription =
+                    otherDashboardCount > 0
+                        ? `This insight is also used on ${otherDashboardCount} other dashboard${dashboardSuffix}. `
+                        : ''
+
+                LemonDialog.open({
+                    title: 'Delete insight?',
+                    description: `${otherDashboardDescription}Deleting it will remove it from every dashboard. You can undo this action.`,
+                    primaryButton: {
+                        children: 'Delete insight',
+                        status: 'danger',
+                        onClick: () => {
+                            void deleteInsightWithUndo({
+                                object: tile.insight!,
+                                endpoint: `projects/${values.currentTeamId}/insights`,
+                                callback: (undo) => {
+                                    dashboardsModel.actions.updateDashboardInsight(
+                                        { ...tile.insight!, deleted: !undo },
+                                        [props.id, ...otherDashboardIds]
+                                    )
+                                },
+                            })
+                        },
+                    },
+                    secondaryButton: { children: 'Cancel' },
+                })
+            }
 
             lemonToast.info(
                 <>
@@ -3412,6 +3454,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             }
                         },
                     },
+                    secondaryButton: tile.insight
+                        ? {
+                              label: 'Delete insight',
+                              dataAttr: 'delete-removed-insight',
+                              action: deleteInsight,
+                          }
+                        : undefined,
                 }
             )
         },

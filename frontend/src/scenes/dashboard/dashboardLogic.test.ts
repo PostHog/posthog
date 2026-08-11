@@ -2413,6 +2413,48 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('insight tiles', () => {
+        let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
+        let lemonDialogOpenSpy: jest.SpiedFunction<typeof LemonDialog.open>
+
+        beforeEach(async () => {
+            lemonToastInfoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+            lemonDialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => undefined)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            lemonToastInfoSpy.mockRestore()
+            lemonDialogOpenSpy.mockRestore()
+        })
+
+        it('offers to delete a removed insight and explains its other dashboard usage', async () => {
+            const insightTile = logic.values.insightTiles[0]
+
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(insightTile)
+            }).toFinishAllListeners()
+
+            const toastOptions = lemonToastInfoSpy.mock.calls.at(-1)?.[1]
+            expect(toastOptions?.secondaryButton).toMatchObject({
+                label: 'Delete insight',
+                dataAttr: 'delete-removed-insight',
+            })
+
+            toastOptions?.secondaryButton?.action()
+
+            expect(lemonDialogOpenSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    title: 'Delete insight?',
+                    description:
+                        'This insight is also used on 1 other dashboard. Deleting it will remove it from every dashboard. You can undo this action.',
+                })
+            )
+        })
+    })
+
     describe('widget tiles', () => {
         let lemonToastInfoSpy: jest.SpiedFunction<typeof lemonToast.info>
 
