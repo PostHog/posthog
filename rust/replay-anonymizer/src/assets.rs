@@ -34,9 +34,10 @@ pub fn is_media_src_attr(name: &str) -> bool {
 /// True for a tag whose `src` names an image.
 ///
 /// `TagKind::Media` is too broad to decide this. It also covers `video`, `audio`, `track` and
-/// `source`, whose `src` is a movie, a sound file, a WebVTT subtitle document, or an alternative
-/// for whichever of those the parent is. `source` is excluded because its meaning depends on its
-/// parent, and the walk does not carry one.
+/// `source`. Their `src` is a movie, a sound file, or a WebVTT subtitle document.
+///
+/// `source` is excluded because its meaning depends on its parent, and the walk does not carry
+/// one.
 pub(crate) fn tag_src_is_image(tag: &str) -> bool {
     matches!(
         tag.to_ascii_lowercase().as_str(),
@@ -48,13 +49,15 @@ pub(crate) fn tag_src_is_image(tag: &str) -> bool {
 ///
 /// A subset of [`MEDIA_SRC_ATTRS`], because the rest do not name one fetchable image.
 ///
-/// `src` and `rr_src` need the tag as well as the name. Without that check the lane collects the
-/// `src` of a `<video>`, an `<audio>`, or a `<track>`, and on the mutation path, where rrweb sends
-/// attributes with no tag at all, it collects any `src` whatsoever, including an `<iframe>` or a
-/// `<script>`. The fetch lane is sized and reasoned about as downloading images, so feeding it
-/// video, subtitle text, or third-party JavaScript is both a different workload and a different
-/// data-classification question. `tag_src_is_image` is false on the tagless mutation path, which
-/// declines rather than guesses.
+/// `src` and `rr_src` need the tag as well as the name.
+///
+/// Without the tag check, the lane collects the `src` of a `<video>`, an `<audio>` or a `<track>`.
+/// The mutation path is worse: rrweb sends attributes with no tag, so any `src` passes, including
+/// one from an `<iframe>` or a `<script>`.
+///
+/// The fetch lane is sized to download images. Video, subtitle text and third-party JavaScript are
+/// a different workload and a different data-classification question. `tag_src_is_image` is false
+/// on the tagless mutation path, so that path declines rather than guesses.
 ///
 /// `poster` needs no tag check. It exists only on a video element and it always names a still
 /// image.
@@ -111,8 +114,8 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object<'_>, tag_src_is_image: bool)
             let blurred = ctx.scrub_image(&existing, ImageFallback::Placeholder);
             attrs.insert(Cow::Borrowed(*key), string_value(blurred));
         } else {
-            // A ref here means the fetch lane will download this URL and scrub it out of band, so
-            // the attribute can carry a join key instead of the placeholder. Until those bytes
+            // A ref here means the fetch lane downloads this URL and scrubs it out of band. The
+            // attribute can therefore carry a join key instead of the placeholder. Until those bytes
             // land the ref is dangling, which readers already render as the placeholder, so the
             // worst case matches the behaviour this replaces.
             let collected = is_fetchable_src_attr(key, tag_src_is_image)

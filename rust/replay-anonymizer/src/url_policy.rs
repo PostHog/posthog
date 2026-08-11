@@ -2,15 +2,14 @@
 //! are.
 //!
 //! Separate from [`crate::url_collect`] on purpose. That module accumulates the URLs of one
-//! message; this one holds the policy, and the policy has more than one consumer. The fetch lane
-//! has to apply the same host rule again at request time, on the resolved address and on every
-//! redirect hop, because a name that resolves publicly now can resolve privately later. The fetch
-//! lane also has to canonicalize what it fetched to find its ledger entry.
+//! message. This one holds the policy, and the policy has more than one consumer.
 //!
-//! That second consumer is in another language, so `tests/fixtures/url-policy.json` pins these
-//! rules as data. The Rust side checks itself against that file, and the fetch lane can check
-//! itself against the same one, in the way `image-hash.json` already pins the image hash across
-//! both engines.
+//! The fetch lane applies the same host rule again at request time. It applies it to the resolved
+//! address, and to every redirect hop, because a name that resolves publicly now can resolve
+//! privately later. The fetch lane also canonicalizes what it fetched, to find its ledger entry.
+//!
+//! The fetch lane runs in another language. The registrable domain therefore travels with each
+//! URL as data, so that lane reads the result and never repeats the rule.
 
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
@@ -21,17 +20,20 @@ use url::Url;
 
 /// Query parameters that change on each page load without changing the image behind the URL.
 ///
-/// **This is an allow list of names, and it must stay one.** Never add a rule about the *shape* of
-/// a value: "looks random" and "is long" both describe real image parameters too.
+/// **This is an allow list of names. It must stay one.**
+///
+/// Never add a rule about the *shape* of a value. "Looks random" and "is long" both describe real
+/// image parameters.
 ///
 /// **Never add a name that also selects an image.** `w`, `h`, `q`, `fm`, `dpr`, `fit`, `auto`,
 /// `format`, `resize`, `crop` and `quality` all do. Collapsing those onto one ref would point one
 /// ref at several genuinely different images, and nothing downstream can detect it.
 ///
 /// Only unambiguous names live here. A short name that one vendor uses for a signature and another
-/// uses for a size belongs in [`SCOPED_VOLATILE_PARAMS`], where a marker keeps it honest. `s` is
-/// the example that forced the split: imgix signs with it, and Gravatar sizes with it, so removing
-/// it unconditionally made a 48-pixel avatar and a 200-pixel avatar the same image.
+/// uses for a size belongs in [`SCOPED_VOLATILE_PARAMS`], where a marker keeps it honest.
+///
+/// `s` is the name that forced the split. imgix signs with it. Gravatar sizes with it. Removing it
+/// everywhere made a 48-pixel avatar and a 200-pixel avatar the same image.
 const VOLATILE_PARAMS: &[&str] = &[
     // AWS SigV4 presigned (S3, CloudFront). Long and vendor-prefixed, so unambiguous.
     "x-amz-algorithm",
@@ -90,8 +92,8 @@ pub const MAX_URL_LEN: usize = 2048;
 
 /// The politeness unit for a host: the registrable domain, or the host itself when it has none.
 ///
-/// A rate limit protects the operator that answers the request, not a DNS label, and a CDN that
-/// shards over `img1..img8.cdn.example.com` would otherwise receive eight times the intended rate.
+/// A rate limit protects the operator that answers the request, not a DNS label. A CDN that shards
+/// over `img1..img8.cdn.example.com` would otherwise receive eight times the intended rate.
 /// The fetch topic keys on this, so every URL of one operator lands on one partition and one pod
 /// holds its budget without a distributed lock.
 ///
@@ -127,10 +129,11 @@ pub struct CanonicalUrl {
 
 /// Whether one parameter of this URL is volatile.
 ///
-/// `present` holds every parameter name on this URL, already lowercased, which is what lets a
-/// scoped group require its marker. It is built once per URL: asking the question by scanning the
-/// parameter list made the check quadratic in the parameter count, and a page controls both the
-/// number of parameters and the number of URLs.
+/// `present` holds every parameter name on this URL, already lowercased. A scoped group needs it
+/// to test for its marker.
+///
+/// The set is built once for each URL. A scan of the parameter list made this check quadratic in
+/// the parameter count, and a page controls both that count and the number of URLs.
 fn is_volatile(name: &str, host: &str, present: &HashSet<String>) -> bool {
     if VOLATILE_PARAMS.iter().any(|p| p.eq_ignore_ascii_case(name)) {
         return true;
@@ -150,19 +153,19 @@ fn is_volatile(name: &str, host: &str, present: &HashSet<String>) -> bool {
 
 /// Whether a host is one we would ever fetch from.
 ///
-/// The URL set is built from page content, which an attacker controls, and it exists to be handed
-/// to something that makes outbound requests from inside our network. A page carrying
+/// A page controls the URL set, and the set exists to be handed to something that makes outbound
+/// requests from inside our network. A page carrying
 /// `<img src="http://169.254.169.254/...">` must not become a fetch instruction for the cloud
 /// metadata endpoint.
 ///
-/// This is not a substitute for re-checking at fetch time. A name that resolves publicly now can
-/// resolve privately later, so the fetcher still has to validate the address DNS returns, on the
-/// first request and on every redirect hop.
+/// This is not a substitute for a check at fetch time. A name that resolves publicly now can
+/// resolve privately later. The fetcher therefore validates the address DNS returns, on the first
+/// request and on every redirect hop.
 pub fn is_public_host(host: &str) -> bool {
     let bare = host.trim_matches(|c| c == '[' || c == ']');
-    // A trailing dot makes a name fully qualified and resolves identically. Without stripping it,
-    // `rsplit('.')` yields the empty label after the dot, which matches no suffix, so `localhost.`
-    // walked straight past the name list.
+    // A trailing dot makes a name fully qualified, and it resolves the same way. Without this
+    // strip, `rsplit('.')` returns the empty label after the dot. That label matches no suffix, so
+    // the name list accepted `localhost.`.
     let bare = bare.strip_suffix('.').unwrap_or(bare);
     if let Ok(ip) = bare.parse::<IpAddr>() {
         return is_public_ip(ip);
@@ -255,8 +258,8 @@ fn is_public_v4(v4: Ipv4Addr) -> bool {
         || o[0] >= 240)
 }
 
-/// Why a URL was not collected. Each variant is a label on the decline counter, so a lane that
-/// silently collects less than it should can be read off a dashboard rather than guessed at.
+/// Why a URL was not collected. Each variant is a label on the decline counter. A lane
+/// that collects less than it should then reads off a dashboard, rather than being guessed at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Decline {
     /// Longer than [`MAX_URL_LEN`], before or after normalization.
@@ -327,10 +330,11 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
         .filter(|(k, _)| !is_volatile(k, &host, &present))
         .collect();
 
-    // The query is rebuilt on every URL that has one, not only when something was removed.
-    // Rebuilding conditionally made the dedup URL depend on whether a volatile parameter happened
-    // to be present: two encodings of one query would then hash the same when a signature rode
-    // along, and differently when it did not, so one image could hold two refs.
+    // Rebuild the query on every URL that has one, not only when a parameter was removed.
+    //
+    // A conditional rebuild made the dedup URL depend on an unrelated fact. Two encodings of one
+    // query hashed the same when a signature was present. They hashed differently when it was
+    // absent. One image could therefore hold two refs.
     if url.query().is_some() {
         if kept.is_empty() {
             url.set_query(None);
@@ -438,7 +442,7 @@ mod tests {
         // 48-pixel avatar and a 200-pixel avatar the same image.
         assert!(!volatile("s", "www.gravatar.com", &[]));
         assert!(volatile("s", "images.imgix.net", &[]));
-        // The Azure SAS names only go when the signature that identifies the set rides along.
+        // The Azure SAS names are volatile only when the signature of that set is also present.
         assert!(!volatile("sp", "cdn.example.com", &["w"]));
         assert!(volatile("sp", "acct.blob.core.windows.net", &["sig", "sv"]));
         // `expires` is a real cache hint until CloudFront's `signature` appears beside it.

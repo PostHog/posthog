@@ -3,23 +3,27 @@
 //! The sibling of [`crate::collect`]. That module handles an image the page inlined into the
 //! recording; this one handles an image the page referred to by URL. With collection enabled, a
 //! media source attribute holding an `http(s)` URL is replaced by a content ref instead of the
-//! media placeholder, and the original URL rides back to the caller on the message.
+//! media placeholder. The message then carries the original URL back to the caller.
 //!
-//! **Two URLs come out of this module and they must not be confused.** The *dedup* URL is
-//! canonical with the volatile parameters removed, and it is the only input to the hash, so it
-//! sets both the ref and the fetch lane's dedup key. The *fetch* URL is canonical with every
-//! parameter intact, and it is what the fetcher actually requests. A signed URL only works as the
-//! second, and only dedups as the first.
+//! **Two URLs come out of this module. Do not confuse them.**
 //!
-//! That split is what makes the ref stable. A URL carrying a fresh signature on every page load
-//! would otherwise mint a new ref each time, and a ref that appears once can never join to
-//! anything downstream. Removing the volatile parameters matters more for that than it does for
+//! The *dedup* URL is canonical, and its volatile parameters are removed. It is the only input to
+//! the hash, so it sets the ref and the dedup key of the fetch lane.
+//!
+//! The *fetch* URL is canonical, and every parameter stays. The fetcher requests this one. A
+//! signed URL works only in this form, and it dedups only in the first form.
+//!
+//! That split is what makes the ref stable. A URL that carries a fresh signature on each page
+//! load would otherwise mint a new ref every time. A ref that appears once joins to nothing
+//! downstream. Removing the volatile parameters matters more for that than it does for
 //! the request count.
 //!
-//! The hash is a *keyed* HMAC for the same reason as the image hash: the ML bucket is unencrypted,
-//! and an unkeyed digest of a URL would let a bucket reader learn which sites a team's users
-//! visited. The per-team key is derived by the caller from the same KMS-held secret as the team
-//! pseudonym, so neither leaves the ingester.
+//! The hash is a *keyed* HMAC, for the same reason as the image hash. The ML bucket is not
+//! encrypted. An unkeyed digest of a URL would let a reader of the bucket learn which sites the
+//! users of a team visited.
+//!
+//! The caller derives the per-team key from the same KMS-held secret as the team pseudonym.
+//! Neither the secret nor the key leaves the ingester.
 
 use std::collections::{HashMap, HashSet};
 
@@ -46,8 +50,8 @@ pub struct UrlCollection {
     /// The non-reversible HMAC team pseudonym (32 hex chars), computed by the caller. Embedded
     /// verbatim in every emitted ref, exactly as on the image lane.
     pub pseudo_team: String,
-    /// Per-team key for the URL HMAC, derived by the caller under its own domain separator so a
-    /// URL ref and an image ref cannot collide even for the same team.
+    /// Per-team key for the URL HMAC. The caller derives it under its own domain separator, so a
+    /// URL ref and an image ref stay distinct for one team.
     pub url_key: String,
 }
 
@@ -89,10 +93,9 @@ pub struct UrlCollector {
     /// re-added by every mutation. The image lane memoizes its blur for the same reason. Without
     /// this, each repeat pays a WHATWG parse, a query walk, and an HMAC.
     ///
-    /// Bounded by [`MAX_MEMO_ENTRIES`], because the keys are attacker-controlled. Every other
-    /// structure here is capped by [`MAX_URLS_PER_MESSAGE`], and a page carrying thousands of
-    /// distinct `src` values would otherwise pin a second copy of all of them, including the ones
-    /// this collector declined.
+    /// [`MAX_MEMO_ENTRIES`] bounds it, because a page controls the keys. [`MAX_URLS_PER_MESSAGE`]
+    /// caps every other structure here. Without its own cap, a page with thousands of distinct
+    /// `src` values holds a second copy of each one, including the values this collector refused.
     memo: HashMap<String, Option<String>>,
     /// Counts by reason for every URL this collector refused, so a lane that quietly collects less
     /// than it should reads off a dashboard instead of being guessed at. The phase that measures
@@ -119,15 +122,15 @@ impl UrlCollector {
             return hit.clone();
         }
         // Past the cap a new spelling cannot be collected. The only thing canonicalizing it could
-        // still do is match the hash of one already held, and that is not worth a parse and an
-        // HMAC for every distinct value on a payload built to carry many of them.
+        // still do is match the hash of a URL it already holds. That match does not justify a
+        // parse and an HMAC for each distinct value, on a payload built to carry many.
         if self.urls.len() >= MAX_URLS_PER_MESSAGE {
             self.decline("over_cap");
             return None;
         }
         let result = self.collect_uncached(raw);
-        // A value past the length cap is rejected by an O(1) check, so caching it buys nothing and
-        // would store the longest strings on offer. The entry cap bounds the rest.
+        // An O(1) check rejects a value past the length cap, so the memo gains nothing by holding
+        // it, and it would hold the longest strings. The entry cap bounds the rest.
         if raw.len() <= MAX_URL_LEN && self.memo.len() < MAX_MEMO_ENTRIES {
             self.memo.insert(raw.to_string(), result.clone());
         }

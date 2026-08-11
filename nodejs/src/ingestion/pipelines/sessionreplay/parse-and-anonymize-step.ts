@@ -52,9 +52,9 @@ export interface CollectedImage {
 /**
  * A remote image URL the addon collected for the fetch lane.
  *
- * `url` is the original, unscrubbed URL. It carries whatever the page put in its path and query, so
- * it is as sensitive as the raw replay payload and must not reach a log line, a metric label, or
- * any destination outside the fetch topic.
+ * `url` is the original, unscrubbed URL. It carries whatever the page put in its path and query.
+ * It is therefore as sensitive as the raw replay payload. It must not reach a log line, a metric
+ * label, or any destination outside the fetch topic.
  */
 export interface CollectedUrl {
     /** `imageurl:<pseudoTeam>:<hash>` — the ref the mirrored line carries for this URL. */
@@ -309,11 +309,12 @@ function unpackCollectedImages(
 /**
  * Turn the addon's `meta.urls` into produce-ready records.
  *
- * The host count is observed for every message, including the ones that carried no URL at all.
- * The fetch topic is keyed by host, so that distribution is how many Kafka messages one replay
- * message becomes. Observing only the messages that carried a URL would report the fan-out of an
- * image-heavy page as if it were the fan-out of every page, and the whole point of this step is to
- * size a topic from that number.
+ * This step observes the domain count for every message. That includes a message with no URL.
+ * The fetch topic uses the domain as its key, so the count is the number of Kafka messages one
+ * replay message becomes.
+ *
+ * A count taken only from messages that carry a URL describes an image-heavy page. This step
+ * exists to size a topic, and a topic carries all the traffic, not only the image-heavy part.
  */
 function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
     const urls: CollectedUrl[] = []

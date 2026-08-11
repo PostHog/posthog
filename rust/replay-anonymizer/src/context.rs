@@ -154,8 +154,10 @@ impl<'a> Ctx<'a> {
         self
     }
 
-    /// The fetch lane's ref for a remote image URL, or `None` (collection off, an unfetchable URL,
-    /// or the per-message cap) — the caller then writes the placeholder as before.
+    /// The fetch lane's ref for a remote image URL.
+    ///
+    /// `None` when collection is off, when the URL is not fetchable, or when the per-message cap
+    /// is reached. The caller then writes the placeholder, as before.
     pub(crate) fn collect_url(&self, original: &str) -> Option<String> {
         let collector = self.url_collector.as_ref()?;
         collector.borrow_mut().collect(original)

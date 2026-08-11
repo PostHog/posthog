@@ -135,9 +135,10 @@ pub struct ImageEntry {
     pub len: usize,
 }
 
-/// One collected remote image URL, on its way to the fetch lane. Unlike [`ImageEntry`] the payload
-/// travels inline rather than in a side buffer: a URL is small, and it is the thing the fetcher
-/// needs, so there is nothing to pack.
+/// One collected remote image URL, on its way to the fetch lane.
+///
+/// The payload travels inline, not in a side buffer like [`ImageEntry`]. A URL is small, and it is
+/// the thing the fetcher needs, so there is nothing to pack.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct UrlEntry {
     pub hash: String,
@@ -288,10 +289,11 @@ pub fn anonymize_kafka_payload_timed(
     anonymize_kafka_payload_collecting(allow, payload, opts, timings, image_collection, None)
 }
 
-/// [`anonymize_kafka_payload_timed`] with the URL-collection lane as well: a remote image's `src`
-/// becomes a ref and its original URL comes back in `meta.urls`, for the caller to hand to the
-/// fetch lane. `None` leaves remote images on the media placeholder, which is the behaviour every
-/// other entry point here keeps.
+/// [`anonymize_kafka_payload_timed`] with the URL-collection lane as well.
+///
+/// A remote image's `src` becomes a ref, and its original URL comes back in `meta.urls`. The
+/// caller passes those to the fetch lane. `None` leaves a remote image on the media placeholder,
+/// which is what every other entry point here does.
 pub fn anonymize_kafka_payload_collecting(
     allow: &AllowLists,
     payload: &mut [u8],

@@ -42,8 +42,8 @@ export interface MlMirrorImageScrubProducer {
  * from.
  *
  * Separate from {@link MlMirrorImageScrubProducer} because collecting and producing are separate
- * decisions. The URL lane collects and measures before any topic exists, so requiring the scrub
- * producer to be on first would make that measurement impossible to take on its own.
+ * decisions. The URL lane collects and measures before any topic exists. A requirement to turn the
+ * scrub producer on first would make that measurement impossible to take on its own.
  */
 export interface MlMirrorCollection {
     /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
