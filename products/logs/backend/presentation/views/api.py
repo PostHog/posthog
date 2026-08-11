@@ -1139,6 +1139,17 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return super().get_throttles()
 
     @staticmethod
+    def _invalid_query_data_response(query_data: object) -> Response | None:
+        """`query_data` must be an object — every action below calls `.get()` on it, which
+        raises `AttributeError` (500) instead of a 400 when a client sends e.g. a raw string."""
+        if not isinstance(query_data, dict):
+            return Response(
+                {"error": "Invalid query: expected an object"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
+
+    @staticmethod
     def _normalize_filter_group(filter_group: object) -> dict:
         """Normalize a flat filter array (from MCP) to the nested PropertyGroupFilter structure."""
         if isinstance(filter_group, list):
@@ -1169,6 +1180,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         live_logs_checkpoint = query_data.get("liveLogsCheckpoint", None)
         after_cursor = query_data.get("after", None)
@@ -1299,6 +1312,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def sparkline(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
@@ -1343,6 +1358,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def facet_values(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         facet_field = query_data.get("facetField")
         facet_resource_attribute = query_data.get("facetResourceAttribute")
@@ -1384,6 +1401,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def count(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
@@ -1426,6 +1445,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def count_ranges(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         date_range_data = query_data.get("dateRange")
         date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
@@ -1468,6 +1489,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def services(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
@@ -1506,6 +1529,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def patterns(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         query = self._filtered_logs_query(query_data)
 
@@ -1539,6 +1564,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def patterns_diff(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         query = self._filtered_logs_query(query_data)
         baseline_date_range = (
@@ -1571,6 +1598,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     def group_by(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         query = self._filtered_logs_query(query_data)
 
@@ -1779,6 +1808,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+        if (error_response := self._invalid_query_data_response(query_data)) is not None:
+            return error_response
 
         custom_columns = query_data.get("customColumns") or []
         if len(custom_columns) > MAX_CUSTOM_COLUMNS:
