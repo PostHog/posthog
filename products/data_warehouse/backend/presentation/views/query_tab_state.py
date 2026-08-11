@@ -49,4 +49,5 @@ class QueryTabStateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             query_tab_state = self.get_queryset().get(created_by=user, team_id=self.team_id)
             return Response(self.get_serializer(query_tab_state).data)
         except QueryTabState.DoesNotExist:
-            return Response({"error": "Query tab state not found"}, status=404)
+            # A user with no saved editor tabs yet is the normal first-visit state, not an error.
+            return Response(None)

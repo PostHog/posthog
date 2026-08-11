@@ -135,3 +135,11 @@ class TestQueryTabState(APIBaseTest):
         )
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json(), {"error": "User not found"})
+
+    def test_get_by_user_without_tab_state(self):
+        # A real user who has not saved any editor tabs yet gets a 200 with an empty body, not a 404
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/query_tab_state/user/?user_id={self.user.uuid}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"")
