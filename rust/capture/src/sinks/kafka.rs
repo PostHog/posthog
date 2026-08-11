@@ -20,7 +20,7 @@
 use crate::api::CaptureError;
 use crate::config::{EnvelopeCompression, KafkaConfig};
 use crate::ordering::OrderingGuarantee;
-use crate::outputs::Prepare;
+use crate::outputs::PublishEvents;
 use crate::pipeline::{self, Address, Lane, Pipeline};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
@@ -740,7 +740,7 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 /// every backend uniformly, where the retiring `Event` impls record it
 /// themselves.
 #[async_trait]
-impl<P: KafkaProducer + 'static> Prepare for KafkaSinkBase<P> {
+impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         self.kafka_send(event)?
             .instrument(info_span!("ack_wait_one"))
@@ -776,7 +776,7 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         // Matches the single-event `send` path which records before any await.
         histogram!("capture_event_batch_size").record(events.len() as f64);
 
-        Prepare::publish_batch(self, events).await
+        PublishEvents::publish_batch(self, events).await
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {

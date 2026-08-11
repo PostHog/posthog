@@ -8,7 +8,7 @@
 //! paths the old composites delegated to.
 //!
 //! Leaves run the prep → publish → fold dance internally via the
-//! [`Prepare`] trait, so no caller ever sees a two-phase protocol. The prep
+//! [`PublishEvents`] trait, so no caller ever sees a two-phase protocol. The prep
 //! hoist (see the plan doc) later moves payload assembly into this layer
 //! and retires the trait.
 //!
@@ -33,7 +33,7 @@ use crate::v0_request::ProcessedEvent;
 /// backend until the prep hoist moves it into this layer, which is also
 /// when this trait is deleted.
 #[async_trait]
-pub(crate) trait Prepare: Send + Sync {
+pub(crate) trait PublishEvents: Send + Sync {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError>;
 
     async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
@@ -53,13 +53,13 @@ pub struct Output {
 }
 
 enum Inner {
-    Single(Box<dyn Prepare>),
+    Single(Box<dyn PublishEvents>),
     Failover(Failover),
 }
 
 impl Output {
     /// A single-backend output.
-    pub(crate) fn single<L: Prepare + 'static>(leaf: L) -> Self {
+    pub(crate) fn single<L: PublishEvents + 'static>(leaf: L) -> Self {
         Self {
             inner: Inner::Single(Box::new(leaf)),
         }
@@ -93,7 +93,7 @@ impl Output {
 // recurse into its child outputs without building an infinitely-sized
 // future type.
 #[async_trait]
-impl Prepare for Output {
+impl PublishEvents for Output {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         match &self.inner {
             Inner::Single(leaf) => leaf.publish_one(event).await,
@@ -229,7 +229,7 @@ mod tests {
     struct FailLeaf(CaptureError);
 
     #[async_trait]
-    impl Prepare for FailLeaf {
+    impl PublishEvents for FailLeaf {
         async fn publish_one(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
             Err(self.0.clone())
         }

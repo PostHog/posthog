@@ -10,7 +10,7 @@
 //!   the sink before wrapping in `Arc<dyn Event>`)
 
 use crate::api::CaptureError;
-use crate::outputs::Prepare;
+use crate::outputs::PublishEvents;
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 use async_trait::async_trait;
@@ -46,7 +46,7 @@ impl Event for MockSink {
 
 /// Lets outputs-layer tests use the same capturing mock as a policy leaf.
 #[async_trait]
-impl Prepare for MockSink {
+impl PublishEvents for MockSink {
     async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         self.events.lock().unwrap().push(event);
         Ok(())

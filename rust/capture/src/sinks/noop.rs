@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use metrics::{counter, histogram};
 
 use crate::api::CaptureError;
-use crate::outputs::Prepare;
+use crate::outputs::PublishEvents;
 use crate::sinks::Event;
 use crate::v0_request::ProcessedEvent;
 
@@ -19,7 +19,7 @@ impl NoOpSink {
 /// every backend uniformly, where the retiring `Event` impl records it
 /// itself.
 #[async_trait]
-impl Prepare for NoOpSink {
+impl PublishEvents for NoOpSink {
     async fn publish_one(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
         counter!("capture_events_ingested_total").increment(1);
         Ok(())
@@ -34,11 +34,11 @@ impl Prepare for NoOpSink {
 #[async_trait]
 impl Event for NoOpSink {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        Prepare::publish_one(self, event).await
+        PublishEvents::publish_one(self, event).await
     }
 
     async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         histogram!("capture_event_batch_size").record(events.len() as f64);
-        Prepare::publish_batch(self, events).await
+        PublishEvents::publish_batch(self, events).await
     }
 }

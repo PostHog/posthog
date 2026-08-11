@@ -111,11 +111,11 @@ Step 7 absorbs it into the `OutputTable`; the mode-scoped demand is folded in at
 
 - **Goal.** New `outputs` module — the produce surface, with multi-target policy ownership from day one:
   - `Output`: a single backend, or a policy composing two *outputs* — today `failover` (health-gated Kafka→S3: skip primary while the advisory handle is unhealthy, re-publish the batch on a retriable failure, fatal never fails over). Targets are outputs themselves, so a future policy (a split for the next cluster migration) composes over pairs the way the old composites did. Policies operate on *events*, before prep — each target resolves topics and serializes for itself, exactly like the old per-sink `send_batch` paths, so parity is structural.
-  - Leaves run the dance internally via the `pub(crate)` `Prepare` trait (prep → publish → fold); no caller ever sees a two-phase protocol.
+  - Leaves run the dance internally via the `pub(crate)` `PublishEvents` trait (prep → publish → fold); no caller ever sees a two-phase protocol.
   - `OutputTable`: the `(pipeline, lane)` → output handle the state holds; degenerate today (one deployment-wide output; per-lane topics resolve in prep via the `OutputRegistry`).
   - `setup::create_output` builds the policy tree from the same config; **`FallbackSink` is deleted**, its tests re-expressed on `Output` with assertions preserved (+ a new fatal-no-failover case).
   - Call sites are untouched: the table serves them through a transitional `Event` facade (which records `capture_event_batch_size`, where the old sink impls recorded it). Migration is Step 8.
-- **Files.** `rust/capture/src/outputs.rs` (new); `rust/capture/src/setup.rs`; `rust/capture/src/sinks/{mod,s3,print,noop,test_sink}.rs` (mechanism + `Prepare` impls); `fallback.rs` deleted.
+- **Files.** `rust/capture/src/outputs.rs` (new); `rust/capture/src/setup.rs`; `rust/capture/src/sinks/{mod,s3,print,noop,test_sink}.rs` (mechanism + `PublishEvents` impls); `fallback.rs` deleted.
 - **Parity proof.** Goldens + all integration suites unmodified. Known metrics-only deltas, accepted: the batch-size histogram now records on the fallback-to-S3 path (it silently didn't before), and print/noop single sends record it (they didn't).
 - **Risk / rollback.** Medium. Revert.
 - **Size.** L.
@@ -150,9 +150,9 @@ Step 7 absorbs it into the `OutputTable`; the mode-scoped demand is folded in at
 
 ### Stage E — prep hoists up; sinks become pure transport
 
-#### Step 12 · Prep hoists into the outputs layer; `Prepare` retired
+#### Step 12 · Prep hoists into the outputs layer; `PublishEvents` retired
 
-- **Goal.** Sinks take prepared payloads as input, full stop. `PrepSpec` (registry + per-destination serializers) moves payload assembly — lane resolution, serialization, header stamps, topic and partition key, and the scatter-gather batch prep — into the outputs layer; the `(pipeline, lane)` → output bridge and the `OutputRegistry` move with it (`outputs::registry`). The `Prepare` trait is deleted; every backend (Kafka, S3, print, noop) preps identically via its output's spec, and the Kafka sink is reduced to producer + enqueue + ack drain. The boot completeness check moves to `setup::create_output`.
+- **Goal.** Sinks take prepared payloads as input, full stop. `PrepSpec` (registry + per-destination serializers) moves payload assembly — lane resolution, serialization, header stamps, topic and partition key, and the scatter-gather batch prep — into the outputs layer; the `(pipeline, lane)` → output bridge and the `OutputRegistry` move with it (`outputs::registry`). The `PublishEvents` trait is deleted; every backend (Kafka, S3, print, noop) preps identically via its output's spec, and the Kafka sink is reduced to producer + enqueue + ack drain. The boot completeness check moves to `setup::create_output`.
 - **Test posture change (deliberate).** Capturing mocks intercept *published payloads*, not `ProcessedEvent`s, so ~60 assertions that read metadata stamps migrate to wire-level outcomes: topic, partition key, headers, and payload bytes (deserialized for content checks). The declarative `ExpectedEvent` checkers recompute the expected record from the same expectations, so test bodies stay put. Wire-level assertions also pin a semantic the metadata-level ones couldn't see: replay events redirected to dlq/custom topics partition on the event key, not the session id.
 - **Known deltas, accepted:** print/noop deployments run the real prep path (lane effects and their counters included), and prep can fail there (e.g. `MissingSessionId`) where the old passthrough couldn't. The prep histograms keep their `capture_kafka_*` names for dashboard continuity.
 - **Files.** `outputs/mod.rs`, `outputs/registry.rs` (moved), `sinks/*`, `setup.rs`, all capturing test mocks.
@@ -273,7 +273,7 @@ When all steps land, the five strata hold:
 | 9 · Mode-scoped completeness | pending | `refactor(capture): mode-scoped output registry completeness` |
 | 10 · Breaker mode (dark) | pending | `feat(capture): breaker-driven failover mode (dark)` |
 | 11 · v1 convergence | pending | `refactor(capture): v1 resolves through shared pipeline/lane strata` |
-| 12 · Prep hoist; `Prepare` retired | pending | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
+| 12 · Prep hoist; `PublishEvents` retired | pending | `refactor(capture): hoist prep into outputs; sinks take prepared payloads only` |
 | 13 · Typed addresses; AI pipeline | pending | `refactor(capture): typed per-pipeline lanes; custom redirects and the ai stream become addresses` |
 | 14 · Sinks realize namespaces | pending | `refactor(capture): payloads carry addresses; sinks realize them in their own namespace` |
 | 15 · Per-mode output tables | pending | `feat(capture): per-mode output tables; handlers bound by publish capabilities` |
