@@ -9773,6 +9773,40 @@ export namespace Schemas {
       config?: unknown;
     }
 
+    /**
+     * * `setup_tab` - setup_tab
+     * * `apply_all_safe` - apply_all_safe
+     * * `mcp` - mcp
+     */
+    export type ApplySetupOpsSourceEnum = typeof ApplySetupOpsSourceEnum[keyof typeof ApplySetupOpsSourceEnum];
+
+
+    export const ApplySetupOpsSourceEnum = {
+      SetupTab: 'setup_tab',
+      ApplyAllSafe: 'apply_all_safe',
+      Mcp: 'mcp',
+    } as const;
+
+    export interface ApplySetupOps {
+      /** Operations to apply, in order. Send `apply` payloads returned verbatim by setup_plan — never hand-craft one. Navigate-only ops (open_oauth, open_source_wizard, open_settings, fix_platform_urls) are rejected: they describe something a browser or a human does. */
+      ops: unknown[];
+      /** Where the request came from, recorded in the activity log
+       *
+       * * `setup_tab` - setup_tab
+       * * `apply_all_safe` - apply_all_safe
+       * * `mcp` - mcp */
+      source?: ApplySetupOpsSourceEnum;
+    }
+
+    export interface ApplySetupOpsResponse {
+      /** The operations that were applied */
+      applied: unknown[];
+      /** Operations that reverse this batch, in the order they should be sent. Computed server-side from the pre-change state — POST them back to undo. */
+      undo_ops: unknown[];
+      /** The config as it now stands */
+      marketing_analytics_config: unknown;
+    }
+
     export interface ApprovalPolicy {
       readonly id: string;
       /** @maxLength 128 */
