@@ -39,8 +39,8 @@ export interface inviteLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     availableProjects: any[]
-    hasPrivateProjects: boolean
     canSubmit: boolean
+    hasPrivateProjects: boolean
     inviteContainsOwnerLevel: boolean
     invitedTeamMembersInternal: OrganizationInviteType[]
     invitedTeamMembersInternalLoading: boolean
@@ -110,6 +110,29 @@ export interface inviteLogicActions {
         invitedTeamMembersInternal: OrganizationInviteType[]
         payload?: any
     }
+    loadAllProjectAccessControls: () => any
+    loadAllProjectAccessControlsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAllProjectAccessControlsSuccess: (
+        projectAccessControls: {
+            [x: number]: {
+                access_level: string
+            }
+        },
+        payload?: any
+    ) => {
+        projectAccessControls: {
+            [x: number]: {
+                access_level: string
+            }
+        }
+        payload?: any
+    }
     loadInvites: () => any
     loadInvitesFailure: (
         error: string,
@@ -143,19 +166,6 @@ export interface inviteLogicActions {
             [x: number]: any
         }
         payload?: number
-    }
-    loadAllProjectAccessControls: () => any
-    loadAllProjectAccessControlsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadAllProjectAccessControlsSuccess: (projectAccessControls: { [x: number]: any }) => {
-        projectAccessControls: {
-            [x: number]: any
-        }
     }
     removeProjectAccess: (
         inviteIndex: number,
@@ -197,7 +207,12 @@ export interface inviteLogicMeta {
         availableProjects: (currentOrganization: null | import('~/types').OrganizationType) => any[]
         hasPrivateProjects: (
             availableProjects: any[],
-            projectAccessControls: Record<number, { access_level: string }>
+            projectAccessControls: Record<
+                number,
+                {
+                    access_level: string
+                }
+            >
         ) => boolean
         isInviting: (invitedTeamMembersInternalLoading: boolean) => boolean
     }
