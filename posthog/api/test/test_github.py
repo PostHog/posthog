@@ -312,7 +312,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertIn("Github-Public-Key-Identifier", str(data))
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_personal_api_key_exposed")
+    @patch("posthog.api.secret_revocation.send_personal_api_key_exposed")
     def test_secret_alert_finds_and_rolls_existing_personal_api_key(self, mock_send_email, mock_verify):
         """Test that an existing personal API key is found, rolled, and email is sent."""
         mock_verify.return_value = None
@@ -390,7 +390,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
         self.assertEqual(data[0]["label"], "false_positive")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_personal_api_key_exposed")
+    @patch("posthog.api.secret_revocation.send_personal_api_key_exposed")
     def test_secret_alert_finds_key_with_legacy_pbkdf2_hash(self, mock_send_email, mock_verify):
         """Test that keys stored with legacy PBKDF2 hash are still found."""
         mock_verify.return_value = None
@@ -987,7 +987,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         )
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_oauth_access_token_found_and_revoked(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
@@ -1032,7 +1032,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertEqual(call_args[0][1], "access")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_oauth_refresh_token_found_and_revoked(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
@@ -1125,7 +1125,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertEqual(data[0]["label"], "false_positive")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_oauth_access_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
@@ -1187,7 +1187,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_oauth_refresh_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
@@ -1283,7 +1283,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertEqual(data[0]["label"], "false_positive")
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_initial_access_token_revokes_paired_refresh_token(self, mock_send_email, mock_verify):
         """Initial access token (no source_refresh_token) should still revoke paired refresh token."""
         mock_verify.return_value = None
@@ -1354,7 +1354,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
-    @patch("posthog.api.github.send_oauth_token_exposed")
+    @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_initial_refresh_token_revokes_paired_access_token(self, mock_send_email, mock_verify):
         """Initial refresh token should still revoke paired access token."""
         mock_verify.return_value = None
