@@ -38,6 +38,7 @@ Important HogQL differences versus other SQL dialects:
 - A WHERE clause must be after all the JOIN clauses.
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
+- Some columns hold JSON, for example `system.data_warehouse_tables.columns`. To match text inside a JSON column, apply the text operator to the column itself, like `columns LIKE '%event%'`; the match runs against the raw JSON text. To read a single value out of a JSON column, use the JSON functions such as `JSONExtractString(columns, 'name')`.
 
 
 <persons>

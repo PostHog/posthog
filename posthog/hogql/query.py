@@ -819,3 +819,51 @@ class HogQLQueryExecutor:
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
     return HogQLQueryExecutor(*args, **kwargs).execute()
+
+
+# A LIMIT 0 dry run only plans the query, so a few seconds is enough. Keep it short so a slow
+# validation never stalls the AI query generator or the "Fix error with AI" request.
+DRY_RUN_MAX_EXECUTION_TIME_SECONDS = 10
+
+
+def dry_run_hogql_query(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    *,
+    team: Team,
+    modifiers: Optional[HogQLQueryModifiers] = None,
+) -> Optional[str]:
+    """Execute `query` with an enforced ``LIMIT 0`` to surface ClickHouse run-time errors.
+
+    Printing a HogQL AST validates syntax and types, but ClickHouse only rejects errors like
+    `not_an_aggregate`, `illegal_type_of_argument`, or `illegal_aggregation` at execution time.
+    A ``LIMIT 0`` run plans the query and returns no rows, so those errors surface cheaply.
+
+    Returns a user-safe error message when the query is invalid, or ``None`` when it validates.
+    Also returns ``None`` when the dry run itself cannot run (unresolved placeholders, or an
+    infrastructure failure such as ClickHouse being unavailable) — callers must not block a
+    query on the dry run failing to execute.
+    """
+    if find_placeholders(query).placeholder_fields:
+        # An unresolved placeholder can't be executed; leave validation to the static check.
+        return None
+
+    validation_query = clone_expr(query, clear_types=True, clear_locations=True)
+    for select in extract_select_queries(validation_query):
+        select.limit = ast.Constant(value=0)
+
+    try:
+        execute_hogql_query(
+            query=validation_query,
+            team=team,
+            modifiers=modifiers,
+            limit_context=LimitContext.QUERY,
+            settings=HogQLGlobalSettings(max_execution_time=DRY_RUN_MAX_EXECUTION_TIME_SECONDS),
+        )
+    except (ExposedHogQLError, ExposedCHQueryError, QueryError, ResolutionError) as err:
+        return str(err)
+    except Exception as err:
+        # Infrastructure or unexpected failures are not the query's fault, so they must never
+        # become misleading retry feedback nor block the user.
+        capture_exception(err)
+        return None
+    return None

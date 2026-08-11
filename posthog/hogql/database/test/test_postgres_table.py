@@ -424,6 +424,19 @@ class TestPostgresTable(BaseTest):
             f"SELECT postgres_table.id AS id FROM postgresql(%(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s) AS postgres_table WHERE and(equals(postgres_table.team_id, {self.team.pk}), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(postgres_table.properties, %(hogql_val_5)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_6)s), 1)) LIMIT 10",
         )
 
+    def test_text_predicate_on_json_column_casts_to_string(self):
+        # A text operator on a jsonb column must not be pushed down raw: ClickHouse would send
+        # `columns LIKE ...` to Postgres, which errors with `operator does not exist: jsonb ~~
+        # unknown`. Casting to String keeps the match in ClickHouse, where the value is a String.
+        self._init_database(extra_fields={"columns": StringJSONDatabaseField(name="columns")})
+
+        json_predicate = self._select("SELECT id FROM postgres_table WHERE columns LIKE '%event%' LIMIT 10")
+        assert "toString(postgres_table.columns)" in json_predicate
+
+        # A plain string column is safe to push down, so it stays uncast.
+        string_predicate = self._select("SELECT id FROM postgres_table WHERE name LIKE '%event%' LIMIT 10")
+        assert "toString(postgres_table.name)" not in string_predicate
+
 
 class TestPostgresTablePrimaryKey(BaseTest):
     """Validate primary_key auto-detection and access_scope constraints."""

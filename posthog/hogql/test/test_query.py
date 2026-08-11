@@ -28,9 +28,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query import HogQLQueryExecutor, dry_run_hogql_query, execute_hogql_query
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     pretty_print_in_tests,
@@ -2246,3 +2247,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(mock_sync_execute.call_count, 1)
         mock_sleep.assert_not_called()
+
+
+class TestDryRunHogQLQuery(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            # Valid query: ClickHouse plans it without error.
+            ("valid", "SELECT count() FROM events", None),
+            # Prints as valid HogQL, but ClickHouse rejects it: `event` is neither aggregated nor
+            # in GROUP BY. Static printing can't catch this; the LIMIT 0 run does.
+            ("not_an_aggregate", "SELECT event, count() FROM events", "aggregate"),
+        ]
+    )
+    def test_dry_run_hogql_query(self, _name: str, query: str, expected_substring: str | None) -> None:
+        result = dry_run_hogql_query(parse_select(query), team=self.team)
+        if expected_substring is None:
+            assert result is None
+        else:
+            assert result is not None
+            assert expected_substring in result.lower()

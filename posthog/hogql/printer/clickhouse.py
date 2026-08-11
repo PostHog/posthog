@@ -593,6 +593,34 @@ class ClickHousePrinter(BasePrinter):
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
         return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
+    def _maybe_cast_postgres_json_compare_operand(self, node: ast.Expr, printed_sql: str) -> str:
+        """Cast a JSON column on a `postgresql()`-backed table to String inside a comparison.
+
+        ClickHouse pushes a bare column predicate down into the Postgres read, so a text
+        operator against a jsonb column fails with `operator does not exist: jsonb ~~ unknown`.
+        Wrapping the read in `toString(...)` keeps the comparison in ClickHouse, where the
+        column already arrives as a String.
+        """
+        node_type = getattr(node, "type", None)
+        if isinstance(node_type, ast.FieldAliasType):
+            node_type = node_type.type
+        # Only a whole JSON column is at risk. A property path (`columns.foo`) prints as a
+        # ClickHouse JSON function that already stays local, so its PropertyType is left alone.
+        if not isinstance(node_type, ast.FieldType):
+            return printed_sql
+        if not isinstance(node_type.resolve_database_field(self.context), StringJSONDatabaseField):
+            return printed_sql
+        if not isinstance(node_type.table_type, ast.BaseTableType):
+            return printed_sql
+
+        from posthog.hogql.database.postgres_table import (
+            PostgresTable,  # noqa: PLC0415 (keeps persons-DB deps off the printer import path)
+        )
+
+        if not isinstance(node_type.table_type.resolve_database_table(self.context), PostgresTable):
+            return printed_sql
+        return f"toString({printed_sql})"
+
     def _get_optimized_session_id_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """Rewrite $session_id comparisons against UUID constants to use the $session_id_uuid column."""
         op_name = {
@@ -684,6 +712,8 @@ class ClickHousePrinter(BasePrinter):
         in_index_hint = any(isinstance(item, ast.Call) and item.name == "indexHint" for item in self.stack)
         left = self.visit(node.left)
         right = self.visit(node.right)
+        left = self._maybe_cast_postgres_json_compare_operand(node.left, left)
+        right = self._maybe_cast_postgres_json_compare_operand(node.right, right)
         nullable_left = self._is_nullable(node.left)
         nullable_right = self._is_nullable(node.right)
         not_nullable = not nullable_left and not nullable_right

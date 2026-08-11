@@ -30,7 +30,9 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import dry_run_hogql_query
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import clone_expr
 
 from posthog.models import Team
 from posthog.models.user import User
@@ -185,6 +187,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                 variables = self._get_insight_variables(finder.placeholder_fields)
                 parsed_query = cast(ast.SelectQuery, replace_variables(parsed_query, variables, self._team))
 
+            # Snapshot before printing: prepare_and_print_ast mutates the AST in place, but the
+            # execution-time check below needs the un-resolved query.
+            validation_ast = clone_expr(parsed_query)
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
             err_msg = str(err)
@@ -203,6 +208,13 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             ):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
+
+        # Printing only validates syntax and types. Run the query with LIMIT 0 so ClickHouse-only
+        # errors (not_an_aggregate, illegal_type_of_argument, ...) surface for the retry loop
+        # instead of reaching the user.
+        dry_run_error = dry_run_hogql_query(validation_ast, team=self._team, modifiers=hogql_context.modifiers)
+        if dry_run_error is not None:
+            raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=dry_run_error)
 
         return AssistantHogQLQuery(query=cleaned_query)
 

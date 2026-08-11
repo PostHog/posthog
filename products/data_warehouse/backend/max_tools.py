@@ -10,6 +10,8 @@ from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import dry_run_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
@@ -77,6 +79,7 @@ Important HogQL differences versus other SQL dialects:
 - `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
 - Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
 - HogQL statements should not end with a semi-colon - this is invalid syntax
+- Some columns hold JSON, for example `system.data_warehouse_tables.columns`. To match text inside a JSON column, apply the text operator to the column itself, like `columns LIKE '%event%'`; the match runs against the raw JSON text. To read a single value out of a JSON column, use the JSON functions such as `JSONExtractString(columns, 'name')`.
 
 HogQL examples:
 Invalid: SELECT * FROM events WHERE properties->foo = 'bar'
@@ -256,7 +259,8 @@ The newly updated query gave us this error:
         assert result.query is not None
         try:
             result.query = result.query.rstrip(";").strip()
-            prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
+            parsed_query = parse_select(result.query)
+            prepare_and_print_ast(clone_expr(parsed_query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
             # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
@@ -267,5 +271,12 @@ The newly updated query gave us this error:
             ):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
+
+        # Printing only validates syntax and types. Run the query with LIMIT 0 so ClickHouse-only
+        # errors (not_an_aggregate, illegal_type_of_argument, ...) surface for the retry loop
+        # instead of being returned as a "fixed" query that still fails.
+        dry_run_error = dry_run_hogql_query(parsed_query, team=self._team)
+        if dry_run_error is not None:
+            raise PydanticOutputParserException(llm_output=result.query, validation_message=dry_run_error)
 
         return result.query
