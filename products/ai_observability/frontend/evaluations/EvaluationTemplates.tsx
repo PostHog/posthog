@@ -169,7 +169,7 @@ function TemplatePicker({
         // empty space beside the card on wide viewports.
         <div
             className={clsx(
-                'flex flex-col justify-center w-full max-w-5xl mx-auto px-4 py-8',
+                'flex flex-col shrink-0 justify-center w-full max-w-5xl mx-auto px-4 py-8',
                 minHeight === '80vh' ? 'min-h-[80vh]' : 'min-h-[60vh]'
             )}
         >

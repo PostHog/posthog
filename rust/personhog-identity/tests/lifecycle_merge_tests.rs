@@ -41,10 +41,14 @@ struct MergeHarness {
 
 impl MergeHarness {
     async fn new() -> Self {
-        let ctx = TestContext::new().await;
+        Self::new_with_tables(common::default_tables()).await
+    }
+
+    async fn new_with_tables(tables: personhog_identity::config::IdentityTables) -> Self {
+        let ctx = TestContext::new_with_tables(tables).await;
         let engine = ctx.engine();
-        let leader = Arc::new(SimLeader::new(ctx.pool.clone()));
-        let driver = MergeDriver::new(leader.clone());
+        let leader = Arc::new(SimLeader::new(ctx.pool.clone(), ctx.tables.person.clone()));
+        let driver = MergeDriver::new(leader.clone(), ctx.tables.clone());
         Self {
             ctx,
             engine,
@@ -85,12 +89,13 @@ impl MergeHarness {
 
     /// Adds another distinct id mapping to an existing person.
     async fn add_distinct_id(&self, person_id: i64, distinct_id: &str) {
-        sqlx::query(
+        sqlx::query(&format!(
             r#"
-            INSERT INTO posthog_persondistinctid (team_id, person_id, distinct_id, version)
+            INSERT INTO {} (team_id, person_id, distinct_id, version)
             VALUES ($1, $2, $3, 0)
             "#,
-        )
+            self.ctx.tables.person_distinct_id
+        ))
         .bind(self.ctx.team_id as i32)
         .bind(person_id)
         .bind(distinct_id)
@@ -100,13 +105,14 @@ impl MergeHarness {
     }
 
     async fn set_person(&self, person_id: i64, properties: &str, version: i64, identified: bool) {
-        sqlx::query(
+        sqlx::query(&format!(
             r#"
-            UPDATE posthog_person
+            UPDATE {}
             SET properties = $3::jsonb, version = $4, is_identified = $5
             WHERE team_id = $1 AND id = $2
             "#,
-        )
+            self.ctx.tables.person
+        ))
         .bind(self.ctx.team_id as i32)
         .bind(person_id)
         .bind(properties)
@@ -149,12 +155,13 @@ impl MergeHarness {
 
     /// (is_deleted, version, properties) of a person row.
     async fn person_state(&self, person_id: i64) -> (bool, i64, serde_json::Value) {
-        sqlx::query_as(
+        sqlx::query_as(&format!(
             r#"
             SELECT is_deleted, COALESCE(version, 0), properties
-            FROM posthog_person WHERE team_id = $1 AND id = $2
+            FROM {} WHERE team_id = $1 AND id = $2
             "#,
-        )
+            self.ctx.tables.person
+        ))
         .bind(self.ctx.team_id as i32)
         .bind(person_id)
         .fetch_one(&self.ctx.pool)
@@ -164,12 +171,13 @@ impl MergeHarness {
 
     /// (person_id, is_deleted, version) of a distinct id row.
     async fn pdi_state(&self, distinct_id: &str) -> (i64, bool, i64) {
-        sqlx::query_as(
+        sqlx::query_as(&format!(
             r#"
             SELECT person_id, is_deleted, COALESCE(version, 0)
-            FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2
+            FROM {} WHERE team_id = $1 AND distinct_id = $2
             "#,
-        )
+            self.ctx.tables.person_distinct_id
+        ))
         .bind(self.ctx.team_id as i32)
         .bind(distinct_id)
         .fetch_one(&self.ctx.pool)
@@ -1335,4 +1343,160 @@ async fn parked_state(pool: &PgPool, op_id: Uuid) -> (bool, Option<String>) {
             .await
             .expect("op row exists");
     (row.0.is_some(), row.1)
+}
+
+#[tokio::test]
+async fn merge_works_on_a_configured_person_table() {
+    // Runs the whole merge saga against personhog_person_tmp — a leftover
+    // hardcoded posthog_person in any of the interpolated queries would
+    // pass silently on the default table.
+    let h = MergeHarness::new_with_tables(common::tmp_tables()).await;
+    h.ctx.park_tmp_person_sequence().await;
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("tmp-merge-target")
+        .await;
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("tmp-merge-source")
+        .await;
+
+    // A cohort row whose person_id collides numerically belongs to the real
+    // namespace; a merge on the validation set must not move it.
+    sqlx::query("INSERT INTO posthog_cohortpeople (cohort_id, person_id) VALUES (1, $1)")
+        .bind(source)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("insert colliding cohort row");
+
+    // The same collision for the other two interpolated tables: a real
+    // person sharing the source's numeric id, its mapping row, and an
+    // override on each mirror. The flip must repoint/move only the tmp
+    // rows.
+    h.ctx
+        .seed_real_namespace_collision(source, "tmp-merge-collide-real")
+        .await;
+    sqlx::query(
+        r#"
+        INSERT INTO personhog_featureflaghashkeyoverride_tmp
+            (feature_flag_key, hash_key, person_id, team_id)
+        VALUES ('flag', 'tmp-hash', $1, $2)
+        "#,
+    )
+    .bind(source)
+    .bind(h.ctx.team_id as i32)
+    .execute(&h.ctx.pool)
+    .await
+    .expect("insert tmp override");
+
+    let op_id = Uuid::now_v7();
+    let outcome = h
+        .execute(
+            op_id,
+            &merge_request("tmp-merge-target", &["tmp-merge-source"]),
+        )
+        .await
+        .expect("merge completes");
+    assert!(!outcome.aborted);
+    assert_eq!(
+        result_map(&outcome),
+        HashMap::from([("tmp-merge-source".to_string(), OUTCOME_MERGED.to_string())])
+    );
+
+    // The source's distinct id repointed at the target on the configured
+    // mapping table; the source person tombstoned on the configured person
+    // table.
+    let (person_id, is_deleted, version) = h.pdi_state("tmp-merge-source").await;
+    assert_eq!(person_id, target);
+    assert!(!is_deleted);
+    assert_eq!(version, 1);
+    let (source_deleted, _, properties) = h.person_state(source).await;
+    assert!(source_deleted);
+    assert_eq!(properties, json!({}));
+    let (target_deleted, _, _) = h.person_state(target).await;
+    assert!(!target_deleted);
+
+    // The colliding real-namespace mapping still points at its own person.
+    let (real_pid, real_deleted, real_version): (i64, bool, i64) = sqlx::query_as(
+        r#"
+        SELECT person_id, is_deleted, COALESCE(version, 0)
+        FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2
+        "#,
+    )
+    .bind(h.ctx.team_id as i32)
+    .bind("tmp-merge-collide-real")
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("real mapping row exists");
+    assert_eq!(
+        real_pid, source,
+        "a validation-set merge must not repoint real-namespace mapping rows"
+    );
+    assert!(!real_deleted);
+    assert_eq!(real_version, 0);
+
+    // The tmp override moved to the target; the real one stayed put.
+    let tmp_override_owner: i64 = sqlx::query_scalar(
+        r#"
+        SELECT person_id FROM personhog_featureflaghashkeyoverride_tmp
+        WHERE team_id = $1 AND feature_flag_key = 'flag'
+        "#,
+    )
+    .bind(h.ctx.team_id as i32)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("tmp override row exists");
+    assert_eq!(
+        tmp_override_owner, target,
+        "the configured override table must move to the target"
+    );
+    let real_override_owner: i64 = sqlx::query_scalar(
+        r#"
+        SELECT person_id FROM posthog_featureflaghashkeyoverride
+        WHERE team_id = $1 AND feature_flag_key = 'flag'
+        "#,
+    )
+    .bind(h.ctx.team_id as i32)
+    .fetch_one(&h.ctx.pool)
+    .await
+    .expect("real override row exists");
+    assert_eq!(
+        real_override_owner, source,
+        "a validation-set merge must not move real-namespace overrides"
+    );
+
+    // The colliding real person row is untouched.
+    let real_person_deleted: bool =
+        sqlx::query_scalar("SELECT is_deleted FROM posthog_person WHERE team_id = $1 AND id = $2")
+            .bind(h.ctx.team_id as i32)
+            .bind(source)
+            .fetch_one(&h.ctx.pool)
+            .await
+            .expect("real person row exists");
+    assert!(
+        !real_person_deleted,
+        "a validation-set merge must not tombstone real-namespace persons"
+    );
+
+    let colliding_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM posthog_cohortpeople WHERE person_id = $1")
+            .bind(source)
+            .fetch_one(&h.ctx.pool)
+            .await
+            .expect("count cohort rows");
+    assert_eq!(
+        colliding_rows, 1,
+        "a validation-set merge must not move real-namespace cohort rows"
+    );
+    sqlx::query("DELETE FROM posthog_cohortpeople WHERE person_id = $1")
+        .bind(source)
+        .execute(&h.ctx.pool)
+        .await
+        .expect("remove colliding cohort row");
+
+    h.ctx
+        .cleanup_real_namespace()
+        .await
+        .expect("cleanup real namespace");
+    h.ctx.cleanup().await.expect("cleanup");
 }

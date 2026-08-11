@@ -193,6 +193,41 @@ DECAGON_ENDPOINTS: dict[str, DecagonEndpointConfig] = {
         pagination="single",
         extra_params={"get_counts": "true"},
     ),
+    # /admin_log/get is Decagon's audit trail of configuration changes: who changed what,
+    # when, and the before/after state. Immutable rows paged on limit/offset over a
+    # `total` count. Incremental sync filters server-side via `start`, preferred over
+    # walking the offset history at 1 request/second. The spec types start/end loosely
+    # rather than as the exports' epoch seconds, so the bound is sent as ISO 8601,
+    # matching the ISO created_at column it filters; if that guess is wrong the sync
+    # either fails loudly on a 4xx or degrades to a full walk, and the merge on id keeps
+    # the table correct either way. Append is not offered for the same reason: with the
+    # filter silently ignored, appends would re-add all history every sync.
+    "admin_logs": DecagonEndpointConfig(
+        name="admin_logs",
+        path="/admin_log/get",
+        data_key="admin_logs",
+        primary_keys=["id"],
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        pagination="offset",
+        page_size=100,
+        total_key="total",
+        partition_key="created_at",
+        incremental_param="start",
+        incremental_param_format="iso8601",
+        # Ordering is undocumented for this endpoint; desc is the safe declaration (see
+        # the field comment).
+        sort_mode="desc",
+        # Opt-in until what lands in details_before/details_after is confirmed against a
+        # live account; config diffs can carry sensitive settings content.
+        should_sync_default=False,
+    ),
 }
 
 ENDPOINTS = tuple(DECAGON_ENDPOINTS.keys())
