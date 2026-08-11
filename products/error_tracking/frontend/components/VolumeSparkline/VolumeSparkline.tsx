@@ -79,6 +79,9 @@ export function VolumeSparkline({
 
     const dates = useMemo(() => data.map((datum) => datum.date), [data])
     const labels = useMemo(() => dates.map((date) => date.toISOString()), [dates])
+    // The y-axis is hidden, so quill's default `d3.nice()` rounding would only add invisible
+    // headroom that shortens every bar — pin the domain so the tallest bar reaches the plot top.
+    const maxValue = useMemo(() => Math.max(1, ...data.map((datum) => datum.value)), [data])
 
     const series = useMemo<Series[]>(
         () => [
@@ -113,6 +116,7 @@ export function VolumeSparkline({
             barCornerRadius: LAYOUTS[layout].barCornerRadius,
             bandPadding: LAYOUTS[layout].bandPadding,
             margins: resolveMargins(layout, eventLabelReserve),
+            valueDomain: [0, maxValue],
             xAxis: { hide: xAxis !== 'full', tickFormatter },
             yAxis: { hide: true },
             showAxisLines: { x: showAxis, y: false },
@@ -122,7 +126,7 @@ export function VolumeSparkline({
             // Hover is surfaced as issue metrics beside the chart, not as a tooltip over it.
             tooltip: { enabled: false },
         }),
-        [layout, xAxis, showAxis, eventLabelReserve, tickFormatter]
+        [layout, xAxis, showAxis, eventLabelReserve, tickFormatter, maxValue]
     )
 
     const onDateRangeZoom = useMemo(() => {
