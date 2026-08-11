@@ -134,3 +134,72 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
         })
     })
 })
+
+describe('proxyLogic — deleteRecord', () => {
+    let logic: ReturnType<typeof proxyLogic.build>
+
+    const recordsPath = `/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`
+    const deletePath = `${recordsPath}/record-1`
+
+    beforeEach(() => {
+        localStorage.clear()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    async function mount(): Promise<void> {
+        initKeaTests()
+        organizationLogic.mount()
+        userLogic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        logic = proxyLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+    }
+
+    it('surfaces a failed delete and keeps the record instead of swallowing the error', async () => {
+        useMocks({
+            get: {
+                [recordsPath]: proxyRecordsResponse([mockProxyRecord({ id: 'record-1', status: 'waiting' })]),
+            },
+            delete: {
+                [deletePath]: () => [403, { code: 'permission_denied', detail: 'Not allowed' }],
+            },
+        })
+        await mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteRecord('record-1')
+        }).toDispatchActions(['deleteRecord', 'deleteRecordFailure', 'loadRecords'])
+
+        // A failed delete must leave the row visible — removing it would hide that nothing happened.
+        expect(logic.values.proxyRecords.map((r) => r.id)).toContain('record-1')
+    })
+
+    it('removes the record and reloads once the delete succeeds', async () => {
+        let deleted = false
+        useMocks({
+            get: {
+                [recordsPath]: () =>
+                    deleted
+                        ? [200, proxyRecordsResponse([])]
+                        : [200, proxyRecordsResponse([mockProxyRecord({ id: 'record-1', status: 'waiting' })])],
+            },
+            delete: {
+                [deletePath]: () => {
+                    deleted = true
+                    return [204, {}]
+                },
+            },
+        })
+        await mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.deleteRecord('record-1')
+        }).toDispatchActions(['deleteRecord', 'deleteRecordSuccess', 'loadRecords', 'loadRecordsSuccess'])
+
+        expect(logic.values.proxyRecords).toEqual([])
+    })
+})
