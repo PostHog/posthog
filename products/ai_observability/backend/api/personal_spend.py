@@ -691,8 +691,7 @@ def _fetch_by_model(
     to_dt: datetime.datetime,
     product: str,
     limit: int,
-    top_model_limit: int = 0,
-) -> tuple[dict[str, Any], list[str]]:
+) -> dict[str, Any]:
     query = parse_select(
         """
         SELECT
@@ -707,7 +706,7 @@ def _fetch_by_model(
             AND {email_filter}
             AND {timestamp_filter}
         GROUP BY model
-        ORDER BY cost_usd DESC, model ASC
+        ORDER BY cost_usd DESC
         LIMIT {limit}
         """
     )
@@ -718,7 +717,7 @@ def _fetch_by_model(
             "product_filter": _product_filter(product),
             "email_filter": _email_filter(email),
             "timestamp_filter": _timestamp_filter(from_dt, to_dt),
-            "limit": ast.Constant(value=max(limit, top_model_limit) + 1),
+            "limit": ast.Constant(value=limit + 1),
         },
         team=team,
         query_type="PersonalSpendByModel",
@@ -733,8 +732,7 @@ def _fetch_by_model(
         }
         for row in (result.results or [])
     ]
-    top_models = [str(row["model"]) for row in rows if row["model"] is not None][:top_model_limit]
-    return _truncate(rows, limit), top_models
+    return _truncate(rows, limit)
 
 
 def _fetch_by_day(
@@ -798,8 +796,34 @@ def _fetch_by_day_model(
     from_dt: datetime.datetime,
     to_dt: datetime.datetime,
     product: str,
-    top_models: list[str],
 ) -> list[dict[str, Any]]:
+    top_models_query = parse_select(
+        f"""
+        SELECT properties.$ai_model AS model
+        FROM events
+        WHERE {{event_in}}
+            AND {{product_filter}}
+            AND {{email_filter}}
+            AND {{timestamp_filter}}
+            AND isNotNull(properties.$ai_model)
+        GROUP BY model
+        ORDER BY sum(toFloat(properties.$ai_total_cost_usd)) DESC, model ASC
+        LIMIT {{limit}}
+        """
+    )
+    top_models_result = execute_hogql_query(
+        query=top_models_query,
+        placeholders={
+            "event_in": _event_in(["$ai_generation", "$ai_embedding"]),
+            "product_filter": _product_filter(product),
+            "email_filter": _email_filter(email),
+            "timestamp_filter": _timestamp_filter(from_dt, to_dt),
+            "limit": ast.Constant(value=BY_DAY_MODEL_TOP_MODELS),
+        },
+        team=team,
+        query_type="PersonalSpendByDayModelTopModels",
+    )
+    top_models = [row[0] for row in (top_models_result.results or []) if row[0] is not None]
     model_expression = "NULL"
     if top_models:
         model_expression = "if(properties.$ai_model IN {top_models}, properties.$ai_model, NULL)"
@@ -978,16 +1002,13 @@ def _compute_spend_analysis(
         for row in by_tool["items"]:
             row["share_of_scoped"] = (row["cost_usd"] / scoped) if scoped > 0 else 0.0
 
-        by_model, top_models = _fetch_by_model(
-            team, email, from_dt, to_dt, product, limit, top_model_limit=BY_DAY_MODEL_TOP_MODELS
-        )
         payload = {
             "summary": summary,
             "by_product": _fetch_by_product(team, email, from_dt, to_dt, limit),
             "by_tool": by_tool,
-            "by_model": by_model,
+            "by_model": _fetch_by_model(team, email, from_dt, to_dt, product, limit),
             "by_day": _fetch_by_day(team, email, from_dt, to_dt, product),
-            "by_day_model": _fetch_by_day_model(team, email, from_dt, to_dt, product, top_models),
+            "by_day_model": _fetch_by_day_model(team, email, from_dt, to_dt, product),
             **(
                 {"by_bucket": _fetch_by_bucket(team, email, from_dt, to_dt, product, bucket_minutes)}
                 if bucket_minutes is not None

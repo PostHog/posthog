@@ -104,7 +104,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <h2 className="m-0 text-base font-semibold">Start with a template</h2>
                         <Tooltip
-                            title="Each template is a starting point for a scout. A scout explores your AI observability data and sends findings to your inbox."
+                            title="Each template is a pre-defined scout – a scheduled agent that explores your AI observability data and surfaces findings worth reviewing. Actionable scout reports land in your inbox."
                             docLink={SCOUTS_DOCS_URL}
                         >
                             <span

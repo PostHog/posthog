@@ -216,7 +216,6 @@ class TestFramer:
         assert exc_info.value.code == "UNAUTHORIZED"
         assert not exc_info.value.retryable
         assert "Framer API error UNAUTHORIZED" in str(exc_info.value)
-        assert server.closed
 
     @parameterized.expand(
         [

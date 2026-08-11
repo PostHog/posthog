@@ -396,9 +396,10 @@ class TestPersonalSpendQueries(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"{ENDPOINT}?{PRODUCT_QS}&date_from=-7d")
 
         assert response.status_code == status.HTTP_200_OK
-        # 6 fetchers run once (summary, by_product, by_tool, by_model, by_day, and by_day_model). top_traces
+        # 7 fetchers run once (summary, by_product, by_tool, by_model, by_day, and the two
+        # by_day_model queries). top_traces
         # is deprecated and returned empty without a query.
-        assert mock_exec.call_count == 6
+        assert mock_exec.call_count == 7
 
     def test_second_call_serves_from_cache(self) -> None:
         with patch("products.ai_observability.backend.api.personal_spend.execute_hogql_query") as mock_exec:

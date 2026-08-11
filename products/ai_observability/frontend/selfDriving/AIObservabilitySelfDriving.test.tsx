@@ -39,7 +39,7 @@ describe('AIObservabilitySelfDriving', () => {
         const tooltipTrigger = screen.getByText('What is this?')
         await userEvent.hover(tooltipTrigger)
 
-        expect(await screen.findByText(/Each template is a starting point for a scout/)).toBeInTheDocument()
+        expect(await screen.findByText(/Each template is a pre-defined scout/)).toBeInTheDocument()
 
         const docsLink = screen.getByText('Read the docs')
         expect(docsLink).toHaveAttribute('href', 'https://posthog.com/docs/ai-observability/self-driving')
