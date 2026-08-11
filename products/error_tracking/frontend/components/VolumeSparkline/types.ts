@@ -4,7 +4,7 @@ export type SparklineDatum = {
     color?: string
     /** When true with `color`, the bar is flagged as a detected spike: its own color plus a
      *  diagonal hatch fill. */
-    animated?: boolean
+    isSpike?: boolean
 }
 
 export type SparklineData = SparklineDatum[]
@@ -13,7 +13,6 @@ export type SparklineEvent<T = string> = {
     id: string
     date: Date
     payload: T
-    radius?: number
     color?: string
 }
 

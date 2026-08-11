@@ -221,7 +221,7 @@ function renderDataPoint(d: SparklineDatum): JSX.Element {
     return (
         <div className="flex items-center h-full gap-3">
             {renderMetric('Occurrences', d.value, false)}
-            {d.animated && (
+            {d.isSpike && (
                 <div className="flex items-center gap-1.5 text-warning-foreground">
                     <IconTrending className="text-base" />
                     <span className="text-xs font-semibold">Spike</span>
