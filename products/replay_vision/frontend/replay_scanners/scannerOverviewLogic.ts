@@ -22,7 +22,11 @@ import { urls } from 'scenes/urls'
 
 import { IntervalType } from '~/types'
 
-import { visionScannersImpactRetrieve, visionScannersObservationsStatsRetrieve } from '../generated/api'
+import {
+    visionScannersImpactRetrieve,
+    visionScannersObservationsStatsRetrieve,
+    visionScannersRetrieve,
+} from '../generated/api'
 import type { ObservationStatsApi, ScannerImpactApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { replayScannerLogic } from './replayScannerLogic'
@@ -46,7 +50,7 @@ import {
     deriveSummarizerFacetStats,
     isAwaitingFirstResults,
 } from './scannerStats'
-import type { ReplayScanner, ScannerType } from './types'
+import { type ReplayScanner, type ScannerType, scannerFromApi } from './types'
 
 export interface ScannerOverviewLogicProps {
     scannerId: string
@@ -354,13 +358,33 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             actions.loadOverviewStats()
             actions.loadOverviewImpact()
         }
-        // Refresh stats in the background while awaiting the first scan, so the pending panel
-        // dissolves into the real Overview on its own; stops itself the moment pending clears.
+        // Pending also hangs off the scanner's sweep watermark, which only the scanner endpoint
+        // reports; without refreshing it a first sweep that matches nothing would never clear
+        // pending. Fetched directly because loadScanner flips scannerLoading, which blanks the scene.
+        const refreshScannerWatermark = async (): Promise<void> => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await visionScannersRetrieve(String(teamId), props.scannerId)
+                replayScannerLogic
+                    .findMounted({ id: props.scannerId })
+                    ?.actions.loadScannerSuccess(scannerFromApi(response))
+            } catch {
+                // A failed background refresh just waits for the next poll tick.
+            }
+        }
+        // Refresh stats and the sweep watermark in the background while awaiting the first scan, so
+        // the pending panel dissolves into the real Overview on its own; stops the moment pending clears.
         const scheduleFirstScanPoll = (): void =>
             scheduleObservationPoll(
                 cache.disposables,
                 values.firstScanPending,
-                () => actions.loadOverviewStats(),
+                () => {
+                    actions.loadOverviewStats()
+                    void refreshScannerWatermark()
+                },
                 FIRST_SCAN_POLL_INTERVAL_MS
             )
         return {
@@ -369,10 +393,10 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
             setOverviewTagFilter: reloadStats,
             clearOverviewFilters: reloadDateScoped,
             loadOverviewStatsSuccess: scheduleFirstScanPoll,
-            loadOverviewStatsFailure: () => {
-                // A failing stats endpoint shouldn't loop error toasts every interval.
-                scheduleObservationPoll(cache.disposables, false, () => actions.loadOverviewStats())
-            },
+            // The pending panel hides the overview filters, so a stopped poll would freeze it with
+            // no in-page way to retry: keep polling while pending (those retries don't toast, see the
+            // loadOverviewStats catch), and stop otherwise so a failing endpoint doesn't loop error toasts.
+            loadOverviewStatsFailure: scheduleFirstScanPoll,
             // Impact needs the scanner type; refire once the scanner (and its type) resolves.
             // The poll re-arms too: pending depends on the scanner's sweep watermark, which may
             // resolve after the first stats response.
@@ -427,7 +451,10 @@ export const scannerOverviewLogic = kea<scannerOverviewLogicType>([
                     if (error instanceof Error && isBreakpoint(error)) {
                         throw error
                     }
-                    lemonToast.error('Failed to load overview stats')
+                    // Background retries behind the pending panel would otherwise stack a toast per interval.
+                    if (!values.firstScanPending) {
+                        lemonToast.error('Failed to load overview stats')
+                    }
                     actions.loadOverviewStatsFailure()
                 }
             },

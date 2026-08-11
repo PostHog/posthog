@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -165,6 +166,7 @@ describe('scannerOverviewLogic', () => {
         let freshLogic: ReturnType<typeof scannerOverviewLogic.build>
         let scannerBody: Record<string, unknown>
         let statsBody: Record<string, unknown>
+        let failRequests: boolean
 
         const SETTLED_STATS = {
             ...STATS,
@@ -184,12 +186,13 @@ describe('scannerOverviewLogic', () => {
                 last_swept_at: dayjs().subtract(37, 'minute').toISOString(),
             }
             statsBody = STATS
+            failRequests = false
             useMocks({
                 get: {
-                    '/api/projects/:team/vision/scanners/:id/': () => [200, scannerBody],
+                    '/api/projects/:team/vision/scanners/:id/': () => (failRequests ? [500, {}] : [200, scannerBody]),
                     '/api/projects/:team/vision/scanners/:id/observations/stats/': ({ request }) => {
                         statsRequests.push(request.url)
-                        return [200, statsBody]
+                        return failRequests ? [500, {}] : [200, statsBody]
                     },
                 },
             })
@@ -234,6 +237,38 @@ describe('scannerOverviewLogic', () => {
             const after = statsRequests.length
             await jest.advanceTimersByTimeAsync(60_000)
             expect(statsRequests.length).toBe(after)
+        })
+
+        it('dissolves once the first sweep completes even when it matched nothing', async () => {
+            jest.useFakeTimers()
+            freshLogic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(freshLogic.values.firstScanPending).toBe(true)
+
+            // Stats stay all-zero forever here, so only the poll refetching the scanner's advanced
+            // sweep watermark can clear pending before the stuck-scan cap.
+            scannerBody = { ...scannerBody, last_swept_at: dayjs().toISOString() }
+            await jest.advanceTimersByTimeAsync(16_000)
+            expect(freshLogic.values.firstScanPending).toBe(false)
+        })
+
+        it('keeps polling through a transient outage while pending, without toasting each retry', async () => {
+            jest.useFakeTimers()
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+            freshLogic.mount()
+            await jest.advanceTimersByTimeAsync(1_000)
+            expect(freshLogic.values.firstScanPending).toBe(true)
+
+            // A stopped poll would freeze the pending panel, which hides every in-page reload control.
+            failRequests = true
+            await jest.advanceTimersByTimeAsync(16_000)
+            expect(freshLogic.values.firstScanPending).toBe(true)
+            expect(toastSpy).not.toHaveBeenCalled()
+
+            failRequests = false
+            statsBody = SETTLED_STATS
+            await jest.advanceTimersByTimeAsync(16_000)
+            expect(freshLogic.values.firstScanPending).toBe(false)
         })
     })
 
