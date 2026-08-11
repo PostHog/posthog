@@ -5,13 +5,13 @@ import type {
   SignalReportPriority,
   SignalReportStatus,
 } from "@posthog/shared/domain-types";
-import { formatDistanceToNow } from "date-fns";
 import * as Haptics from "expo-haptics";
 import { GithubLogo, Lightning } from "phosphor-react-native";
 import { useRef } from "react";
 import { Animated, PanResponder, Pressable, View } from "react-native";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
+import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
 
 const SWIPE_THRESHOLD = 120;
@@ -169,9 +169,7 @@ export function SwipeableReportCard({
     extrapolate: "clamp",
   });
 
-  const updatedAt = formatDistanceToNow(new Date(report.updated_at), {
-    addSuffix: true,
-  });
+  const updatedAt = formatRelativeTime(Date.parse(report.updated_at));
 
   // Non-top cards: static, offset down, no gestures
   if (!isTopCard) {

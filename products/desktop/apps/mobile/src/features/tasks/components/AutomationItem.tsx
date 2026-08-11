@@ -3,9 +3,9 @@ import type { TaskAutomation } from "@posthog/api-client/posthog-client";
 import { formatAutomationScheduleSummary } from "@posthog/core/automations/automationSchedule";
 import { getAutomationTemplatePresentation } from "@posthog/core/automations/automationTemplatePresentation";
 import type { TaskRun } from "@posthog/shared";
-import { format, formatDistanceToNow } from "date-fns";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
+import { formatRelativeTime } from "@/lib/format";
 import { AutomationStatusBadge } from "./AutomationStatusBadge";
 
 interface AutomationItemProps {
@@ -21,12 +21,7 @@ function AutomationItemComponent({
 }: AutomationItemProps) {
   const presentation = getAutomationTemplatePresentation(automation);
   const lastRunDisplay = automation.last_run_at
-    ? new Date(automation.last_run_at).getTime() >
-      Date.now() - 24 * 60 * 60 * 1000
-      ? formatDistanceToNow(new Date(automation.last_run_at), {
-          addSuffix: true,
-        })
-      : format(new Date(automation.last_run_at), "MMM d")
+    ? formatRelativeTime(Date.parse(automation.last_run_at))
     : "No runs yet";
 
   return (

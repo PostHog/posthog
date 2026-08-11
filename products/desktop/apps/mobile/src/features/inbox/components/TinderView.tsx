@@ -9,7 +9,6 @@ import type {
   SignalReportPriority,
   SignalReportStatus,
 } from "@posthog/shared/domain-types";
-import { formatDistanceToNow } from "date-fns";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
 import { Check, GithubLogo, Lightning, X } from "phosphor-react-native";
@@ -37,6 +36,7 @@ import {
   computeReportAgeHours,
   useAnalytics,
 } from "@/lib/analytics";
+import { formatRelativeTime } from "@/lib/format";
 import { logger } from "@/lib/logger";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
@@ -481,9 +481,7 @@ export function TinderView({
                   </View>
                   <Text className="text-[12px] text-gray-9">
                     Updated{" "}
-                    {formatDistanceToNow(new Date(expandedReport.updated_at), {
-                      addSuffix: true,
-                    })}
+                    {formatRelativeTime(Date.parse(expandedReport.updated_at))}
                   </Text>
                 </View>
 

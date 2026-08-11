@@ -3,7 +3,6 @@ import {
   type SourceProduct,
 } from "@posthog/shared";
 import type { Signal } from "@posthog/shared/domain-types";
-import { differenceInHours, format, formatDistanceToNow } from "date-fns";
 
 const ERROR_TRACKING_TYPE_LABELS: Record<string, string> = {
   issue_created: "New issue",
@@ -40,10 +39,4 @@ export function sourceLine(signal: Signal): string {
     EXTERNAL_INBOX_SOURCE_BY_PRODUCT[source_product as SourceProduct];
   const product = warehouseSource?.label ?? source_product.replace(/_/g, " ");
   return `${product} · ${source_type.replace(/_/g, " ")}`;
-}
-/** Relative time for the last day, absolute "MMM d" beyond it. */
-export function formatReportTimestamp(date: Date): string {
-  return differenceInHours(new Date(), date) < 24
-    ? formatDistanceToNow(date, { addSuffix: true })
-    : format(date, "MMM d");
 }

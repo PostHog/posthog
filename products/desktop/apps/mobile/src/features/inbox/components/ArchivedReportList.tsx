@@ -13,9 +13,9 @@ import {
   RefreshControl,
   View,
 } from "react-native";
+import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
 import { useArchivedReports, useRestoreReport } from "../hooks/useInboxReports";
-import { formatReportTimestamp } from "../utils";
 
 interface ArchivedReportListProps {
   onReportPress?: (report: SignalReport) => void;
@@ -38,7 +38,7 @@ const ArchivedRow = memo(function ArchivedRow({
   restoring,
 }: ArchivedRowProps) {
   const themeColors = useThemeColors();
-  const when = formatReportTimestamp(new Date(report.updated_at));
+  const when = formatRelativeTime(Date.parse(report.updated_at));
   const restorable = isRestorableReport(report);
   const reasonLabel = report.dismissal_reason
     ? dismissalReasonLabel(report.dismissal_reason)

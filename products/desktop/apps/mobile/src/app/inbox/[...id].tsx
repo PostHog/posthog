@@ -19,7 +19,6 @@ import type {
   SignalReportStatus,
   SuggestedReviewersArtefact,
 } from "@posthog/shared/domain-types";
-import { differenceInHours, format, formatDistanceToNow } from "date-fns";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
@@ -69,6 +68,7 @@ import {
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { computeReportAgeHours, useAnalytics } from "@/lib/analytics";
+import { formatRelativeTime } from "@/lib/format";
 import { modalTopOffset } from "@/lib/navigation";
 import { useThemeColors } from "@/lib/theme";
 
@@ -418,12 +418,7 @@ export default function ReportDetailScreen() {
     );
   }
 
-  const updatedAt = new Date(report.updated_at);
-  const hoursSince = differenceInHours(new Date(), updatedAt);
-  const timeDisplay =
-    hoursSince < 24
-      ? formatDistanceToNow(updatedAt, { addSuffix: true })
-      : format(updatedAt, "MMM d, yyyy");
+  const timeDisplay = formatRelativeTime(Date.parse(report.updated_at));
 
   const isReady = report.status === "ready";
 

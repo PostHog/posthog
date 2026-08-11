@@ -1,7 +1,6 @@
 import { Text } from "@components/text";
 import { xmlToPlainText } from "@posthog/core/message-editor/content";
 import type { Task } from "@posthog/shared";
-import { differenceInHours, format, formatDistanceToNow } from "date-fns";
 import {
   Check,
   GitMerge,
@@ -11,6 +10,7 @@ import {
 } from "phosphor-react-native";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
+import { formatRelativeTime } from "@/lib/format";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { type ThemeColors, useThemeColors } from "@/lib/theme";
 import { usePrStatus } from "../hooks/usePrStatus";
@@ -97,12 +97,7 @@ function TaskItemComponent({
   awaitingInput = false,
 }: TaskItemProps) {
   const themeColors = useThemeColors();
-  const createdAt = new Date(task.created_at);
-  const hoursSinceCreated = differenceInHours(new Date(), createdAt);
-  const timeDisplay =
-    hoursSinceCreated < 24
-      ? formatDistanceToNow(createdAt, { addSuffix: true })
-      : format(createdAt, "MMM d");
+  const timeDisplay = formatRelativeTime(Date.parse(task.created_at));
   const prChip = deriveTaskPrChip(task);
   // Desktop-local runs are listed but can't be driven from here until they're
   // continued in the cloud — the glyph plus the dimmed title says so without

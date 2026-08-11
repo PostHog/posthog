@@ -3,8 +3,8 @@ import type { SignalReport } from "@posthog/shared/domain-types";
 import { memo } from "react";
 import { Pressable, View } from "react-native";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
+import { formatRelativeTime } from "@/lib/format";
 import { useThemeColors } from "@/lib/theme";
-import { formatReportTimestamp } from "../utils";
 
 interface ReportListRowProps {
   report: SignalReport;
@@ -34,7 +34,7 @@ const priorityColorMap: Record<string, string> = {
 
 function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
   const themeColors = useThemeColors();
-  const timeDisplay = formatReportTimestamp(new Date(report.updated_at));
+  const timeDisplay = formatRelativeTime(Date.parse(report.updated_at));
 
   const dotKind = statusDotMap[report.status] ?? "muted";
   const dotColor =
