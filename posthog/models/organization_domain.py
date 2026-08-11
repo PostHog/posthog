@@ -397,7 +397,9 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
         merely applies to the whole organization. Ties break on `created_at`, then `id`, so the
         resolution is deterministic and can't be steered by row ordering.
         """
-        if self.pk is None:
+        # An unsaved domain has no links and no organization to scope `all` against. Its `pk` is
+        # already populated (UUID default), so this has to test `_state.adding` rather than the pk.
+        if self._state.adding:
             return IdentityProviderConfig.objects.none()
         return (
             IdentityProviderConfig.objects.filter(organization_id=self.organization_id)
