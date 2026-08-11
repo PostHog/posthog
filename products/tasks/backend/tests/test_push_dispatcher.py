@@ -6,6 +6,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.tasks.push_notifications import send_user_push
@@ -259,10 +260,72 @@ class TestPushDispatcher(TestCase):
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_awaiting_marker_write_failure_still_pushes(self, mock_delay, _flag, _mock_state):
         """The marker is an extra signal, never a reason to drop the notification."""
+        labels = {"kind": "awaiting_state", "reason": "other"}
+        before = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_failures_total", labels) or 0.0
+
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_turn_completed(self.task_run)
 
         mock_delay.assert_called_once()
+        # Swallowed, but not silent — the marker going missing is a client-visible degradation.
+        after = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_failures_total", labels) or 0.0
+        self.assertEqual(after, before + 1)
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    @patch(
+        "products.tasks.backend.facade.api.TaskRun.update_state_atomic",
+        side_effect=RuntimeError("postgres is down"),
+    )
+    def test_user_message_marker_clear_failure_still_signals(self, _mock_state, _mock_signal):
+        """The follow-up reached the agent; a failed marker clear must not report a dead end."""
+        self.task_run.state = {"mode": "interactive", AWAITING_USER_INPUT_STATE_KEY: True}
+        self.task_run.save(update_fields=["state"])
+
+        result = signal_task_run_user_message(
+            self.task_run.id,
+            self.task.id,
+            self.team.id,
+            content="carry on",
+            artifact_ids=[],
+        )
+
+        self.assertIs(result, True)
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_user_message_to_gone_workflow_clears_awaiting_marker(self, mock_signal):
+        """Nothing will ever consume the reply, so the task must not stay pinned as waiting."""
+        mock_signal.side_effect = RPCError("workflow gone", RPCStatusCode.NOT_FOUND, b"")
+        self.task_run.state = {"mode": "interactive", AWAITING_USER_INPUT_STATE_KEY: True}
+        self.task_run.save(update_fields=["state"])
+
+        result = signal_task_run_user_message(
+            self.task_run.id,
+            self.task.id,
+            self.team.id,
+            content="carry on",
+            artifact_ids=[],
+        )
+
+        self.assertIs(result, False)
+        self.assertEqual(self._run_state(), {"mode": "interactive"})
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_transient_signal_failure_keeps_awaiting_marker(self, mock_signal):
+        """The reply never landed, so the run is still blocked on the user — leave the marker."""
+        mock_signal.side_effect = RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")
+        self.task_run.state = {"mode": "interactive", AWAITING_USER_INPUT_STATE_KEY: True}
+        self.task_run.save(update_fields=["state"])
+
+        with self.assertRaises(RPCError):
+            signal_task_run_user_message(
+                self.task_run.id,
+                self.task.id,
+                self.team.id,
+                content="carry on",
+                artifact_ids=[],
+            )
+
+        self.assertIs(self._run_state()[AWAITING_USER_INPUT_STATE_KEY], True)
 
     @patch("posthog.tasks.push_notifications.send_push_to_user", return_value=2)
     def test_delivery_task_records_expo_acceptance(self, mock_send):

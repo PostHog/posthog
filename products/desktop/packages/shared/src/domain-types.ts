@@ -292,6 +292,10 @@ export interface TaskRunState {
    * Set by the backend when an interactive run finishes a turn and is blocked on
    * its user, cleared when the user replies or the run terminates. The only
    * awaiting-input signal available to a client that is not streaming the run.
+   *
+   * Advisory: terminalization paths that bypass both clears (janitor sweeps, bulk
+   * status updates) leave a stale `true` behind, so it is only meaningful while
+   * `latest_run.status` is non-terminal. Never read it on its own.
    */
   awaiting_user_input?: boolean;
   [key: string]: unknown;

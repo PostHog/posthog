@@ -173,7 +173,10 @@ def _record_awaiting_user_input(task_run: TaskRun, awaiting: bool) -> None:
         else:
             state = TaskRun.update_state_atomic(task_run.id, remove_keys=[AWAITING_USER_INPUT_STATE_KEY])
         task_run.state = state
-    except Exception:
+    except Exception as exc:
+        # Not a PushKind: this counts marker writes, which are a side channel of the dispatch, not
+        # a push that failed to go out. Kept on the same counter so one alert covers both.
+        PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind="awaiting_state", reason=_failure_reason(exc)).inc()
         logger.warning("push_dispatcher.awaiting_state_write_failed", run_id=str(task_run.id), exc_info=True)
 
 

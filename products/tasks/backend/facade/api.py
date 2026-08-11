@@ -1989,6 +1989,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
+        # Turn-end marker owned by the push dispatcher; a PATCHable value would let a caller pin
+        # another user's task into the mobile "Needs attention" group, or hide a genuine wait.
+        AWAITING_USER_INPUT_STATE_KEY,
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.
@@ -3404,6 +3407,10 @@ def signal_task_run_user_message(
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
+            # No agent will ever consume this reply, so the wait is over either way — leaving the
+            # marker set would strand the task in "Needs attention" forever. Only on NOT_FOUND:
+            # a transient RPC failure re-raises for retry, and there the user is still waiting.
+            _clear_awaiting_user_input(run)
             return False
         raise
     _clear_awaiting_user_input(run)
@@ -3414,9 +3421,9 @@ def _clear_awaiting_user_input(run: TaskRun) -> None:
     """Drop the run's awaiting-input marker now that the user has replied.
 
     Every user-message path funnels through ``signal_task_run_user_message``, so this is the one
-    place the condition ends short of the run terminating (which the push dispatcher clears).
-    Best-effort: a failed marker write must not turn a delivered follow-up into an error for the
-    user, and the next terminal transition clears it anyway.
+    place the condition ends short of the run terminating (which the push dispatcher and the
+    update_task_run_status activity clear). Best-effort: a failed marker write must not turn a
+    delivered follow-up into an error for the user.
     """
     try:
         run.state = TaskRun.update_state_atomic(run.id, remove_keys=[AWAITING_USER_INPUT_STATE_KEY])

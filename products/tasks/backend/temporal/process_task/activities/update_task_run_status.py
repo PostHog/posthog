@@ -11,7 +11,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.metrics import observe_wizard_run_unbound
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import AWAITING_USER_INPUT_STATE_KEY, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -88,9 +88,16 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if input.error_message:
                 task_run.error_message = input.error_message
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
-            if marker in _TERMINAL_STATE_MARKERS:
+            state_updates = {marker: True} if marker in _TERMINAL_STATE_MARKERS else None
+            # A terminal run is blocked on nobody. This activity is how workflow-driven runs
+            # (finish tool, failures, timeouts, cancellations) terminalize without passing the push
+            # dispatcher, which is the other place the marker is cleared.
+            state_removals = [AWAITING_USER_INPUT_STATE_KEY] if input.status in _TERMINAL_STATUSES else None
+            if state_updates or state_removals:
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
-                task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates=state_updates, remove_keys=state_removals
+                )
             if input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]:
                 task_run.completed_at = timezone.now()
             elif (

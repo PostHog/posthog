@@ -1746,9 +1746,14 @@ class LoopFire(TeamScopedRootMixin):
 
 # `TaskRun.state` key marking that an interactive run has finished a turn and is blocked on its
 # user. Written by the push dispatcher at the same turn-end moments that fire the "needs your
-# input" push, and cleared when the user replies or the run reaches a terminal status. Persisted
-# (rather than left to the live event stream) so a client that was not streaming — the mobile task
-# list, most of all — can still tell which tasks are waiting on a human.
+# input" push, and cleared when the user replies, when the push dispatcher fires a terminal push,
+# and when the update_task_run_status activity terminalizes the run. Persisted (rather than left to
+# the live event stream) so a client that was not streaming — the mobile task list, most of all —
+# can still tell which tasks are waiting on a human.
+#
+# Advisory, not an invariant: terminalization paths that skip both clears (the janitor sweep's
+# `mark_completed(notify=False)`, bulk status updates) leave a stale True behind. Only meaningful
+# while the run's status is non-terminal — always read it alongside the status.
 AWAITING_USER_INPUT_STATE_KEY = "awaiting_user_input"
 
 

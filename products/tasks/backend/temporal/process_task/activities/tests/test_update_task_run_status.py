@@ -4,7 +4,7 @@ from unittest.mock import patch
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 
-from products.tasks.backend.models import Loop, TaskRun
+from products.tasks.backend.models import AWAITING_USER_INPUT_STATE_KEY, Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
@@ -116,6 +116,36 @@ class TestUpdateTaskRunStatusActivity:
 
         test_task_run.refresh_from_db()
         assert "arbitrary_key" not in (test_task_run.state or {})
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status,still_awaiting",
+        [
+            (TaskRun.Status.COMPLETED, False),
+            (TaskRun.Status.FAILED, False),
+            (TaskRun.Status.CANCELLED, False),
+            (TaskRun.Status.IN_PROGRESS, True),
+        ],
+    )
+    def test_terminal_transition_clears_awaiting_user_input(
+        self, activity_environment, test_task_run, status, still_awaiting
+    ):
+        # Workflow-driven runs terminalize here without passing the push dispatcher, so this is
+        # where their marker has to be dropped — a stale one strands the task in the mobile
+        # "Needs attention" group forever.
+        test_task_run.state = {
+            **(test_task_run.state or {}),
+            AWAITING_USER_INPUT_STATE_KEY: True,
+            "existing_key": "kept",
+        }
+        test_task_run.save(update_fields=["state"])
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert (AWAITING_USER_INPUT_STATE_KEY in test_task_run.state) is still_awaiting
+        assert test_task_run.state["existing_key"] == "kept"
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")

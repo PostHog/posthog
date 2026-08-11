@@ -5138,6 +5138,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
                 "sandbox_gone": False,
+                "awaiting_user_input": True,
                 "ai_stage": "research",
                 "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
@@ -5189,6 +5190,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
+                    "awaiting_user_input": False,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
                     # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
@@ -5226,6 +5228,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
         assert run.state["sandbox_gone"] is False
+        assert run.state["awaiting_user_input"] is True  # caller cannot hide another user's wait
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
@@ -5253,6 +5256,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "pending_external_followups",
                     "pending_external_followups_generation",
                     "sandbox_gone",
+                    "awaiting_user_input",
                     "runtime_adapter",
                     "provider",
                     "model",
@@ -5277,6 +5281,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
         assert run.state["sandbox_gone"] is False  # protected key survives removal
+        assert run.state["awaiting_user_input"] is True  # protected key survives removal
         # Dropping the model posture is as good as repointing it: the processing context reads these
         # back with .get(), so an absent key silently falls back to the runtime's default rather than
         # the pin the server chose.
