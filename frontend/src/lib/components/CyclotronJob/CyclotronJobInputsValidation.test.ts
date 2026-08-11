@@ -152,8 +152,12 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.errors).toEqual({})
             })
 
-            it('should reject a non-numeric integration value', () => {
-                const inputs = { integration: { value: 'not-an-id' } }
+            it.each([
+                ['non-numeric text', 'not-an-id'],
+                // `Number('   ')` is 0, so a whitespace-only value must not read as integration id 0.
+                ['whitespace only', '   '],
+            ])('should reject a %s integration value', (_label, value) => {
+                const inputs = { integration: { value } }
                 const schema: CyclotronJobInputSchemaType[] = [
                     { key: 'integration', type: 'integration', label: 'Integration' },
                 ]

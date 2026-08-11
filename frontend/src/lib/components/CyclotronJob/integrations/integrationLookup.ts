@@ -36,7 +36,9 @@ export function matchesIntegrationIdValue(integrationId: IntegrationType['id'], 
  * must not fail required-field validation. Blank values are "no selection".
  */
 export function isIntegrationIdValue(value: IntegrationIdValue): boolean {
-    if (value === undefined || value === null || value === '') {
+    // Blank (including whitespace-only) is "no selection". Guard it explicitly because
+    // `Number('   ')` is `0` — a finite number that would otherwise read as integration id 0.
+    if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
         return false
     }
     return Number.isFinite(Number(value))
