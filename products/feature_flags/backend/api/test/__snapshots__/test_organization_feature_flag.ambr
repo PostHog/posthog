@@ -248,7 +248,8 @@
                  WHERE U0."id" = 99999
                  LIMIT 1)
               OR ("posthog_team"."parent_team_id" IS NULL
-                  AND "posthog_featureflag"."team_id" = 99999)))
+                  AND "posthog_featureflag"."team_id" = 99999))
+         AND NOT "posthog_featureflag"."archived")
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.14

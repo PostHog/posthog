@@ -101,7 +101,15 @@ def _redact_unchanged_encrypted_payloads(flag: FeatureFlag, data: dict) -> dict:
     return {**data, "filters": {**filters, "payloads": redacted}}
 
 
-def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request: Any | None = None) -> FeatureFlag:
+def update_flag(
+    flag: FeatureFlag,
+    data: dict,
+    *,
+    team: Team,
+    user: Any,
+    request: Any | None = None,
+    allow_exceeding_flag_limit: bool = False,
+) -> FeatureFlag:
     """Gated partial update: routes through FeatureFlagSerializer so @approval_gate,
     validation, and activity logging apply. ``data`` is a partial flag write payload
     (fields it omits are untouched) applied as-is — nothing is silently dropped.
@@ -109,12 +117,16 @@ def update_flag(flag: FeatureFlag, data: dict, *, team: Team, user: Any, request
     ``user=None`` is a system write (see module docstring): ``last_modified_by`` is
     cleared, activity is logged as system, the approval gate is skipped.
 
+    ``allow_exceeding_flag_limit`` waives MAX_FEATURE_FLAGS_PER_TEAM for this write. Only
+    unarchiving (``archived: False``) consults the cap, since that is the one update that grows
+    the counted set, so the waiver has no effect on any other update.
+
     Encrypted payload values carried over unchanged from ``flag.get_filters()`` are
     preserved as-is, never re-validated or re-encrypted."""
     data = _redact_unchanged_encrypted_payloads(flag, data)
-    serializer = FeatureFlagSerializer(
-        flag, data=data, partial=True, context=_serializer_context(team, user, request, method="PATCH")
-    )
+    context = _serializer_context(team, user, request, method="PATCH")
+    context["allow_exceeding_flag_limit"] = allow_exceeding_flag_limit
+    serializer = FeatureFlagSerializer(flag, data=data, partial=True, context=context)
     serializer.is_valid(raise_exception=True)
     saved = serializer.save()
     if saved.has_encrypted_payloads:
@@ -165,13 +177,33 @@ def archive_flag(
     return update_flag(flag, data, team=team, user=user, request=request)
 
 
-def unarchive_flag(flag: FeatureFlag, *, team: Team, user: Any, request: Any | None = None) -> FeatureFlag:
+def unarchive_flag(
+    flag: FeatureFlag,
+    *,
+    team: Team,
+    user: Any,
+    request: Any | None = None,
+    allow_exceeding_flag_limit: bool = False,
+) -> FeatureFlag:
     """Unarchive a flag through the gated serializer path.
 
     The flag stays disabled; re-enabling it is a separate, explicit write
     (``set_flag_active``).
+
+    Archived flags don't count against the team's flag limit, so unarchiving grows the
+    counted set and has to clear the cap the way a create does — this raises when the team
+    is already there. Pass ``allow_exceeding_flag_limit`` to waive it when the write undoes
+    an archive the calling product performed itself, so the undo can't be blocked by a cap
+    the original archive helped free up.
     """
-    return update_flag(flag, {"archived": False}, team=team, user=user, request=request)
+    return update_flag(
+        flag,
+        {"archived": False},
+        team=team,
+        user=user,
+        request=request,
+        allow_exceeding_flag_limit=allow_exceeding_flag_limit,
+    )
 
 
 def _roll_out_variant(

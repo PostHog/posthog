@@ -578,25 +578,34 @@ def _filter_person_properties_for_flag(
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
 
 
-def check_flag_limits_for_team(
-    team_id: int,
-    is_create: bool = True,
-) -> None:
+def check_flag_limits_for_team(team_id: int, *, adds_to_count: bool) -> None:
     """
-    Check if creating a flag would exceed the team's flag count limit.
+    Check if a write would push the team past its flag count limit.
 
-    Only enforced on create -- updates to existing flags don't change the count.
+    ``adds_to_count`` says this write moves a flag into the counted set: creating and unarchiving
+    both do. Unarchiving has to clear the cap or a team mints slots for free by archiving flags,
+    creating replacements, then unarchiving the originals.
+
+    Undoing a soft delete is deliberately exempt, even though it grows the counted set the same
+    way. A team can sit above the cap (it shipped without a backfill, and lowering it puts teams
+    over at once), and charging the undo would make deleting a flag one-way for them: the delete
+    succeeds and the undo fails, with nothing in the product to recover it. That leaves a narrow
+    delete-create-restore path past the cap, accepted as the lesser cost.
+
+    Archived flags are excluded so archiving frees a slot without destroying the experiment
+    and survey data linked to the flag; soft-deleted flags are already excluded by the default
+    manager. Disabled flags count, since a team can re-enable them.
     """
-    if not is_create:
+    if not adds_to_count:
         return
 
     count_limit = settings.MAX_FEATURE_FLAGS_PER_TEAM
-    flag_count = FeatureFlag.objects.filter(team_id=team_id).count()
+    flag_count = FeatureFlag.objects.filter(team_id=team_id, archived=False).count()
 
     if flag_count >= count_limit:
         raise serializers.ValidationError(
             f"Maximum of {count_limit:,} feature flags allowed per team. "
-            f"Please delete unused flags or contact support to increase this limit."
+            f"Archive or delete unused flags, or contact support to increase this limit."
         )
 
 
@@ -1060,7 +1069,7 @@ class FeatureFlagSerializer(
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
-        self._validate_flag_limits()
+        self._validate_flag_limits(attrs)
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
         # create(), so a remote-config create trips the rollout policy instead of slipping past it.
@@ -1231,11 +1240,22 @@ class FeatureFlagSerializer(
 
         return value
 
-    def _validate_flag_limits(self) -> None:
-        """Validate that the team has not exceeded its flag count limit."""
+    def _validate_flag_limits(self, attrs: dict) -> None:
+        """Enforce the team's flag cap on writes that move this flag into the counted set."""
+        if self.context.get("allow_exceeding_flag_limit"):
+            return
+        # Compare counted-set membership before and after rather than testing `archived` and
+        # `deleted` separately: a flag sits outside the set if either one is set, so a write
+        # clearing only one of them (unarchiving a flag that stays deleted) adds nothing.
+        counted_before = self.instance is not None and not self.instance.archived and not self.instance.deleted
+        archived_after = attrs.get("archived", self.instance.archived if self.instance else False)
+        deleted_after = attrs.get("deleted", self.instance.deleted if self.instance else False)
+        counted_after = not archived_after and not deleted_after
+        # A soft-deleted flag can only re-enter the counted set by being restored, so this one
+        # term exempts every undo-delete shape. See check_flag_limits_for_team for why.
+        was_deleted = self.instance is not None and self.instance.deleted
         check_flag_limits_for_team(
-            team_id=self.context["team_id"],
-            is_create=self.instance is None,
+            self.context["team_id"], adds_to_count=counted_after and not counted_before and not was_deleted
         )
 
     @functools.cached_property

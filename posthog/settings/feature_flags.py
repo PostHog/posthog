@@ -105,14 +105,15 @@ TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES: int = get_from_env(
     "TEAM_METADATA_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES", 5, type_cast=int
 )
 
-# Feature flag limits to prevent memory issues during flag evaluation/caching.
-# These limits are configurable via environment variables and can be overridden
-# in Helm charts per environment.
-#
-# Defaults are set well above observed production maximums to avoid impacting
-# normal usage while protecting against extreme outliers.
+# Feature flag limits, configurable via environment variables and overridable in Helm
+# charts per environment. Defaults are set well above observed production maximums to
+# avoid impacting normal usage while protecting against extreme outliers.
 
-# Maximum number of feature flags allowed per team
+# Maximum number of feature flags allowed per team. Counts non-archived flags only, so it
+# bounds a team's live roster. It does not bound the evaluation payload: archived flags are
+# still serialized into the flags hypercache and the local-evaluation response, so a team
+# that keeps archiving and recreating flags keeps growing them. The per-flag filter size
+# cap below is what limits the cost of any single flag.
 MAX_FEATURE_FLAGS_PER_TEAM: int = get_from_env("MAX_FEATURE_FLAGS_PER_TEAM", 2000, type_cast=int)
 
 # Maximum size in bytes for a single flag's filters JSON

@@ -24,6 +24,7 @@ from products.feature_flags.backend.facade.api import (
     flag_disable_requires_approval,
     set_flag_active,
     ship_variant,
+    unarchive_flag,
     update_flag,
 )
 from products.feature_flags.backend.facade.filters import (
@@ -82,6 +83,21 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
         flag.refresh_from_db()
         assert flag.archived is False
         assert flag.active is True
+
+    def test_unarchive_flag_enforces_the_count_limit_by_default(self):
+        # The waiver is opt-in. Without it, unarchiving through the facade clears the cap
+        # like a create, so a caller can't skip it just by going through the facade.
+        archived_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="facade-archived-flag", active=False, archived=True
+        )
+        self._create_flag()
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=1):
+            with self.assertRaises(ValidationError):
+                unarchive_flag(archived_flag, team=self.team, user=self.user)
+
+        archived_flag.refresh_from_db()
+        assert archived_flag.archived is True
 
     def test_ship_variant_without_base_filters_uses_flag_filters(self):
         flag = self._create_flag(

@@ -2145,7 +2145,10 @@ class ExperimentService:
         # archived-only payload matches no approval action (enable/disable detect on
         # `active`, update on `filters`), so the gate can't raise ApprovalRequired here
         # and roll back a just-created change request.
-        unarchive_flag(feature_flag, team=self.team, user=self.user, request=request)
+        #
+        # Waive the flag cap: archiving this flag freed a slot the team may have since
+        # filled, and blocking the undo would strand the experiment without its flag.
+        unarchive_flag(feature_flag, team=self.team, user=self.user, request=request, allow_exceeding_flag_limit=True)
 
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])

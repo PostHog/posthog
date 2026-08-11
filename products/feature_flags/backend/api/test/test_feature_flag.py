@@ -12999,7 +12999,7 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 class TestFeatureFlagLimits(APIBaseTest):
     """Tests for feature flag creation and update limits."""
 
-    def _create_flag(self, key: str, filters: Optional[dict] = None) -> FeatureFlag:
+    def _create_flag(self, key: str, filters: Optional[dict] = None, **kwargs: bool) -> FeatureFlag:
         """Helper to create a flag directly in the database."""
         if filters is None:
             filters = {"groups": [{"rollout_percentage": 100, "properties": []}]}
@@ -13008,6 +13008,7 @@ class TestFeatureFlagLimits(APIBaseTest):
             created_by=self.user,
             key=key,
             filters=filters,
+            **kwargs,
         )
 
     def test_cannot_create_flag_when_team_exceeds_count_limit(self):
@@ -13044,31 +13045,39 @@ class TestFeatureFlagLimits(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Maximum of 3 feature flags allowed per team" in response.json()["detail"]
 
-    def test_can_update_existing_flag_when_team_at_count_limit(self):
-        # Create flags up to the limit
+    @parameterized.expand(
+        [
+            ("rename", {"name": "Updated description"}),
+            ("archive", {"archived": True, "active": False}),
+        ]
+    )
+    def test_can_update_existing_flag_when_team_at_count_limit(self, _name: str, payload: dict) -> None:
+        # Neither update grows the counted set, so both work at the cap. Archiving especially:
+        # it is the remedy the limit error recommends.
         flag1 = self._create_flag("flag-1")
         self._create_flag("flag-2")
 
-        # Updating an existing flag should succeed even at the limit
         with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/feature_flags/{flag1.id}",
-                {"name": "Updated description"},
+                payload,
             )
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["name"] == "Updated description"
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
-    def test_deleted_flags_do_not_count_toward_limit(self):
-        # Create two flags
-        flag1 = self._create_flag("flag-1")
+    @parameterized.expand(
+        [
+            ("deleted", {"deleted": True}, status.HTTP_201_CREATED),
+            ("archived", {"archived": True, "active": False}, status.HTTP_201_CREATED),
+            ("disabled", {"active": False}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_flag_state_effect_on_count_limit(self, _name: str, flag_state: dict, expected_status: int) -> None:
+        # Only deleted and archived flags free up a slot. A disabled flag is an ordinary
+        # flag the team can re-enable, so it still counts.
+        self._create_flag("flag-1", **flag_state)
         self._create_flag("flag-2")
 
-        # Soft-delete one
-        flag1.deleted = True
-        flag1.save()
-
-        # Now we should be able to create a new flag
         with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=2):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/feature_flags",
@@ -13078,7 +13087,55 @@ class TestFeatureFlagLimits(APIBaseTest):
                 },
             )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            (
+                "unarchive_at_limit",
+                {"archived": True, "active": False},
+                {"archived": False},
+                0,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "unarchive_under_limit",
+                {"archived": True, "active": False},
+                {"archived": False},
+                1,
+                status.HTTP_200_OK,
+            ),
+            # Undoing a soft delete is exempt, so a team over the cap can still recover a flag
+            # it deleted by mistake.
+            ("restore_at_limit", {"deleted": True}, {"deleted": False}, 0, status.HTTP_200_OK),
+            # The flag stays soft-deleted, so it does not re-enter the counted set and must
+            # not be charged for it.
+            (
+                "unarchive_at_limit_but_stays_deleted",
+                {"deleted": True, "archived": True, "active": False},
+                {"archived": False},
+                0,
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_unarchiving_respects_count_limit_but_restoring_is_exempt(
+        self, _name: str, excluded_state: dict, payload: dict, spare_slots: int, expected_status: int
+    ) -> None:
+        # Unarchiving puts the flag back in the counted set, so it clears the same bar as a
+        # create. Otherwise archive-create-unarchive mints slots for free.
+        excluded_flag = self._create_flag("excluded-flag", **excluded_state)
+        counted_keys = ["flag-1", "flag-2"]
+        for key in counted_keys:
+            self._create_flag(key)
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=len(counted_keys) + spare_slots):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{excluded_flag.id}",
+                payload,
+            )
+
+        assert response.status_code == expected_status
 
     def test_per_flag_filter_size_limit_on_create(self):
         # Create a filter with many properties that exceeds 1KB

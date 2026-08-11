@@ -3001,6 +3001,28 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is True
         assert experiment.feature_flag_auto_archived is True
 
+    def test_unarchive_experiment_restores_flag_over_team_flag_limit(self):
+        # Archiving the experiment freed a slot the team then filled. Restoring the flag is
+        # an undo, so it is waived from the cap rather than stranding the experiment.
+        experiment = self._create_ended_experiment(name="Unarchive At Limit", feature_flag_key="unarchive-at-limit")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        experiment.refresh_from_db()
+        assert experiment.feature_flag_auto_archived is True
+        # The experiment's own flag is archived, so this is the team's only counted flag.
+        self._create_flag(key="fills-the-cap")
+
+        with self.settings(MAX_FEATURE_FLAGS_PER_TEAM=1):
+            service.unarchive_experiment(experiment)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
+
     def test_archive_experiment_denies_disabling_flag_when_approval_required(self):
         experiment = self._create_ended_experiment(name="Approval Gated", feature_flag_key="approval-gated-flag")
         service = self._service()
