@@ -16,6 +16,7 @@ import {
 } from 'scenes/feature-flags/featureFlagNotebookWidgetViews'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
@@ -154,11 +155,7 @@ export const NotebookNodeFlag = createPostHogWidgetNode<FeatureFlagNotebookWidge
         id: {},
         view: {},
     },
-    defaultView: {
-        key: 'summary',
-        label: 'Summary',
-        description: 'Show the flag status and release conditions',
-    },
+    defaultView: getNotebookWidgetDefaultView('FeatureFlag'),
     views: FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
 })
 

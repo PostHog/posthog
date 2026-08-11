@@ -8,6 +8,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconSurveys } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
@@ -119,11 +120,7 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<SurveyNotebookWidgetAt
         id: {},
         view: {},
     },
-    defaultView: {
-        key: 'summary',
-        label: 'Summary',
-        description: 'Use the expandable survey summary',
-    },
+    defaultView: getNotebookWidgetDefaultView('Survey'),
     views: SURVEY_NOTEBOOK_WIDGET_VIEWS,
 })
 

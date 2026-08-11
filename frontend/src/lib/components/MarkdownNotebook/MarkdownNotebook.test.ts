@@ -976,10 +976,10 @@ continued line
     })
 
     it('preserves a named component view while normalizing panel props', () => {
-        const markdown = `<FeatureFlag id={123} view="compact-editor" edit={false} />`
+        const markdown = `<FeatureFlag id={123} view="editor" edit={false} />`
 
         expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(
-            `<FeatureFlag hideFilters id={123} view="compact-editor" />`
+            `<FeatureFlag hideFilters id={123} view="editor" />`
         )
     })
 

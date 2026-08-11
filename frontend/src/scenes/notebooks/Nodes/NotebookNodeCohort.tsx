@@ -8,7 +8,9 @@ import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { COHORT_NOTEBOOK_WIDGET_VIEWS, CohortNotebookWidgetAttributes } from 'scenes/cohorts/cohortNotebookWidgetViews'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
@@ -18,7 +20,7 @@ import { PropertyFilterType } from '~/types'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<CohortNotebookWidgetAttributes>): JSX.Element => {
     const { id } = attributes
 
     const { expanded } = useValues(notebookNodeLogic)
@@ -153,11 +155,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
     )
 }
 
-type NotebookNodeCohortAttributes = {
-    id: number
-}
-
-export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttributes>({
+export const NotebookNodeCohort = createPostHogWidgetNode<CohortNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.Cohort,
     titlePlaceholder: 'Cohort',
     Component,
@@ -166,7 +164,10 @@ export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttr
     href: (attrs) => urls.cohort(attrs.id),
     attributes: {
         id: {},
+        view: {},
     },
+    defaultView: getNotebookWidgetDefaultView('Cohort'),
+    views: COHORT_NOTEBOOK_WIDGET_VIEWS,
     serializedText: (attrs) => {
         const title = attrs?.title || ''
         const id = attrs?.id || ''

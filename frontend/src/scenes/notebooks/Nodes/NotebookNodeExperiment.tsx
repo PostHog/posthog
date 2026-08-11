@@ -6,6 +6,7 @@ import {
     ExperimentNotebookWidgetAttributes,
 } from '~/scenes/experiments/notebook/experimentNotebookWidgetViews'
 import { createPostHogWidgetNode } from '~/scenes/notebooks/Nodes/NodeWrapper'
+import { getNotebookWidgetDefaultView } from '~/scenes/notebooks/notebookWidgetCatalog'
 import { type NotebookNodeProps, NotebookNodeType } from '~/scenes/notebooks/types'
 import { urls } from '~/scenes/urls'
 
@@ -29,10 +30,6 @@ export const NotebookNodeExperiment = createPostHogWidgetNode<ExperimentNotebook
         id: {},
         view: {},
     },
-    defaultView: {
-        key: 'summary',
-        label: 'Summary',
-        description: 'Use the expandable experiment summary',
-    },
+    defaultView: getNotebookWidgetDefaultView('Experiment'),
     views: EXPERIMENT_NOTEBOOK_WIDGET_VIEWS,
 })

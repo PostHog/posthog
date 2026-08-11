@@ -5,7 +5,8 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { IconSurveys } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { NotebookNodeProps, PostHogWidgetViews } from 'scenes/notebooks/types'
+import { defineNotebookWidgetViews } from 'scenes/notebooks/notebookWidgetCatalog'
+import { NotebookNodeProps } from 'scenes/notebooks/types'
 
 import { SurveyStatusTag } from './components/SurveyStatusTag'
 import { NEW_SURVEY, SURVEY_TYPE_LABEL_MAP } from './constants'
@@ -125,25 +126,12 @@ function SurveyResultsWidget({ attributes }: NotebookNodeProps<SurveyNotebookWid
     )
 }
 
-export const SURVEY_NOTEBOOK_WIDGET_VIEWS = {
-    'compact-summary': {
-        label: 'Compact summary',
-        description: 'Show the survey status, display mode, and question count',
-        Component: SurveyCompactSummary,
-    },
-    preview: {
-        label: 'Preview',
-        description: 'Show the first page of the survey',
-        Component: SurveyPreviewWidget,
-    },
-    'display-conditions': {
-        label: 'Display conditions',
-        description: 'Show when and where the survey appears',
-        Component: SurveyDisplayConditionsWidget,
-    },
-    results: {
-        label: 'Results',
-        description: 'Show survey responses and question results',
-        Component: SurveyResultsWidget,
-    },
-} satisfies PostHogWidgetViews<SurveyNotebookWidgetAttributes>
+export const SURVEY_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<SurveyNotebookWidgetAttributes, 'Survey'>(
+    'Survey',
+    {
+        summary: SurveyCompactSummary,
+        preview: SurveyPreviewWidget,
+        conditions: SurveyDisplayConditionsWidget,
+        results: SurveyResultsWidget,
+    }
+)

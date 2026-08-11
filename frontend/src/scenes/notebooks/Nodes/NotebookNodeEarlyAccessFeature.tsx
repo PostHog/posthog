@@ -17,12 +17,17 @@ import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,
 } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import {
+    EARLY_ACCESS_FEATURE_NOTEBOOK_WIDGET_VIEWS,
+    EarlyAccessFeatureNotebookWidgetAttributes,
+} from 'products/early_access_features/frontend/earlyAccessFeatureNotebookWidgetViews'
 
+import { getNotebookWidgetDefaultView } from '../notebookWidgetCatalog'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildFlagContent } from './NotebookNodeFlag'
 import { notebookNodeLogic } from './notebookNodeLogic'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<EarlyAccessFeatureNotebookWidgetAttributes>): JSX.Element => {
     const { id } = attributes
     const { earlyAccessFeature, earlyAccessFeatureLoading, earlyAccessFeatureMissing } = useValues(
         earlyAccessFeatureLogic({ id })
@@ -122,11 +127,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
     )
 }
 
-type NotebookNodeEarlyAccessAttributes = {
-    id: EarlyAccessFeatureLogicProps['id']
-}
-
-export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNodeEarlyAccessAttributes>({
+export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<EarlyAccessFeatureNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.EarlyAccessFeature,
     titlePlaceholder: 'Early Access Management',
     Component,
@@ -135,7 +136,10 @@ export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNo
     resizeable: false,
     attributes: {
         id: {},
+        view: {},
     },
+    defaultView: getNotebookWidgetDefaultView('EarlyAccessFeature'),
+    views: EARLY_ACCESS_FEATURE_NOTEBOOK_WIDGET_VIEWS,
 })
 
 export function buildEarlyAccessFeatureContent(id: EarlyAccessFeatureLogicProps['id']): JSONContent {

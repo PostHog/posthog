@@ -23,6 +23,16 @@ import {
     getSerializableProps,
 } from './markdownNotebookRegistry'
 
+jest.mock('./MarkdownNotebookEntityPicker', () => ({
+    MarkdownNotebookEntityPicker: ({ kind, onSelect }: { kind: string | null; onSelect: (value: unknown) => void }) =>
+        kind ? (
+            <button
+                aria-label={`Pick from ${kind}`}
+                onClick={() => onSelect({ tagName: 'FeatureFlag', props: { id: 999 } })}
+            />
+        ) : null,
+}))
+
 // Mirrors how MarkdownNotebook composes its menu, so the assertions cover the list a user sees
 // rather than the registry alone: built-in commands are not registry entries, so a node hidden
 // from the registry can still reach the menu through a built-in that inserts the same tag.
@@ -100,10 +110,10 @@ describe('markdownNotebookRegistry', () => {
             nodeType: NotebookNodeType.FeatureFlag,
             id: 123,
             idLabel: 'Feature flag ID or key',
-            viewLabel: 'Compact editor',
-            viewDescription: 'Edit the flag status and release conditions in the notebook',
-            viewKey: 'compact-editor',
-            viewKeys: ['compact-summary', 'compact-editor', 'release-conditions', 'implementation'],
+            viewLabel: 'Editor',
+            viewDescription: 'Edit the flag status and release conditions in the notebook.',
+            viewKey: 'editor',
+            viewKeys: ['summary', 'editor', 'conditions', 'implementation'],
         },
         {
             tagName: 'Survey',
@@ -111,9 +121,9 @@ describe('markdownNotebookRegistry', () => {
             id: 'survey-id',
             idLabel: 'Survey ID',
             viewLabel: 'Preview',
-            viewDescription: 'Show the first page of the survey',
+            viewDescription: 'Show the first page of the survey.',
             viewKey: 'preview',
-            viewKeys: ['compact-summary', 'preview', 'display-conditions', 'results'],
+            viewKeys: ['summary', 'preview', 'conditions', 'results'],
         },
         {
             tagName: 'Experiment',
@@ -121,9 +131,29 @@ describe('markdownNotebookRegistry', () => {
             id: 456,
             idLabel: 'Experiment ID',
             viewLabel: 'Results',
-            viewDescription: 'Show experiment exposures and primary metric results',
+            viewDescription: 'Show experiment exposures and primary metric results.',
             viewKey: 'results',
-            viewKeys: ['compact-summary', 'results'],
+            viewKeys: ['summary', 'results'],
+        },
+        {
+            tagName: 'EarlyAccessFeature',
+            nodeType: NotebookNodeType.EarlyAccessFeature,
+            id: 'feature-id',
+            idLabel: 'Early access feature ID',
+            viewLabel: 'Summary',
+            viewDescription: 'Show the feature stage, name, and description.',
+            viewKey: 'summary',
+            viewKeys: ['summary'],
+        },
+        {
+            tagName: 'Cohort',
+            nodeType: NotebookNodeType.Cohort,
+            id: 789,
+            idLabel: 'Cohort ID',
+            viewLabel: 'Summary',
+            viewDescription: 'Show the cohort name, size, and type.',
+            viewKey: 'summary',
+            viewKeys: ['summary'],
         },
     ])(
         'edits the $tagName reference and selects a product-owned view',
@@ -145,7 +175,7 @@ describe('markdownNotebookRegistry', () => {
             const editor = within(container)
 
             expect((editor.getByLabelText(idLabel) as HTMLInputElement).value).toEqual(String(id))
-            expect(editor.getByLabelText('View').textContent).toContain('Summary')
+            expect(editor.getByLabelText('View').textContent).toContain('Detail')
 
             fireEvent.click(editor.getByLabelText('View'))
             expect(screen.getByLabelText(viewDescription).textContent).toContain(viewLabel)
@@ -155,6 +185,29 @@ describe('markdownNotebookRegistry', () => {
             expect(Object.keys(KNOWN_NODES[nodeType].views ?? {})).toEqual(viewKeys)
         }
     )
+
+    it('selects a referenced object from the same picker used by notebook insertion', () => {
+        const updateProps = jest.fn()
+        const { container } = render(
+            <RealNotebookNodeEdit
+                node={{
+                    id: 'feature-flag-node',
+                    type: 'component',
+                    tagName: 'FeatureFlag',
+                    props: { id: 123 },
+                }}
+                mode="edit"
+                updateProps={updateProps}
+                deleteNode={jest.fn()}
+            />
+        )
+        const editor = within(container)
+
+        fireEvent.click(editor.getByLabelText('Select feature flag id or key'))
+        fireEvent.click(screen.getByLabelText('Pick from feature-flag'))
+
+        expect(updateProps).toHaveBeenCalledWith({ id: 999 })
+    })
 
     it('exposes lightweight editable primitive attrs for real notebook node filters', () => {
         expect(

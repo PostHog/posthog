@@ -77,6 +77,7 @@ import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
+import { MarkdownNotebookNodeAttributeInput } from './MarkdownNotebookNodeAttributeInput'
 import { notebookLogic } from './notebookLogic'
 
 const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set([
@@ -551,15 +552,17 @@ export function RealNotebookNodeAttributeEdit({
                 return (
                     <label key={key} className="flex flex-col gap-1">
                         <span className="text-xs font-semibold text-secondary">{label}</span>
-                        <LemonInput
-                            aria-label={label}
+                        <MarkdownNotebookNodeAttributeInput
+                            attributeKey={key}
+                            label={label}
+                            tagName={node.tagName}
                             value={getPrimitiveNotebookPropInputValue(attributes[key])}
-                            onChange={(value) =>
+                            onTextChange={(value) =>
                                 updateProps({
                                     [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
                                 })
                             }
-                            placeholder={label}
+                            onEntitySelect={(value) => updateProps({ [key]: value })}
                             autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
                         />
                     </label>

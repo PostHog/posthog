@@ -5,7 +5,8 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { NotebookNodeProps, PostHogWidgetViews } from 'scenes/notebooks/types'
+import { defineNotebookWidgetViews } from 'scenes/notebooks/notebookWidgetCatalog'
+import { NotebookNodeProps } from 'scenes/notebooks/types'
 
 import { FeatureFlagType } from '~/types'
 
@@ -221,25 +222,12 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
     )
 }
 
-export const FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS = {
-    'compact-summary': {
-        label: 'Compact summary',
-        description: 'Show the flag status, type, and release condition count',
-        Component: FeatureFlagCompactSummary,
-    },
-    'compact-editor': {
-        label: 'Compact editor',
-        description: 'Edit the flag status and release conditions in the notebook',
-        Component: FeatureFlagCompactEditor,
-    },
-    'release-conditions': {
-        label: 'Release conditions',
-        description: 'Show the flag release conditions',
-        Component: FeatureFlagReleaseConditionsWidget,
-    },
-    implementation: {
-        label: 'Implementation',
-        description: 'Show SDK implementation instructions',
-        Component: FeatureFlagImplementationWidget,
-    },
-} satisfies PostHogWidgetViews<FeatureFlagNotebookWidgetAttributes>
+export const FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<
+    FeatureFlagNotebookWidgetAttributes,
+    'FeatureFlag'
+>('FeatureFlag', {
+    summary: FeatureFlagCompactSummary,
+    editor: FeatureFlagCompactEditor,
+    conditions: FeatureFlagReleaseConditionsWidget,
+    implementation: FeatureFlagImplementationWidget,
+})
