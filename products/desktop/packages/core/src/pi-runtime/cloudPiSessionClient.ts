@@ -336,10 +336,15 @@ export class CloudPiSessionClient implements PiSession {
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): void {
+    // A snapshot's historical pi_run_started only proves the runtime is ready
+    // to take commands when the sandbox behind it is still alive. On a resume
+    // whose sandbox has stopped the sandbox reports dead, so we hold off until a
+    // fresh start arrives over the live log stream. The run status fetched when
+    // the session opened can lag reality, so trust the snapshot's own signals.
     const snapshotCanProveReadiness =
       update.kind === "snapshot" &&
-      this.context.runStatus === "in_progress" &&
-      update.status === "in_progress";
+      update.status === "in_progress" &&
+      update.sandboxAlive !== false;
     const hasCurrentReadinessEvent =
       (update.kind === "logs" || snapshotCanProveReadiness) &&
       update.newEntries.some((entry) => entry.type === "pi_run_started");

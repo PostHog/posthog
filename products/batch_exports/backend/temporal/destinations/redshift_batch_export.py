@@ -61,7 +61,11 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
+from products.batch_exports.backend.temporal.utils import (
+    JsonType,
+    cast_record_batch_schema_json_columns,
+    handle_non_retryable_errors,
+)
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
@@ -789,6 +793,7 @@ def _get_table_schemas(
             ("ip", "VARCHAR(200)"),
             ("site_url", "VARCHAR(200)"),
             ("timestamp", "TIMESTAMP WITH TIME ZONE"),
+            ("person_properties", properties_type),
         ]
 
     else:
@@ -985,6 +990,13 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
             except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
                 table_fields = list(table_schemas.table_schema)
+            except psycopg.errors.QueryCanceled as e:
+                if "usage limit" in str(e):
+                    raise InsufficientSystemResourcesError(
+                        "A spending or usage quota was hit and the batch export cannot proceed. "
+                        "Consider raising the quota after identifying the one that fired."
+                    )
+                raise
 
             primary_key = merge_settings.primary_key if merge_settings.requires_merge is True else None
             async with (
@@ -1387,6 +1399,28 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             if merge_settings.requires_merge
             else inputs.table.name
         )
+
+        if not merge_settings.requires_merge:
+            # Without a stage table, Parquet files are copied directly into the final
+            # table, and the COPY column list names every column in the files. Pre-set
+            # the transformer's schema to drop columns missing from an existing table,
+            # as COPY would otherwise fail on them.
+            try:
+                async with RedshiftClient.from_inputs(
+                    inputs.connection, database=inputs.connection.database
+                ).connect() as redshift_client:
+                    existing_columns = set(
+                        await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
+                    )
+            except (psycopg.errors.UndefinedTable, psycopg.errors.InternalError_):
+                pass
+            else:
+                filtered_fields = [field for field in record_batch_schema if field.name in existing_columns]
+
+                if 0 < len(filtered_fields) < len(record_batch_schema):
+                    transformer.schema = cast_record_batch_schema_json_columns(
+                        pa.schema(filtered_fields), json_columns=table_schemas.super_columns
+                    )
 
         async with s3_client(
             credentials.aws_access_key_id,

@@ -183,6 +183,13 @@ impl FlagEvaluationState {
         }
     }
 
+    /// True when person-property DB prep never ran (neither fetched nor deliberately
+    /// skipped in favor of overrides). Distinct from `Skipped`, where overrides are
+    /// known to cover every property the batch needs — see `PersonPropertyState`.
+    pub(crate) fn person_properties_pending(&self) -> bool {
+        matches!(self.person_property_state, PersonPropertyState::Pending)
+    }
+
     pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
         &self.group_properties
     }
@@ -1661,7 +1668,23 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    if !match_property(filter, props, false, self.timezone).unwrap_or(false) {
+                    // Person properties that were never fetched (DB prep didn't run for this
+                    // evaluation) must not be treated as "person has no properties", because
+                    // an absent key would then make negative operators (is_not, not_icontains,
+                    // ...) and is_not_set match by accident. partial_props makes match_property
+                    // error on a missing key instead of matching it; the unwrap_or(false) below
+                    // turns that error into no-match, so the condition fails closed. Only
+                    // Pending gets this: Skipped and Fetched property maps are authoritative,
+                    // so an absent key there genuinely means the person lacks the property.
+                    // This is defense in depth: in the batch flow a prep failure errors those
+                    // flags out before evaluation, so the guard protects any path that reaches
+                    // evaluation with the state still Pending. Cohort filters (evaluated
+                    // separately below) don't get this guard; under Pending they're currently
+                    // safe only because cohorts are never loaded when person prep hasn't run.
+                    let partial_props = filter.prop_type != PropertyType::Group
+                        && self.flag_evaluation_state.person_properties_pending();
+                    if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
+                    {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }

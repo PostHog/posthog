@@ -25,6 +25,33 @@
         16px 16px;
 }
 
+// Glass variant uses posthog.com's layered garden greens with a soft light well behind the card.
+// The base color overrides the parchment `bg-[#eef0e7]` utility because unlayered rules beat
+// Tailwind's cascade layer.
+.PaperDesk--glass {
+    --color-text-warning: var(--color-text-primary);
+
+    background-color: #b5cd8f;
+    background-image:
+        radial-gradient(80% 70% at 50% 30%, rgb(255 253 240 / 45%), transparent 70%),
+        linear-gradient(180deg, #cfe0ae 0%, #b5cd8f 55%, #9dbb78 100%);
+    background-repeat: no-repeat;
+    background-size: auto;
+
+    // The cream OS-window card the new website (and the self-driving onboarding) uses.
+    .PaperDesk__card {
+        background: #f6f5f0;
+        border-color: #e3e0d4;
+        border-radius: 1rem;
+        box-shadow: 0 16px 40px rgb(30 50 10 / 25%);
+    }
+
+    // Corner notes read as dark-green ink on the garden rather than gray on parchment.
+    .PaperDesk__notes div {
+        color: rgb(45 74 22 / 65%);
+    }
+}
+
 // Paper sheet resting on the desk — the login card and the dev login panel share it.
 .PaperDesk__card {
     background: #fff;

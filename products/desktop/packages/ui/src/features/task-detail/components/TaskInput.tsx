@@ -859,7 +859,11 @@ export function TaskInput({
   useWarmTask({
     workspaceMode,
     selectedRepository: selectedCloudRepository,
-    githubIntegrationId: orgGithubIntegrationId,
+    repositories: allowNoRepo ? taskRepositories : undefined,
+    githubIntegrationId: allowNoRepo
+      ? (taskGithubIntegration ?? undefined)
+      : orgGithubIntegrationId,
+    allowNoRepo,
     branch: workspaceMode === "cloud" ? selectedBranch : null,
     editorIsEmpty,
     runtimeAdapter: adapter ?? null,

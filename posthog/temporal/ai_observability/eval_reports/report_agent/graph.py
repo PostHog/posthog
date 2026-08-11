@@ -4,14 +4,11 @@ import uuid
 from typing import Any
 
 import structlog
-import posthoganalytics
-from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.prebuilt import create_react_agent
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
-from posthog.llm.gateway_client import resolve_ai_gateway_config
+from posthog.llm.gateway_client import team_distinct_id
 from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
@@ -35,7 +32,7 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     TRACE_ID_ALLOWLIST_KEY,
     get_target_descriptor,
 )
-from posthog.temporal.ai_observability.llm_endpoint import build_langchain_chat_client
+from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks, build_langchain_chat_client
 
 logger = structlog.get_logger(__name__)
 
@@ -220,6 +217,9 @@ def run_eval_report_agent(
     report_prompt_guidance: str = "",
     output_type: str = "boolean",
     evaluation_target: str = "generation",
+    report_id: str = "",
+    trace_id: str = "",
+    session_id: str = "",
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
 
@@ -259,7 +259,23 @@ def run_eval_report_agent(
         )
         return _metrics_unavailable_content(evaluation_target)
 
-    llm = build_langchain_chat_client(EVAL_REPORT_AGENT_MODEL, EVAL_REPORT_AGENT_TIMEOUT, ai_product="aio_eval_reports")
+    resolved_trace_id = trace_id or str(uuid.uuid4())
+    resolved_session_id = session_id or resolved_trace_id
+    resolved_distinct_id = team_distinct_id(team_id)
+    observability_properties = {
+        "team_id": str(team_id),
+        "evaluation_id": evaluation_id,
+        **({"report_id": report_id} if report_id else {}),
+    }
+    llm = build_langchain_chat_client(
+        EVAL_REPORT_AGENT_MODEL,
+        EVAL_REPORT_AGENT_TIMEOUT,
+        ai_product="aio_eval_reports",
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        properties=observability_properties,
+        distinct_id=resolved_distinct_id,
+    )
 
     system_prompt = build_eval_report_system_prompt(
         evaluation_name=evaluation_name,
@@ -302,21 +318,13 @@ def run_eval_report_agent(
         SESSION_ID_ALLOWLIST_KEY: [],
     }
 
-    # Skip in gateway mode: the Go gateway captures $ai_generation itself, so the
-    # SDK callback would double-count. Same gate the model routing above reads.
-    callbacks: list[BaseCallbackHandler] = []
-    if posthoganalytics.default_client and resolve_ai_gateway_config() is None:
-        callbacks.append(
-            CallbackHandler(
-                posthoganalytics.default_client,
-                distinct_id=str(team_id),
-                trace_id=f"llma-eval-report-{evaluation_id}-{uuid.uuid4()}",
-                properties={
-                    "ai_product": "llma_eval_reports",
-                    "evaluation_id": evaluation_id,
-                },
-            )
-        )
+    callbacks = build_langchain_callbacks(
+        distinct_id=resolved_distinct_id,
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        ai_product="aio_eval_reports",
+        properties=observability_properties,
+    )
 
     config: RunnableConfig = {
         "recursion_limit": EVAL_REPORT_AGENT_RECURSION_LIMIT,
@@ -345,6 +353,8 @@ def run_eval_report_agent(
                 reason=validation_error,
                 title=content.title,
                 section_count=len(content.sections),
+                trace_id=resolved_trace_id,
+                session_id=resolved_session_id,
             )
             return _fallback_content(evaluation_name, metrics, validation_error, evaluation_target)
 
@@ -360,6 +370,8 @@ def run_eval_report_agent(
             section_count=len(content.sections),
             citation_count=len(content.citations),
             metrics=metrics.to_dict(),
+            trace_id=resolved_trace_id,
+            session_id=resolved_session_id,
         )
         return content
 
@@ -373,6 +385,8 @@ def run_eval_report_agent(
             error_type=type(e).__name__,
             team_id=team_id,
             evaluation_id=evaluation_id,
+            trace_id=resolved_trace_id,
+            session_id=resolved_session_id,
         )
         return _fallback_content(
             evaluation_name,
