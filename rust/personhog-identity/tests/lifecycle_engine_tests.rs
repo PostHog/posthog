@@ -715,15 +715,18 @@ fn database_conflicts_classify_as_retriable() {
     assert!(!SagaError::Busy.is_db_conflict());
 }
 
-/// Driver whose first step loses a deadlock; every later attempt behaves
-/// like [`DummyDriver`].
-struct DeadlockOnceDriver {
+/// Driver whose first attempts lose a deadlock; every later attempt
+/// behaves like [`DummyDriver`]. Failing more than once exercises the
+/// repeated backoff-and-renew passes of the retry loop, not just the
+/// first.
+struct DeadlockingDriver {
     inner: DummyDriver,
-    deadlocked: AtomicUsize,
+    fail_first: usize,
+    attempts: AtomicUsize,
 }
 
 #[async_trait]
-impl OpDriver for DeadlockOnceDriver {
+impl OpDriver for DeadlockingDriver {
     fn op_type(&self) -> &'static str {
         "merge"
     }
@@ -733,7 +736,7 @@ impl OpDriver for DeadlockOnceDriver {
     }
 
     async fn run_step(&self, pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
-        if self.deadlocked.fetch_add(1, Ordering::SeqCst) == 0 {
+        if self.attempts.fetch_add(1, Ordering::SeqCst) < self.fail_first {
             return Err(db_error("40P01"));
         }
         self.inner.run_step(pool, op).await
@@ -744,9 +747,10 @@ impl OpDriver for DeadlockOnceDriver {
 async fn a_step_that_loses_a_database_conflict_is_retried_not_surfaced() {
     let ctx = TestContext::new().await;
     let engine = ctx.engine();
-    let driver = DeadlockOnceDriver {
+    let driver = DeadlockingDriver {
         inner: DummyDriver::new(),
-        deadlocked: AtomicUsize::new(0),
+        fail_first: 3,
+        attempts: AtomicUsize::new(0),
     };
     let op_id = Uuid::now_v7();
 
@@ -759,7 +763,7 @@ async fn a_step_that_loses_a_database_conflict_is_retried_not_surfaced() {
     assert_eq!(
         driver.inner.steps_run.load(Ordering::SeqCst),
         2,
-        "both real steps ran after the deadlocked attempt"
+        "both real steps ran after the deadlocked attempts"
     );
     let (_, attempt, _, completed) = op_row(&ctx, op_id).await;
     assert!(completed);
