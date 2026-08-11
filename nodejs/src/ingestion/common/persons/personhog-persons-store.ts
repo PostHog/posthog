@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { randomUUID } from 'node:crypto'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
@@ -25,7 +24,12 @@ export const personhogStoreFlushCounter = new Counter({
 })
 
 export interface PersonhogPersonsStoreOptions {
-    /** Concurrent leader calls during flush. */
+    /**
+     * Bounds concurrent RPC fan-out (batch fetches and flush). Its own
+     * knob on purpose: the Postgres store's identically named option
+     * exists to avoid connection-pool starvation, a resource this store
+     * does not hold.
+     */
     maxConcurrentUpdates: number
     /**
      * When true, every property change triggers a person update in the
@@ -340,62 +344,16 @@ export class PersonhogPersonsStore {
         return Promise.resolve([projected, []])
     }
 
-    /**
-     * Deletion runs the lifecycle saga on the identity server: sync-plane
-     * work commits and the owning leaders produce the death documents
-     * before the RPC returns, and the changelog carries the deletion to
-     * every downstream (ClickHouse included), so nothing is emitted here.
-     * Each call is its own saga operation under a fresh op id. Deriving
-     * the id from the target rows would be wrong: deletion tombstones
-     * the row and creation revives it in place with the same numeric id,
-     * so a later, independent delete of the revived person would attach
-     * to the completed operation and return its recorded outcome while
-     * the person stays live. A fresh id makes the revived delete a real
-     * one, and redelivery converges through the outcome vocabulary
-     * instead of attachment: an earlier attempt's completed work answers
-     * not_found (gone either way), and a person held by a still-live
-     * operation answers skipped_conflict, which fails the batch so
-     * redelivery retries after that operation finishes.
-     */
-    async deletePersons(persons: InternalPerson[], _distinctId: string, batchId?: number): Promise<PersonMessage[]> {
-        if (persons.length === 0) {
-            return []
-        }
-        const teamId = persons[0].team_id
-        const sortedIds = persons.map((person) => person.id).sort()
-        const opId = randomUUID()
-        const outcomes = await this.repository.deletePersons(teamId, sortedIds, opId, CALLER_TAG)
-        for (const person of persons) {
-            const outcome = outcomes.get(person.id)
-            if (outcome === undefined) {
-                throw new Error(`lifecycle delete returned no outcome for person ${person.id}; refusing to guess`)
-            }
-            if (outcome === 'skipped_conflict') {
-                throw new Error(
-                    `person ${person.id} is held by another live lifecycle operation; retry after it finishes`
-                )
-            }
-            // deleted or not_found: the person is gone either way. Purge
-            // the batch's view so a later fetch cannot serve it from
-            // memo, and drop any pending fold lane, whose flush would
-            // manufacture a guaranteed not_found.
-            if (batchId !== undefined) {
-                const personKey = `${person.team_id}:${person.id}`
-                this.personStateMemo(batchId).delete(personKey)
-                const resolutions = this.resolutionMemo(batchId)
-                for (const [key, value] of resolutions) {
-                    if (value === personKey) {
-                        resolutions.delete(key)
-                    }
-                }
-                this.lanes.get(batchId)?.delete(personKey)
-            }
-        }
-        return []
+    // Deletes exist only to destroy the losing persons of a merge, and
+    // the shadow gates merge events off this store; once merges move to
+    // personhog, the merge saga owns those deletions end to end, so no
+    // store-level delete path will ever be needed here.
+    deletePersons(_persons: InternalPerson[], _distinctId: string, _batchId?: number): Promise<PersonMessage[]> {
+        throw new PersonhogPendingRpcError('deletePersons', 'merge saga')
     }
 
-    deletePerson(person: InternalPerson, distinctId: string, batchId?: number): Promise<PersonMessage[]> {
-        return this.deletePersons([person], distinctId, batchId)
+    deletePerson(_person: InternalPerson, _distinctId: string, _batchId?: number): Promise<PersonMessage[]> {
+        throw new PersonhogPendingRpcError('deletePerson', 'merge saga')
     }
 
     /**

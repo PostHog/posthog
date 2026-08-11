@@ -46,7 +46,6 @@ describe('PersonhogPersonsStore', () => {
             updatePersonProperties: jest.fn().mockResolvedValue({ person: { ...person, version: 2 }, updated: true }),
             getDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             getOrCreatePersonByDistinctId: jest.fn().mockResolvedValue({ person, created: true }),
-            deletePersons: jest.fn().mockResolvedValue(new Map()),
         } as unknown as jest.Mocked<PersonHogPersonWriteRepository>
         store = new PersonhogPersonsStore(repository)
     })
@@ -227,57 +226,9 @@ describe('PersonhogPersonsStore', () => {
         expect(fetched?.id).toBe('7')
     })
 
-    it('deletes run the lifecycle saga with a fresh op id per call and publish nothing', async () => {
-        repository.deletePersons.mockResolvedValue(new Map([['7', 'deleted']]))
+    it('deletes have no personhog path and fail loudly', () => {
         const bound = store.forBatch(0)
-        const messages = await bound.deletePerson(person, 'd1')
-        expect(messages).toEqual([])
-        const [teamId, ids, opId] = repository.deletePersons.mock.calls[0]
-        expect(teamId).toBe(1)
-        expect(ids).toEqual(['7'])
-
-        // Deletion tombstones and creation revives the same row id, so a
-        // second delete of the same person must be its own operation: an
-        // id derived from the rows would attach to the completed saga and
-        // report the revived person deleted while it stays live.
-        await bound.deletePerson(person, 'd1')
-        const secondOpId = repository.deletePersons.mock.calls[1][2]
-        expect(secondOpId).not.toBe(opId)
-
-        repository.deletePersons.mockResolvedValue(new Map([['7', 'not_found']]))
-        const none = await bound.deletePerson(person, 'd1')
-        expect(none).toEqual([])
-    })
-
-    it('a delete purges the batch view and pending lane for the person', async () => {
-        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }])
-        repository.fetchPersonById.mockResolvedValue({ ...person })
-        repository.deletePersons.mockResolvedValue(new Map([['7', 'deleted']]))
-        const bound = store.forBatch(0)
-        const fetched = await bound.fetchForUpdate(1, 'd1')
-        await bound.applyEventOps(fetched!, ops({ $set: { a: '1' } }), 'd1')
-
-        await bound.deletePerson(person, 'd1')
-
-        // The memo no longer serves the deleted person, and the pending
-        // lane died with it — flushing must ship nothing.
-        repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person: null }])
-        const after = await bound.fetchForUpdate(1, 'd1')
-        expect(after).toBeNull()
-        await bound.flush()
-        expect(repository.updatePersonProperties).not.toHaveBeenCalled()
-    })
-
-    it('a delete with no outcome for a person fails loudly', async () => {
-        repository.deletePersons.mockResolvedValue(new Map())
-        const bound = store.forBatch(0)
-        await expect(bound.deletePerson(person, 'd1')).rejects.toThrow('no outcome')
-    })
-
-    it('a delete blocked by a live lifecycle operation fails the batch for retry', async () => {
-        repository.deletePersons.mockResolvedValue(new Map([['7', 'skipped_conflict']]))
-        const bound = store.forBatch(0)
-        await expect(bound.deletePerson(person, 'd1')).rejects.toThrow('live lifecycle operation')
+        expect(() => bound.deletePerson(person, 'd1')).toThrow('no personhog RPC')
     })
 
     it('creation resolves through identity and memoizes every distinct id it mapped', async () => {

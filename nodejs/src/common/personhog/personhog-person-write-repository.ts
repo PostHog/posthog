@@ -3,7 +3,6 @@ import { InternalPerson } from '~/types'
 import { PersonHogClient } from './client'
 import { withRetry } from './grpc-retry'
 import { DistinctIdKey, GetOrCreatePersonEntry, PersonhogIdentityOperations } from './identity'
-import { PersonDeleteOutcome, PersonhogLifecycleOperations } from './lifecycle'
 import { timedGrpc } from './metrics'
 import { FoldedPersonUpdate } from './persons'
 
@@ -13,21 +12,19 @@ import { FoldedPersonUpdate } from './persons'
  * vocabulary rather than the Postgres-shaped contract. No verb touches
  * the replica: resolution goes to the identity service (primary), person
  * state and folded updates go through the router to the partition's
- * leader, and deletes run the lifecycle saga.
+ * leader.
  *
  * Two endpoints sit behind it: person operations go through the router;
- * identity resolution, get-or-create, and the co-served lifecycle
- * service go to the identity server's own address. The router proxies
- * neither API.
+ * identity resolution and get-or-create go to the identity server's own
+ * address. The router proxies neither API.
  *
- * Every verb is idempotent (folds, get-or-create, reads, saga-keyed
- * deletes), so transient-error retries are safe.
+ * Every verb is idempotent (folds, get-or-create, reads), so
+ * transient-error retries are safe.
  */
 export class PersonHogPersonWriteRepository {
     constructor(
         private grpcClient: PersonHogClient,
         private identity: PersonhogIdentityOperations,
-        private lifecycle: PersonhogLifecycleOperations,
         private clientLabel: string = 'unknown'
     ) {}
 
@@ -61,23 +58,6 @@ export class PersonHogPersonWriteRepository {
                 ),
             this.clientLabel,
             method
-        )
-    }
-
-    /**
-     * Destroys persons through the lifecycle saga. Not retried here: the
-     * saga is keyed by op_id and the store decides whether a retry
-     * reuses the operation.
-     */
-    deletePersons(
-        teamId: number,
-        personIds: string[],
-        opId: string,
-        callerTag?: string
-    ): Promise<Map<string, PersonDeleteOutcome>> {
-        const method = 'deletePersons'
-        return timedGrpc(this.clientLabel, method, () =>
-            this.lifecycle.deletePersons(teamId, personIds, opId, callerTag)
         )
     }
 
