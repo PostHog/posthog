@@ -78,6 +78,7 @@ class CanvasAPIBaseTest(APIBaseTest):
     def _changes(self, entry: ActivityLog) -> list[dict[str, Any]]:
         assert entry.detail is not None
         return entry.detail["changes"]
+
     def _sandbox_client(self, task_id) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Canvas sandbox",
