@@ -832,7 +832,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             copy_applied = await workflow.execute_activity(
                 copy_and_register_ducklake_data_imports_activity,
                 activity_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=30),
+                start_to_close_timeout=dt.timedelta(hours=1),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 # A StartToClose timeout has an unknown Duckgres outcome, so a retry could race the original query.
                 retry_policy=RetryPolicy(maximum_attempts=1),
