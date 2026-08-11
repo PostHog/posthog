@@ -93,7 +93,12 @@ def increment_errors(error_type: str, *, provider: str | None = None) -> None:
 
 
 def increment_user_errors(error_type: str, *, provider: str | None = None) -> None:
-    """Track terminal user-actionable eval errors separately from system failures."""
+    """Track user-actionable eval errors separately from system failures.
+
+    Filter on `error_type` rather than alerting on this counter's total: most values are terminal
+    errors that disable the evaluation and so stay rare, but `hog_input_error` is per-unit and can
+    outnumber them by orders of magnitude without anything being broken.
+    """
     if not activity.in_activity() and not workflow.in_workflow():
         return
     attrs: dict[str, str | int | float | bool] = {"error_type": error_type}
