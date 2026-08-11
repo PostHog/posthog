@@ -174,20 +174,23 @@ export function SeriesLabel({
 
     const seriesPrefix =
         seriesIdentification !== 'none' ? (
-            <span className="opacity-50 shrink-0 inline-flex items-center">
+            <>
                 {seriesLetter}
-                <span>
+                {/* The name is the same on every row, so it gives up space first — the breakdown
+                    value is what tells the rows apart, and a long event name would otherwise
+                    truncate it away. The letter and the separator stay put. */}
+                <span className="opacity-50 truncate min-w-0 shrink">
                     {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : datum.series_name) ?? datum.label}
-                    &nbsp;·&nbsp;
                 </span>
-            </span>
+                <span className="opacity-50 shrink-0">&nbsp;·&nbsp;</span>
+            </>
         ) : null
 
-    // inline-flex: breakdown span truncates (flex-1), period label stays visible (shrink-0).
+    // inline-flex: the series name absorbs the overflow, breakdown and period label stay visible.
     return (
         <span className="inline-flex items-center w-full overflow-hidden">
             {seriesPrefix}
-            <span className="truncate min-w-0 flex-1">{breakdownTitle ?? datum.label}</span>
+            <span className="truncate min-w-0 shrink-0 max-w-full">{breakdownTitle ?? datum.label}</span>
             {comparePeriod && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{comparePeriod}</span>}
         </span>
     )
