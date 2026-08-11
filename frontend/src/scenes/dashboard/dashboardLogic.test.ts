@@ -15,7 +15,7 @@ import * as featureFlagLib from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, isRetryableDashboardLoadError } from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -1282,6 +1282,41 @@ describe('dashboardLogic', () => {
                 expect(logic.values.dashboardFailedToLoad).toBe(false)
                 expect(logic.values.error404).toBe(true)
             })
+
+            it('recovers from a transient 404 on retry instead of showing not found', async () => {
+                let attempts = 0
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/dashboards/5/': () => {
+                            attempts++
+                            return attempts === 1 ? [404, { detail: 'Not found.' }] : [200, { ...dashboards[5] }]
+                        },
+                    },
+                })
+
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions(['loadDashboardSuccess']).toMatchValues({
+                    error404: false,
+                })
+                expect(attempts).toBe(2)
+            })
+        })
+    })
+
+    describe('isRetryableDashboardLoadError', () => {
+        // Guards the retry policy: a 403 must fail immediately (retrying can't grant access), while a
+        // 404, a 5xx, and a statusless dropped fetch must be retried before the loader gives up.
+        it.each([
+            { status: undefined, retryable: true },
+            { status: 404, retryable: true },
+            { status: 500, retryable: true },
+            { status: 504, retryable: true },
+            { status: 403, retryable: false },
+            { status: 401, retryable: false },
+        ])('classifies status $status as retryable=$retryable', ({ status, retryable }) => {
+            expect(isRetryableDashboardLoadError({ status })).toBe(retryable)
         })
     })
 

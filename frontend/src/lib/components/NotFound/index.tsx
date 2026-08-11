@@ -45,7 +45,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
     const appContext = getAppContext()
 
     useOnMountEffect(() => {
-        posthog.capture('not_found_shown', { object })
+        posthog.capture('not_found_shown', { object, url_id: meta?.urlId })
     })
 
     return (

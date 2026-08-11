@@ -40,7 +40,8 @@ function DashboardStateStory({ state }: { state: DashboardState }): JSX.Element 
                     object="dashboard"
                     caption={
                         <>
-                            It may have been deleted, or the link is out of date.{' '}
+                            We couldn't load this dashboard. Try refreshing the page. It might be in a different
+                            project, or the link may be out of date.{' '}
                             <Link to={urls.dashboards()}>Go to your dashboards</Link>.
                         </>
                     }

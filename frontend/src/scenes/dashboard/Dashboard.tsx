@@ -98,6 +98,7 @@ function DashboardScene({
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         error404,
+        dashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -126,10 +127,11 @@ function DashboardScene({
         return (
             <NotFound
                 object="dashboard"
+                meta={{ urlId: Number.isFinite(dashboardId) ? String(dashboardId) : undefined }}
                 caption={
                     <>
-                        It may have been deleted, or the link is out of date.{' '}
-                        <Link to={urls.dashboards()}>Go to your dashboards</Link>.
+                        We couldn't load this dashboard. Try refreshing the page. It might be in a different project, or
+                        the link may be out of date. <Link to={urls.dashboards()}>Go to your dashboards</Link>.
                     </>
                 }
             />

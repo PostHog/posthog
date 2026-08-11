@@ -196,6 +196,22 @@ export interface PendingInsertion {
     w: number | null
 }
 
+// The classic dashboard load retries a few times before it gives up, so a single dropped fetch or
+// one-off 404 doesn't dead-end on the not-found screen.
+const LOAD_DASHBOARD_MAX_ATTEMPTS = 3
+const LOAD_DASHBOARD_RETRY_DELAY_MS = 500
+
+// Worth retrying a dashboard load before we give up on it:
+// - a missing status means the request never reached the server (a dropped or aborted fetch);
+// - a 5xx is a server-side blip;
+// - a 404 on a dashboard the user just opened is usually a blip too, so we retry to confirm the
+//   dashboard is really gone rather than dead-ending on the not-found screen at the first 404.
+// A 403 (access denied) is never retried.
+export function isRetryableDashboardLoadError(error: any): boolean {
+    const status = error?.status
+    return status === undefined || status === null || status >= 500 || status === 404
+}
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -264,6 +280,7 @@ export interface dashboardLogicValues {
     currentLayoutSize: 'sm' | 'xs'
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardFailedToLoad: boolean
+    dashboardId: number
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
@@ -956,6 +973,7 @@ export interface dashboardLogicMeta {
         ) => void | Promise<void>
     }
     __keaTypeGenInternalSelectorTypes: {
+        dashboardId: (arg: any) => number
         shouldUseStreaming: (featureFlags: FeatureFlagsSet) => boolean
         canAutoPreview: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => boolean
         hasIntermittentFilters: (intermittentFilters: DashboardFilter) => boolean
@@ -1366,7 +1384,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     try {
                         const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
-                        const dashboardResponse: Response = await api.getResponse(apiUrl)
+
+                        // A genuine deletion 404s on every attempt and still falls through to the
+                        // catch below (`return null` → not-found); a one-off failure recovers here.
+                        let dashboardResponse: Response
+                        for (let attempt = 1; ; attempt++) {
+                            try {
+                                dashboardResponse = await api.getResponse(apiUrl)
+                                break
+                            } catch (error: any) {
+                                if (attempt >= LOAD_DASHBOARD_MAX_ATTEMPTS || !isRetryableDashboardLoadError(error)) {
+                                    throw error
+                                }
+                                await breakpoint(LOAD_DASHBOARD_RETRY_DELAY_MS * attempt)
+                            }
+                        }
+
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
                         actions.setInitialLoadResponseBytes(getResponseBytes(dashboardResponse))
@@ -2410,6 +2443,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     selectors(() => ({
+        dashboardId: [() => [(_, props) => props.id], (id: number): number => id],
         shouldUseStreaming: [
             (s) => [s.featureFlags],
             (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): boolean => {
