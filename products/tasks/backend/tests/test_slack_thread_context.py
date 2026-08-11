@@ -96,6 +96,17 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
             response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
+    def test_other_project_member_cannot_resolve_private_slack_task(self):
+        self._create_fixture()
+        other_user = User.objects.create_user(email="bob@example.com", first_name="Bob", password="password")
+        self.organization.members.add(other_user)
+        other_client = APIClient()
+        other_client.force_authenticate(other_user)
+
+        response = other_client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_malformed_url_returns_400(self):
         response = self.client.get(self._url("https://posthog.slack.com/not/a/permalink"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -112,6 +123,14 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert body["detail"] == "no_mapping"
         assert body["thread"]["channel"] == "C0ACRAMJUAG"
         assert body["thread"]["thread_ts"] == "1779956938.619299"
+
+    def test_soft_deleted_task_has_no_slack_thread_context(self):
+        task, _run, _mapping = self._create_fixture()
+        task.soft_delete()
+
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_happy_path_returns_task_and_runs(self):
         task, run, mapping = self._create_fixture()
