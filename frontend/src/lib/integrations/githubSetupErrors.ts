@@ -1,6 +1,10 @@
 export const GITHUB_INSTALL_PENDING_MESSAGE =
     'GitHub requires an organization owner to complete this installation. If you requested access, an organization owner will need to approve it.'
 
+// Marker code for an install that GitHub returned as awaiting org-owner approval. It is not a
+// failure, so surfaces should render it as its own waiting state rather than as an error.
+export const GITHUB_INSTALL_PENDING_CODE = 'github_install_pending'
+
 export const GITHUB_SETUP_ERROR_MESSAGES: Record<string, string> = {
     access_denied: 'GitHub authorization was canceled.',
     github_oauth_error: 'GitHub rejected the authorization. Please try again.',
@@ -15,7 +19,7 @@ export const GITHUB_SETUP_ERROR_MESSAGES: Record<string, string> = {
     installation_token_failed: 'Could not get an access token from GitHub. Please try again.',
     integration_create_failed: 'Could not save the GitHub connection. Please try again.',
     github_install_failed: 'Could not connect GitHub. Please try again.',
-    github_install_pending: GITHUB_INSTALL_PENDING_MESSAGE,
+    [GITHUB_INSTALL_PENDING_CODE]: GITHUB_INSTALL_PENDING_MESSAGE,
     insufficient_permissions:
         'You need admin access to this project to connect a GitHub integration. Ask a project admin to set it up.',
 }
@@ -26,16 +30,20 @@ export function normalizeGithubOAuthCallbackError(githubError: string): string {
 
 export function getGithubSetupErrorCode(searchParams: Record<string, unknown>): string {
     const pending = searchParams.github_install_pending
-    // An install awaiting org-owner approval isn't a hard error, but surfacing it as an error code routes
-    // it through the existing `failed` path — so the desktop deep-link contract stays `status=success|error`
-    // and doesn't falsely read as a completed connection.
+    // An install awaiting org-owner approval isn't a hard error, but it shares this code path so the
+    // desktop deep-link contract can pass `status=error` and doesn't falsely read as a completed
+    // connection. Callers must split the pending code back out with `isGithubInstallPending`.
     const isPending = pending === '1' || pending === 1 || pending === true || pending === 'true'
     return (
         (typeof searchParams.error === 'string' && searchParams.error) ||
         (typeof searchParams.github_setup_error === 'string' && searchParams.github_setup_error) ||
-        (isPending ? 'github_install_pending' : '') ||
+        (isPending ? GITHUB_INSTALL_PENDING_CODE : '') ||
         ''
     )
+}
+
+export function isGithubInstallPending(errorCode: string | null | undefined): boolean {
+    return errorCode === GITHUB_INSTALL_PENDING_CODE
 }
 
 export function describeGithubSetupError(code: string | null, detail: string | null = null): string {

@@ -2,14 +2,22 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconCheckCircle, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconHourglass, IconWarning } from '@posthog/icons'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
-import { describeGithubSetupError, getGithubSetupErrorCode } from 'lib/integrations/githubSetupErrors'
+import {
+    describeGithubSetupError,
+    getGithubSetupErrorCode,
+    isGithubInstallPending,
+} from 'lib/integrations/githubSetupErrors'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import type { SSOProvider } from '~/types'
+
+type ConnectStatus = 'success' | 'error' | 'pending'
 
 /** Path segment under {@link urls.accountConnected} — SSO link, GitHub integration, or Slack integration. */
 export type AccountConnectedKind = 'github-login' | 'github-integration' | 'slack-integration' | 'invalid'
@@ -68,11 +76,22 @@ function providerLabel(provider: string | undefined): string {
     return SSO_PROVIDER_NAMES[provider as SSOProvider] ?? INTEGRATION_LABELS[provider] ?? provider
 }
 
-function headline(kind: Exclude<AccountConnectedKind, 'invalid'>, label: string, isError: boolean): string {
-    if (kind === 'github-integration' || kind === 'slack-integration') {
-        return isError ? `${label} connection failed` : `${label} connected`
+export function resolveConnectStatus(searchParams: Record<string, unknown>): ConnectStatus {
+    const errorCode = getGithubSetupErrorCode(searchParams)
+    if (isGithubInstallPending(errorCode)) {
+        return 'pending'
     }
-    return isError ? `${label} linking failed` : `${label} linked to account`
+    return errorCode.length > 0 ? 'error' : 'success'
+}
+
+export function headline(kind: Exclude<AccountConnectedKind, 'invalid'>, label: string, status: ConnectStatus): string {
+    if (status === 'pending') {
+        return `${label} installation waiting for approval`
+    }
+    if (kind === 'github-integration' || kind === 'slack-integration') {
+        return status === 'error' ? `${label} connection failed` : `${label} connected`
+    }
+    return status === 'error' ? `${label} linking failed` : `${label} linked to account`
 }
 
 const VALID_KINDS: ReadonlyArray<Exclude<AccountConnectedKind, 'invalid'>> = [
@@ -107,7 +126,11 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
     const provider = typeof searchParams.provider === 'string' ? searchParams.provider : undefined
     const label = providerLabel(provider)
     const errorCode = getGithubSetupErrorCode(searchParams)
-    const isError = errorCode.length > 0
+    // An install awaiting org-owner approval shares the error code path, so `resolveConnectStatus`
+    // splits it back out into its own waiting state rather than a hard failure.
+    const status = resolveConnectStatus(searchParams)
+    const isPending = status === 'pending'
+    const projectId = typeof searchParams.project_id === 'string' ? searchParams.project_id : undefined
     // The Slack flow has no deep link back — the user just returns to Slack themselves, so we only
     // show the success state. PostHog Desktop refreshes its integrations via a desktop deep link.
     const startedFromSlack = searchParams.connect_from === 'slack'
@@ -134,24 +157,31 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
         )
     }
 
-    const showLoginLine = kind === 'github-login' && !isError
+    const showLoginLine = kind === 'github-login' && status === 'success'
 
     return (
         <BridgePage view="account-connected">
             <div className="flex flex-col items-center gap-4 text-center max-w-lg mx-auto">
-                {isError ? (
+                {status === 'error' ? (
                     <IconWarning className="text-danger text-5xl shrink-0" />
+                ) : status === 'pending' ? (
+                    <IconHourglass className="text-muted text-5xl shrink-0" />
                 ) : (
                     <IconCheckCircle className="text-success text-5xl shrink-0" />
                 )}
-                <h2 className="text-xl font-semibold m-0">{headline(kind, label, isError)}</h2>
+                <h2 className="text-xl font-semibold m-0">{headline(kind, label, status)}</h2>
                 {showLoginLine && <p className="text-muted mb-0">You can now log into PostHog using {label}.</p>}
+                {/* Show the real reason on every flow — before this it only reached the desktop deep link. */}
+                {isPending && <p className="text-muted mb-0">{describeGithubSetupError(errorCode)}</p>}
                 {startedFromSlack ? (
-                    <p className="text-muted mb-0">
-                        {isError
-                            ? 'Something went wrong. Head back to Slack and try again.'
-                            : 'You can head back to Slack now.'}
-                    </p>
+                    <>
+                        <p className="text-muted mb-0">{slackReturnLine(status)}</p>
+                        {projectId && (
+                            <LemonButton type="primary" to={urls.project(projectId)}>
+                                Continue to PostHog
+                            </LemonButton>
+                        )}
+                    </>
                 ) : (
                     <p className="text-muted mb-0">
                         <strong>Returning to PostHog Desktop…</strong>
@@ -162,4 +192,14 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
             </div>
         </BridgePage>
     )
+}
+
+function slackReturnLine(status: ConnectStatus): string {
+    if (status === 'pending') {
+        return "Head back to Slack. We'll finish connecting GitHub once an owner approves the install."
+    }
+    if (status === 'error') {
+        return 'Something went wrong. Head back to Slack and try again.'
+    }
+    return 'You can head back to Slack now.'
 }
