@@ -104,7 +104,7 @@ describe('accountMeetingsLogic', () => {
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             effective_membership_level: membershipLevel,
-            user_access_level: expected ? AccessControlLevel.Admin : AccessControlLevel.Member,
+            user_access_level: AccessControlLevel.Admin,
         })
 
         await mount()
