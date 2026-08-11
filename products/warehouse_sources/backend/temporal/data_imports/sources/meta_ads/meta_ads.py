@@ -38,6 +38,13 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
+# Graph API versions this source can sync against, as opaque vendor labels copied verbatim
+# from Meta's changelog — never parsed or ordered. The resolved source pin is threaded into
+# every request URL's `{API_VERSION}` segment by `meta_ads_source`.
+# https://developers.facebook.com/docs/graph-api/changelog
+META_ADS_API_VERSION_V25 = "v25.0"
+META_ADS_API_VERSION_V26 = "v26.0"
+
 # Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
 # reject a `time_range` whose start is beyond ~37 months from today with error code
 # 3018 ("The start date of the time range cannot be beyond 37 months from the current
@@ -892,12 +899,13 @@ def meta_ads_source(
     config: MetaAdsSourceConfig,
     team_id: int,
     resumable_source_manager: ResumableSourceManager[MetaAdsResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
 ) -> SourceResponse:
-    """A data warehouse Meta Ads source."""
+    """A data warehouse Meta Ads source. ``api_version`` is the source instance's resolved pin."""
     name = NamingConvention.normalize_identifier(resource_name)
     schema = get_schemas()[resource_name]
 
@@ -944,9 +952,7 @@ def meta_ads_source(
                 "until": today.strftime("%Y-%m-%d"),
             }
 
-        formatted_url = schema.url.format(
-            API_VERSION=MetaAdsIntegration.api_version, account_id=_clean_account_id(config.account_id)
-        )
+        formatted_url = schema.url.format(API_VERSION=api_version, account_id=_clean_account_id(config.account_id))
 
         if schema.single_object:
             yield from _fetch_single_object(formatted_url, {"fields": ",".join(schema.field_names)}, access_token)

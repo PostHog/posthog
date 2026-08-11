@@ -57,6 +57,7 @@ import {
     errorTrackingIssueSceneLogic,
 } from './errorTrackingIssueSceneLogic'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
 
@@ -261,7 +262,9 @@ const RightHandColumn = ({
     return (
         <div
             className={clsx(
-                'flex flex-col flex-1 gap-1 min-h-0',
+                // No gap between the pane's sections: each one ends in a border, and a gap would show
+                // the page behind the pane as a band next to that border.
+                'flex flex-col flex-1 min-h-0',
                 isMobile ? 'absolute inset-0 z-20 bg-surface-primary' : 'min-w-[375px]'
             )}
         >
@@ -277,6 +280,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={selectedEvent} />
+            <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
                     issueId={issue?.id ?? 'no-issue'}

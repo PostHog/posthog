@@ -910,17 +910,42 @@ jobs:
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
             - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-test-db; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master, dispatches, PR cache
+              # misses) replays the full migration chain here, in a process that exits
+              # before tests: the executor's memory high-water stays resident in
+              # whichever process runs it, and pytest must not carry it through the
+              # test phase. pytest --reuse-db adopts the DB like the PR prime above;
+              # any failure falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
+                      exit 0
+                  fi
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
@@ -1789,17 +1814,42 @@ jobs:
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
             - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              # Treat cache problems as misses; the migrate step below rebuilds the DB
+              # whenever this one reports restored=false.
+              id: prime-schema
               if: ${{ github.event_name == 'pull_request' }}
               run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
-                      echo "::notice::Schema cache miss — pytest --reuse-db will run full migrations"
+                      echo "::notice::Schema cache miss; the migrate step will build test_posthog"
                       exit 0
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  if ! ./bin/hogli db:restore-test-db; then
-                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  if ./bin/hogli db:restore-test-db; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?); the migrate step will build test_posthog"
+                  fi
+            - name: Migrate test_posthog from scratch
+              # Any run without a restored schema cache (master, dispatches, PR cache
+              # misses) replays the full migration chain here, in a process that exits
+              # before tests: the executor's memory high-water stays resident in
+              # whichever process runs it, and pytest must not carry it through the
+              # test phase. pytest --reuse-db adopts the DB like the PR prime above;
+              # any failure falls back to the in-pytest migrate.
+              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  admin_psql() { docker compose -f docker-compose.dev.yml exec -T db psql -U posthog postgres "$@"; }
+                  if ! admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" -c "CREATE DATABASE test_posthog;"; then
+                      echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
+                      exit 0
+                  fi
+                  if ! python manage.py migrate; then
+                      echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
+                      admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
             # Tests
             - name: Set snapshot update flags
