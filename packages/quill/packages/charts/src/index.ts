@@ -91,7 +91,7 @@ export type { PieChartConfig, PieChartProps } from './charts/PieChart/PieChart'
 export { computePieLayout, cursorOffsetToAngle, sliceAt, defaultSliceValue } from './charts/PieChart/computePieLayout'
 export type { PieLayout, PieSlice } from './charts/PieChart/computePieLayout'
 export { SliceLabels } from './charts/PieChart/SliceLabels'
-export type { SliceLabelsProps } from './charts/PieChart/SliceLabels'
+export type { SliceLabelsProps, SliceValueDisplay } from './charts/PieChart/SliceLabels'
 export { PieTooltip } from './charts/PieChart/PieTooltip'
 export type { PieTooltipProps } from './charts/PieChart/PieTooltip'
 export { useRadialLayout } from './core/radial-context'
@@ -135,13 +135,14 @@ export type {
 export { DEFAULT_Y_AXIS_ID, resolveAxisLines } from './core/types'
 
 // Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
-export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export { DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
 
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look
-export { TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
+export { TooltipFooter, TooltipSurface, TooltipSwatch } from './overlays/TooltipSurface'
 
 // Optional overlays
 export { ReferenceLine, ReferenceLines } from './overlays/ReferenceLine'

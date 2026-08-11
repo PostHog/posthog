@@ -4,7 +4,7 @@ import datetime as dt
 from typing import Any, cast
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import Count, Max, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -78,6 +78,31 @@ def validate_report_schedule_rrule(rrule_string: str) -> None:
 
 
 class EvaluationReportSerializer(serializers.ModelSerializer):
+    generated_report_count = serializers.SerializerMethodField(
+        help_text="Number of reports generated from this evaluation report config.",
+    )
+    last_generated_at = serializers.SerializerMethodField(
+        help_text="When the most recent report was generated, or null if no reports have been generated.",
+    )
+
+    @extend_schema_field(
+        serializers.IntegerField(help_text="Number of reports generated from this evaluation report config.")
+    )
+    def get_generated_report_count(self, report: EvaluationReport) -> int:
+        annotated_count = getattr(report, "generated_report_count", None)
+        return annotated_count if isinstance(annotated_count, int) else report.runs.count()
+
+    @extend_schema_field(
+        serializers.DateTimeField(
+            allow_null=True,
+            help_text="When the most recent report was generated, or null if no reports have been generated.",
+        )
+    )
+    def get_last_generated_at(self, report: EvaluationReport) -> dt.datetime | None:
+        if "last_generated_at" in report.__dict__:
+            return cast(dt.datetime | None, report.__dict__["last_generated_at"])
+        return report.runs.values_list("created_at", flat=True).first()
+
     class Meta:
         model = EvaluationReport
         fields = [
@@ -93,6 +118,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             "enabled",
             "deleted",
             "last_delivered_at",
+            "generated_report_count",
+            "last_generated_at",
             "report_prompt_guidance",
             "trigger_threshold",
             "cooldown_minutes",
@@ -562,7 +589,12 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
         report_queryset = cast(
             EvaluationReportQuerySet,
-            queryset.filter(team_id=self.team_id).order_by("-created_at"),
+            queryset.filter(team_id=self.team_id)
+            .annotate(
+                generated_report_count=Count("runs"),
+                last_generated_at=Max("runs__created_at"),
+            )
+            .order_by("-created_at"),
         )
         # Generate validates eligibility explicitly so unsupported legacy rows return a useful 400.
         if self.action != "generate":

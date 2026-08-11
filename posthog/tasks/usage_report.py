@@ -44,7 +44,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
+from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
@@ -403,22 +403,20 @@ def get_product_name(realm: str, has_license: bool) -> str:
         return "unknown"
 
 
-def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata:
+def get_instance_metadata(period: DayRange) -> InstanceMetadata:
     has_license = False
 
     if settings.EE_AVAILABLE:
         license = get_cached_instance_license()
         has_license = license is not None
 
-    period_start, period_end = period
-
     realm = get_instance_realm()
     metadata = InstanceMetadata(
         deployment_infrastructure=os.getenv("DEPLOYMENT", "unknown"),
         realm=realm,
         period={
-            "start_inclusive": period_start.isoformat(),
-            "end_inclusive": period_end.isoformat(),
+            "start_inclusive": period.start.isoformat(),
+            "end_inclusive": period.end.isoformat(),
         },
         site_url=settings.SITE_URL,
         product=get_product_name(realm, has_license),
@@ -450,7 +448,7 @@ def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata
                     "email": user.email,
                 }
             )
-            for user in User.objects.filter(is_active=True, last_login__gte=period_start, last_login__lte=period_end)
+            for user in User.objects.filter(is_active=True, last_login__gte=period.start, last_login__lte=period.end)
         ]
         metadata.users_who_logged_in_count = len(metadata.users_who_logged_in)
 
@@ -467,8 +465,8 @@ def get_instance_metadata(period: tuple[datetime, datetime]) -> InstanceMetadata
             )
             for user in User.objects.filter(
                 is_active=True,
-                date_joined__gte=period_start,
-                date_joined__lte=period_end,
+                date_joined__gte=period.start,
+                date_joined__lte=period.end,
             )
         ]
         metadata.users_who_signed_up_count = len(metadata.users_who_signed_up)
@@ -3379,10 +3377,10 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
-    logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
+def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
+    logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
-    all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+    all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
     logger.info("Querying all teams")
 
@@ -3396,7 +3394,7 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
 
     for team in teams:
         team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+        _add_team_report_to_org_reports(org_reports, team, team_report, period.start)
 
     logger.info("Generating org reports complete", org_reports_count=len(org_reports))
 
@@ -3479,7 +3477,6 @@ def send_all_org_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period_start, period_end = period
 
     instance_metadata = get_instance_metadata(period)
 
@@ -3504,7 +3501,7 @@ def send_all_org_usage_reports(
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
-    org_reports = _get_all_org_reports(period_start, period_end)
+    org_reports = _get_all_org_reports(period=period)
 
     if organization_ids:
         original_count = len(org_reports)
@@ -3589,8 +3586,8 @@ def send_all_org_usage_reports(
         event="usage reports complete",
         properties={
             "total_orgs": total_orgs,
-            "period_start": period_start.isoformat(),
-            "period_end": period_end.isoformat(),
+            "period_start": period.start.isoformat(),
+            "period_end": period.end.isoformat(),
             "total_orgs_sent": total_orgs_sent,
             "query_time": query_time_duration,
             "queue_time": queue_time_duration,

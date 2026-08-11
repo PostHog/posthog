@@ -11,6 +11,7 @@ import {
   runArtifactVersionKey,
   runArtifactVersionLabel,
 } from "@posthog/core/canvas/runArtifactSchemas";
+import { artifactFilesListKey } from "@posthog/core/sessions/artifactFilesListKey";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -43,7 +44,7 @@ import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useCompletedArtifactUploads } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
@@ -95,8 +96,8 @@ export function CloudArtifactDownloads({
     taskId,
     (session) => session?.cloudStatus,
   );
-  const collapsed = useArtifactFilesCollapsed(taskId);
-  const { setArtifactFilesCollapsed } = useSessionViewActions();
+  const { setArtifactFilesCollapsed, syncArtifactFilesListKey } =
+    useSessionViewActions();
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const { download, downloadingId } = useArtifactDownload();
   const { data: currentUser } = useMeQuery();
@@ -130,15 +131,12 @@ export function CloudArtifactDownloads({
     refetchInterval: isLive ? 120_000 : false,
   });
 
+  const artifactManifest =
+    fetchedArtifacts ?? sessionArtifacts ?? task?.latest_run?.artifacts;
   const groups = useMemo(
     () =>
       groupRunArtifactVersions(
-        (
-          fetchedArtifacts ??
-          sessionArtifacts ??
-          task?.latest_run?.artifacts ??
-          []
-        ).flatMap((artifact) => {
+        (artifactManifest ?? []).flatMap((artifact) => {
           if (artifact.type !== "output") return [];
           return [
             artifact.id && artifact.id in dismissalOverrides
@@ -147,15 +145,23 @@ export function CloudArtifactDownloads({
           ];
         }),
       ),
-    [
-      dismissalOverrides,
-      fetchedArtifacts,
-      sessionArtifacts,
-      task?.latest_run?.artifacts,
-    ],
+    [artifactManifest, dismissalOverrides],
   );
   const visibleGroups = groups.filter((group) => !group.dismissed);
   const dismissedGroups = groups.filter((group) => group.dismissed);
+  const fileListKey = artifactManifest
+    ? artifactFilesListKey(
+        runId,
+        visibleGroups.map((group) => group.name),
+      )
+    : undefined;
+  const collapsed = useArtifactFilesCollapsed(taskId, fileListKey);
+
+  useEffect(() => {
+    if (taskId && fileListKey !== undefined) {
+      syncArtifactFilesListKey(taskId, fileListKey);
+    }
+  }, [fileListKey, syncArtifactFilesListKey, taskId]);
 
   const dismissal = useMutation({
     mutationFn: ({
@@ -332,7 +338,9 @@ export function CloudArtifactDownloads({
     <Collapsible.Root
       open={!collapsed}
       onOpenChange={(open) => {
-        if (taskId) setArtifactFilesCollapsed(taskId, !open);
+        if (taskId && fileListKey !== undefined) {
+          setArtifactFilesCollapsed(taskId, !open, fileListKey);
+        }
       }}
       className="mb-3 rounded-lg border border-gray-4 bg-gray-2 p-3"
     >
