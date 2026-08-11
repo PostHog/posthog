@@ -623,7 +623,7 @@ class TestFilters(BaseTest):
 
         with self.assertRaisesMessage(
             QueryError,
-            "A test account filter in your project settings (a event property filter on '$host') "
+            "A test account filter in your project settings (the event property filter on '$host') "
             "can't apply to a query that selects only from persons.",
         ):
             replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)

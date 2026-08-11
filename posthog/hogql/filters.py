@@ -603,7 +603,7 @@ class ReplaceFilters(CloningVisitor):
         # property_to_expr names something the reader never wrote and can't act on.
         prop_type = prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
         key = prop.get("key") if isinstance(prop, dict) else getattr(prop, "key", None)
-        described = f"a {prop_type or 'unknown'} property filter" + (f" on '{key}'" if key else "")
+        described = f"the {prop_type or 'unknown'} property filter" + (f" on '{key}'" if key else "")
         return QueryError(
             f"A test account filter in your project settings ({described}) can't apply to a query that "
             "selects only from persons. Change it to a person property filter in project settings, or "
