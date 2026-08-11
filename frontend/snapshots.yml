@@ -2821,9 +2821,13 @@ snapshots:
     insights-trendspiechart--breakdown--light:
         hash: v1.k794b7964.cd52243e5d45d2eb6397a1efffcb6b6c9a5f98ef4a265fab0abc5974c69c0999.o7kqH91XGiMQ5kLrepa2Q239mYYNmPIfReNgQ1Yitm4
     insights-trendspiechart--breakdown-with-labels--dark:
-        hash: v1.k794b7964.a1db52280a6847809525237e6d95e6bb391971fc5b2411e52f4de8678e216411.VAUJc_fxkrZphfILbhEle0WmBPCQpePnjb3OJRSXdng
+        hash: v1.k794b7964.9124fefd31f3ecfc8527722abfe6ca9acef42a2b794bf070088d9f248c1f7990.4Z7Us6eurT0pTvf6V30CMoVH_886UHYFCHkywPcEAsM
     insights-trendspiechart--breakdown-with-labels--light:
-        hash: v1.k794b7964.38531b76bea1607447173363d39eaedf7f1737b7d35fdd0a37604e1f747d374e.KTBq1R0DXgzatb3NFlpNjeFMMCivSMIxo94HFYKjqcI
+        hash: v1.k794b7964.dc0682ea67efaf5cfd942ac9fceda88aa381304aaf404b45a1ac0bdb40e1dab8.DKmd5t2iOJCCJCCN16BLCOFcGVFCSX-FfGKFNQ3iSTM
+    insights-trendspiechart--breakdown-with-value-and-percentage--dark:
+        hash: v1.k794b7964.3c11a1a4addd149737de271f5d7ae769b82f4acefb9fd35ee65338078012a328.B3l_O20nxIi2mzX2X0-N3PDuRGQ4PspU8RnwtpEfzuo
+    insights-trendspiechart--breakdown-with-value-and-percentage--light:
+        hash: v1.k794b7964.958cc72969776dcd098a5c9495453416071c907bcc9c7e6cb87edf7152cdde66.WZQXn3lgyOVUrPbyBrDY5Y8l3O8v2HiSh64osAq-414
     insights-trendspiechart--default--dark:
         hash: v1.k794b7964.6a12fde8bafde8512108c5b628d9b2e6e283d393ae2ed693704b4919c8a09a74.uLxKWKPhM06nOSIxUCw4GXdsfmp45YXAG0yss_yimaQ
     insights-trendspiechart--default--light:

@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import { AvailableFeature } from '~/types'
 
-import type { CustomPropertyDefinitionApi } from '../../generated/api.schemas'
+import type { CustomPropertyDefinitionApi, CustomPropertySyncRunApi } from '../../generated/api.schemas'
 
 // The Groups tab only renders when group analytics is available, so the story has to grant it.
 const userWithGroupAnalytics = {
@@ -35,6 +35,8 @@ const definitions: CustomPropertyDefinitionApi[] = [
             id: '01890000-0000-0000-0000-0000000000a1',
             definition: '01890000-0000-0000-0000-000000000001',
             external_data_schema: '01890000-0000-0000-0000-0000000000f1',
+            external_data_source: '01890000-0000-0000-0000-0000000000e1',
+            table_name: 'stripe.customers',
             key_column: 'user_email',
             column_property_map: { plan_name: 'billing_plan', mrr_cents: 'billing_mrr' },
             is_enabled: true,
@@ -76,6 +78,8 @@ const definitions: CustomPropertyDefinitionApi[] = [
             id: '01890000-0000-0000-0000-0000000000a2',
             definition: '01890000-0000-0000-0000-000000000002',
             external_data_schema: '01890000-0000-0000-0000-0000000000f2',
+            external_data_source: '01890000-0000-0000-0000-0000000000e2',
+            table_name: 'zendesk.users',
             key_column: 'distinct_id',
             column_property_map: { tier: 'support_tier' },
             is_enabled: true,
@@ -105,6 +109,8 @@ const definitions: CustomPropertyDefinitionApi[] = [
             id: '01890000-0000-0000-0000-0000000000a3',
             definition: '01890000-0000-0000-0000-000000000003',
             external_data_schema: '01890000-0000-0000-0000-0000000000f3',
+            external_data_source: '01890000-0000-0000-0000-0000000000e3',
+            table_name: 'stripe.subscriptions',
             key_column: 'account_id',
             column_property_map: { arr_cents: 'account_arr' },
             is_enabled: true,
@@ -118,6 +124,37 @@ const definitions: CustomPropertyDefinitionApi[] = [
             next_sync_at: null,
             latest_run: null,
         },
+    },
+]
+
+const runs: CustomPropertySyncRunApi[] = [
+    {
+        id: '01890000-0000-0000-0000-0000000000c1',
+        trigger: 'scheduled',
+        status: 'completed',
+        started_at: '2023-02-15T14:29:00Z',
+        finished_at: '2023-02-15T14:30:00Z',
+        rows_read: 4210,
+        changed: 118,
+        existing: 112,
+        produced: 112,
+        skipped_missing_person: 6,
+        error: null,
+        created_at: '2023-02-15T14:29:00Z',
+    },
+    {
+        id: '01890000-0000-0000-0000-0000000000c2',
+        trigger: 'manual',
+        status: 'failed',
+        started_at: '2023-02-14T09:00:00Z',
+        finished_at: '2023-02-14T09:01:00Z',
+        rows_read: 0,
+        changed: 0,
+        existing: 0,
+        produced: 0,
+        skipped_missing_person: 0,
+        error: 'The warehouse import for this table failed.',
+        created_at: '2023-02-14T09:00:00Z',
     },
 ]
 
@@ -139,6 +176,12 @@ const meta: Meta = {
                     { count: definitions.length, next: null, previous: null, results: definitions },
                 ],
                 '/api/users/@me/': () => [200, userWithGroupAnalytics],
+                // Expanding a row loads its run history, which carries the link to the table's
+                // warehouse syncs.
+                '/api/projects/:team_id/custom_property_sources/:source_id/runs/': () => [
+                    200,
+                    { count: runs.length, next: null, previous: null, results: runs },
+                ],
             },
         }),
     ],

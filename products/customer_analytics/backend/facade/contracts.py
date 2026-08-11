@@ -599,6 +599,11 @@ class CustomPropertySourceView:
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: "CustomPropertySyncRunView | None" = None
+    # Person-target warehouse binding, for naming and linking to the table this source reads.
+    # ``external_data_source`` is the warehouse source owning the schema; ``table_name`` is the
+    # table as it is named in HogQL. Both None for account sources.
+    external_data_source: UUID | None = None
+    table_name: str | None = None
 
 
 @stdlib_dataclass(frozen=True)
