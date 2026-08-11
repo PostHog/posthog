@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 
 import api from 'lib/api'
@@ -64,6 +65,7 @@ export async function removeRecordingFromPlaylist(
 
 export async function deleteRecording(recordingId: SessionRecordingType['id'], silent = false): Promise<void> {
     await api.recordings.delete(recordingId)
+    posthog.capture('recording deleted', { count: 1 })
     if (!silent) {
         lemonToast.success('Recording deleted')
     }

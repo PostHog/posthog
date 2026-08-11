@@ -18,6 +18,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { deletedRecordingsLogic } from 'scenes/session-recordings/deletedRecordingsLogic'
 import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/commenting/PlayerFrameCommentOverlay'
 import { RecordingDeleted } from 'scenes/session-recordings/player/RecordingDeleted'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
@@ -107,6 +108,11 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         recordingDeletedBy,
     } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(logicProps))
+
+    const { deletedRecordingIds } = useValues(deletedRecordingsLogic)
+    // A recording deleted from this browser stays known-deleted across reloads, so show the
+    // deleted screen even while the backend still lists it and its data endpoints only 404.
+    const isKnownDeleted = deletedRecordingIds.has(sessionRecordingId)
 
     const { isPlaylistCollapsed, showMetadataFooter } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -267,6 +273,14 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         return () => clearTimeout(timeout)
     }, [sessionRecordingId])
 
+    if (isRecordingDeleted || isKnownDeleted) {
+        return (
+            <div className="flex-1 w-full flex justify-center items-center">
+                <RecordingDeleted deletedAt={recordingDeletedAt} deletedBy={recordingDeletedBy} />
+            </div>
+        )
+    }
+
     if (isNotFound) {
         return (
             <div className="flex-1 w-full flex justify-center">
@@ -281,14 +295,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                 <LemonBanner type="error" className="max-w-xl">
                     There was an error loading this recording. Please try again later.
                 </LemonBanner>
-            </div>
-        )
-    }
-
-    if (isRecordingDeleted) {
-        return (
-            <div className="flex-1 w-full flex justify-center items-center">
-                <RecordingDeleted deletedAt={recordingDeletedAt} deletedBy={recordingDeletedBy} />
             </div>
         )
     }

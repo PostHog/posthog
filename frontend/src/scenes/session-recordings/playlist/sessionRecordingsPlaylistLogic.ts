@@ -1590,6 +1590,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 try {
                     const result = await api.recordings.bulkDeleteRecordings(idsToDelete, values.filters.date_from)
                     const deletedIds = idsToDelete.filter((id) => !(result.failed_ids ?? []).includes(id))
+                    posthog.capture('recording deleted', { count: deletedIds.length })
                     actions.addDeletedRecordings(deletedIds)
                     actions.setSelectedRecordingsIds([])
                     actions.setDeleteConfirmationText('')

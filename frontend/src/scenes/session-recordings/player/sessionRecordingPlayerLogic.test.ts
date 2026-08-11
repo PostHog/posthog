@@ -236,6 +236,9 @@ describe('sessionRecordingPlayerLogic', () => {
     const mockWarn = jest.fn()
 
     beforeEach(() => {
+        // deletedRecordingsLogic now persists to localStorage, so a delete in one test would
+        // otherwise leak into the next. Reset it for isolation.
+        localStorage.clear()
         console.warn = mockWarn
         mockWarn.mockClear()
         setupSessionRecordingTest({

@@ -542,6 +542,7 @@ export interface sessionRecordingPlayerLogicValues {
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
     isSnapshotUnauthorized: boolean // snapshotDataLogic
+    isRecordingDeleted: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -1120,6 +1121,21 @@ export type sessionRecordingPlayerLogicType = MakeLogicType<
     sessionRecordingPlayerLogicMeta
 >
 
+// Prefer the specific reasons so `recording player error` can tell a deleted recording apart
+// from real playback breakage, rather than lumping both under a generic snapshot failure.
+function playbackErrorReason(
+    values: { isRecordingDeleted: boolean; isSnapshotUnauthorized: boolean },
+    fallback: string
+): string {
+    if (values.isRecordingDeleted) {
+        return 'recordingDeleted'
+    }
+    if (values.isSnapshotUnauthorized) {
+        return 'snapshotUnauthorized'
+    }
+    return fallback
+}
+
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -1135,6 +1151,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'allSourcesLoaded',
                 'storeVersion',
                 'isSnapshotUnauthorized',
+                'isRecordingDeleted',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -2543,26 +2560,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError(
-                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotsForSourceFailure'
-                )
+                actions.setPlayerError(playbackErrorReason(values, 'loadSnapshotsForSourceFailure'))
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError(
-                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotSourcesFailure'
-                )
+                actions.setPlayerError(playbackErrorReason(values, 'loadSnapshotSourcesFailure'))
             }
         },
         // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
         // data already loaded, because the missing range would otherwise buffer forever with no error.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
-            actions.setPlayerError(
-                values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
-            )
+            actions.setPlayerError(playbackErrorReason(values, 'snapshotSourceLoadExhausted'))
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')
@@ -3211,6 +3222,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
+        isRecordingDeleted: (value) => {
+            // Confirmed gone by the backend (e.g. deleted from another session or by a teammate).
+            // Record it so the list prunes the stale row instead of leaving it to be re-opened.
+            if (value && values.sessionRecordingId) {
+                actions.addDeletedRecordings([values.sessionRecordingId])
+            }
+        },
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
