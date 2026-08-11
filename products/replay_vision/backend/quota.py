@@ -196,11 +196,11 @@ def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
     rows = (
         ReplayScannerBackfill.objects.unscoped()
         .filter(team__organization_id=organization_id, status__in=ACTIVE_BACKFILL_STATUSES)
-        .values_list("total_count", "dispatched_count", "credits_per_observation")
+        .values_list("total_count", "dispatched_count", "skipped_count", "credits_per_observation")
     )
-    # Skipped candidates are ones the walk stepped over as already scanned; they were never in
-    # `total_count`, so subtracting them here would understate what is still committed.
-    return sum(max(0, total - dispatched) * price for total, dispatched, price in rows)
+    # Skipped candidates were quoted and then scanned by the live sweep first, so the backfill no longer
+    # owes their credits. Leaving them in strands phantom commitment for the rest of the run.
+    return sum(max(0, total - dispatched - skipped) * price for total, dispatched, skipped, price in rows)
 
 
 def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int | None]:

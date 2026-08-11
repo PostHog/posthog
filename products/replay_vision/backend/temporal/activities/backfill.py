@@ -159,15 +159,27 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     # Succeeded only, matching the `$recording_observed` event the creation-time count excludes on. Skipping
     # every status instead made the quote describe a different set than the walk: a session whose earlier scan
     # failed emits no event, so it was counted as work to do and then silently stepped over.
-    already_observed = set(
+    #
+    # Read from Postgres rather than reusing the count's `exclude_observed_by_scanner`, which asks ClickHouse
+    # the same question. That read is fail-soft: a ClickHouse hiccup would return every session as unobserved,
+    # and the retake path below turns that into real re-scans and real charges. The row is exact and cheap.
+    succeeded_at = dict(
         ReplayObservation.objects.filter(
             team_id=inputs.team_id,
             scanner_id=backfill.scanner_id,
             status=ObservationStatus.SUCCEEDED,
             session_id__in=[c.session_id for c in candidates],
-        ).values_list("session_id", flat=True)
+        ).values_list("session_id", "completed_at")
     )
-    dispatchable = [c for c in candidates if c.session_id not in already_observed]
+    dispatchable = [c for c in candidates if c.session_id not in succeeded_at]
+    # Only sessions the live sweep reached *after* this backfill was quoted were part of its total, so only
+    # those count as work done. Ones that succeeded earlier were excluded from the total at creation, and
+    # counting them made progress climb past it.
+    overtaken = {
+        session_id
+        for session_id, completed in succeeded_at.items()
+        if completed is not None and completed > backfill.created_at
+    }
 
     # Claim a slot per dispatchable candidate before the workflow starts its children: a started
     # child is invisible to the row-count caps until it persists its observation, so successive
@@ -198,7 +210,7 @@ def find_backfill_candidates_activity(inputs: FindBackfillCandidatesInputs) -> F
     # `dispatched_count` could never reach `total_count` on a window this scanner has already partly tried,
     # which strands progress short of complete and leaves phantom credits in the org's projected spend.
     walked_through = candidates.index(walked_to) + 1 if walked_to is not None else 0
-    skipped = walked_through - admitted
+    skipped = sum(1 for c in candidates[:walked_through] if c.session_id in overtaken)
 
     return FindBackfillCandidatesOutput(
         started_from_cursor_end_time=backfill.cursor_end_time,

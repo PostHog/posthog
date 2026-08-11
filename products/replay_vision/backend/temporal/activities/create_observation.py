@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 import psycopg.errors
 from temporalio import activity
@@ -111,18 +112,31 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             scanner_type=scanner.scanner_type,
         )
 
+    # Shared by the insert and the retake below, so a column added here can't be set on one path only.
+    row_fields: dict[str, Any] = {
+        "status": ObservationStatus.PENDING,
+        # Required by `replay_observation_completed_at_matches_status`: a pending row must carry no
+        # completion time, and a retaken row arrives with the failed attempt's still set.
+        "completed_at": None,
+        # Every period window keys off this: the in-flight reservation, and the usage receipt written on
+        # success. A retaken row that kept its original stamp would bill this scan into the period the
+        # first attempt ran in, which may be closed, so the credits would escape the current cap.
+        # `auto_now_add` ignores this on insert and takes it on update, which is what each path needs.
+        "created_at": timezone.now(),
+        "workflow_id": inputs.workflow_id,
+        "scanner_snapshot": snapshot_dict,
+        "triggered_by": inputs.triggered_by,
+        "triggered_by_user_id": inputs.triggered_by_user_id,
+        "backfill": backfill,
+    }
+
     try:
         with transaction.atomic():
             observation = ReplayObservation.objects.create(
                 scanner=scanner,
                 team=scanner.team,
                 session_id=inputs.session_id,
-                status=ObservationStatus.PENDING,
-                workflow_id=inputs.workflow_id,
-                scanner_snapshot=snapshot_dict,
-                triggered_by=inputs.triggered_by,
-                triggered_by_user_id=inputs.triggered_by_user_id,
-                backfill=backfill,
+                **row_fields,
             )
     except IntegrityError as e:
         # Only swallow the dedup case; FK / CHECK violations should fail the activity.
@@ -141,26 +155,16 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
         # failed. Returning the failed row unchanged would let the walk report progress for a scan that never
         # re-ran, so retake the row instead. Filtered on FAILED so a concurrent success or a live-sweep
         # apply wins and this becomes a no-op.
-        if backfill is not None and existing.status == ObservationStatus.FAILED:
-            retaken = ReplayObservation.objects.filter(pk=existing.pk, status=ObservationStatus.FAILED).update(
-                status=ObservationStatus.PENDING,
-                workflow_id=inputs.workflow_id,
-                scanner_snapshot=snapshot_dict,
-                backfill=backfill,
-                triggered_by=inputs.triggered_by,
-                triggered_by_user_id=inputs.triggered_by_user_id,
-            )
-            if retaken:
-                return CreateObservationOutput(
-                    observation_id=existing.id,
-                    was_created=True,
-                    scanner_type=existing_snapshot.scanner_type,
-                )
+        retaken = bool(
+            backfill is not None
+            and existing.status == ObservationStatus.FAILED
+            and ReplayObservation.objects.filter(pk=existing.pk, status=ObservationStatus.FAILED).update(**row_fields)
+        )
         # A still-PENDING row stamped with our own workflow id is our earlier lost-result insert — reclaim it.
         reclaimed = existing.workflow_id == inputs.workflow_id and existing.status == ObservationStatus.PENDING
         return CreateObservationOutput(
             observation_id=existing.id,
-            was_created=reclaimed,
+            was_created=retaken or reclaimed,
             scanner_type=existing_snapshot.scanner_type,
         )
 
