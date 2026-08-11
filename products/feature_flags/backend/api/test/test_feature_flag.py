@@ -5054,6 +5054,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self._generate_usage_dashboard(flag_id)
         first_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+        assert first_dashboard_id is not None
 
         self._generate_usage_dashboard(flag_id)
         instance = FeatureFlag.objects.get(id=flag_id)
@@ -5072,13 +5073,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self._generate_usage_dashboard(flag_id)
         deleted_dashboard_id = FeatureFlag.objects.get(id=flag_id).usage_dashboard_id
+        assert deleted_dashboard_id is not None
         Dashboard.objects.filter(id=deleted_dashboard_id).update(deleted=True)
 
         self._generate_usage_dashboard(flag_id)
         instance = FeatureFlag.objects.get(id=flag_id)
 
-        self.assertNotEqual(instance.usage_dashboard_id, deleted_dashboard_id)
-        self.assertTrue(Dashboard.objects.filter(id=instance.usage_dashboard_id, deleted=False).exists())
+        new_dashboard_id = instance.usage_dashboard_id
+        assert new_dashboard_id is not None
+        self.assertNotEqual(new_dashboard_id, deleted_dashboard_id)
+        self.assertTrue(Dashboard.objects.filter(id=new_dashboard_id, deleted=False).exists())
 
     @patch("products.feature_flags.backend.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_local_evaluation_billing_analytics_for_regular_feature_flag_list(self):

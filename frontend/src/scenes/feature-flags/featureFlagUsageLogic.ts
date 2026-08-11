@@ -53,9 +53,9 @@ export interface featureFlagUsageLogicMeta {
         aggregationGroupTypeIndex: (featureFlag: FeatureFlagType) => number | null | undefined
         hasEnrichedAnalytics: (featureFlag: FeatureFlagType) => boolean | undefined
         usageCharts: (
-            flagKey: any,
-            aggregationGroupTypeIndex: any,
-            hasEnrichedAnalytics: any,
+            flagKey: string,
+            aggregationGroupTypeIndex: number | null | undefined,
+            hasEnrichedAnalytics: boolean | undefined,
             dateRange: DateRange,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => FlagUsageChart[]
