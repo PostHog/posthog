@@ -1484,7 +1484,13 @@ describe('Hogflow Executor', () => {
                 expect(conversionEvents).toHaveLength(1)
                 expect(conversionEvents[0]).toMatchObject({
                     distinct_id: 'distinct_id',
-                    properties: { $workflow_id: hogFlow.id, $workflow_conversion_type: 'property' },
+                    properties: {
+                        $workflow_id: hogFlow.id,
+                        // Joins this conversion to the run's enrollment event, which is how a
+                        // conversion is attributed to the run that earned it.
+                        $workflow_run_id: invocation.id,
+                        $workflow_conversion_type: 'property',
+                    },
                 })
             })
 
@@ -1541,6 +1547,78 @@ describe('Hogflow Executor', () => {
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('conversion')
                 expect(invocation.state.conversionMatched).toBe(false)
                 expect(invocation.state.conversionCounted).toBeUndefined()
+            })
+
+            describe('enrollment events', () => {
+                const propertyGoal = {
+                    filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
+                }
+                const eventGoal = {
+                    filters: [],
+                    bytecode: [],
+                    window_minutes: null,
+                    events: [{ filters: { bytecode: ['_H', 1, 29] } }],
+                }
+                const noGoal = { filters: [], bytecode: [], window_minutes: null }
+
+                it.each([
+                    ['a property goal', propertyGoal, true],
+                    ['an event goal', eventGoal, true],
+                    ['no goal configured', noGoal, false],
+                ])('emits an enrollment event for a workflow with %s', async (_name, conversion, shouldEmit) => {
+                    hogFlow.exit_condition = 'exit_only_at_end'
+                    hogFlow.conversion = conversion as any
+
+                    const invocation = createExampleHogFlowInvocation(hogFlow, {}, { properties: { $browser: 'Edge' } })
+                    const result = await executor.execute(invocation)
+
+                    const enrolled = result.capturedPostHogEvents.filter((e) => e.event === '$workflows_enrolled')
+                    expect(enrolled).toHaveLength(shouldEmit ? 1 : 0)
+                    if (shouldEmit) {
+                        expect(enrolled[0]).toMatchObject({
+                            distinct_id: 'distinct_id',
+                            properties: { $workflow_id: hogFlow.id, $workflow_run_id: invocation.id },
+                        })
+                    }
+                })
+
+                it('does not re-emit the enrollment event when a parked run resumes', async () => {
+                    hogFlow.exit_condition = 'exit_only_at_end'
+                    hogFlow.conversion = propertyGoal as any
+
+                    // A run that has already started carries its currentAction, which is what marks
+                    // it as resuming rather than enrolling. Without this the denominator would count
+                    // one run once per delay it wakes from.
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: 'function_id_1',
+                        startedAtTimestamp: Date.now(),
+                    }
+
+                    const result = await executor.execute(invocation)
+                    expect(result.capturedPostHogEvents.map((e) => e.event)).not.toContain('$workflows_enrolled')
+                })
+
+                it('emits the enrollment event on a run that exits early on its first pass', async () => {
+                    // Exiting immediately still consumed a run, and `triggered` already counted it, so
+                    // leaving it out of the denominator would overstate the conversion rate.
+                    hogFlow.exit_condition = 'exit_on_conversion'
+                    hogFlow.conversion = propertyGoal as any
+
+                    const invocation = createExampleHogFlowInvocation(
+                        hogFlow,
+                        {},
+                        { properties: { $browser: 'Chrome' } }
+                    )
+                    const result = await executor.execute(invocation)
+
+                    expect(result.metrics.map((m) => m.metric_name)).toContain('early_exit')
+                    expect(result.capturedPostHogEvents.filter((e) => e.event === '$workflows_enrolled')).toHaveLength(
+                        1
+                    )
+                })
             })
 
             describe('on_error handling', () => {

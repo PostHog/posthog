@@ -69,6 +69,8 @@ export function WorkflowMetricsSummary({
         conversionRate,
         conversionStats,
         conversionStatsLoading,
+        conversionDataPending,
+        convertedTrends,
         convertedUsersUrl,
         hasConversionGoal,
         messagingChannels,
@@ -257,13 +259,19 @@ export function WorkflowMetricsSummary({
                         ? sentSeries()
                         : summaryMetric === 'completed'
                           ? withDisplayName(getCompletedSingleTrendSeries('succeeded'), name)
-                          : withDisplayName(getSingleTrendSeries(metricName), name)
+                          : summaryMetric === 'converted'
+                            ? convertedTrends
+                            : withDisplayName(getSingleTrendSeries(metricName), name)
 
+                    // Converted has no previous-period comparison: the enrollment/conversion pairing
+                    // is a separate query, and running a second one per tile isn't worth a delta.
                     const previousPeriodTimeSeries = isSent
                         ? sentSeries(true)
                         : summaryMetric === 'completed'
                           ? withDisplayName(getCompletedSingleTrendSeries('succeeded', true), name)
-                          : withDisplayName(getSingleTrendSeries(metricName, true), name)
+                          : summaryMetric === 'converted'
+                            ? null
+                            : withDisplayName(getSingleTrendSeries(metricName, true), name)
 
                     return (
                         <WorkflowMetricCard
@@ -289,18 +297,20 @@ export function WorkflowMetricsSummary({
                 {hasConversionGoal && (
                     <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
                         <div className="flex flex-col h-full">
-                            <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
+                            <LemonLabel info="Share of the workflow runs started in this date range that went on to convert. A run counts as converted whenever it meets the goal, including after the run has finished.">
                                 Conversion rate
                             </LemonLabel>
                             <div className="flex flex-1 items-center justify-center">
                                 {conversionStatsLoading ? (
                                     <SpinnerOverlay />
-                                ) : conversionStats.started === 0 ? (
+                                ) : conversionDataPending ? (
+                                    <LemonLabel className="text-muted text-md mb-2 text-center">
+                                        Runs from before this update aren't counted. New runs will appear here.
+                                    </LemonLabel>
+                                ) : conversionStats.enrolled === 0 ? (
                                     <LemonLabel className="text-muted text-md mb-2">No workflows started</LemonLabel>
                                 ) : (
-                                    <div className="text-6xl mb-2">
-                                        {`${(Math.min(conversionRate, 1) * 100).toFixed(1)}%`}
-                                    </div>
+                                    <div className="text-6xl mb-2">{`${(conversionRate * 100).toFixed(1)}%`}</div>
                                 )}
                             </div>
                             {!conversionStatsLoading && conversionStats.conversions > 0 && (

@@ -96,6 +96,42 @@ export function createHogFlowInvocation(
     }
 }
 
+// Whether the flow has a conversion goal configured, by either detection path. Gates the
+// `$workflows_enrolled` event: without a goal there is nothing to measure against, and the event is
+// billable, so we don't emit one per run for every workflow in the fleet.
+function hasConversionGoal(hogFlow: HogFlow): boolean {
+    return Boolean(hogFlow.conversion?.filters?.length || hogFlow.conversion?.events?.length)
+}
+
+// The denominator for conversion rate: one event per run, at the moment the run starts. Conversions
+// are counted by querying these against `$workflows_conversion` on `$workflow_run_id`, which is what
+// lets the metric see conversions that land after the run has finished — the run's cyclotron job is
+// gone by then, so nothing in the live pipeline can still observe them.
+//
+// A run is starting iff it has no `currentAction` yet: every dispatch path (events, warehouse,
+// webhooks, batch children, reruns) creates the invocation without one, and `ensureCurrentAction`
+// fills it in on the first execution. A run that errors before its state persists can re-emit on
+// retry, so consumers must count runs distinctly rather than assume exactly-once.
+function buildEnrollmentEvent(invocation: CyclotronJobInvocationHogFlow): HogFunctionCapturedEvent | null {
+    if (invocation.state.currentAction || !hasConversionGoal(invocation.hogFlow)) {
+        return null
+    }
+    const distinctId = invocation.state.event?.distinct_id
+    if (!distinctId) {
+        return null
+    }
+    return {
+        team_id: invocation.hogFlow.team_id,
+        event: '$workflows_enrolled',
+        distinct_id: distinctId,
+        timestamp: new Date().toISOString(),
+        properties: {
+            $workflow_id: invocation.hogFlow.id,
+            $workflow_run_id: invocation.id,
+        },
+    }
+}
+
 export class HogFlowExecutorService {
     private readonly actionHandlers: Record<HogFlowAction['type'], ActionHandler>
     private readonly duplicateObserver: HogFlowDuplicateObserverService | null
@@ -216,9 +252,20 @@ export class HogFlowExecutorService {
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
         const messageAssets: MessageAssetRow[] = []
 
+        // Built before shouldExitEarly, which mutates currentAction-adjacent state and can return a
+        // finished result: a run that exits on its very first pass still enrolled, and `triggered`
+        // already counted it, so it must appear in the denominator too.
+        const enrollmentEvent = buildEnrollmentEvent(invocation)
+
         const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
         if (earlyExitResult) {
+            if (enrollmentEvent) {
+                earlyExitResult.capturedPostHogEvents.push(enrollmentEvent)
+            }
             return earlyExitResult
+        }
+        if (enrollmentEvent) {
+            capturedPostHogEvents.push(enrollmentEvent)
         }
 
         // Routing-only reschedule: the previous dequeue moved this job onto a dedicated queue
@@ -375,6 +422,7 @@ export class HogFlowExecutorService {
                     timestamp: new Date().toISOString(),
                     properties: {
                         $workflow_id: hogFlow.id,
+                        $workflow_run_id: invocation.id,
                         $workflow_conversion_type: 'property',
                     },
                 }

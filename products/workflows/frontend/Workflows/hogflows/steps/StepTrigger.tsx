@@ -931,7 +931,7 @@ function ConversionGoalSection(): JSX.Element {
             <span className="flex gap-1 items-center">
                 <IconTarget className="text-lg" />
                 <span className="text-md font-semibold">Conversion goal (optional)</span>
-                <Tooltip title="When a conversion goal is set, each conversion is sent as a billable $workflows_conversion event (with the workflow id and conversion type). You can build insights and cohorts from it, and it counts toward your event usage.">
+                <Tooltip title="When a conversion goal is set, each run sends a billable $workflows_enrolled event as it starts, and a $workflows_conversion event when it converts. Both carry the workflow and run id, so you can build insights and cohorts from them. Both count toward your event usage.">
                     <IconInfo className="text-secondary" />
                 </Tooltip>
             </span>

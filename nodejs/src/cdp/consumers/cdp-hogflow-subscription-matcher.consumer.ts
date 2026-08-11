@@ -519,6 +519,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                             timestamp: new Date().toISOString(),
                             properties: {
                                 $workflow_id: m.functionId,
+                                // The cyclotron job id is the run's invocation id, so this joins
+                                // against the `$workflows_enrolled` event emitted when the run started.
+                                $workflow_run_id: m.id,
                                 $workflow_conversion_type: 'event',
                                 $workflow_conversion_event: m.conversionEventName,
                                 $workflow_conversion_event_uuid: m.conversionEventUuid,
