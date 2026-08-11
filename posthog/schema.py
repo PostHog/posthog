@@ -2270,7 +2270,15 @@ class PathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    alias: str | None = None
+    alias: str | None = Field(
+        default=None,
+        description=(
+            "The replacement for the matched path. Use angle-bracket placeholders"
+            " (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from"
+            " the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\\1` to"
+            " `\\9` for a group and `\\0` for the whole match."
+        ),
+    )
     order: float | None = None
     regex: str | None = None
 
@@ -30364,6 +30372,10 @@ class SourceFieldSelectConfig(BaseModel):
     converter: SourceFieldSelectConfigConverter | None = None
     defaultValue: str
     label: str
+    multiple: bool | None = Field(
+        default=None,
+        description=("Allow selecting multiple values; the field's payload value becomes string[]."),
+    )
     name: str
     options: list[SourceFieldSelectConfigOption]
     required: bool

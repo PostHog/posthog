@@ -1,6 +1,6 @@
 # @posthog/web
 
-Browser host for PostHog Code. Boots the same `@posthog/ui` shell and
+Browser host for PostHog Desktop. Boots the same `@posthog/ui` shell and
 `@posthog/core` services as the desktop app, with web platform adapters —
 no Electron, no local workspace-server. Scope today: auth + cloud tasks
 (local workspaces, terminal, and local git need a workspace backend and are
