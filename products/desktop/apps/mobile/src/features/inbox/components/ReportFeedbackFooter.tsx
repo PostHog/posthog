@@ -1,4 +1,5 @@
 import { Text } from "@components/text";
+import type { InboxReportFeedbackSentiment } from "@posthog/shared/analytics-events";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
 import { ThumbsDown, ThumbsUp } from "phosphor-react-native";
@@ -7,7 +8,6 @@ import { Pressable, TextInput, View } from "react-native";
 import {
   ANALYTICS_EVENTS,
   computeReportAgeHours,
-  type InboxReportFeedbackSentiment,
   useAnalytics,
 } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme";

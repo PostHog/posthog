@@ -5,6 +5,10 @@ import {
   toSuggestedReviewerWriteContent,
 } from "@posthog/core/inbox/artefacts";
 import type {
+  InboxReportActionProperties,
+  InboxReportActionType,
+} from "@posthog/shared/analytics-events";
+import type {
   AvailableSuggestedReviewer,
   SuggestedReviewer,
   SuggestedReviewersArtefact,
@@ -18,10 +22,6 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import type {
-  InboxReportActionProperties,
-  InboxReportActionType,
-} from "@/lib/analytics";
 import { openExternalUrl } from "@/lib/openExternalUrl";
 import { useThemeColors } from "@/lib/theme";
 import { useUpdateSuggestedReviewers } from "../hooks/useInboxReports";

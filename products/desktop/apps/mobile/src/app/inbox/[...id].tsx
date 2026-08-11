@@ -6,6 +6,7 @@ import {
 } from "@posthog/core/inbox/reportPresentation";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { DISMISSAL_REASON_OPTIONS } from "@posthog/shared";
+import type { InboxReportActionType } from "@posthog/shared/analytics-events";
 import type {
   ActionabilityJudgmentContent,
   SignalFindingContent,
@@ -61,11 +62,7 @@ import {
 } from "@/features/inbox/hooks/useInboxReports";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
-import {
-  computeReportAgeHours,
-  type InboxReportActionType,
-  useAnalytics,
-} from "@/lib/analytics";
+import { computeReportAgeHours, useAnalytics } from "@/lib/analytics";
 import { useThemeColors } from "@/lib/theme";
 
 const statusColorMap: Record<string, { bg: string; text: string }> = {
