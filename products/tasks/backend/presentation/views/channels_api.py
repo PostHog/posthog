@@ -17,8 +17,8 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
+from products.tasks.backend.facade.usage_gating import compute_quota_limit_response
 from products.tasks.backend.presentation.serializers import (
     ChannelContextGenerationSerializer,
     ChannelFeedMessageSerializer,

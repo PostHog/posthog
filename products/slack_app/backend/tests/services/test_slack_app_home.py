@@ -846,10 +846,12 @@ class TestTasksControlsRepublishTheList:
             )
 
     def _published_titles(self, view: dict) -> list[str]:
+        # A row's title is a bold link — to its Slack thread, so the target is not a
+        # task URL — followed by the meta line in a context block.
         titles = []
         for block in view["blocks"]:
             text = (block.get("text") or {}).get("text", "")
-            if text.startswith("*<") and "/tasks/" in text:
+            if text.startswith("*<") and text.endswith(">*"):
                 titles.append(text.split("|", 1)[1].rstrip(">*"))
         return titles
 
