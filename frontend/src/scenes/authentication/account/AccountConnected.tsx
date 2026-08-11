@@ -130,8 +130,8 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
     // splits it back out into its own waiting state rather than a hard failure.
     const status = resolveConnectStatus(searchParams)
     const isPending = status === 'pending'
-    // kea-router decodes a numeric `project_id=2` to the number `2`, so coerce whatever type arrives —
-    // the same handling `posthogCodeDeepUrl` already applies — instead of gating on `typeof === 'string'`.
+    // kea-router decodes a numeric `project_id=2` to the number `2`, so coerce whatever type arrives
+    // (the same handling `posthogCodeDeepUrl` applies) instead of gating on `typeof === 'string'`.
     const projectIdParam = searchParams.project_id
     const projectId =
         projectIdParam !== undefined && projectIdParam !== null && projectIdParam !== ''
