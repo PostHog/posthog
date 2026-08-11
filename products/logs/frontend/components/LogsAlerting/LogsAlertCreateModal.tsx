@@ -105,6 +105,15 @@ function buildLogsAlertWizardSteps({
                 <div className="max-w-2xl space-y-5">
                     <AlertEditorFormDetails nameError={configurationCannotAdvanceReason} />
                     <LogsAlertFilters />
+                </div>
+            ),
+        },
+        {
+            key: 'trigger',
+            title: 'Set trigger',
+            description: 'Set the log count that fires the alert and reduce notification noise if needed.',
+            content: (
+                <div className="max-w-2xl">
                     <LogsAlertTrigger />
                 </div>
             ),
