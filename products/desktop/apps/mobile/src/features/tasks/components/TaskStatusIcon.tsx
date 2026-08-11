@@ -1,3 +1,4 @@
+import { getTaskStatusPresentationKind } from "@posthog/core/tasks/taskStatusPresentation";
 import type { Task } from "@posthog/shared";
 import {
   ChatCircle,
@@ -10,7 +11,6 @@ import {
 import { memo, useEffect, useRef } from "react";
 import { Animated, Easing } from "react-native";
 import { useThemeColors } from "@/lib/theme";
-import { getTaskStatusIconKind } from "./taskStatusIconKind";
 
 interface TaskStatusIconProps {
   task: Task;
@@ -19,7 +19,7 @@ interface TaskStatusIconProps {
 
 function TaskStatusIconComponent({ task, size = 16 }: TaskStatusIconProps) {
   const colors = useThemeColors();
-  const iconKind = getTaskStatusIconKind(task);
+  const iconKind = getTaskStatusPresentationKind(task);
 
   const rotation = useRef(new Animated.Value(0)).current;
   const isRunning = iconKind === "running";

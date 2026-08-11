@@ -1,9 +1,14 @@
 import { Text } from "@components/text";
+import {
+  canCreateImplementationPr,
+  isReportAwaitingInput,
+} from "@posthog/core/inbox/reportActionRules";
 import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import {
   formatSignalReportSummaryMarkdown,
   inboxStatusLabel,
 } from "@posthog/core/inbox/reportPresentation";
+import { partitionSessionProblemSignals } from "@posthog/core/inbox/reportSignals";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import { DISMISSAL_REASON_OPTIONS } from "@posthog/shared";
 import type { InboxReportActionType } from "@posthog/shared/analytics-events";
@@ -277,14 +282,9 @@ export default function ReportDetailScreen() {
     return map;
   }, [artefacts]);
 
-  const allSignals = signalsQuery.data?.signals ?? [];
-  // Match web: split session_problem evidence from main Signals list.
-  const signals = allSignals.filter(
-    (s) =>
-      !(
-        s.source_product === "session_replay" &&
-        s.source_type === "session_problem"
-      ),
+  // Match web: split session_problem evidence out of the main Signals list.
+  const { signals } = partitionSessionProblemSignals(
+    signalsQuery.data?.signals ?? [],
   );
 
   const handleStartTask = useCallback(
@@ -424,16 +424,9 @@ export default function ReportDetailScreen() {
 
   const isReady = report.status === "ready";
 
-  const isAwaitingInput =
-    report.status === "pending_input" ||
-    (report.status === "ready" &&
-      report.actionability === "requires_human_input");
+  const isAwaitingInput = isReportAwaitingInput(report);
 
-  const canStartTask =
-    isAwaitingInput ||
-    (report.status === "ready" &&
-      report.actionability === "immediately_actionable" &&
-      report.already_addressed !== true);
+  const canStartTask = canCreateImplementationPr(report);
 
   const alreadyAddressed =
     report.already_addressed ??
