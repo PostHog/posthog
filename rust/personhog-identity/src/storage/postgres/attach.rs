@@ -13,9 +13,17 @@ use crate::storage::types::AttachOutcome;
 /// Fresh inserts get version 1, like a stub's extra distinct ids: with no
 /// personless table there is no proof the id never sent events, and 1 is
 /// safe either way. Tombstoned mappings revive (repoint + version bump);
-/// live mappings are never repointed — that would be a silent merge. The
-/// join on a live person row keeps a racing deletion from mapping ids to a
-/// corpse. Callers dedupe; sorted insert order keeps row locks deadlock-free.
+/// live mappings are never repointed — that would be a silent merge.
+/// Callers dedupe; sorted insert order keeps row locks deadlock-free.
+///
+/// Two guards keep a racing lifecycle op from acquiring a mapping it can
+/// no longer sweep. The join on a live person row rejects committed
+/// deletions. The mark check rejects persons held by a live op: the
+/// destructive transaction sweeps the person's distinct ids before it
+/// tombstones the person, so an attach overlapping it would insert a row
+/// the sweep already missed — a live mapping onto a tombstoned person.
+/// The saga commits its mark before any destructive statement, so an
+/// attach that could land in that window always observes the mark.
 pub(super) async fn attach_distinct_ids(
     pool: &PgPool,
     tables: &IdentityTables,
@@ -36,6 +44,11 @@ pub(super) async fn attach_distinct_ids(
         FROM unnest($1::text[]) AS u(d)
         JOIN {person} p
           ON p.team_id = $3 AND p.id = $2 AND p.is_deleted = false
+        WHERE NOT EXISTS (
+            SELECT 1 FROM lifecycle_op_person m
+            WHERE m.team_id = p.team_id AND m.person_id = p.id
+              AND m.status IN ('marked', 'sealed')
+        )
         ON CONFLICT (team_id, distinct_id) DO UPDATE SET
             person_id = EXCLUDED.person_id,
             version = COALESCE({pdi}.version, 0) + 1,
