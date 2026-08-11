@@ -1,8 +1,9 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import ModelRegistryService
 
@@ -278,6 +279,66 @@ class TestFreeTierModelListing:
         models = response.json()["data"]
         assert "claude-opus-4-5" in {m["id"] for m in models}
         assert all(m["allowed"] for m in models)
+
+    @pytest.mark.parametrize("gate_flag", ["true", "false"], ids=["gate_on", "gate_off"])
+    @pytest.mark.parametrize(
+        "error,expected_status",
+        [
+            pytest.param(InvalidProjectScopeError(), 400, id="invalid_project"),
+            pytest.param(UnauthorizedProjectScopeError(), 403, id="unauthorized_project"),
+        ],
+    )
+    def test_project_scope_errors_are_returned(
+        self,
+        app,
+        monkeypatch: pytest.MonkeyPatch,
+        error: Exception,
+        expected_status: int,
+        gate_flag: str,
+    ):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", gate_flag)
+        get_settings.cache_clear()
+        auth_service = MagicMock()
+        auth_service.authenticate_request = AsyncMock(side_effect=error)
+
+        with patch("llm_gateway.api.models.get_auth_service", return_value=auth_service), TestClient(app) as client:
+            response = client.get(
+                "/posthog_code/v1/models",
+                headers={"Authorization": "Bearer pha_scoped_models", "X-PostHog-Project-Id": "123"},
+            )
+
+        assert response.status_code == expected_status
+
+    def test_project_scope_errors_are_returned_on_bare_models_route(self, app):
+        auth_service = MagicMock()
+        auth_service.authenticate_request = AsyncMock(side_effect=UnauthorizedProjectScopeError())
+
+        with patch("llm_gateway.api.models.get_auth_service", return_value=auth_service), TestClient(app) as client:
+            response = client.get(
+                "/v1/models",
+                headers={"Authorization": "Bearer pha_scoped_models", "X-PostHog-Project-Id": "123"},
+            )
+
+        assert response.status_code == 403
+
+    def test_gate_off_valid_project_scope_returns_unrestricted_list(self, app, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "false")
+        get_settings.cache_clear()
+        auth_service = MagicMock()
+        auth_service.authenticate_request = AsyncMock(return_value=MagicMock(team_id=123, is_staff=False))
+
+        with patch("llm_gateway.api.models.get_auth_service", return_value=auth_service), TestClient(app) as client:
+            response = client.get(
+                "/posthog_code/v1/models",
+                headers={"Authorization": "Bearer pha_scoped_models", "X-PostHog-Project-Id": "123"},
+            )
+
+        assert response.status_code == 200
+        assert all(m["allowed"] for m in response.json()["data"])
 
     def test_unbilled_org_gets_full_list_with_premium_models_marked(self, app, mock_db_pool):
         from unittest.mock import AsyncMock

@@ -52,6 +52,9 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
+    if getattr(query, "kind", None) == "AccountsTableQuery":
+        return _with_fallback_parents({"account"})
+
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":
         sql = getattr(query, "query", None)
