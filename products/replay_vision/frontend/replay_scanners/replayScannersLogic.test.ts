@@ -1,6 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -268,6 +271,7 @@ describe('replayScannersLogic', () => {
         })
 
         it('writes non-default state into the URL', async () => {
+            router.actions.push(urls.replayVision())
             await expectLogic(logic, () => {
                 logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
                 logic.actions.setScannersFilters({ page: 2 })
@@ -283,6 +287,15 @@ describe('replayScannersLogic', () => {
             }).toFinishAllListeners()
             expect(router.values.searchParams.page).toBeUndefined()
             expect(router.values.searchParams.sort).toBeUndefined()
+        })
+
+        it('does not rewrite the URL when the user has left the scanner list', async () => {
+            router.actions.push(urls.replayVisionTemplates())
+            await expectLogic(logic, () => {
+                logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
+            }).toFinishAllListeners()
+            // A late filter change from the still-mounted list logic must not drag the user off the wizard.
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.replayVisionTemplates())
         })
     })
 

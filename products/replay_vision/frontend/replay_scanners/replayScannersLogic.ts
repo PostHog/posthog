@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -553,7 +554,15 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     }),
 
     trackedActionToUrl(({ values }) => {
-        const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => {
+        const buildUrl = ():
+            | [string, Record<string, string | undefined>, undefined, { replace: true }]
+            | undefined => {
+            // Only write the URL while the scanner list is the active scene. This logic stays mounted as the
+            // new-scanner wizard chunk loads, so a late filter change (e.g. an in-flight list response) must not
+            // replace the wizard URL and bounce the user back to the list.
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.replayVision()) {
+                return undefined
+            }
             const { filters } = values
             const sortParam = serializeSortParam(filters.sort, DEFAULT_SORT)
             return [
