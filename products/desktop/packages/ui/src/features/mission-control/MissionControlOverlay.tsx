@@ -39,7 +39,7 @@ export function MissionControlOverlay() {
     <div
       aria-hidden="true"
       data-testid="mission-control-overlay"
-      className={`pointer-events-none fixed inset-0 z-[300] flex flex-col items-center justify-center gap-[2.5vh] bg-(--gray-1)/65 backdrop-blur-md transition-opacity duration-150 ease-out motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}
+      className={`pointer-events-none fixed inset-0 z-[300] flex flex-col items-center justify-center gap-[2.5vh] bg-(--gray-1)/10 backdrop-blur-sm transition-opacity duration-150 ease-out motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}
     >
       {/* The logo-only variant reserves room for the wordmark, so crop to the
           logomark's own 52:28 box. */}
