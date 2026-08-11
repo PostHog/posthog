@@ -58,8 +58,11 @@ pub struct CollectedUrl {
     pub hash: String,
     /// The canonical URL with every parameter intact. This is what the fetcher requests.
     pub url: String,
-    /// The host, which the fetch topic uses as its Kafka key so one host lands on one partition.
+    /// The host the request goes to. robots.txt and the connection limit are scoped to this.
     pub host: String,
+    /// The registrable domain of `host`, which the fetch topic uses as its Kafka key so every URL
+    /// of one operator lands on one partition. See `url_policy::politeness_key`.
+    pub domain: String,
 }
 
 /// First 22 base64url chars of `HMAC-SHA256(url_key, dedup_url)`. Same construction and width as
@@ -133,6 +136,7 @@ impl UrlCollector {
             hash: hash.clone(),
             url: canonical.fetch,
             host: canonical.host,
+            domain: canonical.domain,
         });
         Some(crate::collect::url_ref(&self.pseudo_team, &hash))
     }

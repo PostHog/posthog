@@ -94,9 +94,9 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['outcome'],
     })
 
-    private static readonly mlUrlHostsPerMessage = new Histogram({
-        name: 'recording_blob_ingestion_v2_ml_url_hosts_per_message',
-        help: 'Distinct hosts among the URLs collected from one message, observed for every message including those with none. The fetch topic is keyed by host, so this is how many Kafka messages one replay message becomes, and how concentrated a page is on one CDN',
+    private static readonly mlUrlDomainsPerMessage = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_domains_per_message',
+        help: 'Distinct registrable domains among the URLs collected from one message, observed for every message including those with none. The fetch topic is keyed by that domain, so this is how many Kafka messages one replay message becomes, and how concentrated a page is on one operator',
         buckets: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55],
     })
 
@@ -169,8 +169,8 @@ export class SessionRecordingIngesterMetrics {
         this.mlUrlsCollected.labels(outcome).inc(count)
     }
 
-    public static observeMlUrlHostsPerMessage(hosts: number): void {
-        this.mlUrlHostsPerMessage.observe(hosts)
+    public static observeMlUrlDomainsPerMessage(domains: number): void {
+        this.mlUrlDomainsPerMessage.observe(domains)
     }
 
     public static observeMlUrlsPerMessage(urls: number): void {

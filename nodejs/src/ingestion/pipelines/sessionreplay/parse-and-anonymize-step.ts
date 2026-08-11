@@ -60,8 +60,11 @@ export interface CollectedUrl {
     /** `imageurl:<pseudoTeam>:<hash>` — the ref the mirrored line carries for this URL. */
     ref: string
     url: string
-    /** The fetch topic's Kafka key, so every URL for one host lands on one partition. */
+    /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
     host: string
+    /** The registrable domain of `host` — the fetch topic's Kafka key, so every URL of one operator
+     *  lands on one partition. */
+    domain: string
 }
 
 export interface ParseAndAnonymizeStepOutput extends ParseMessageStepOutput {
@@ -314,12 +317,17 @@ function unpackCollectedImages(
  */
 function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): CollectedUrl[] | undefined {
     const urls: CollectedUrl[] = []
-    const hosts = new Set<string>()
+    const domains = new Set<string>()
     for (const entry of meta.urls ?? []) {
-        urls.push({ ref: urlRef(pseudoTeam, entry.hash), url: entry.url, host: entry.host })
-        hosts.add(entry.host)
+        urls.push({
+            ref: urlRef(pseudoTeam, entry.hash),
+            url: entry.url,
+            host: entry.host,
+            domain: entry.domain,
+        })
+        domains.add(entry.domain)
     }
-    SessionRecordingIngesterMetrics.observeMlUrlHostsPerMessage(hosts.size)
+    SessionRecordingIngesterMetrics.observeMlUrlDomainsPerMessage(domains.size)
     if (urls.length === 0) {
         return undefined
     }

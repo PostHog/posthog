@@ -35,8 +35,11 @@ export interface AnonymizeUrlEntry {
     /** The canonical URL with every parameter intact — what the fetcher requests. A signed URL only
      *  works in this form, which is why it is not the value the hash was taken over. */
     url: string
-    /** The host, which the fetch topic uses as its Kafka key so one host lands on one partition. */
+    /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
     host: string
+    /** The registrable domain of `host`. The fetch topic keys on this, so every URL of one operator
+     *  lands on one partition and one pod holds its rate budget without a distributed lock. */
+    domain: string
 }
 
 /** Envelope + per-event metadata parsed from {@link AnonymizeKafkaPayloadResult.meta}. */

@@ -14,6 +14,8 @@
 
 use std::net::{IpAddr, Ipv4Addr};
 
+use public_suffix::{EffectiveTLDProvider, DEFAULT_PROVIDER};
+
 use url::Url;
 
 /// Query parameters that change on each page load without changing the image behind the URL.
@@ -85,12 +87,41 @@ const HOST_SCOPED_VOLATILE_PARAMS: &[(&str, &[&str])] = &[(".imgix.net", &["s", 
 /// and it bounds what one message can pin in memory alongside the count cap.
 pub const MAX_URL_LEN: usize = 2048;
 
+/// The politeness unit for a host: the registrable domain, or the host itself when it has none.
+///
+/// A rate limit protects the operator that answers the request, not a DNS label, and a CDN that
+/// shards over `img1..img8.cdn.example.com` would otherwise receive eight times the intended rate.
+/// The fetch topic keys on this, so every URL of one operator lands on one partition and one pod
+/// holds its budget without a distributed lock.
+///
+/// The public suffix list draws the boundary, and its private section is what makes this correct
+/// for multi-tenant hosts. `d111.cloudfront.net`, `bucket.s3.amazonaws.com`, `user.github.io` and
+/// `myapp.vercel.app` are each their own registrable domain, because `cloudfront.net`,
+/// `s3.amazonaws.com`, `github.io` and `vercel.app` are all public suffixes. One tenant therefore
+/// never shares a budget with an unrelated tenant of the same provider.
+///
+/// An IP literal has no registrable domain and returns unchanged, which is right: the address is
+/// the operator.
+pub fn politeness_key(host: &str) -> String {
+    if host.parse::<IpAddr>().is_ok() || host.starts_with('[') {
+        return host.to_string();
+    }
+    match DEFAULT_PROVIDER.effective_tld_plus_one(host) {
+        Ok(domain) => domain.to_string(),
+        // A host with no registrable domain is its own operator. `is_public_host` already declined
+        // the bare names this could otherwise return.
+        Err(_) => host.to_string(),
+    }
+}
+
 /// The two forms of one URL. See the module docs for why both exist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanonicalUrl {
     pub fetch: String,
     pub dedup: String,
     pub host: String,
+    /// The registrable domain of `host`. See [`politeness_key`].
+    pub domain: String,
 }
 
 /// Whether one parameter of this URL is volatile.
@@ -280,7 +311,13 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
     }
     let dedup = url.to_string();
 
-    Some(CanonicalUrl { fetch, dedup, host })
+    let domain = politeness_key(&host);
+    Some(CanonicalUrl {
+        fetch,
+        dedup,
+        host,
+        domain,
+    })
 }
 
 #[cfg(test)]
@@ -374,6 +411,44 @@ mod tests {
         // `expires` is a real cache hint until CloudFront's `signature` appears beside it.
         assert!(!volatile("expires", "cdn.example.com", &[]));
         assert!(volatile("expires", "cdn.example.com", &["signature"]));
+    }
+
+    #[test]
+    fn the_politeness_key_is_the_operator_not_the_dns_label() {
+        // A CDN that shards over numbered subdomains must share one budget.
+        assert_eq!(politeness_key("img1.cdn.example.com"), "example.com");
+        assert_eq!(politeness_key("img8.cdn.example.com"), "example.com");
+        assert_eq!(politeness_key("example.com"), "example.com");
+    }
+
+    #[test]
+    fn a_multi_tenant_host_keeps_its_tenants_apart() {
+        // The private section of the public suffix list is what makes this correct. Without it,
+        // every CloudFront distribution on the internet would share one budget and one partition.
+        assert_eq!(politeness_key("d111.cloudfront.net"), "d111.cloudfront.net");
+        assert_eq!(
+            politeness_key("bucket.s3.amazonaws.com"),
+            "bucket.s3.amazonaws.com"
+        );
+        assert_eq!(politeness_key("user.github.io"), "user.github.io");
+        // The app-hosting case: a tenant subdomain is its own operator for our purposes.
+        assert_eq!(politeness_key("myapp.vercel.app"), "myapp.vercel.app");
+        assert_eq!(politeness_key("site.netlify.app"), "site.netlify.app");
+        assert_eq!(politeness_key("worker.workers.dev"), "worker.workers.dev");
+    }
+
+    #[test]
+    fn an_ip_literal_is_its_own_operator() {
+        assert_eq!(politeness_key("203.0.113.7"), "203.0.113.7");
+        assert_eq!(politeness_key("[2606:4700::1111]"), "[2606:4700::1111]");
+    }
+
+    #[test]
+    fn canonicalize_carries_the_politeness_key() {
+        let c = canonicalize("https://img3.cdn.example.co.uk/a.png").unwrap();
+        assert_eq!(c.host, "img3.cdn.example.co.uk");
+        // A multi-label public suffix, which is why this cannot be "the last two labels".
+        assert_eq!(c.domain, "example.co.uk");
     }
 
     #[test]

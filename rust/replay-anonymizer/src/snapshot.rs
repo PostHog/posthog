@@ -143,6 +143,7 @@ pub struct UrlEntry {
     pub hash: String,
     pub url: String,
     pub host: String,
+    pub domain: String,
 }
 
 /// Message envelope + per-event metadata the TS scaffolding needs for routing/batching.
@@ -524,6 +525,7 @@ fn anonymize_snapshot_data_inner(
             hash: u.hash,
             url: u.url,
             host: u.host,
+            domain: u.domain,
         })
         .collect();
     let (entries, image_bytes) = pack_images(ctx.into_collected_images());
