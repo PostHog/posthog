@@ -19,11 +19,14 @@ import {
 const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
 
 /**
- * How long the store may spend on one batch. Half the interval at which the batch refreshes its own
- * heartbeat, so a degraded Redis makes the lane shed the rest of a batch rather than let the pod be
- * declared unhealthy and restart onto the same offsets.
+ * How long the store may spend on one batch, well inside Kafka's max.poll.interval.ms of 300s.
+ *
+ * That is the bound that matters rather than the health check, because the heartbeat above keeps the
+ * health check satisfied through a long batch. A batch that passes the poll interval gets the
+ * partition revoked mid-batch and replayed by a pod that will be just as slow, so the lane sheds the
+ * rest of a batch instead.
  */
-const STORE_BATCH_BUDGET_MS = BATCH_HEARTBEAT_INTERVAL_MS * 5
+const STORE_BATCH_BUDGET_MS = 50_000
 
 export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {
     return {
