@@ -140,6 +140,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunSetOutputRequestSerializer,
     TaskRunStartRequestSerializer,
     TaskRunUpdateSerializer,
+    TaskSearchQuerySerializer,
+    TaskSearchResultSerializer,
     TaskSerializer,
     TaskSessionResponseSerializer,
     TaskSessionSyncResponseSerializer,
@@ -352,6 +354,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return self.get_paginated_response(
             TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
         )
+
+    @validated_request(
+        query_serializer=TaskSearchQuerySerializer,
+        responses={200: OpenApiResponse(response=TaskSearchResultSerializer(many=True))},
+        summary="Search tasks, pull requests, artifacts, and spaces",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="search",
+        pagination_class=None,
+        required_scopes=["task:read"],
+    )
+    def search(self, request, *args, **kwargs):
+        query = request.validated_query_data["q"]
+        limit = request.validated_query_data["limit"]
+        results = tasks_facade.search_tasks(
+            self.team_id,
+            self._user_id(),
+            query,
+            limit=limit,
+            bypass_visibility=_can_bypass_visibility(request, self.team_id),
+        )
+        return Response(TaskSearchResultSerializer(results, many=True).data)
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
