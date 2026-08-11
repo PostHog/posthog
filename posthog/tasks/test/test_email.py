@@ -2111,6 +2111,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 [("FAILED", dt.timedelta(hours=1), "Some error")],
                 True,
             ),
+            (
+                # the broken parent is the one reported; mailing every descendant would bury it
+                "view_blocked_by_a_broken_parent",
+                {"sync_frequency_interval": None},
+                [
+                    ("FAILED", dt.timedelta(hours=3), "Some error"),
+                    ("SKIPPED", dt.timedelta(hours=1), "Skipped because upstream view orders_daily is failing."),
+                ],
+                False,
+            ),
         ]
     )
     def test_send_matview_failure_digest_scenarios(

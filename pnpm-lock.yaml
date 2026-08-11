@@ -659,6 +659,9 @@ importers:
       '@posthog/products-business-knowledge':
         specifier: workspace:*
         version: link:../products/business_knowledge
+      '@posthog/products-canvas':
+        specifier: workspace:*
+        version: link:../products/canvas
       '@posthog/products-cohorts':
         specifier: workspace:*
         version: link:../products/cohorts
@@ -1223,6 +1226,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.0
         version: 4.0.1
+      rough-notation:
+        specifier: ^0.5.1
+        version: 0.5.1
       rrule:
         specifier: ^2.8.1
         version: 2.8.1
@@ -2527,7 +2533,24 @@ importers:
         specifier: 18.3.1
         version: 18.3.1
 
-  products/canvas: {}
+  products/canvas:
+    dependencies:
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
 
   products/cdp: {}
 
@@ -3263,12 +3286,25 @@ importers:
       kea-loaders:
         specifier: 'catalog:'
         version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
       react:
         specifier: 18.3.1
         version: 18.3.1
       typescript:
         specifier: 6.0.3
         version: 6.0.3
+    devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      kea-test-utils:
+        specifier: 'catalog:'
+        version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
   products/legal_documents:
     dependencies:
@@ -20569,6 +20605,9 @@ packages:
 
   rope-sequence@1.3.3:
     resolution: {integrity: sha512-85aZYCxweiD5J8yTEbw+E6A27zSnLPNDL0WfPdw3YYodq7WjnTKo0q4dtyQ2gz23iPT8Q9CUyJtAaUNcTxRf5Q==}
+
+  rough-notation@0.5.1:
+    resolution: {integrity: sha512-ITHofTzm13cWFVfoGsh/4c/k2Mg8geKgBCwex71UZLnNuw403tCRjYPQ68jSAd37DMbZIePXPjDgY0XdZi9HPw==}
 
   roughjs@4.6.6:
     resolution: {integrity: sha512-ZUz/69+SYpFN/g/lUlo2FXcIjRkSu3nDarreVdGGndHEBJ6cXPdKguS8JGxwj5HA5xIbVKSmLgr5b3AWxtRfvQ==}
@@ -43090,6 +43129,8 @@ snapshots:
       fsevents: 2.3.3
 
   rope-sequence@1.3.3: {}
+
+  rough-notation@0.5.1: {}
 
   roughjs@4.6.6:
     dependencies:

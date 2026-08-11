@@ -183,6 +183,7 @@ export enum NodeKind {
     // Customer analytics
     UsageMetricsQuery = 'UsageMetricsQuery',
     AccountsQuery = 'AccountsQuery',
+    AccountsTableQuery = 'AccountsTableQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -267,6 +268,7 @@ export type AnyDataNode =
     | VectorSearchQuery
     | UsageMetricsQuery
     | AccountsQuery
+    | AccountsTableQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -390,6 +392,7 @@ export type QuerySchema =
     // Customer analytics
     | UsageMetricsQuery
     | AccountsQuery
+    | AccountsTableQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -595,6 +598,10 @@ export interface HogQLFilters {
     properties?: AnyPropertyFilter[]
     dateRange?: DateRange
     filterTestAccounts?: boolean
+    /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
+    interval?: IntervalType
+    /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
+    breakdownFilter?: BreakdownFilter
 }
 
 export interface HogQLVariable {
@@ -1140,6 +1147,7 @@ export type DataTableNodeSourceUnion =
     | SessionQuery
     | EndpointsUsageTableQuery
     | AccountsQuery
+    | AccountsTableQuery
 
 export type DataTableNodeSource = DataTableNodeSourceUnion
 
@@ -1174,6 +1182,7 @@ export interface DataTableNode
                     | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
+                    | AccountsTableQuery
                 )['response']
             >
         >,
@@ -2752,6 +2761,195 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     filterExpression?: HogQLExpression
     orderBy?: string[]
     limit?: integer
+    offset?: integer
+}
+
+export enum AccountsTableAccountField {
+    Name = 'name',
+    ExternalId = 'external_id',
+    CreatedAt = 'created_at',
+    UpdatedAt = 'updated_at',
+    StripeCustomerId = 'stripe_customer_id',
+    HubspotDealId = 'hubspot_deal_id',
+    BillingId = 'billing_id',
+    SalesforceId = 'sfdc_id',
+    ZendeskId = 'zendesk_id',
+}
+
+export interface AccountsTableAccountFieldColumn {
+    kind: 'account_field'
+    field: AccountsTableAccountField
+}
+
+export interface AccountsTableTagsColumn {
+    kind: 'tags'
+}
+
+export interface AccountsTableNoteCountColumn {
+    kind: 'note_count'
+}
+
+export interface AccountsTableRelationshipColumn {
+    kind: 'relationship'
+    /** Team-scoped relationship definition to return for each account. */
+    definitionId: string
+}
+
+export interface AccountsTableCustomPropertyColumn {
+    kind: 'custom_property'
+    /** Team-scoped custom property definition to return for each account. */
+    definitionId: string
+}
+
+export interface AccountsTableCustomPropertyHistoryColumn {
+    kind: 'custom_property_history'
+    /** Team-scoped numeric custom property definition whose write history should be returned. */
+    definitionId: string
+    /** Number of days of history to return. The current value is included even when it is older. */
+    windowDays: 7 | 14 | 30 | 90
+}
+
+/**
+ * A typed column supported by the Postgres-backed Accounts table.
+ * @discriminator kind
+ */
+export type AccountsTableColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+    | AccountsTableCustomPropertyHistoryColumn
+
+/**
+ * A typed column that supports server-side sorting.
+ * @discriminator kind
+ */
+export type AccountsTableSortableColumn =
+    | AccountsTableAccountFieldColumn
+    | AccountsTableTagsColumn
+    | AccountsTableNoteCountColumn
+    | AccountsTableRelationshipColumn
+    | AccountsTableCustomPropertyColumn
+
+export enum AccountsTableSortDirection {
+    Ascending = 'asc',
+    Descending = 'desc',
+}
+
+export interface AccountsTableSort {
+    column: AccountsTableSortableColumn
+    direction: AccountsTableSortDirection
+}
+
+export interface AccountsTableSearchFilter {
+    kind: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilter {
+    kind: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilter {
+    kind: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: integer[]
+}
+
+export interface AccountsTableUnassignedFilter {
+    kind: 'unassigned'
+}
+
+export interface AccountsTableAccountIdFilter {
+    kind: 'account_id'
+    accountId: string
+}
+
+export enum AccountsTableCustomPropertyOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    Contains = 'icontains',
+    DoesNotContain = 'not_icontains',
+    Regex = 'regex',
+    NotRegex = 'not_regex',
+    GreaterThan = 'gt',
+    GreaterThanOrEqual = 'gte',
+    LessThan = 'lt',
+    LessThanOrEqual = 'lte',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+    DateExact = 'is_date_exact',
+    DateBefore = 'is_date_before',
+    DateAfter = 'is_date_after',
+}
+
+export interface AccountsTableCustomPropertyFilter {
+    kind: 'custom_property'
+    definitionId: string
+    operator: AccountsTableCustomPropertyOperator
+    /** Values interpreted according to the custom property definition's display type. */
+    values?: (string | number | boolean)[]
+}
+
+/**
+ * A typed filter applied to the Postgres-backed Accounts table.
+ * @discriminator kind
+ */
+export type AccountsTableFilter =
+    | AccountsTableSearchFilter
+    | AccountsTableTagsFilter
+    | AccountsTableAssignedToFilter
+    | AccountsTableUnassignedFilter
+    | AccountsTableAccountIdFilter
+    | AccountsTableCustomPropertyFilter
+
+export type AccountsTableCustomPropertyValue = string | number | boolean | null
+
+export interface AccountsTableCustomPropertyHistoryPoint {
+    /** @format date-time */
+    timestamp: string
+    value: number
+}
+
+export interface AccountsTableRow {
+    id: string
+    name: string
+    externalId?: string | null
+    /** Requested direct Account fields, keyed by their typed field reference. */
+    accountFields: Record<string, string | null>
+    /** Sorted tag names. Omitted when the request does not select tags. */
+    tags?: string[]
+    /** Number of linked internal notes. Omitted when the request does not select the note count. */
+    noteCount?: integer
+    /** Active assignee user IDs keyed by requested relationship definition ID. */
+    relationships: Record<string, integer[]>
+    /** Current values keyed by requested custom property definition ID. */
+    customProperties: Record<string, AccountsTableCustomPropertyValue>
+    /** Numeric write history keyed by requested custom property definition ID. */
+    customPropertyHistory: Record<string, AccountsTableCustomPropertyHistoryPoint[]>
+}
+
+export type CachedAccountsTableQueryResponse = CachedQueryResponse<AccountsTableQueryResponse>
+
+export interface AccountsTableQueryResponse extends AnalyticsQueryResponseBase {
+    kind: NodeKind.AccountsTableQuery
+    results: AccountsTableRow[]
+    hasMore: boolean
+    limit: integer
+    offset: integer
+}
+
+export interface AccountsTableQuery extends DataNode<AccountsTableQueryResponse> {
+    kind: NodeKind.AccountsTableQuery
+    /** Columns to load for each account. Account identity fields are always returned. */
+    columns: AccountsTableColumn[]
+    /** Filters are combined with AND. Values within tag and assignment filters use OR. */
+    filters?: AccountsTableFilter[]
+    sort?: AccountsTableSort
+    limit?: positive_integer
     offset?: integer
 }
 
@@ -8073,6 +8271,7 @@ export const externalDataSources = [
     'PeecAI',
     'Healthchecks',
     'Impact',
+    'ImpactPartner',
     'AikidoSecurity',
     'Alguna',
     'Anthropic',
@@ -8693,6 +8892,7 @@ export const externalDataSources = [
     'Wix',
     'Sevalla',
     'Motion',
+    'Framer',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

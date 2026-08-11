@@ -16,6 +16,7 @@ import { template as hubspotCompanyTemplate } from './_destinations/hubspot/hubs
 import { template as klimeTemplate } from './_destinations/klime/klime.template'
 import { template as linearTemplate } from './_destinations/linear/linear.template'
 import { template as linkedinAdsTemplate } from './_destinations/linkedin_ads/linkedin.template'
+import { template as metaAdsTemplate } from './_destinations/meta_ads/meta.template'
 import { template as microsoftAdsTemplate } from './_destinations/microsoft_ads/microsoft.template'
 import { template as nativeWebhookTemplate } from './_destinations/native_webhook/webhook.template'
 import { template as openaiAdsTemplate } from './_destinations/openai_ads/openai.template'
@@ -70,6 +71,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     githubTemplate,
     gitlabTemplate,
     googleAdsTemplate,
+    metaAdsTemplate,
     linkedinAdsTemplate,
     microsoftAdsTemplate,
     openaiAdsTemplate,

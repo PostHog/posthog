@@ -370,7 +370,7 @@
         }
     },
     "advanced-activity-logs-filters": {
-        "description": "Get the available filter options for activity logs — scopes, activity types, and users that have logged activity. Useful for building filter UIs or understanding what kinds of activity are tracked.",
+        "description": "Get the valid filter values for activity logs — the scopes, activity types, and users that actually have logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and don't know the exact scope or activity strings to pass; skip it when you already know them.",
         "category": "Platform Features",
         "feature": "platform_features",
         "summary": "Get available activity log filter options.",
@@ -569,7 +569,7 @@
         }
     },
     "announcements-channels-list": {
-        "description": "List the Slack channels a Customer Analytics announcement can be sent to — the channels the SupportHog bot is a member of. Each result has the channel `id` (pass these to `announcements-create`), `name`, and `customer_name` — the name of the account whose `slack_channel_id` property points at the channel, or null when no account is mapped to it. Channels mapped to an account sort first. Returns an empty list when the SupportHog Slack bot is not connected, or when Slack channels cannot be fetched right now.",
+        "description": "List the Slack channels a Customer Analytics announcement can be sent to — the channels the SupportHog bot is a member of. Each result has the channel `id` (pass these to `announcements-create-prepare`), `name`, and `customer_name` — the name of the account whose `slack_channel_id` property points at the channel, or null when no account is mapped to it. Channels mapped to an account sort first. Returns an empty list when the SupportHog Slack bot is not connected, or when Slack channels cannot be fetched right now.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List announcement channels",
@@ -629,7 +629,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "announcements-retrieve": {
-        "description": "Fetch a single Customer Analytics announcement by `short_id`, including its per-channel `deliveries` — one row per targeted Slack channel with the delivery `status` (pending, sent, or failed), the Slack `error` code when it failed, and `slack_message_ts` plus `sent_at` when it succeeded. Use this to check delivery progress after `announcements-create`.",
+        "description": "Fetch a single Customer Analytics announcement by `short_id`, including its per-channel `deliveries` — one row per targeted Slack channel with the delivery `status` (pending, sent, or failed), the Slack `error` code when it failed, and `slack_message_ts` plus `sent_at` when it succeeded. Use this to check delivery progress after `announcements-create-execute`.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get announcement",
@@ -1451,6 +1451,20 @@
             "readOnlyHint": true
         }
     },
+    "channel-instructions-update": {
+        "description": "Publish a complete replacement for a channel's CONTEXT.md. Read the current version with channel-instructions-retrieve first. Pass its version as base_version. This guard returns a conflict if another update changes the document.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Update channel instructions",
+        "title": "Update channel instructions",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
         "category": "Tasks",
@@ -1466,7 +1480,7 @@
         }
     },
     "channel-retrieve": {
-        "description": "One channel by id, including its name and type.",
+        "description": "Get a single PostHog Tasks channel by id, returning its name and type. Channels are the project's workspace channels that group tasks and canvases (public channels plus each member's #me channel). Use channel-list to resolve a channel id from its name; use channel-instructions-retrieve to read the channel's CONTEXT.md instructions.",
         "category": "Tasks",
         "feature": "tasks",
         "summary": "Get a channel",
@@ -1580,7 +1594,7 @@
         }
     },
     "comment-count": {
-        "description": "Get the count of comments, optionally filtered by scope and item_id.",
+        "description": "Count comments, optionally narrowed to one resource by scope (e.g. Dashboard, Insight, FeatureFlag) and item_id. Use when you only need the number — for example to check whether a resource has any discussion before digging in. To read the comments themselves use comments-list; for a full reply chain use comment-thread.",
         "category": "Platform Features",
         "feature": "platform_features",
         "summary": "Get comment counts.",
@@ -1636,7 +1650,7 @@
         }
     },
     "conversations-tickets-list": {
-        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via the list-saved-ticket-views tool); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via conversations-views-list); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps. Use conversations-tickets-retrieve for one ticket's full details and conversations-tickets-messages-retrieve for its message thread.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support tickets",
@@ -1734,7 +1748,7 @@
         }
     },
     "conversations-views-list": {
-        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of the list-support-tickets tool.",
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of conversations-tickets-list.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List saved ticket views",
@@ -1748,7 +1762,7 @@
         }
     },
     "create-feature-flag": {
-        "description": "Create a feature flag in the current project.",
+        "description": "Create a feature flag in the current project. Call when the user asks to add a flag, gate a feature behind a flag, set up a percentage rollout, or deliver a remote config value. Release conditions, rollout percentages, multivariate variants, and payloads all go in the structured `filters` param (`filters.groups` for release conditions, `filters.multivariate.variants` for variants, `filters.payloads` for JSON-encoded payloads). For an A/B test, create an experiment instead — experiments manage their own flag. Use `update-feature-flag` to change an existing flag, and `feature-flag-get-all` first to check whether the key is already taken.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Create feature flag",
@@ -2212,7 +2226,7 @@
         }
     },
     "data-catalog-certification-certify-execute": {
-        "description": "Step 2 of 2 for certify source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as certified (prefer this source). Requires human typed confirmation.",
+        "description": "Step 2 of 2 for certify source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as certified (prefer this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Certify a table/view (execute)",
@@ -2227,7 +2241,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-certification-certify-prepare": {
-        "description": "Step 1 of 2 for certify source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as certified (prefer this source). Requires human typed confirmation.",
+        "description": "Step 1 of 2 for certify source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as certified (prefer this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Certify a table/view (prepare)",
@@ -2242,7 +2256,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-certification-deprecate-execute": {
-        "description": "Step 2 of 2 for deprecate source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as deprecated (avoid this source). Requires human typed confirmation.",
+        "description": "Step 2 of 2 for deprecate source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as deprecated (avoid this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Deprecate a table/view (execute)",
@@ -2257,7 +2271,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-certification-deprecate-prepare": {
-        "description": "Step 1 of 2 for deprecate source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as deprecated (avoid this source). Requires human typed confirmation.",
+        "description": "Step 1 of 2 for deprecate source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as deprecated (avoid this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Deprecate a table/view (prepare)",
@@ -2272,7 +2286,7 @@
         "feature_flag": "product-data-catalog"
     },
     "data-catalog-certification-propose": {
-        "description": "Propose a trust mark on a warehouse table or view. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or wrong source; an approver settles the proposal with the certify or deprecate tool.",
+        "description": "Propose a trust mark (certification record) on a warehouse table or view — the first step before a human certifies or deprecates the source. Call when the user wants to mark a table/view as trusted, preferred, deprecated, or to-be-avoided. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or wrong source; an approver then settles the proposal with the certify or deprecate tool.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Propose a table/view certification",
@@ -3303,104 +3317,6 @@
             "readOnlyHint": true
         }
     },
-    "evaluation-create": {
-        "description": "Create a new AI observability evaluation. Supported types are 'llm_judge' (LLM scores generations against a prompt), 'hog' (deterministic code returning a boolean), and 'sentiment' (user-message sentiment analysis). For llm_judge evaluations, provide evaluation_config.prompt and model_configuration. For hog evaluations, provide evaluation_config.source. For sentiment evaluations, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Create a new evaluation.",
-        "title": "Create evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-delete": {
-        "description": "Delete an AI observability evaluation (soft delete). The evaluation will be marked as deleted and will no longer run.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Delete an evaluation.",
-        "title": "Delete evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-get": {
-        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge, hog, or sentiment), configuration, conditions, and enabled status.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get a specific evaluation by ID.",
-        "title": "Get evaluation",
-        "required_scopes": ["evaluation:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-run": {
-        "description": "Trigger an evaluation run on a specific $ai_generation event. This executes the evaluation (either LLM judge or Hog code) against the target event asynchronously via a background workflow. The run is async — it returns a workflow_id and status 'started'. Results are written as '$ai_evaluation' events once complete. To check results after triggering a run, query events with: SELECT properties.$ai_evaluation_result as result, properties.$ai_evaluation_reasoning as reasoning FROM events WHERE event = '$ai_evaluation' AND properties.$ai_evaluation_id = '<evaluation_uuid>' AND properties.$ai_target_event_id = '<generation_event_uuid>' ORDER BY timestamp DESC LIMIT 1.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Run an evaluation on a specific event.",
-        "title": "Run evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluation-test-hog": {
-        "description": "Test Hog evaluation code against recent data without persisting results. Compiles the provided Hog source code and runs it against a sample from the last 7 days — set target to 'generation' to sample individual $ai_generation events or 'trace' to sample whole traces and run against trace-level globals. Returns per-sample results with input/output previews, pass/fail verdicts, and any errors. Use this to validate Hog evaluation logic before enabling it.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Dry-run Hog evaluation code against sample events.",
-        "title": "Test Hog evaluation",
-        "required_scopes": ["evaluation:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
-    "evaluation-update": {
-        "description": "Update an existing AI observability evaluation. You can change the name, description, enabled status, evaluation config (prompt or source code), and output config. Use this to enable/disable evaluations or modify their scoring logic.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Update an evaluation.",
-        "title": "Update evaluation",
-        "required_scopes": ["evaluation:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "evaluations-get": {
-        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "List AI observability evaluations.",
-        "title": "List evaluations",
-        "required_scopes": ["evaluation:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "event-definition-update": {
         "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
         "category": "Events & properties",
@@ -3801,7 +3717,7 @@
         }
     },
     "experiment-metrics-recalculation-create": {
-        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nStart a fresh calculation of every metric on this experiment against the latest data. Use this when the user asks to refresh, recalculate, or re-run results, or when results returned by experiment-metrics-recalculation-latest look stale. Reading results does NOT trigger a new run, this tool is the only way to start one.\n\nThis queues background work that can take minutes on large experiments. Safe to call more than once: if a run is already pending or in progress, it returns that run (with is_existing true, HTTP 200) instead of starting a second one.\n\nThe response has no results array, the run has only just been queued. Take the returned id and poll experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest, until status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a tight loop; wait a few seconds between checks.",
+        "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nStart a fresh calculation of every metric on this experiment against the latest data. Use this when the user asks to refresh, recalculate, or re-run results, or when results returned by experiment-metrics-recalculation-latest-retrieve look stale. Reading results does NOT trigger a new run, this tool is the only way to start one.\n\nThis queues background work that can take minutes on large experiments. Safe to call more than once: if a run is already pending or in progress, it returns that run (with is_existing true, HTTP 200) instead of starting a second one.\n\nThe response has no results array, the run has only just been queued. Take the returned id and poll experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest-retrieve, until status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a tight loop; wait a few seconds between checks.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Recalculate experiment metrics",
@@ -3829,7 +3745,7 @@
         }
     },
     "experiment-metrics-recalculation-retrieve": {
-        "description": "Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll a run you started with experiment-metrics-recalculation-create, or the active_run.id returned by experiment-metrics-recalculation-latest.\n\nTo read an experiment's current results without a specific run id, use experiment-metrics-recalculation-latest instead.\n\nReturns the run's status (pending, in_progress, completed, failed), progress counters (completed_metrics and failed_metrics out of total_metrics, plus rows_read against estimated_rows_total), the results array once metrics finish, and metric_errors for metrics that failed. metric_retries holds transient state for metrics between failed attempts; ignore entries for metrics that already have a result, as those are stale.\n\nReturns 404 if the run id does not exist or belongs to a different experiment.",
+        "description": "Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll a run you started with experiment-metrics-recalculation-create, or the active_run.id returned by experiment-metrics-recalculation-latest-retrieve.\n\nTo read an experiment's current results without a specific run id, use experiment-metrics-recalculation-latest-retrieve instead.\n\nReturns the run's status (pending, in_progress, completed, failed), progress counters (completed_metrics and failed_metrics out of total_metrics, plus rows_read against estimated_rows_total), the results array once metrics finish, and metric_errors for metrics that failed. metric_retries holds transient state for metrics between failed attempts; ignore entries for metrics that already have a result, as those are stale.\n\nReturns 404 if the run id does not exist or belongs to a different experiment.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment recalculation run",
@@ -3885,7 +3801,7 @@
         }
     },
     "experiment-results-get": {
-        "description": "Get experiment metric results and exposure data in one call. Each row in `metrics.primary.results` and `metrics.secondary.results` carries a self-describing `metric` summary: `uuid`, `name` (the label users see in the experiment UI), `metric_type`, `goal`, and `source` — `inline` for metrics defined on the experiment, `shared` for metrics attached via a saved metric. For `shared` rows, `saved_metric_id` and `saved_metric_name` identify the underlying saved metric; both are `null` for `inline` rows. Rows are ordered to match the experiment UI (`primary_metrics_ordered_uuids` / `secondary_metrics_ordered_uuids`). A row whose underlying metric query failed is kept with `data: null` so positions stay aligned with the ordered UUIDs — check `data === null` to detect failures. The raw source surfaces (`experiment.metrics`, `experiment.metrics_secondary`, `experiment.saved_metrics`) are preserved on the response for callers who want to audit them, but you do not need to reconcile them yourself — the result rows already merge inline and shared. UI-only bulk fields are stripped from each `data` payload: `clickhouse_sql`, `hogql`, the legacy `insight` visualization payload, and the per-funnel-step session samples — `step_sessions` is removed from `baseline`, each `variant_results` entry, and from `baseline` / `variants[]` inside every `breakdown_results` entry. Statistical fields (`sum`, `sum_squares`, `step_counts`, `number_of_samples`, `credible_intervals`, per-breakdown stats, etc.) are preserved. Only works with new experiments (not legacy `ExperimentTrendsQuery` / `ExperimentFunnelsQuery`).",
+        "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results may be served from cache; pass refresh=true to force fresh computation (slower). Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment metric and exposure results with self-describing per-metric metadata.",
@@ -4011,7 +3927,7 @@
         }
     },
     "experiment-timeseries-results": {
-        "description": "Only for the day-by-day history of a SINGLE metric — how its results moved over the course of the experiment. For an experiment's current results across all metrics, which is what \"how is this experiment doing\" almost always means, use experiment-metrics-recalculation-latest instead.\n\nRequires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to fetch the experiment first.\n\nReturns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day, overall status (\"pending\", \"completed\", \"partial\", \"failed\"), computed_at timestamp, and recalculation_status if a recalculation is in progress.",
+        "description": "Only for the day-by-day history of a SINGLE metric — how its results moved over the course of the experiment. For an experiment's current results across all metrics, which is what \"how is this experiment doing\" almost always means, use experiment-metrics-recalculation-latest-retrieve instead.\n\nRequires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to fetch the experiment first.\n\nReturns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day, overall status (\"pending\", \"completed\", \"partial\", \"failed\"), computed_at timestamp, and recalculation_status if a recalculation is in progress.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "Get experiment metric results over time",
@@ -4123,7 +4039,7 @@
         }
     },
     "external-data-schemas-partial-update": {
-        "description": "Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary key columns, CDC table mode, and enable/disable the schema.",
+        "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Update data warehouse table schema sync config",
@@ -4459,7 +4375,7 @@
         }
     },
     "feature-flag-get-definition": {
-        "description": "Get a feature flag by ID.",
+        "description": "Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use `feature-flag-get-all` to search by key or name and find the ID.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Get feature flag definition",
@@ -4613,7 +4529,7 @@
         }
     },
     "feature-flags-test-evaluation-create": {
-        "description": "Test how a feature flag evaluates for a specific user at an optional point in time. Provides detailed reasoning about why the flag matched or didn't match, including condition analysis and person properties used in evaluation.",
+        "description": "Simulate how one feature flag (by numeric ID) would evaluate for a specific user, optionally at a past point in time (`timestamp` reconstructs flag conditions and person properties as they existed then). Provide `distinct_id` or `person_id` (mutually exclusive) and optionally `groups`. Returns the evaluated value with detailed reasoning: which condition matched and the person properties used. Use this to debug or dry-run a single flag; use `feature-flags-evaluation-reasons-retrieve` to see live evaluations across many flags for a user, and `feature-flags-user-blast-radius-create` to size a release condition before applying it.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Test feature flag evaluation",
@@ -4742,7 +4658,7 @@
         }
     },
     "get-llm-total-costs-for-project": {
-        "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
+        "description": "Fetch daily LLM cost per model for the project over the last N days (default 7). Runs a trends query summing $ai_total_cost_usd on $ai_generation events broken down by $ai_model — call when the user asks how much the team is spending on LLMs or which model costs the most. For the current user's own spend use llma-personal-spend; for custom cost cuts (per user, per trace, per provider) query $ai_generation events with execute-sql.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Fetches the total LLM daily costs for each model for a project over a given number of days.",
@@ -7329,7 +7245,7 @@
         "feature_flag": "revamped-py-notebooks"
     },
     "notebooks-create": {
-        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart. Give every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what a reader skims instead of the query.",
+        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id. Embedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart. Give every embedded node a short `attrs.title` saying what it shows — it renders in the node's header and is what a reader skims instead of the query.\nThis creates a rich-text (ProseMirror) notebook — use it for document-style notebooks built around embedded charts and saved insights. For step-by-step data analysis with executable SQL/Python cells, use `notebooks-create-markdown` instead.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Create notebook",
@@ -7449,7 +7365,7 @@
         "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
-        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
+        "description": "Get a notebook's raw record by short_id: title, content (markdown or legacy ProseMirror JSON), version, and creation/modification metadata. Use this when you need the raw content or the current version number — required by notebooks-partial-update for optimistic concurrency. For the analysis-oriented view of a markdown notebook — every cell with its code, dataframe name, dependency edges, and stale status — use notebooks-get instead (exposed only when the revamped Python notebooks flag is enabled).",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",
@@ -9650,7 +9566,7 @@
         }
     },
     "skill-update": {
-        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.\n\nTo change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —\nthis replaces the owner set. Omit it to leave owners unchanged; pass an empty list to\nclear them. Ownership is independent of the version, so a body edit alone never\nchanges it.",
+        "description": "Publish a new version of an existing agent skill by name. Any field not provided\nis carried forward from the current latest version. Requires base_version for\noptimistic concurrency.\n\nFor the body, you can either provide the full content via 'body', or use 'edits'\nfor incremental find/replace updates. Each edit must have 'old' (text to find,\nmust match exactly once) and 'new' (replacement text). Edits are applied\nsequentially. Only one of 'body' or 'edits' may be provided.\n\nFor file changes, prefer the per-file tools rather than passing a 'files' list:\nskill-file-create / skill-file-delete / skill-file-rename handle\nadd/remove/rename one file at a time and return the updated skill (including the\nbumped version) so callers can chain further edits via base_version.\n\nFor per-file content updates, use 'file_edits' to apply find/replace updates to\nindividual files without resending the full file set — each entry targets one\nexisting file by path. Non-targeted files carry forward unchanged. 'file_edits'\ncannot add, remove, or rename files; use the per-file tools or 'files' (replace-all)\nfor that. 'files' and 'file_edits' are mutually exclusive.\n\nPassing a 'files' list here replaces ALL files and risks data loss if any file is\nomitted — use it only when you intentionally want to replace the entire bundle.\n\nTo change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —\nthis replaces the owner set. Omit it to leave owners unchanged; pass an empty list to\nclear them. Ownership is independent of the version, so a body edit alone never\nchanges it.\n\nPass 'version_description' with a short note on what changed and why — it is shown in\nthe skill's version history.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Update skill",
@@ -9766,7 +9682,7 @@
         "feature_flag": "stamphog"
     },
     "stamphog-pull-requests-get": {
-        "description": "Get a single pull request by id, including its repository, title, author, head branch, and merge details.",
+        "description": "Get one pull request record from stamphog (PostHog's automated PR review and merged-PR digest) by its internal UUID — the `id` returned by `stamphog-pull-requests-list`, not the GitHub PR number. Returns the repository, title, author, head branch, and merge details. To look a PR up by its GitHub number, use `stamphog-pull-requests-list` with `pr_number`. For CI status or merge-timing analytics on a PR, use the engineering analytics `pull-requests` or `pr-lifecycle` tools instead.",
         "category": "Stamphog",
         "feature": "stamphog",
         "summary": "Get stamphog pull request",
@@ -10105,7 +10021,7 @@
         }
     },
     "subscriptions-retrieve": {
-        "description": "Retrieve a single subscription by ID.",
+        "description": "Fetch a single subscription by numeric ID. Returns its kind (`resource_type`: insight, dashboard, or ai_prompt), target (`target_type`/`target_value`), schedule, enabled state, and AI-summary settings. Metadata only — for the send history and delivered reports, use `subscriptions-deliveries-list` / `subscriptions-deliveries-retrieve`.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "Get subscription",
@@ -10450,7 +10366,7 @@
         "feature_flag": "tasks"
     },
     "update-feature-flag": {
-        "description": "Update a feature flag by ID in the current project.",
+        "description": "Update a feature flag by numeric ID (partial update — only the fields you include are changed). Call when the user asks to enable or disable a flag, change its rollout percentage or release conditions, edit variants or payloads, or update its description. Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters` replaces the whole object — read the flag first with `feature-flag-get-definition` and merge your change. To apply a change at a future time instead, use `scheduled-changes-create`. Use `feature-flag-get-all` to find the numeric ID from a key.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Update feature flag",
@@ -11577,7 +11493,7 @@
         "feature_flag": "visual-review"
     },
     "visual-review-runs-tolerate-create": {
-        "description": "Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded alongside the existing baseline so future runs producing the same alternate are not flagged as changes — useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the UUID of the snapshot in this run. Does not change the baseline. Use approve to actually update the baseline image.",
+        "description": "Mark a single changed snapshot as a known tolerated alternate. The snapshot's current hash is recorded alongside the existing baseline so future runs producing the same alternate are not flagged as changes — useful for benign rendering variants (anti-aliasing noise, blinking cursors, etc.). Pass `snapshot_id` — the UUID of the snapshot in this run. Does not change the baseline. To accept the change instead, use `visual-review-runs-approve-create` to record the review, then `visual-review-runs-finalize-create` to actually commit the new baseline.",
         "category": "Visual review",
         "feature": "visual_review",
         "summary": "Tolerate visual review snapshot",
@@ -11723,7 +11639,7 @@
         "feature_flag": "engineering-analytics"
     },
     "workflows-archive": {
-        "description": "Archive a draft or disabled workflow.",
+        "description": "Archive a workflow — sets its status to 'archived', retiring it from active use while keeping it readable via workflows-list / workflows-get. Use when the user asks to archive, retire, or clean up a workflow they no longer run; the workflow must be a draft or disabled first. Not a delete: no content or history is removed. Adjacent intents: workflows-enable takes a workflow live; workflows-discard-draft throws away staged edits without changing status.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Archive workflow",
@@ -12045,7 +11961,7 @@
         }
     },
     "workflows-schedule-create": {
-        "description": "Attach a recurring RRULE schedule to a batch workflow. The workflow must already be active (enable it first). Each run broadcasts real messages to the trigger audience — STOP and get the user's explicit confirmation first, then pass acknowledged_affected_count from workflows-blast-radius.",
+        "description": "Attach a recurring RRULE schedule to a batch workflow so it re-broadcasts to its trigger audience on a cadence (iCalendar RRULE, e.g. 'FREQ=WEEKLY;BYDAY=MO'; at most one occurrence per hour). Only valid on workflows with a 'batch' trigger, and the workflow must already be active (workflows-enable first). Every firing sends real messages: run workflows-blast-radius, STOP and get the user's explicit confirmation of the count, then pass both acknowledged_affected_count and the confirm_token from that same preview — the API rejects the call without a fresh token (15-minute expiry, stale if the audience filters change). For a one-off send use workflows-run-batch; to change an existing schedule use workflows-update-schedule (schedule IDs appear in workflows-get's 'schedules').",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Schedule workflow runs",

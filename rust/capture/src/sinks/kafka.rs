@@ -40,9 +40,8 @@ use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
     /// Lifecycle handle this producer reports liveness to. `None` for a producer
-    /// whose health must not gate the pod (e.g. the non-critical side of a
-    /// `SplitKafkaSink`) — it still produces and emits metrics, it just doesn't
-    /// drive a manager component.
+    /// whose health must not gate the pod — it still produces and emits
+    /// metrics, it just doesn't drive a manager component.
     liveness: Option<lifecycle::Handle>,
 }
 
@@ -1191,7 +1190,7 @@ mod tests {
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
             outputs_completeness_check_enabled: true,
-            capture_analytics_ai_events_topic: None,
+            capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
             capture_analytics_ai_events_overflow_topic: None,
             kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_metrics_topic: "metrics_ingestion".to_string(),
@@ -2864,45 +2863,6 @@ mod tests {
                 format!("{:?}", records[0].headers),
                 format!("{:?}", records[1].headers)
             );
-        }
-
-        #[tokio::test]
-        async fn ai_events_missing_topic_falls_back_to_main() {
-            // Should be impossible in production (startup validation), but a
-            // misconfigured sink must degrade to the main topic, not error.
-            let producer = MockKafkaProducer::new();
-            let mut topics = test_topics();
-            topics.ai_events = None;
-            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
-
-            let input = EventInput {
-                data_type: DataType::AiEvents,
-                ..Default::default()
-            };
-            sink.send(create_test_event(&input)).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, MAIN_TOPIC);
-            assert_eq!(records[0].key.as_deref(), Some("test_token:test_user"));
-        }
-
-        #[tokio::test]
-        async fn ai_events_empty_topic_falls_back_to_main() {
-            let producer = MockKafkaProducer::new();
-            let mut topics = test_topics();
-            topics.ai_events = Some(String::new());
-            let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
-
-            let input = EventInput {
-                data_type: DataType::AiEvents,
-                ..Default::default()
-            };
-            sink.send(create_test_event(&input)).await.unwrap();
-
-            let records = producer.get_records();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
         // ==================== RedirectToTopic ====================

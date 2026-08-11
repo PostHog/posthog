@@ -4,6 +4,13 @@ import { z } from 'zod'
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { normalizeParamAliases } from '../tools/cast-helpers'
 
+export const ChannelInstructionsBaseVersionSchema = z
+    .number()
+    .int()
+    .min(0)
+    .max(9007199254740991)
+    .describe('Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.')
+
 export const BusinessKnowledgeUrlSourceCreateSchema = z.object({
     name: z
         .string()

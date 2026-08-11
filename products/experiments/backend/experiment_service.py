@@ -1160,9 +1160,8 @@ class ExperimentService:
         multi-team project can pick an event ingested by a sibling team. We
         mirror that scope here to avoid rejecting legitimate selections.
         """
-        event_names, _ = self._extract_entity_nodes(metrics)
-        if known_event_names:
-            event_names -= known_event_names
+        all_event_names, _ = self._extract_entity_nodes(metrics)
+        event_names = all_event_names - known_event_names if known_event_names else all_event_names
         if not event_names:
             return
 
@@ -1189,7 +1188,7 @@ class ExperimentService:
                 team_id=self.team.id,
                 project_id=project_id,
                 unknown_events=sorted(unknown),
-                all_extracted_events=sorted(event_names),
+                all_extracted_events=sorted(all_event_names),
                 metrics_count=len(metrics) if metrics else 0,
             )
             unknown_str = ", ".join(f"'{name}'" for name in sorted(unknown))

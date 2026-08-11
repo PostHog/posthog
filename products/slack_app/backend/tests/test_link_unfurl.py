@@ -15,6 +15,7 @@ from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user_integration import UserIntegration
 
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -27,6 +28,7 @@ from products.slack_app.backend.slack_link_unfurl import (
     handle_posthog_link_unfurl,
     parse_posthog_resource_link,
 )
+from products.tasks.backend.models import Task
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -58,6 +60,16 @@ class TestParsePosthogResourceLink:
             "ticket",
             "abc-uuid",
         )
+
+    def test_task(self):
+        task_id = "c76f58f4-4c64-4cd7-825d-4ef89f6dd4ac"
+        assert parse_posthog_resource_link(f"https://us.posthog.com/project/42/tasks/{task_id}") == (
+            "task",
+            task_id,
+        )
+
+    def test_rejects_invalid_task_id(self):
+        assert parse_posthog_resource_link("https://us.posthog.com/project/42/tasks/not-a-uuid") is None
 
     def test_skips_ticket_new(self):
         assert parse_posthog_resource_link("https://x.com/support/tickets/new") is None
@@ -146,6 +158,99 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         assert "Trends insight" in text
         assert "Weekly active users" in text
         assert "A test description" in text
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_unfurls_task_and_attaches_public_thread_once(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Review <https://example.com|Slack task links>",
+            description="Sensitive prompt that must not appear",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.SLACK,
+            integration_id="U_OWNER",
+            config={"slack_team_id": self.integration.integration_id},
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_client.conversations_info.return_value = {
+            "channel": {"is_channel": True, "is_private": False, "is_shared": False}
+        }
+        mock_client.users_info.return_value = {
+            "user": {"deleted": False, "is_restricted": False, "is_ultra_restricted": False}
+        }
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/tasks/{task.id}"
+        event = {
+            "channel": "C_PUBLIC",
+            "message_ts": "123.456",
+            "thread_ts": "120.000",
+            "user": "U_SHARER",
+            "source": "conversations_history",
+            "links": [{"url": url}],
+        }
+
+        handle_posthog_link_unfurl(event, self.integration)
+        handle_posthog_link_unfurl(event, self.integration)
+
+        text = mock_client.chat_unfurl.call_args.kwargs["unfurls"][url]["blocks"][0]["text"]["text"]
+        assert "Review &lt;https://example.com|Slack task links&gt;" in text
+        assert "<https://example.com|Slack task links>" not in text
+        assert "Sensitive prompt" not in text
+        mock_client.conversations_info.assert_called_once_with(channel="C_PUBLIC")
+        mock_client.users_info.assert_called_once_with(user="U_OWNER")
+        task.refresh_from_db()
+        state = task.state or {}
+        references = state.get("slack_thread_references")
+        assert isinstance(references, list)
+        assert references == [
+            {
+                "slack_workspace_id": self.integration.integration_id,
+                "channel": "C_PUBLIC",
+                "thread_ts": "120.000",
+                "shared_by_slack_user_id": "U_SHARER",
+                "created_at": references[0]["created_at"],
+            }
+        ]
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_private_channel_unfurls_task_without_attaching_reference(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Private discussion",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_client.conversations_info.return_value = {"channel": {"is_channel": True, "is_private": True}}
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/tasks/{task.id}"
+
+        handle_posthog_link_unfurl(
+            {
+                "channel": "C_PRIVATE",
+                "message_ts": "123.456",
+                "user": "U_OWNER",
+                "source": "conversations_history",
+                "links": [{"url": url}],
+            },
+            self.integration,
+        )
+
+        mock_client.chat_unfurl.assert_called_once()
+        task.refresh_from_db()
+        assert "slack_thread_references" not in (task.state or {})
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

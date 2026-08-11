@@ -168,9 +168,14 @@ tools:
             destructive: false
             idempotent: true
         title: Update data warehouse table schema sync config
-        description: >
-            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
-            key columns, CDC table mode, and enable/disable the schema.
+        description: "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type
+            (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, incremental
+            field (plus type and lookback window), primary key columns, CDC table mode, column selection
+            (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not
+            retroactively. Before changing incremental_field or sync_type, call
+            'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually
+            supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To
+            run a sync immediately after reconfiguring, use 'external-data-schemas-reload'."
     external-data-schemas-reload:
         operation: external_data_schemas_reload_create
         enabled: true
