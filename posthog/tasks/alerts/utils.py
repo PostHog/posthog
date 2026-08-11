@@ -2,6 +2,7 @@ from collections.abc import Collection
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
@@ -267,9 +268,16 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "alert_name": alert_name,
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
+            "next_check_at": alert.next_check_at,
         },
     )
     return email_targets
+
+
+def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
+    if alert.next_check_at is None:
+        return None
+    return alert.next_check_at.astimezone(ZoneInfo(alert.team.timezone)).strftime("%B %-d, %Y at %-I:%M %p %Z")
 
 
 def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:

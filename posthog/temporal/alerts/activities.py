@@ -29,6 +29,7 @@ from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
     get_alert_error_notification_recipients,
     next_check_time,
+    next_scheduled_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
 )
@@ -387,12 +388,18 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
         logger.exception("alerts.realtime_notification_failed", alert_id=str(alert.id))
 
 
-def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert_check: AlertCheck) -> None:
-    """Create one best-effort inbox notification per eligible recipient for an errored check."""
+def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_check: AlertCheck) -> None:
+    """Create one best-effort in-app notification per eligible recipient for an errored check."""
     error = alert_check.error if isinstance(alert_check.error, dict) else {}
     error_message = str(error.get("message") or "Unknown error").strip().rstrip(".")[:1000] or "Unknown error"
     alert_name = alert.name or "Alert"
     source_url = f"/project/{alert.team_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
+    next_check_at = next_scheduled_check_time(alert)
+    next_check_message = (
+        f"PostHog will try again on {next_check_at}."
+        if next_check_at
+        else "PostHog will try again at the next scheduled check."
+    )
 
     for user_id, _ in get_alert_error_notification_recipients(alert):
         try:
@@ -405,8 +412,8 @@ def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert
                     body=(
                         f"PostHog could not evaluate this alert: {error_message}. "
                         "This can happen when the insight or alert settings need attention, or when PostHog has a "
-                        "temporary problem. Review the alert settings. PostHog will try again at the next scheduled "
-                        "check. If it fails again, contact support."
+                        f"temporary problem. Review the alert settings. {next_check_message} If it fails again, "
+                        "contact support."
                     ),
                     target_type=TargetType.USER,
                     target_id=str(user_id),
@@ -470,7 +477,7 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
         if alert_check.state == AlertState.FIRING.value and inputs.breaches:
             dispatch_alert_firing_realtime_notification(alert, inputs.breaches)
         elif alert_check.state == AlertState.ERRORED.value:
-            dispatch_alert_error_realtime_notifications(alert, alert_check)
+            dispatch_alert_error_in_app_notifications(alert, alert_check)
 
     async with Heartbeater():
         await _notify()

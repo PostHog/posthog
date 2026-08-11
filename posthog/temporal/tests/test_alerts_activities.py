@@ -25,7 +25,11 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
 from posthog.slo.types import SloOperation, SloOutcome
-from posthog.tasks.alerts.utils import AlertEvaluationResult, get_alert_error_notification_recipients
+from posthog.tasks.alerts.utils import (
+    AlertEvaluationResult,
+    get_alert_error_notification_recipients,
+    send_notifications_for_errors,
+)
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -558,6 +562,11 @@ class TestNotifyAlert:
         )
 
     async def test_sends_error_notifications_when_errored(self, alert_with_user) -> None:
+        next_check_at = datetime(2026, 8, 12, 14, 30, tzinfo=UTC)
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.pk).update)(
+            next_check_at=next_check_at
+        )
+        alert_with_user.next_check_at = next_check_at
         check = await _create_alert_check(
             alert_with_user, state=AlertState.ERRORED, error={"message": "boom.", "traceback": "..."}
         )
@@ -595,7 +604,7 @@ class TestNotifyAlert:
         assert "boom.." not in notification.body
         assert "when PostHog has a temporary problem" in notification.body
         assert "Review the alert settings" in notification.body
-        assert "PostHog will try again" in notification.body
+        assert "PostHog will try again on August 12, 2026 at 2:30 PM UTC" in notification.body
         assert "contact support" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
@@ -621,6 +630,22 @@ class TestNotifyAlert:
         notification = mock_create_notification.call_args.args[0]
         assert "Unknown error" in notification.body
         assert "None" not in notification.body
+
+    async def test_error_email_includes_next_scheduled_check(self, alert_with_user) -> None:
+        next_check_at = datetime(2026, 8, 12, 14, 30, tzinfo=UTC)
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.pk).update)(
+            next_check_at=next_check_at
+        )
+        alert_with_user.next_check_at = next_check_at
+
+        with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
+            recipients = await sync_to_async(send_notifications_for_errors)(
+                alert_with_user, {"message": "boom"}, "notification-key"
+            )
+
+        subscriber_email = await sync_to_async(lambda: alert_with_user.subscribed_users.get().email)()
+        assert recipients == [subscriber_email]
+        assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)

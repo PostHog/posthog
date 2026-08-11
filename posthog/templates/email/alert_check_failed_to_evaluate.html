@@ -12,8 +12,13 @@
         <i>{{ alert_error }}</i>
     </p>
     <p>
-        Review the alert settings. PostHog will try again at the next scheduled check. If it fails again, contact
-        support.
+        Review the alert settings.
+        {% if next_check_at %}
+            PostHog will try again on {{ next_check_at|date:"F j, Y, g:i A T" }}.
+        {% else %}
+            PostHog will try again at the next scheduled check.
+        {% endif %}
+        If it fails again, contact support.
     </p>
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri alert_url %}">Review alert</a>
