@@ -41,8 +41,10 @@ export const filtersFromUniversalFilterGroups = (filters: RecordingUniversalFilt
     return flatten(filters.filter_group.values)
 }
 
+// Text masking level is independent of image blocking (blockSelector). A project can mask all
+// text without blocking images, so this reads only the text and input keys.
 export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig): SessionRecordingMaskingLevel => {
-    if (config.maskTextSelector === '*' && config.maskAllInputs && config.blockSelector === 'img') {
+    if (config.maskTextSelector === '*' && config.maskAllInputs) {
         return 'total-privacy'
     }
 
@@ -53,16 +55,18 @@ export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig)
     return 'normal'
 }
 
+// Returns only the text and input keys for the chosen level. Merge the result into the existing
+// config so image blocking and other masking keys are kept.
 export const getMaskingConfigFromLevel = (level: SessionRecordingMaskingLevel): SessionRecordingMaskingConfig => {
     if (level === 'total-privacy') {
-        return { maskTextSelector: '*', maskAllInputs: true, blockSelector: 'img' }
+        return { maskTextSelector: '*', maskAllInputs: true }
     }
 
     if (level === 'free-love') {
-        return { maskTextSelector: undefined, maskAllInputs: false, blockSelector: undefined }
+        return { maskTextSelector: undefined, maskAllInputs: false }
     }
 
-    return { maskTextSelector: undefined, maskAllInputs: true, blockSelector: undefined }
+    return { maskTextSelector: undefined, maskAllInputs: true }
 }
 
 export function isSingleEmoji(s: string): boolean {

@@ -58,8 +58,8 @@ const SessionReplayConfigStep = (): JSX.Element => {
                 }
             },
             selectOptions: [
-                { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
-                { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                { value: 'total-privacy', label: 'Total privacy (mask all text)' },
+                { value: 'normal', label: 'Normal (mask inputs but not text)' },
                 { value: 'free-love', label: 'Free love (mask only passwords)' },
             ],
             visible: true,

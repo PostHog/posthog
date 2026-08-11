@@ -269,6 +269,12 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : !!change?.after
         const maskTextSelectorChanged = maskTextSelectorBefore !== maskTextSelectorAfter
 
+        const maskAllElementAttributesBefore = isObject(change?.before)
+            ? change?.before.maskAllElementAttributes
+            : false
+        const maskAllElementAttributesAfter = isObject(change?.after) ? change?.after.maskAllElementAttributes : false
+        const maskAllElementAttributesChanged = maskAllElementAttributesBefore !== maskAllElementAttributesAfter
+
         const descriptions = []
         if (maskAllInputsChanged) {
             descriptions.push(<>{maskAllInputsAfter ? 'enabled' : 'disabled'} masking all inputs in session replay</>)
@@ -287,6 +293,15 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
             descriptions.push(
                 <>
                     {change?.action === 'created' ? 'set' : 'changed'} blocking selector to "{blockSelectorAfter}"
+                </>
+            )
+        }
+
+        if (maskAllElementAttributesChanged) {
+            descriptions.push(
+                <>
+                    {maskAllElementAttributesAfter ? 'enabled' : 'disabled'} masking all element attributes in session
+                    replay
                 </>
             )
         }
