@@ -21,6 +21,12 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 
 const ultracodeDocsUrl = "https://code.claude.com/docs/en/workflows";
 
+// The slider thumb's `input[type="range"]` is what carries the `slider` role, and
+// Base UI keeps the thumb `visibility: hidden` until it has measured the track.
+// jsdom does no layout, so that measurement never lands and the role query has to
+// opt into hidden elements. A missing slider still means it was never rendered.
+const SLIDER_QUERY = { hidden: true } as const;
+
 function thoughtOption(
   overrides?: Partial<SessionConfigOption>,
 ): SessionConfigOption {
@@ -155,7 +161,7 @@ describe("ReasoningLevelSelector", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Reasoning: High" }));
-    expect(await screen.findByRole("slider")).toBeInTheDocument();
+    expect(await screen.findByRole("slider", SLIDER_QUERY)).toBeInTheDocument();
     expect(screen.getByText("Faster ($)")).toBeInTheDocument();
     expect(screen.getByText("Smarter ($$$)")).toBeInTheDocument();
     expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
@@ -316,7 +322,7 @@ describe("ReasoningLevelSelector", () => {
     await user.click(
       screen.getByRole("button", { name: /Model and reasoning/ }),
     );
-    expect(await screen.findByRole("slider")).toBeInTheDocument();
+    expect(await screen.findByRole("slider", SLIDER_QUERY)).toBeInTheDocument();
   });
 
   it("hides the slider when the combo is off the preset ladder", async () => {
@@ -337,7 +343,7 @@ describe("ReasoningLevelSelector", () => {
     expect(
       await screen.findByRole("menuitem", { name: /^Reasoning/ }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+    expect(screen.queryByRole("slider", SLIDER_QUERY)).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Back" }),
     ).not.toBeInTheDocument();
@@ -488,7 +494,7 @@ describe("ReasoningLevelSelector", () => {
     await user.click(
       screen.getByRole("button", { name: /Model and reasoning/ }),
     );
-    const slider = await screen.findByRole("slider");
+    const slider = await screen.findByRole("slider", SLIDER_QUERY);
     fireEvent.keyDown(slider, { key: "ArrowRight" });
 
     await pollUntil(
@@ -580,7 +586,7 @@ describe("ReasoningLevelSelector", () => {
     expect(
       screen.queryByRole("menuitem", { name: /^Reasoning/ }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+    expect(screen.queryByRole("slider", SLIDER_QUERY)).not.toBeInTheDocument();
   });
 
   it("drops the stale effort label when switching to an effort-less model", () => {

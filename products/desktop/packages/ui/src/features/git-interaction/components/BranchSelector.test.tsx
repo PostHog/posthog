@@ -124,11 +124,10 @@ describe("BranchSelector cloud mode", () => {
 
     expect(await screen.findByRole("option", { name: "main" })).toBeVisible();
     expect(screen.getByText("Loading branches…")).toBeVisible();
-    // The seeded row makes the list non-empty, so the empty-state stays gated
-    // off (Base UI only reveals it when the content group is data-empty) — it
-    // keeps the `hidden` class rather than flashing "No branches found." above
-    // the trunk row.
-    expect(screen.getByText("No branches found.")).toHaveClass("hidden");
+    // The seeded row makes the list non-empty, so the empty state stays gated
+    // off. Base UI renders the empty part's children only while the filtered list
+    // is empty, so "No branches found." never reaches the DOM above the trunk row.
+    expect(screen.queryByText("No branches found.")).not.toBeInTheDocument();
   });
 
   it("does not seed the default branch once the user is searching", async () => {

@@ -53,12 +53,6 @@ export default defineConfig({
                 '@posthog/quill-tokens',
                 '@base-ui/react',
                 /^@base-ui\/react\//,
-                // Both leak into the public type signatures (DataTable's ColumnDef, the chat
-                // scroller hooks), so they are declared as real dependencies and kept external.
-                // Inlining them leaves consumers with type imports they cannot resolve.
-                '@tanstack/react-table',
-                '@shadcn/react',
-                /^@shadcn\/react\//,
                 'class-variance-authority',
                 'clsx',
                 'lucide-react',
