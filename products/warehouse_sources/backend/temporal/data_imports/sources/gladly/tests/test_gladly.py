@@ -7,6 +7,7 @@ import pytest
 from freezegun import freeze_time
 from unittest import mock
 
+import urllib3
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.gladly import (
@@ -54,16 +55,14 @@ def _job(job_id: str, updated_at: str, files: list[str] | None = None) -> dict[s
     return {"id": job_id, "updatedAt": updated_at, "files": files or ["customers.jsonl", "agents.jsonl"]}
 
 
-class _RawBytes(io.BytesIO):
-    """BytesIO subclass, so the transport can set decode_content on it."""
-
-
-def _csv_response(text: str) -> mock.MagicMock:
-    resp = mock.MagicMock()
-    resp.raw = _RawBytes(text.encode())
-    resp.status_code = 200
-    resp.ok = True
-    return resp
+def _csv_response(text: str) -> requests.Response:
+    # A real urllib3-backed response so iter_content streams the body and an empty
+    # body closes the connection on EOF exactly as it does in production.
+    raw = urllib3.HTTPResponse(body=io.BytesIO(text.encode()), preload_content=False)
+    response = requests.Response()
+    response.raw = raw
+    response.status_code = 200
+    return response
 
 
 def _error_response(status_code: int) -> mock.MagicMock:
@@ -359,6 +358,11 @@ class TestNormalizeReportColumn:
             ("Transferred To Inbox Name", "transferred_to_inbox_name"),
             ("Final IVR Selection", "final_ivr_selection"),
             ("  Fulfilled by Contact ID ", "fulfilled_by_contact_id"),
+            ("Conversation ID", "conversation_id"),
+            ("Assigned Agent ID - Current", "assigned_agent_id_current"),
+            ("Created-to-First Closed Time", "created_to_first_closed_time"),
+            ("Billable Resolution (Y/N)", "billable_resolution_y_n"),
+            ("  Topics with Hierarchy ", "topics_with_hierarchy"),
         ],
     )
     def test_headers_become_stable_snake_case_columns(self, header, expected):
@@ -445,6 +449,84 @@ class TestGetReportRows:
         ]
 
     @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.REPORT_REQUEST_INTERVAL_SECONDS", 0)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_conversations_report_uses_weekly_windows_and_keeps_the_natural_key(self, mock_session):
+        header = (
+            "Created At,Conversation ID,Customer ID,Status,"
+            "Assigned Agent ID - Current,Inbox ID - Current,First Closed At,Last Closed At\n"
+        )
+        mock_session.return_value.post.side_effect = [
+            _csv_response(
+                header
+                + "2024-03-04T10:00:00.000Z,conv-1,cust-1,CLOSED,agent-1,inbox-1,"
+                + "2024-03-05T00:00:00.000Z,2024-03-05T00:00:00.000Z\n"
+            ),
+            _csv_response(header + '2024-03-11T10:00:00.000Z,conv-2,"cust, 2",OPEN,,inbox-1,,\n'),
+        ]
+
+        manager = _make_manager()
+        batches = list(
+            get_rows(
+                "myorg",
+                "agent@x.com",
+                "token",
+                "conversations",
+                mock.MagicMock(),
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value="2024-03-10T05:00:00.000Z",
+            )
+        )
+
+        # One window per the endpoint's 7-day report_window_days, oldest first,
+        # starting one full window behind the watermark date.
+        calls = mock_session.return_value.post.call_args_list
+        assert [call.kwargs["json"] for call in calls] == [
+            {
+                "metricSet": "ConversationExportReport",
+                "timezone": "UTC",
+                "startAt": "2024-03-03",
+                "endAt": "2024-03-09",
+            },
+            {
+                "metricSet": "ConversationExportReport",
+                "timezone": "UTC",
+                "startAt": "2024-03-10",
+                "endAt": "2024-03-15",
+            },
+        ]
+
+        # Conversations carry a natural key, so no _row_id is injected.
+        flat = [row for batch in batches for row in batch]
+        assert flat == [
+            {
+                "created_at": "2024-03-04T10:00:00.000Z",
+                "conversation_id": "conv-1",
+                "customer_id": "cust-1",
+                "status": "CLOSED",
+                "assigned_agent_id_current": "agent-1",
+                "inbox_id_current": "inbox-1",
+                "first_closed_at": "2024-03-05T00:00:00.000Z",
+                "last_closed_at": "2024-03-05T00:00:00.000Z",
+            },
+            {
+                "created_at": "2024-03-11T10:00:00.000Z",
+                "conversation_id": "conv-2",
+                "customer_id": "cust, 2",
+                "status": "OPEN",
+                "assigned_agent_id_current": None,
+                "inbox_id_current": "inbox-1",
+                "first_closed_at": None,
+                "last_closed_at": None,
+            },
+        ]
+        assert [call.args[0].last_report_window_end for call in manager.save_state.call_args_list] == [
+            "2024-03-09",
+            "2024-03-15",
+        ]
+
+    @freeze_time("2024-03-15T10:00:00Z")
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_first_sync_starts_at_the_backfill_horizon(self, mock_session):
         mock_session.return_value.post.side_effect = [
@@ -498,6 +580,19 @@ class TestGetReportRows:
             "2024-03-14",
             "2024-03-15",
         ]
+
+    @freeze_time("2024-03-15T10:00:00Z")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_empty_report_body_yields_no_rows_and_advances(self, mock_session):
+        # A window with no data returns an empty body; urllib3 closes the stream on
+        # EOF, which used to surface as "ValueError: I/O operation on closed file".
+        mock_session.return_value.post.side_effect = [_csv_response("")]
+
+        manager = _make_manager(GladlyResumeConfig(last_report_window_end="2024-03-15"))
+        batches = list(get_rows("myorg", "agent@x.com", "token", "conversation_timestamps", mock.MagicMock(), manager))
+
+        assert batches == []
+        assert manager.save_state.call_args.args[0].last_report_window_end == "2024-03-15"
 
     @freeze_time("2024-03-15T10:00:00Z")
     @mock.patch(f"{_MODULE}.make_tracked_session")
