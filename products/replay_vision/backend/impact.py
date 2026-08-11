@@ -79,10 +79,11 @@ def affected_observations(
         if not has_scores:
             raise ValueError("Scorer impact requires `min_score` and/or `max_score`.")
         qs = annotate_output_number(base, "score", "_score")
+        # Literal dict keys: django-stubs can't see the helper's annotation, so plain kwargs fail mypy.
         if min_score is not None:
-            qs = qs.filter(_score__gte=min_score)
+            qs = qs.filter(**{"_score__gte": min_score})
         if max_score is not None:
-            qs = qs.filter(_score__lte=max_score)
+            qs = qs.filter(**{"_score__lte": max_score})
         return qs
 
     raise ValueError(f"Impact is not available for {scanner_type} scanners.")
