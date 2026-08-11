@@ -3,6 +3,9 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -106,15 +109,76 @@ describe('reverseProxyCheckerLogic', () => {
             })
 
         expect(toastErrorSpy).not.toHaveBeenCalled()
-        // The error is captured directly (not wrapped) so its type is preserved at the
-        // top of `$exception_list` — that lets the central `before_send` filter recognise
-        // `ReadOnlyModeError` without depending on cause-chain serialization.
+        toastErrorSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+    })
+
+    it.each([
+        ['a 5xx server error', new ApiError('A server error occurred', 500)],
+        ['a 504 timeout', new ApiError('Non-OK response (status 504: )', 504)],
+        ['a wrapped network failure with no status', new ApiError(String(new TypeError('Failed to fetch')))],
+        ['a raw fetch TypeError', new TypeError('Failed to fetch')],
+        ['a bootstrap guard error', new Error('Team ID is not known.')],
+    ])('does not capture %s to error tracking', async (_desc, error) => {
+        // These failures are transient and outside a frontend fix. Capturing them only splinters
+        // error tracking into one issue per environment id and status code — the reported noise.
+        const queryHogQLSpy = jest.spyOn(api, 'queryHogQL').mockRejectedValue(error)
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ hasReverseProxy: null })
+
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+
+        queryHogQLSpy.mockRestore()
+        captureExceptionSpy.mockRestore()
+    })
+
+    it('still captures genuinely unexpected errors', async () => {
+        // Guard against going blind: a 4xx from the query endpoint points to a real frontend bug
+        // (e.g. a malformed query), so it must still reach error tracking.
+        const queryHogQLSpy = jest.spyOn(api, 'queryHogQL').mockRejectedValue(new ApiError('Bad request', 400))
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        }).toFinishAllListeners()
+
         expect(captureExceptionSpy).toHaveBeenCalledWith(
-            expect.objectContaining({ status: 500 }),
+            expect.objectContaining({ status: 400 }),
             expect.objectContaining({ posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy' })
         )
 
-        toastErrorSpy.mockRestore()
+        queryHogQLSpy.mockRestore()
         captureExceptionSpy.mockRestore()
+    })
+
+    it('throttle survives a remount so a page reload does not re-fire the query', async () => {
+        // Regression test: the throttle used to live in per-mount `cache`, so every reload re-ran
+        // the advisory query and burned ClickHouse compute. It now persists in localStorage.
+        const queryHogQLSpy = jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        }).toFinishAllListeners()
+
+        // Unmounting clears the logic's `cache`; a fresh mount simulates a page reload.
+        logic.unmount()
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
+        }).toFinishAllListeners()
+
+        expect(queryHogQLSpy).toHaveBeenCalledTimes(1)
+
+        queryHogQLSpy.mockRestore()
     })
 })
