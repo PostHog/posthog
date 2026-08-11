@@ -34,10 +34,8 @@ describe('ConversationsWidget', () => {
                             status: 'open',
                             priority: 'high',
                             assignee: {
-                                id: 1,
-                                uuid: 'user-1',
-                                email: 'assignee@example.com',
-                                hedgehog_config: null,
+                                user: { id: 1, name: 'Test user' },
+                                role: null,
                             },
                             updated_at: '2026-08-11T12:00:00Z',
                             last_message_text: 'I need help with my dashboard.',
