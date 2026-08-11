@@ -35,6 +35,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'dashboard:read',
     'dashboard:write',
     'dashboard_template:read',
+    'dataset:read',
     'dataset:write',
     'early_access_feature:read',
     'early_access_feature:write',
@@ -83,6 +84,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'loop:read',
     'loop:write',
     'marketing_analytics:read',
+    'marketing_analytics:write',
     'mcp_analytics:read',
     'mcp_analytics:write',
     'metrics:read',
@@ -140,4 +142,5 @@ export const AGENT_USE_CASE_SCOPES = [
     'warehouse_view:read',
     'warehouse_view:write',
     'web_analytics:read',
+    'web_analytics:write',
 ] as const

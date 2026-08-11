@@ -31,9 +31,13 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, A
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.team.team import DEFAULT_CURRENCY
+from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
-from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationTable,
+    TtlSchedule,
+    parse_ttl_schedule,
+)
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.constants import (
     CHANNEL_SESSIONS_CTE_NAME,
@@ -83,6 +87,45 @@ COMPARE_PERIOD_PREVIOUS = "previous"
 # warmer (products/marketing_analytics/dags/marketing_precompute.py) drives ensure_precomputed with the
 # SAME freshness the read path expects — a mismatch would warm jobs the read then treats as stale.
 COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+
+# Cap for a cost window that materialized zero rows. Short enough that a source which was mid-sync
+# heals the same day, long enough that a genuinely empty window isn't re-scanned on every read.
+# This bounds recomputation, not what a reader sees: the read path serves stale within
+# STALE_WHILE_REVALIDATE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
+COSTS_EMPTY_RESULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
+
+# How far back the cap above applies, measured from the window's end. A warehouse sync that is going
+# to deliver a window does so within days; past that, empty means empty, and re-capping forever would
+# turn the 7-day band into a 6-hourly rescan of history that will never change.
+COSTS_EMPTY_RESULT_MAX_AGE_SECONDS = 14 * 24 * 60 * 60  # 14 days
+
+# One day per job. `split_ranges_by_ttl` otherwise merges every window sharing a TTL band into a
+# single job, so the whole `default` band (everything older than yesterday) becomes one job — and
+# emptiness is only observable per job. A 10-day sync gap inside a 30-day read would sit in a job
+# that also covered productive days, report rows written, and keep the full 7-day TTL: exactly the
+# stuck-$0 window this schedule exists to prevent. Day-granular jobs make the signal per-day, and
+# match the warmer, which already chunks a day at a time (MARKETING_PRECOMPUTE_CHUNK_DAYS). The cost
+# is more, narrower inserts on a cold read rather than one wide one.
+COSTS_PRECOMPUTE_MAX_WINDOW_DAYS = 1
+
+
+def costs_precompute_ttl_schedule(team: Team) -> TtlSchedule:
+    """The freshness contract for native cost materialization. Both the read path and the Dagster
+    warmer build their schedule here so the two can't drift.
+
+    Costs are materialized from data warehouse tables, which lag: a window computed while its source
+    was mid-sync — or paused by a billing limit — writes no rows and looks like a successful compute.
+    Coverage keys on the job existing rather than on rows existing, so without `empty_result_ttl_seconds`
+    that empty window would stay authoritative for the whole band TTL (up to 7 days of a $0 chart)
+    even once the source catches up.
+    """
+    return parse_ttl_schedule(
+        COSTS_PRECOMPUTE_TTL_SECONDS,
+        team.timezone,
+        max_window_days=COSTS_PRECOMPUTE_MAX_WINDOW_DAYS,
+        empty_result_ttl_seconds=COSTS_EMPTY_RESULT_TTL_SECONDS,
+        empty_result_max_age_seconds=COSTS_EMPTY_RESULT_MAX_AGE_SECONDS,
+    )
 
 
 _INFINITY_SENTINELS = {float(InfinityValue.NUMBER_999999), float(InfinityValue.NUMBER__999999)}
@@ -323,7 +366,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
-        ttl_seconds = COSTS_PRECOMPUTE_TTL_SECONDS
+        ttl_seconds = costs_precompute_ttl_schedule(self.team)
         # Per source: read the native table when it materializes, otherwise keep that one source on the
         # live S3 union. A single unmaterializable/syncing source must not force every source back to S3.
         materialized_source_ids: list = []

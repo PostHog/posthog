@@ -29,19 +29,15 @@ import {
   EmptyTitle,
   Skeleton,
 } from "@posthog/quill";
-import type { AgentConversationEvent } from "@posthog/shared";
+import { MCP_TOOL_PERMISSION_OPTIONS } from "@posthog/shared";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
-import {
-  CloudConnectionBanner,
-  CloudStreamDisconnectedBanner,
-} from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
+import { CloudStreamDisconnectedBanner } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
-import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
-import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
@@ -64,6 +60,7 @@ import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
+import { buildPiMcpPermissionToolCall } from "./piMcpPermission";
 import {
   getPiPendingConfig,
   usePiPendingConfigStore,
@@ -391,18 +388,6 @@ function usePiRetry(
   }, [controller, taskId]);
 }
 
-function usePiThreadClick(
-  draftActions: DraftActions,
-  taskId: string,
-): (event: React.MouseEvent) => void {
-  return useCallback(
-    (event: React.MouseEvent) => {
-      focusComposerOnPaneClick(event, () => draftActions.requestFocus(taskId));
-    },
-    [draftActions, taskId],
-  );
-}
-
 function usePiRestart(
   controller: PiSessionController,
   taskId: string,
@@ -502,6 +487,9 @@ export function PiSessionView({
   const setMessagingMode = useMessagingModeStore((state) => state.setMode);
   const { isOnline } = useConnectivity();
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
+  const mcpPermissionResponsePending = useRef(false);
+  const [isMcpPermissionResponding, setIsMcpPermissionResponding] =
+    useState(false);
   const handlePromptRecall = useCallback<PromptRecallHandler>(
     (direction) => promptRecallRef.current?.(direction) ?? null,
     [],
@@ -550,7 +538,6 @@ export function PiSessionView({
   const runBashCommand = usePiBash(piSessionController, taskId);
   const cancelPrompt = usePiCancel(piSessionController, taskId, isBashRunning);
   const retry = usePiRetry(piSessionController, taskId);
-  const handleThreadClick = usePiThreadClick(draftActions, taskId);
   const restart = usePiRestart(piSessionController, taskId);
   const { change: changeProjectTrust, pending: projectTrustPending } =
     usePiProjectTrustChange(piSessionController, taskId);
@@ -572,14 +559,34 @@ export function PiSessionView({
   usePiFailureNotice(session?.error);
   usePiFailureAcknowledgement(taskId, session?.error);
 
+  const mcpPermission = session?.mcpToolPermissionRequests
+    .values()
+    .next().value;
+  const respondMcpPermission = useCallback(
+    (decision: "allow_always" | "reject") => {
+      if (!mcpPermission || mcpPermissionResponsePending.current) {
+        return;
+      }
+
+      mcpPermissionResponsePending.current = true;
+      setIsMcpPermissionResponding(true);
+      void piSessionController
+        .respondMcpToolPermission(taskId, mcpPermission, decision)
+        .catch((error) =>
+          log.error("Failed to respond to MCP permission", error),
+        )
+        .finally(() => {
+          mcpPermissionResponsePending.current = false;
+          setIsMcpPermissionResponding(false);
+        });
+    },
+    [mcpPermission, piSessionController, taskId],
+  );
+
   if (!session) {
     return <TaskDetailSkeleton />;
   }
 
-  const latestProgress = session.events.findLast(
-    (event): event is Extract<AgentConversationEvent, { type: "progress" }> =>
-      event.type === "progress" && event.status === "in_progress",
-  );
   const isConnecting = session.connectionState === "connecting";
   const isAuthRestoring = session.authRestoring;
   const connectionError =
@@ -590,20 +597,6 @@ export function PiSessionView({
   );
   const sessionAvailable =
     session.connectionState === "connected" || hasTranscript;
-  const executionTarget = isCloud ? "cloud" : "local";
-  if (isConnecting && !hasTranscript) {
-    return (
-      <Box className="relative h-full">
-        <SessionInitializingView
-          executionTarget={executionTarget}
-          cloudStatus={session.cloudStatus}
-          heading={latestProgress?.label}
-          subtitle={latestProgress?.detail}
-        />
-      </Box>
-    );
-  }
-
   if (connectionError && !hasTranscript) {
     return (
       <Empty className="h-full">
@@ -625,7 +618,7 @@ export function PiSessionView({
     );
   }
 
-  if (!status && !hasTranscript) {
+  if (!status && !hasTranscript && !isConnecting) {
     return <TaskDetailSkeleton />;
   }
 
@@ -665,9 +658,6 @@ export function PiSessionView({
           }
         />
       )}
-      {isAuthRestoring && (
-        <CloudConnectionBanner message="Restoring authentication..." />
-      )}
       {connectionError && hasTranscript && (
         <CloudStreamDisconnectedBanner
           errorTitle={connectionError.title}
@@ -676,13 +666,14 @@ export function PiSessionView({
           onRestart={restart}
         />
       )}
-      <Box className="min-h-0 flex-1" onClick={handleThreadClick}>
+      <Box className="min-h-0 flex-1">
         <ChatThread
           events={session.events}
           isPromptPending={isStreaming}
           taskId={taskId}
           repoPath={repoPath}
           promptRecallRef={promptRecallRef}
+          hasPendingPermission={Boolean(mcpPermission)}
         />
       </Box>
       <Box
@@ -714,50 +705,67 @@ export function PiSessionView({
             )}
           </>
         )}
-        <PromptInput
-          sessionId={taskId}
-          toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
-          taskId={taskId}
-          repoPath={repoPath}
-          placeholder="Type a message..."
-          disabled={isCompacting}
-          isLoading={controlsPending}
-          submitDisabledExternal={
-            !sessionAvailable ||
-            !status ||
-            !isOnline ||
-            hasQueuedMessage ||
-            isAuthRestoring
-          }
-          submitTooltipOverride={
-            !isOnline
-              ? "No internet connection"
-              : isAuthRestoring
-                ? "Restoring authentication"
-                : hasQueuedMessage
-                  ? "A message is already queued"
-                  : undefined
-          }
-          enableBashMode
-          enableCommands
-          modelSelector={
-            <PiSessionModelControls
-              taskId={taskId}
-              taskRunId={taskRunId}
-              session={session}
-              controller={piSessionController}
-              isOnline={isOnline}
-              onError={handleControllerError}
+        {mcpPermission ? (
+          isMcpPermissionResponding ? (
+            <Skeleton className="h-24 w-full" />
+          ) : (
+            <PermissionSelector
+              toolCall={buildPiMcpPermissionToolCall(mcpPermission)}
+              options={[...MCP_TOOL_PERMISSION_OPTIONS]}
+              onSelect={(optionId) => {
+                respondMcpPermission(
+                  optionId === "allow_always" ? "allow_always" : "reject",
+                );
+              }}
+              onCancel={() => respondMcpPermission("reject")}
             />
-          }
-          reasoningSelector={null}
-          messagingModeToggle={messagingModeToggle}
-          onToggleMessagingMode={toggleMessagingMode}
-          onPromptRecall={handlePromptRecall}
-          onSubmit={sendPrompt}
-          onBashCommand={runBashCommand}
-          onCancel={cancelPrompt}
-        />
+          )
+        ) : (
+          <PromptInput
+            sessionId={taskId}
+            toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
+            taskId={taskId}
+            repoPath={repoPath}
+            placeholder="Type a message..."
+            disabled={isCompacting}
+            isLoading={controlsPending}
+            submitDisabledExternal={
+              !sessionAvailable ||
+              !status ||
+              !isOnline ||
+              hasQueuedMessage ||
+              isAuthRestoring
+            }
+            submitTooltipOverride={
+              !isOnline
+                ? "No internet connection"
+                : isAuthRestoring
+                  ? "Restoring authentication"
+                  : hasQueuedMessage
+                    ? "A message is already queued"
+                    : undefined
+            }
+            enableBashMode
+            enableCommands
+            modelSelector={
+              <PiSessionModelControls
+                taskId={taskId}
+                taskRunId={taskRunId}
+                session={session}
+                controller={piSessionController}
+                isOnline={isOnline}
+                onError={handleControllerError}
+              />
+            }
+            reasoningSelector={null}
+            messagingModeToggle={messagingModeToggle}
+            onToggleMessagingMode={toggleMessagingMode}
+            onPromptRecall={handlePromptRecall}
+            onSubmit={sendPrompt}
+            onBashCommand={runBashCommand}
+            onCancel={cancelPrompt}
+          />
+        )}
         {!isCloud && (
           <PiExtensionWidgets
             widgets={currentExtensionState.widgets}

@@ -83,6 +83,7 @@ from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
 from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
+from products.customer_analytics.backend.facade.temporal import create_calendar_sync_coordinator_schedule
 from products.engineering_analytics.backend.facade.temporal import (
     create_ci_signals_coordinator_schedule,
     create_github_job_logs_coordinator_schedule,
@@ -91,6 +92,7 @@ from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
+    create_error_tracking_weekly_digest_schedule,
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
@@ -391,7 +393,7 @@ async def create_sync_events_retention_schedule(client: Client):
                 ),
             ),
             id="sync-events-retention-schedule",
-            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -462,7 +464,7 @@ async def create_wa_weekly_digest_schedule(client: Client):
             "wa-weekly-digest",
             WAWeeklyDigestInput(),
             id="wa-weekly-digest-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -497,7 +499,7 @@ async def create_wa_digest_notification_schedule(client: Client):
             "wa-digest-notification",
             WADigestNotificationInput(),
             id="wa-digest-notification-schedule",
-            task_queue=settings.MESSAGING_TASK_QUEUE,
+            task_queue=settings.WEEKLY_DIGEST_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
                 maximum_attempts=1,
             ),
@@ -645,8 +647,8 @@ async def cleanup_cohort_calculation_schedules(client: Client):
     and owns reconciliation too (its workers/reconcile.rs and sweep/reconcile.rs), so nothing here
     needs to run on a cadence any more.
 
-    The workflows stay registered on the messaging worker only until the Python implementation is
-    deleted. In-flight executions finish on their own; deleting a schedule doesn't cancel them.
+    The Python implementation is gone; this remains only to reap schedules in regions that
+    haven't converged yet, and is safe to delete once they all have.
     """
     legacy_schedule_ids = [
         "realtime-cohort-calculation-p0-p50",
@@ -862,6 +864,7 @@ schedules = [
     create_business_knowledge_refresh_coordinator_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
+    create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_logs_alert_check_schedule,
@@ -871,6 +874,7 @@ schedules = [
     create_signals_scout_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
+    create_calendar_sync_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_github_job_logs_coordinator_schedule,

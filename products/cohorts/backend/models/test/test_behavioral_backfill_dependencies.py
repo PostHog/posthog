@@ -91,7 +91,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
         cohort = self._cohort(7)
         old_hash = cohort.filters_shape_hash
         old_behavioral_hash = cohort.behavioral_filters_shape_hash
-        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=timezone.now(),
+            last_realtime_cohort_calculation_at=timezone.now(),
+        )
         cohort.refresh_from_db()
 
         cohort.filters = self._filters(30)
@@ -101,6 +104,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertNotEqual(cohort.filters_shape_hash, old_hash)
         self.assertNotEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
         self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
 
     def test_positional_filter_update_persists_maintained_fields(self) -> None:
         cohort = self._cohort(7)
@@ -120,7 +124,10 @@ class TestBehavioralBackfillDependencies(BaseTest):
         cohort = self._cohort(7)
         old_hash = cohort.filters_shape_hash
         ready_at = timezone.now()
-        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=ready_at)
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=ready_at,
+            last_realtime_cohort_calculation_at=ready_at,
+        )
         cohort.refresh_from_db()
 
         cohort.filters = self._filters(30)
@@ -130,10 +137,14 @@ class TestBehavioralBackfillDependencies(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.filters_shape_hash, old_hash)
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
+        self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
 
     def test_behavioral_edit_nulls_events_readiness(self) -> None:
         cohort = self._cohort(7)
-        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=timezone.now(),
+            last_realtime_cohort_calculation_at=timezone.now(),
+        )
         cohort.refresh_from_db()
 
         cohort.filters = self._filters(30)
@@ -141,6 +152,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
 
         cohort.refresh_from_db()
         self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
 
     def test_person_only_edit_preserves_events_readiness(self) -> None:
         cohort = self._cohort(7, person_hash="person-a")
@@ -151,6 +163,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         Cohort.objects.filter(id=cohort.id).update(
             last_backfill_events_at=ready_at,
             last_backfill_person_properties_at=ready_at,
+            last_realtime_cohort_calculation_at=ready_at,
         )
         cohort.refresh_from_db()
         before = self._orphan_count()
@@ -164,6 +177,9 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertNotEqual(cohort.person_filters_shape_hash, old_person_hash)
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
         self.assertIsNone(cohort.last_backfill_person_properties_at)
+        # Covers the whole cohort, so a person-only edit stales it even though events
+        # readiness survives.
+        self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
         self.assertEqual(self._orphan_count(), before)
 
     def test_first_legacy_save_initializes_hashes_without_invalidating_readiness(self) -> None:
@@ -211,6 +227,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
             cohort_type=CohortType.REALTIME,
             filters=self._filters(7),
             last_backfill_events_at=ready_at,
+            last_realtime_cohort_calculation_at=ready_at,
         )
         before = self._orphan_count()
 
@@ -222,6 +239,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertIsNone(cohort.behavioral_filters_shape_hash)
         self.assertIsNone(cohort.person_filters_shape_hash)
         self.assertEqual(cohort.last_backfill_events_at, ready_at)
+        self.assertEqual(cohort.last_realtime_cohort_calculation_at, ready_at)
         self.assertEqual(self._orphan_count(), before)
 
     def _redis(self, *set_results: bool) -> mock.Mock:

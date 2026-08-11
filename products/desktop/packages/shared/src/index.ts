@@ -213,12 +213,19 @@ export {
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
 export type {
-  CloudMcpServerImport,
   CloudMcpServerRelayDesignation,
   LocalMcpServerDescriptor,
   LocalMcpServerScope,
   LocalMcpTransport,
+  McpServerConnection,
 } from "./local-mcp-domain";
+export {
+  MCP_TOOL_PERMISSION_OPTIONS,
+  type McpToolApprovalState,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
+  type McpToolPolicy,
+} from "./mcp-tool-policy-domain";
 export {
   formatMention,
   type MentionSegment,
@@ -365,6 +372,7 @@ export {
   parseMcpToolName,
   posthogToolMeta,
   readAgentToolName,
+  readMcpInstallationId,
   readMcpToolDescriptor,
   readMcpToolName,
   readParentToolCallId,

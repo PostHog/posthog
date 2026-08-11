@@ -1,3 +1,4 @@
+import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -42,6 +43,9 @@ def _get_previous_jobs(saved_query_id: UUID, current_job_id: UUID, count: int) -
     return (
         DataModelingJob.objects.filter(saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE)
         .exclude(id=current_job_id)
+        # a skipped run never executed, so it is evidence of neither health nor failure. Leaving it
+        # in lets one upstream outage clear a timeout streak that is about to pause the schedule.
+        .exclude(status=DataModelingJobStatus.SKIPPED)
         .order_by("-created_at")[:count]
     )
 
@@ -102,6 +106,7 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     job.status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
     job.rows_materialized = 0
     job.error = sanitized_error
+    job.last_run_at = dt.datetime.now(dt.UTC)
     job.save()
 
     return node, job

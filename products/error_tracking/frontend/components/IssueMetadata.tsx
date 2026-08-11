@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { PropsWithChildren, useCallback, useMemo, useRef } from 'react'
+import { PropsWithChildren, UIEvent, useCallback, useMemo, useRef } from 'react'
 import { match } from 'ts-pattern'
 
 import { IconChevronRight, IconTrending } from '@posthog/icons'
@@ -21,7 +21,11 @@ import { errorTrackingVolumeSparklineLogic } from './VolumeSparkline/errorTracki
 import type { SparklineDatum, SparklineEvent, VolumeSparklineHoverSelection } from './VolumeSparkline/types'
 import { VolumeSparkline } from './VolumeSparkline/VolumeSparkline'
 
-export const Metadata = ({ children, className }: PropsWithChildren<{ className?: string }>): JSX.Element => {
+export const Metadata = ({
+    children,
+    className,
+    onScrollNearEnd,
+}: PropsWithChildren<{ className?: string; onScrollNearEnd?: () => void }>): JSX.Element => {
     const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen, issueId, spikeEvents } =
         useValues(errorTrackingIssueSceneLogic)
     const { setDateRange } = useActions(errorTrackingIssueSceneLogic)
@@ -50,6 +54,13 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
         [setClickedSpike]
     )
 
+    const handleScroll = (event: UIEvent<HTMLDivElement>): void => {
+        const { clientHeight, scrollHeight, scrollTop } = event.currentTarget
+        if (scrollHeight - scrollTop - clientHeight <= 400) {
+            onScrollNearEnd?.()
+        }
+    }
+
     const matchedSpikeEvent = useMemo<ErrorTrackingSpikeEvent | null>(() => {
         if (!clickedSpike || sparklineData.length < 2) {
             return null
@@ -66,73 +77,77 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
 
     return (
         <div className={className}>
-            <div className="flex justify-between items-center h-[40px] px-4 shrink-0">
-                <div className="flex justify-end items-center h-full">
-                    {match(hoverSelection)
-                        .when(
-                            (data) => shouldRenderIssueMetrics(data),
-                            () => <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
-                        )
-                        .with({ kind: 'bin' }, (data) => renderDataPoint(data.datum))
-                        .with({ kind: 'event' }, (data) => renderEventPoint(data.event))
-                        .otherwise(() => null)}
+            <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]" onScroll={handleScroll}>
+                <div className="flex justify-between items-center h-[40px] px-4">
+                    <div className="flex justify-end items-center h-full">
+                        {match(hoverSelection)
+                            .when(
+                                (data) => shouldRenderIssueMetrics(data),
+                                () => <IssueMetrics aggregations={aggregations} summaryLoading={summaryLoading} />
+                            )
+                            .with({ kind: 'bin' }, (data) => renderDataPoint(data.datum))
+                            .with({ kind: 'event' }, (data) => renderEventPoint(data.event))
+                            .otherwise(() => null)}
+                    </div>
+                    <div className="flex justify-end items-center h-full">
+                        {match(hoverSelection)
+                            .with({ kind: 'bin' }, (data) => renderDate(data.datum.date))
+                            .with({ kind: 'event' }, (data) => renderDate(data.event.date))
+                            .otherwise(() => (
+                                <>
+                                    <TimeBoundary
+                                        time={firstSeen}
+                                        loading={issueLoading}
+                                        label="First Seen"
+                                        updateDateRange={(dateRange) => {
+                                            dateRange.date_from = firstSeen?.toISOString()
+                                            return dateRange
+                                        }}
+                                    />
+                                    <IconChevronRight />
+                                    <TimeBoundary
+                                        time={lastSeen}
+                                        loading={summaryLoading}
+                                        label="Last Seen"
+                                        updateDateRange={(dateRange) => {
+                                            dateRange.date_to = lastSeen?.endOf('minute').toISOString()
+                                            return dateRange
+                                        }}
+                                    />
+                                </>
+                            ))}
+                    </div>
                 </div>
-                <div className="flex justify-end items-center h-full">
-                    {match(hoverSelection)
-                        .with({ kind: 'bin' }, (data) => renderDate(data.datum.date))
-                        .with({ kind: 'event' }, (data) => renderDate(data.event.date))
-                        .otherwise(() => (
-                            <>
-                                <TimeBoundary
-                                    time={firstSeen}
-                                    loading={issueLoading}
-                                    label="First Seen"
-                                    updateDateRange={(dateRange) => {
-                                        dateRange.date_from = firstSeen?.toISOString()
-                                        return dateRange
-                                    }}
-                                />
-                                <IconChevronRight />
-                                <TimeBoundary
-                                    time={lastSeen}
-                                    loading={summaryLoading}
-                                    label="Last Seen"
-                                    updateDateRange={(dateRange) => {
-                                        dateRange.date_to = lastSeen?.endOf('minute').toISOString()
-                                        return dateRange
-                                    }}
-                                />
-                            </>
-                        ))}
+                <div
+                    onClick={cancelEvent}
+                    ref={sparklineContainerRef}
+                    className="relative w-full min-h-[160px] flex flex-col px-4"
+                >
+                    <VolumeSparkline
+                        data={sparklineData}
+                        layout="detailed"
+                        xAxis="full"
+                        events={sparklineEvents}
+                        sparklineKey={sparklineKey}
+                        className="h-full min-h-[160px]"
+                        onRangeSelect={handleRangeSelect}
+                        onSpikeClick={handleSpikeClick}
+                    />
                 </div>
+                {clickedSpike && (
+                    <div className="contents">
+                        <SpikeDetailsPopover
+                            datum={clickedSpike.datum}
+                            clientX={clickedSpike.clientX}
+                            clientY={clickedSpike.clientY}
+                            spikeEvent={matchedSpikeEvent}
+                            onClose={() => setClickedSpike(null)}
+                            sparklineContainerRef={sparklineContainerRef}
+                        />
+                    </div>
+                )}
+                {children}
             </div>
-            <div
-                onClick={cancelEvent}
-                ref={sparklineContainerRef}
-                className="relative w-full min-h-[160px] shrink-0 flex flex-col px-4"
-            >
-                <VolumeSparkline
-                    data={sparklineData}
-                    layout="detailed"
-                    xAxis="full"
-                    events={sparklineEvents}
-                    sparklineKey={sparklineKey}
-                    className="h-full min-h-[160px]"
-                    onRangeSelect={handleRangeSelect}
-                    onSpikeClick={handleSpikeClick}
-                />
-            </div>
-            {clickedSpike && (
-                <SpikeDetailsPopover
-                    datum={clickedSpike.datum}
-                    clientX={clickedSpike.clientX}
-                    clientY={clickedSpike.clientY}
-                    spikeEvent={matchedSpikeEvent}
-                    onClose={() => setClickedSpike(null)}
-                    sparklineContainerRef={sparklineContainerRef}
-                />
-            )}
-            <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
         </div>
     )
 }
@@ -171,7 +186,7 @@ function IssueMetrics({
 
 function renderMetric(name: string, value: number | undefined, loading: boolean, tooltip?: string): JSX.Element {
     return (
-        <>
+        <span className="contents">
             {match([loading])
                 .with([true], () => <LemonSkeleton className="w-[50px] h-2" />)
                 .with([false], () => (
@@ -180,18 +195,20 @@ function renderMetric(name: string, value: number | undefined, loading: boolean,
                             <div className="text-lg font-bold inline-block">
                                 {value == null ? '0' : humanFriendlyLargeNumber(value)}
                             </div>
-                            <div className="text-xs text-muted inline-block">{name}</div>
+                            <div className="inline-block text-xs text-muted-foreground">{name}</div>
                         </div>
                     </Tooltip>
                 ))
                 .exhaustive()}
-        </>
+        </span>
     )
 }
 
 function renderDate(date: Date): JSX.Element {
     return (
-        <div className="text-xs text-muted whitespace-nowrap">{dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}</div>
+        <div className="whitespace-nowrap text-xs text-muted-foreground">
+            {dayjs(date).utc().format('D MMM YYYY HH:mm (UTC)')}
+        </div>
     )
 }
 
@@ -200,10 +217,10 @@ function renderDataPoint(d: SparklineDatum): JSX.Element {
         <div className="flex items-center h-full gap-3">
             {renderMetric('Occurrences', d.value, false)}
             {d.animated && (
-                <div className="flex items-center gap-1.5 text-warning-dark">
+                <div className="flex items-center gap-1.5 text-warning-foreground">
                     <IconTrending className="text-base" />
                     <span className="text-xs font-semibold">Spike</span>
-                    <span className="text-xs text-muted">— click to see details</span>
+                    <span className="text-xs text-muted-foreground">— click to see details</span>
                 </div>
             )}
         </div>

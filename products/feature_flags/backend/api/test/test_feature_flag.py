@@ -8293,6 +8293,36 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
         assert body["skipped"] == []
 
+    def test_bulk_update_tags_with_non_integer_replay_linked_flag_id(self):
+        # Replay usage must be computed by JSONB containment, never by casting the stored id
+        # to integer: a sibling team's non-integer session_recording_linked_flag id would
+        # error every flags queryset in the project, including bulk_update_tags and list.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-cast-test")
+        self.team.session_recording_linked_flag = {"id": flag.id, "key": flag.key}
+        self.team.save()
+        Team.objects.create(
+            organization=self.organization,
+            project=self.team.project,
+            session_recording_linked_flag={"id": "not-an-int", "key": "some-key"},
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_update_tags/",
+            {"ids": [flag.id], "action": "add", "tags": ["foo"]},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["updated"] == [{"id": flag.id, "tags": ["foo"]}]
+        assert body["skipped"] == []
+
+        # A wrong OuterRef correlation in the annotation would still return 200s, so assert
+        # the linked flag actually reports replay usage through the list endpoint.
+        list_response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed = next(f for f in list_response.json()["results"] if f["id"] == flag.id)
+        assert listed["is_used_in_replay_settings"] is True
+
     # Lives in the feature-flag test file (instead of test_insight.py) so the
     # full bulk-ops PAT regression story — positive feature-flag cases and the
     # negative cross-resource block — stays adjacent for reviewers of #57885.
@@ -13197,21 +13227,24 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert "incomplete" in response.json()["detail"].lower()
 
-    @parameterized.expand(
-        [
-            ("remote_configuration", {"is_remote_configuration": True}),
-            ("encrypted_payloads", {"has_encrypted_payloads": True}),
-        ]
-    )
-    def test_unsupported_flag_returns_400(self, _name, update_kwargs):
+    def test_encrypted_payloads_flag_returns_400(self):
         flag = self._create_flag_via_api()
         flag_id = flag["id"]
 
-        FeatureFlag.objects.filter(id=flag_id).update(**update_kwargs)
+        FeatureFlag.objects.filter(id=flag_id).update(has_encrypted_payloads=True)
 
         response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "not available" in response.json()["detail"].lower()
+
+    def test_plaintext_remote_config_flag_is_reachable(self):
+        flag = self._create_flag_via_api()
+        flag_id = flag["id"]
+
+        FeatureFlag.objects.filter(id=flag_id).update(is_remote_configuration=True)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag_id}/versions/1/")
+        assert response.status_code == status.HTTP_200_OK
 
 
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):

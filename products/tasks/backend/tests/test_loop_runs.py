@@ -24,7 +24,16 @@ from products.tasks.backend.logic.services.loop_runs import (
     handle_loop_run_terminal,
     render_trigger_context,
 )
-from products.tasks.backend.models import Channel, Loop, LoopFire, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    Channel,
+    Loop,
+    LoopFire,
+    LoopTrigger,
+    SandboxEnvironment,
+    Task,
+    TaskClientProvenance,
+    TaskRun,
+)
 from products.tasks.backend.temporal.client import _terminalize_unstarted_task_run
 from products.tasks.backend.temporal.constants import LOOP_RUN_STALE_SECONDS
 
@@ -86,7 +95,7 @@ class LoopRunsTestCase(TestCase):
         # non-deterministic (fails open when the gateway is down, blocks when it's up locally).
         # Default it to "allowed" so happy-path fires are deterministic; the gate-specific tests
         # override this with their own patch.
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
         # Cancelling a displaced run signals its Temporal workflow; mock it so tests neither hit
@@ -177,7 +186,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 0)
 
     def test_same_fire_key_on_a_trigger_dedups_and_returns_the_original_run(self):
-        loop = self.create_loop()
+        loop = self.create_loop(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
         trigger = self.create_trigger(loop)
 
         first = fire_loop(loop, trigger, "delivery-1", "ctx")
@@ -191,6 +200,11 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(second.task_run_id, first.task_run_id)
         self.assertEqual(LoopFire.objects.unscoped().filter(loop_trigger=trigger).count(), 1)
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
+        assert first.task_id is not None
+        self.assertEqual(
+            Task.objects.get(id=first.task_id).client_provenance,
+            TaskClientProvenance.POSTHOG_DESKTOP,
+        )
 
     def test_manual_fire_dedups_on_the_idempotency_key(self):
         # Manual "run now" has no trigger; a double-click with the same Idempotency-Key must
@@ -206,7 +220,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(Task.objects.filter(team=self.team, origin_product=Task.OriginProduct.LOOP).count(), 1)
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_records_failure_and_flags_attention_without_creating_a_run(
         self, mock_gate, mock_dispatch
     ):
@@ -226,7 +240,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
 
     @patch(f"{LOOP_RUNS_MODULE}.dispatch_loop_event")
     @patch(f"{LOOP_RUNS_MODULE}.pause_loop_schedules")
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response")
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response")
     def test_usage_gate_blocked_pauses_loop_after_reaching_failure_threshold(
         self, mock_gate, mock_pause, mock_dispatch
     ):
@@ -288,7 +302,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
             LOOP_RATE_CAP_PER_DAY,
         )
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_team_wide_rate_cap_blocks_a_loop_under_its_own_cap(self, _mock_gate):
         # Two loops each below the per-loop cap, but together over the team aggregate: the
         # team cap must still stop the fire, or N loops would each spend the per-loop cap.
@@ -316,7 +330,7 @@ class TestFireLoopGuardrails(LoopRunsTestCase):
         self.assertEqual(result.reason, "team_rate_capped")
         mock_dispatch.assert_called_once_with(fresh, "needs_attention", {"reason": "team_rate_capped"})
 
-    @patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+    @patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
     def test_rejected_fires_do_not_consume_the_team_rate_budget(self, _mock_gate):
         # Regression: rejected fires still record a LoopFire row (for idempotent replay) but must
         # not count toward the caps. Otherwise spamming unique keys at an already-capped loop drains
@@ -720,7 +734,7 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         super().setUp()
         # The cloud usage gate is a billing boundary; with no limit it returns None. Mock it so a
         # fire actually spawns a run regardless of the local env's billing state (CI returns None).
-        gate = patch(f"{LOOP_RUNS_MODULE}.cloud_usage_limit_response", return_value=None)
+        gate = patch(f"{LOOP_RUNS_MODULE}.usage_limit_response", return_value=None)
         gate.start()
         self.addCleanup(gate.stop)
         self.channel = Channel(

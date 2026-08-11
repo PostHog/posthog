@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
     GITHUB_MAX_RETRY_AFTER_SECONDS,
+    GithubAccessDeniedError,
     GithubEgressIdentity,
     GithubResumeConfig,
     GithubRetryableError,
@@ -1878,7 +1879,7 @@ class TestFetchPageRateLimit:
             "products.warehouse_sources.backend.temporal.data_imports.sources.github.github.make_tracked_session"
         ) as mock_get:
             mock_get.return_value.request.return_value = resp
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(GithubAccessDeniedError):
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         assert mock_get.return_value.request.call_count == 1

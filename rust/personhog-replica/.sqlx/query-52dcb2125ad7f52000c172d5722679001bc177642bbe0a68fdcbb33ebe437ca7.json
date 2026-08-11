@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                                SELECT l.person_id, l.distinct_id, l.version\n                                FROM UNNEST($2::bigint[]) AS pid(id)\n                                CROSS JOIN LATERAL (\n                                    SELECT capped.person_id, capped.distinct_id, capped.version\n                                    FROM (\n                                        SELECT person_id, distinct_id, version, id\n                                        FROM posthog_persondistinctid\n                                        WHERE team_id = $1 AND person_id = pid.id AND is_deleted = false\n                                        LIMIT 2500\n                                    ) capped\n                                    ORDER BY (capped.distinct_id ~ '^([a-z0-9]+-){4}[a-z0-9]+$'), capped.id\n                                    LIMIT $3\n                                ) l\n                                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "distinct_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8Array",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "52dcb2125ad7f52000c172d5722679001bc177642bbe0a68fdcbb33ebe437ca7"
+}

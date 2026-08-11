@@ -25,12 +25,16 @@ import {
 } from "@posthog/harness/project-trust";
 import {
   type AgentConversationEvent,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
   type PiRuntimeHealth,
   TypedEventEmitter,
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import { TASK_METADATA_REPOSITORY } from "../../db/identifiers";
 import type { ITaskMetadataRepository } from "../../db/repositories/task-metadata-repository";
+import { MCP_TOOL_POLICY_UPDATER } from "../agent/identifiers";
+import type { McpToolPolicyUpdater } from "../agent/ports";
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
 import type { ProcessTrackingService } from "../process-tracking/process-tracking";
 import { PI_RUNTIME_FACTORY, type PiRuntimeFactory } from "./identifiers";
@@ -69,6 +73,10 @@ type PiSessionEvent = Parameters<Parameters<PiRpcClient["onEvent"]>[0]>[0];
 
 interface PiSessionEvents {
   event: { taskId: string; event: AgentConversationEvent };
+  mcpPermissionRequest: {
+    taskId: string;
+    request: McpToolPermissionRequest;
+  };
 }
 
 type PiExtensionDialogRequest = Extract<
@@ -82,6 +90,7 @@ interface PiSessionExtensionEvents {
 
 interface ManagedPiSession {
   client: PiRpcClient;
+  pendingMcpPermissions: Map<string, McpToolPermissionRequest>;
   runtime: PiRuntime;
   cwd: string;
   projectTrustPath: string;
@@ -240,6 +249,8 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     private readonly taskMetadataRepository: ITaskMetadataRepository,
     @inject(PROCESS_TRACKING_SERVICE)
     private readonly processTracking: ProcessTrackingService,
+    @inject(MCP_TOOL_POLICY_UPDATER)
+    private readonly mcpToolPolicyUpdater: McpToolPolicyUpdater,
     @inject(ROOT_LOGGER) rootLogger: RootLogger,
   ) {
     super();
@@ -261,6 +272,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
     const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
+      taskId: input.taskId,
       cwd: input.cwd,
       model: input.model,
       projectTrusted: projectTrust.trusted,
@@ -329,6 +341,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
     const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
+      taskId: input.taskId,
       cwd: input.cwd,
       sessionFile,
       projectTrusted: projectTrust.trusted,
@@ -359,6 +372,30 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
 
       return response;
     });
+  }
+
+  getPendingMcpToolPermissions(taskId: string): McpToolPermissionRequest[] {
+    return [...this.requireSession(taskId).pendingMcpPermissions.values()];
+  }
+
+  async respondMcpToolPermission(
+    taskId: string,
+    request: McpToolPermissionRequest,
+    decision: McpToolPermissionDecision,
+  ): Promise<void> {
+    const session = this.requireSession(taskId);
+    const pending = session.pendingMcpPermissions.get(request.requestId);
+    if (!pending) {
+      throw new Error(`No pending MCP permission ${request.requestId}`);
+    }
+    if (decision === "allow_always") {
+      await this.mcpToolPolicyUpdater.approveMcpTool(
+        pending.installationId,
+        pending.toolName,
+      );
+    }
+    session.pendingMcpPermissions.delete(request.requestId);
+    session.client.respondMcpToolPermission(request.requestId, decision);
   }
 
   getQueue(taskId: string): Promise<PiQueueSnapshot> {
@@ -619,8 +656,15 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     cwd: string,
     projectTrustPath: string,
   ): ManagedPiSession {
+    const pendingMcpPermissions = new Map<string, McpToolPermissionRequest>();
+    runtime.client.onMcpToolPermissionRequest((request) => {
+      pendingMcpPermissions.set(request.requestId, request);
+      this.emit("mcpPermissionRequest", { taskId, request });
+    });
+
     const session: ManagedPiSession = {
       client: runtime.client,
+      pendingMcpPermissions,
       runtime,
       cwd,
       projectTrustPath,

@@ -105,7 +105,8 @@ const {
   };
 });
 
-import { isVersionNewer, UpdatesService } from "./updates";
+import { UpdatesService } from "./updates";
+import { isVersionNewer } from "./version";
 
 function injectPorts(service: UpdatesService): void {
   const s = service as unknown as Record<string, unknown>;

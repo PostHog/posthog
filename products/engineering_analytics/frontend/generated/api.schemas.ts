@@ -27,6 +27,7 @@ export interface WorkflowCostApi {
 
 /**
  * * `breaking_master` - BREAKING_MASTER
+ * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
  * * `novel_burst` - NOVEL_BURST
  * * `potentially_resolved` - POTENTIALLY_RESOLVED
  * * `flaky` - FLAKY
@@ -36,6 +37,7 @@ export type BrokenTestRowStateEnumApi = (typeof BrokenTestRowStateEnumApi)[keyof
 
 export const BrokenTestRowStateEnumApi = {
     BreakingMaster: 'breaking_master',
+    BlockingMergeQueue: 'blocking_merge_queue',
     NovelBurst: 'novel_burst',
     PotentiallyResolved: 'potentially_resolved',
     Flaky: 'flaky',
@@ -53,9 +55,10 @@ export interface BrokenTestRowApi {
     job_name: string
     /** 'owner/name' repository the failure belongs to. */
     repo: string
-    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
+    /** The classifier's verdict on how this failure is behaving right now: 'breaking_master' (failing on trunk, latest trunk run still red), 'blocking_merge_queue' (stopped a merge on a commit that already passed the PR's own CI, trunk still green), 'novel_burst' (new within a day and spreading across branches, not on trunk yet), 'potentially_resolved' (hit trunk but trunk is green again), 'flaky' (sporadic across branches over more than a day), or 'pr_only' (confined to one branch — one PR's own problem).
      *
      * * `breaking_master` - BREAKING_MASTER
+     * * `blocking_merge_queue` - BLOCKING_MERGE_QUEUE
      * * `novel_burst` - NOVEL_BURST
      * * `potentially_resolved` - POTENTIALLY_RESOLVED
      * * `flaky` - FLAKY

@@ -89,6 +89,12 @@ export function toDateTime(input: string | number, zone?: string): HogDateTime {
     }
 }
 
+/** Epoch seconds for a date-like string, parsed the same way `toDateTime` would, else null. */
+export function dateStringToSeconds(input: string): number | null {
+    const dt = DateTime.fromISO(input, { zone: 'UTC' })
+    return dt.isValid ? dt.toSeconds() : null
+}
+
 /** Convert from ClickHouse format string to Luxon format string */
 const tokenTranslations: Record<string, string> = {
     a: 'EEE',
