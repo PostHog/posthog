@@ -204,7 +204,6 @@ function ConversationsWidgetRow({
                         </div>
                     ) : null}
                     <div className="ml-auto shrink-0">
-                        Last updated{' '}
                         <TZLabel time={ticket.updated_at} showPopover={false} className="text-xs text-muted" />
                     </div>
                 </div>
