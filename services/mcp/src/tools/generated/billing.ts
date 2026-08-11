@@ -64,7 +64,7 @@ const BillingSpendRetrieveSchema = BillingSpendRetrieveQueryParams.extend({
         'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
     ),
     breakdowns: BillingSpendRetrieveQueryParams.shape['breakdowns'].describe(
-        'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass as e.g. `["type","team"]` or `["team"]`. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
+        'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
     ),
     interval: BillingSpendRetrieveQueryParams.shape['interval'].describe(
         'Time bucket size, one of "day" or "week". Default "day".'
@@ -105,7 +105,7 @@ const BillingUsageRetrieveSchema = BillingUsageRetrieveQueryParams.extend({
         'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
     ),
     breakdowns: BillingUsageRetrieveQueryParams.shape['breakdowns'].describe(
-        'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass as e.g. `["type","team"]` or `["team"]`. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
+        'JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like "type,team" will fail with a 400 error.'
     ),
     interval: BillingUsageRetrieveQueryParams.shape['interval'].describe(
         'Time bucket size, one of "day" or "week". Default "day".'
