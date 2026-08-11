@@ -149,6 +149,7 @@ function AppScene(): JSX.Element | null {
     const unauthToastContainer = (
         <ToastContainer
             autoClose={6000}
+            pauseOnFocusLoss={false}
             transition={Slide}
             closeButton={<ToastCloseButton />}
             position="bottom-right"

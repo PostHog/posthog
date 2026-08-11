@@ -247,7 +247,15 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
                 if (!journey) {
                     return null
                 }
-                return await insightsApi.getByNumericId(journey.insight)
+                try {
+                    return await insightsApi.getByNumericId(journey.insight)
+                } catch (error) {
+                    // A journey can point at an insight that was since deleted. Return null so the
+                    // panel shows its own "Insight not found" state, instead of letting the 404
+                    // escape as a global toast that then trails across unrelated scenes.
+                    posthog.captureException(error)
+                    return null
+                }
             },
         },
     })),

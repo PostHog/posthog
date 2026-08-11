@@ -56,6 +56,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
             </div>
             <ToastContainer
                 autoClose={6000}
+                pauseOnFocusLoss={false}
                 transition={Slide}
                 closeButton={<ToastCloseButton />}
                 position="bottom-right"
