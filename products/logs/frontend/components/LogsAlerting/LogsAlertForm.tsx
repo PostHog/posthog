@@ -128,7 +128,7 @@ export function LogsAlertFilters(): JSX.Element {
     return (
         <div className="space-y-5">
             <h4 className="m-0">Filters</h4>
-            <div className="max-w-md space-y-5">
+            <div className="grid max-w-3xl gap-5 md:grid-cols-2">
                 <LemonField name="severityLevels" label="Severity">
                     <SeverityLevelsFilter
                         value={alertForm.severityLevels}
