@@ -219,6 +219,9 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
+    After the publish stage the workflow captures a **`reviewhog_review_completed`** product-analytics event —
+    one per finalized turn (published or stored), carrying repository / PR / trigger / finding-count / PR-size
+    properties (`track_review_completed_activity`). Best-effort: telemetry can never fail a review.
 
 ---
 

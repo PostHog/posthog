@@ -88,11 +88,12 @@ export function ThreadView({
         currentRunStatus,
         contextUsage,
         runConnectionState,
+        logBootstrapLoading,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
-    // meaningful turn, response below — rather than the absolute bottom; a fresh send (the key changing)
-    // pins it to the top of the viewport with space reserved below for the streaming response.
+    // meaningful turn, response below — when at least a viewport of content follows it (otherwise the
+    // bottom); a fresh send (a new key) pins the thread to the bottom to follow the streaming response.
     const anchorItemKey = useMemo(
         () => threadItems.findLast((item) => item.type === 'human_message')?.id ?? null,
         [threadItems]
@@ -177,9 +178,15 @@ export function ThreadView({
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
             anchorItemKey={anchorItemKey}
+            // The history replay folds in over several commits (debug rows land before the human turns);
+            // the opening scroll must wait for the full log or it opens at the bottom of a partial thread.
+            itemsLoading={logBootstrapLoading}
             header={header}
             footer={footer}
             stickToBottom
+            // Provisioning counts too: the optimistic "spinning up" window is part of the turn, so the
+            // thread is already pinned when the first streamed rows land.
+            turnActive={streamPhase !== 'idle'}
             virtualized={virtualized}
             className={className}
             listClassName={listClassName}

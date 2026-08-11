@@ -329,7 +329,23 @@ def to_config(
             else:
                 inputs[field.name] = _convert_value(convert, value, field.name)
 
-    return config_cls(**inputs)
+    try:
+        return config_cls(**inputs)
+    except TypeError as e:
+        # Stored job inputs that don't supply a required (no-default) field make
+        # `config_cls(**inputs)` raise the opaque builtin
+        # `TypeError: X.__init__() missing 1 required positional argument: 'y'`, which is
+        # impossible to triage from error tracking. Re-raise naming the missing field(s) — only
+        # the field names, never their values, so no secret leaks. Kept a TypeError so the
+        # union-config recursion above still catches it and tries the remaining arms.
+        missing = [
+            f.name
+            for f in fields
+            if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING and f.name not in inputs
+        ]
+        if not missing:
+            raise
+        raise TypeError(f"Cannot build '{config_cls.__name__}': missing required field(s) {missing}") from e
 
 
 def _resolve_field_type(field: dataclasses.Field[typing.Any], module_path: str) -> type:

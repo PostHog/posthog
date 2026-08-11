@@ -6,8 +6,8 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.airops.source import AirOpsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.airops import AirOpsSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 

@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn import AutumnResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.autumn.source import AutumnSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.autumn import AutumnSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 

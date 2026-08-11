@@ -405,14 +405,16 @@ class TestScoutReportCharts(BaseTest):
         ).values_list("content", flat=True)
         assert any("Replaced report charts" in str(content) for content in notes)
 
-    def test_setting_no_charts_leaves_the_report_s_charts_alone(self) -> None:
-        # An edit that only appends a note must not clear the report's charts — the tool reaches here
-        # for every edit, and "no charts supplied" means untouched, not emptied.
+    def test_setting_an_empty_set_takes_the_report_s_charts_down(self) -> None:
+        # An empty set is a real write, not a no-op: it's the only way a scout can retract a chart it
+        # no longer stands behind. "Leave them alone" is expressed by not calling this at all, which
+        # is `_build_edit_charts` returning None for an edit that supplied no `charts`. Clearing a
+        # report that has no charts is still a re-send of what's stored, so it reports no change.
         report_id = self._create([self._chart("signups-drop", "Daily signups")])
 
-        set_report_charts(team_id=self.team.id, report_id=report_id, charts=[])
-
-        assert len(self._stored_charts(report_id)) == 1
+        assert set_report_charts(team_id=self.team.id, report_id=report_id, charts=[]) is True
+        assert self._stored_charts(report_id) == []
+        assert set_report_charts(team_id=self.team.id, report_id=report_id, charts=[]) is False
 
     @parameterized.expand(
         [

@@ -24,7 +24,7 @@ export function OrganizationDeactivated(): JSX.Element {
                 <div className="flex flex-col gap-4 items-center text-center">
                     <HedgehogStop className="w-52 h-52" />
                     <h3>Your organization has been deactivated. {isNotActiveReason}</h3>
-                    <SupportModalButton kind="support" target_area="billing" label="Contact support" />
+                    <SupportModalButton kind="support" billingIssue label="Contact support" />
                 </div>
             </LemonCard>
         </div>

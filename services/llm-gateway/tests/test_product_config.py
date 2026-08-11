@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    MODEL_ACCESS_FLAGS,
     POSTHOG_AI_DEV_APP_ID,
     POSTHOG_AI_EU_APP_ID,
     POSTHOG_AI_US_APP_ID,
@@ -16,11 +17,13 @@ from llm_gateway.products.config import (
     PRODUCTS,
     TWIG_EU_APP_ID,
     TWIG_US_APP_ID,
+    UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS,
     WIZARD_EU_APP_ID,
     WIZARD_US_APP_ID,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
+    get_required_model_flag,
     resolve_product_alias,
     validate_product,
 )
@@ -45,6 +48,22 @@ class TestCheckProductAccess:
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
             ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
+            (
+                "llm_gateway",
+                "personal_api_key",
+                None,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                False,
+                "not allowed",
+            ),
+            (
+                "review_hog",
+                "personal_api_key",
+                None,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
             # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
             ("ci", "personal_api_key", None, "claude-3-opus", True, None),
             ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
@@ -53,6 +72,14 @@ class TestCheckProductAccess:
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
             ("posthog_code", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
+            (
+                "posthog_code",
+                "oauth_access_token",
+                POSTHOG_CODE_US_APP_ID,
+                "deepseek-ai/deepseek-v4-flash-0731",
+                True,
+                None,
+            ),
             # wizard allows API keys and OAuth with valid app ID
             ("wizard", "personal_api_key", None, "claude-3-opus", True, None),
             ("wizard", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
@@ -110,6 +137,12 @@ class TestCheckProductAccess:
             ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-terra-pro", False, "not allowed"),
             ("changelog_bot", "personal_api_key", None, "openai/gpt-5.6-sol-pro", False, "not allowed"),
             ("changelog_bot", "oauth_access_token", "any-app-id", "openai/gpt-5.6-terra", False, "not authorized"),
+            # review_hog: shared-key auth, models pinned to the review pipeline's constants —
+            # the opus-5 outcome judge and the experiment's Codex arm must stay allowed, and
+            # anything off the pin list is rejected.
+            ("review_hog", "personal_api_key", None, "claude-opus-5", True, None),
+            ("review_hog", "personal_api_key", None, "gpt-5.6-sol", True, None),
+            ("review_hog", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -150,12 +183,21 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "deepseek-ai/deepseek-v4-flash-0731",
         ],
     )
     def test_posthog_code_allows_restricted_models_with_valid_app_id(self, model: str):
         allowed, error = check_product_access("posthog_code", "oauth_access_token", POSTHOG_CODE_US_APP_ID, model)
         assert allowed is True
         assert error is None
+
+    def test_slack_app_rejects_deepseek_despite_shared_allowlist(self):
+        allowed, error = check_product_access(
+            "slack_app", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "deepseek-ai/deepseek-v4-flash-0731"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not allowed" in error
 
     @pytest.mark.parametrize(
         "model",
@@ -284,6 +326,7 @@ class TestCheckProductAccess:
             "gpt-5.3-codex",
             "gpt-5.2",
             "gpt-5-mini",
+            "gpt-5.6-sol",
         ],
     )
     def test_background_agents_allows_configured_models(self, model: str):
@@ -563,9 +606,9 @@ class TestCheckFreeTierModelAccess:
 
 class TestServerCredentialRequirement:
     """The internal products that share the PostHog Desktop OAuth app (background_agents, signals,
-    slack_app, conversations) must accept only server-minted tokens — those carrying the internal
-    `internal_run:read` marker. Otherwise a user's own Desktop OAuth token could route around the
-    posthog_code free-tier gate through these products to premium models."""
+    slack_app, conversations, onboarding) must accept only server-minted tokens — those carrying the
+    internal `internal_run:read` marker. Otherwise a user's own Desktop OAuth token could route around
+    the posthog_code free-tier gate through these products to premium models."""
 
     _MARKER_SCOPES = ["llm_gateway:read", "task:write", "internal_run:read"]
 
@@ -578,7 +621,7 @@ class TestServerCredentialRequirement:
         yield
         get_settings.cache_clear()
 
-    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations", "onboarding"])
     def test_oauth_without_marker_is_rejected(self, product: str):
         # a desktop Code token (wildcard scope, no internal marker); claude-sonnet-5 is in every
         # sibling's model list, so the rejection is unambiguously the missing server credential
@@ -588,7 +631,7 @@ class TestServerCredentialRequirement:
         assert allowed is False
         assert error is not None and "server-minted" in error
 
-    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations"])
+    @pytest.mark.parametrize("product", ["background_agents", "signals", "slack_app", "conversations", "onboarding"])
     def test_oauth_with_marker_is_allowed(self, product: str):
         allowed, error = check_product_access(
             product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", scopes=self._MARKER_SCOPES
@@ -624,6 +667,33 @@ class TestServerCredentialRequirement:
         assert allowed is True
         assert error is None
 
+    # The rest of this class runs with the gate forced on, which is the state in which the
+    # requirement was already known to hold. These cover the default state, where the products that
+    # never shipped without the check have to enforce it anyway. Spelled out rather than derived
+    # from UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS: parameterizing over the set under test would
+    # make dropping a product from it delete its own coverage instead of failing.
+    @pytest.mark.parametrize("product", ["custom_image_scans", "onboarding"])
+    def test_gate_disabled_still_refuses_unconditional_products(self, product: str, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_product_access(product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, scopes=["*"])
+        assert allowed is False
+        assert error is not None and "server-minted" in error
+
+    @pytest.mark.parametrize("product", ["custom_image_scans", "onboarding"])
+    def test_gate_disabled_still_admits_server_minted_tokens(self, product: str, monkeypatch: pytest.MonkeyPatch):
+        from llm_gateway.config import get_settings
+
+        monkeypatch.delenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", raising=False)
+        get_settings.cache_clear()
+        allowed, error = check_product_access(
+            product, "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, scopes=self._MARKER_SCOPES
+        )
+        assert allowed is True
+        assert error is None
+
 
 _CODE_APP_IDS = frozenset({POSTHOG_CODE_DEV_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_US_APP_ID})
 _CODE_APP_PRODUCTS = [
@@ -646,9 +716,38 @@ class TestServerCredentialConfigInvariant:
             "posthog_code free-tier model gate"
         )
 
+    def test_unconditional_products_are_the_ones_enforcing_without_the_flag(self):
+        # Pairs with the two flag-off tests above, which name their products literally. If a
+        # product is added here without flag-off coverage, or removed from here while still
+        # expected to enforce, exactly one of the two sides fails.
+        assert UNCONDITIONAL_SERVER_CREDENTIAL_PRODUCTS == frozenset({"custom_image_scans", "onboarding"})
+
     def test_posthog_code_is_the_only_code_app_product_open_to_user_tokens(self):
         # desktop users hold marker-less Code tokens; requiring the marker on the
         # user-facing product would lock them all out. Membership is asserted so a
         # broken _CODE_APP_PRODUCTS derivation can't quietly hollow out this class.
         assert "posthog_code" in _CODE_APP_PRODUCTS
         assert PRODUCTS["posthog_code"].requires_server_credential is False
+
+
+class TestModelAccessFlag:
+    @pytest.mark.parametrize(
+        "model,gated",
+        [
+            ("moonshotai/kimi-k3", "moonshotai/kimi-k3"),
+            ("MoonshotAI/Kimi-K3", "moonshotai/kimi-k3"),
+            ("  moonshotai/kimi-k3  ", "moonshotai/kimi-k3"),
+            ("deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+            ("DeepSeek-AI/DeepSeek-V4-Flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+        ],
+    )
+    def test_gated_model_requires_its_own_flag(self, model: str, gated: str):
+        # each model resolves to its own dedicated access flag, not a shared one
+        assert get_required_model_flag(model) == MODEL_ACCESS_FLAGS[gated]
+
+    def test_kimi_and_deepseek_use_distinct_flags(self):
+        assert MODEL_ACCESS_FLAGS["moonshotai/kimi-k3"] != MODEL_ACCESS_FLAGS["deepseek-ai/deepseek-v4-flash-0731"]
+
+    @pytest.mark.parametrize("model", [None, "", "gpt-5.2", "claude-opus-5", "@cf/zai-org/glm-5.2"])
+    def test_ungated_models_need_no_flag(self, model: str | None):
+        assert get_required_model_flag(model) is None

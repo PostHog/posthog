@@ -14,7 +14,6 @@ from urllib.parse import urlencode, urljoin
 import requests
 import structlog
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -29,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponsePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.constants import (
     REVENUECAT_API_BASE_URL,
     REVENUECAT_AUTO_WEBHOOK_NAME,
@@ -179,7 +179,7 @@ def _project_not_found_error(entered_project_id: str, accessible_ids: list[str])
     )
 
 
-def _format_http_error(error: requests.HTTPError) -> str:
+def _format_http_error(error: requests.HTTPError, forbidden_hint: str | None = None) -> str:
     response = error.response
     status_code = response.status_code if response is not None else None
     if status_code == 401:
@@ -188,10 +188,10 @@ def _format_http_error(error: requests.HTTPError) -> str:
             "from Project settings > API keys and check that it has not been revoked."
         )
     if status_code == 403:
-        return (
-            "RevenueCat denied the request (403). Make sure the v2 secret API key "
-            "has the permissions required for this resource."
-        )
+        # This formatter also serves webhook create/delete, which need write scope, so the default
+        # stays scope-neutral. Read-only callers pass a read-specific hint.
+        detail = forbidden_hint or "Make sure the v2 secret API key has the permissions this request needs."
+        return f"RevenueCat denied the request (403). {detail}"
     if status_code == 404:
         return "RevenueCat could not find the project (404). Double-check the project id."
     if status_code == 429:
@@ -215,7 +215,13 @@ def validate_credentials(api_key: str, project_id: str | None) -> tuple[bool, st
     try:
         accessible_ids = _list_accessible_project_ids(session)
     except requests.HTTPError as e:
-        return False, _format_http_error(e)
+        return False, _format_http_error(
+            e,
+            forbidden_hint=(
+                "The v2 secret API key is missing read access. Give it read permission for the data "
+                "you want to sync, then reconnect."
+            ),
+        )
     except requests.RequestException as e:
         return False, f"Could not reach RevenueCat: {e}"
 

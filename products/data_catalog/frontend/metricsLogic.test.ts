@@ -139,4 +139,25 @@ describe('metricsLogic', () => {
 
         expect(logic.values.allMetrics).toHaveLength(0)
     })
+
+    it('creates a metric from an insight with the short id and no definition', async () => {
+        ;(dataCatalogMetricsCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ id: 'metric-3', name: 'from_insight', source_insight_short_id: 'abc123' })
+        )
+
+        logic.actions.openMetricFromInsightModal()
+        logic.actions.createMetricFromInsight({
+            name: 'from_insight',
+            display_name: '',
+            description: 'Snapshotted from an insight',
+            source_insight_short_id: 'abc123',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        const body = (dataCatalogMetricsCreate as jest.Mock).mock.calls.at(-1)?.[1]
+        expect(body.source_insight_short_id).toEqual('abc123')
+        expect(body.definition).toBeUndefined()
+        expect(logic.values.metricFromInsightModalOpen).toEqual(false)
+        expect(logic.values.allMetrics.map((metric) => metric.name)).toContain('from_insight')
+    })
 })

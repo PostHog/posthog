@@ -165,7 +165,7 @@ export REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 export SECRET_KEY="${SECRET_KEY:-multinode-smoke-not-a-real-secret}"
 
 if [ -n "${PRIME_POSTGRES_FROM:-}" ] && [ -f "${PRIME_POSTGRES_FROM}" ]; then
-    # CI primes Postgres from a cached schema dump produced by the
+    # CI primes Postgres from the master schema dump produced by the
     # "Validate migrations" job in ci-backend.yml. Loading via psql is much
     # faster than running every Django migration from scratch. Pair this with
     # SKIP_ASYNC_MIGRATIONS_SETUP=1 because PostHogConfig.ready() otherwise
@@ -189,7 +189,9 @@ else
     # read path; CI does that and points PRIME_POSTGRES_FROM at a cached
     # schema dump so this branch is only taken on cache miss.
     echo "==> Running Django (Postgres) migrations..."
-    python manage.py migrate --noinput
+    # --skip-checks: the Django system check pass costs ~1 minute here and
+    # runs in its own CI job already.
+    python manage.py migrate --noinput --skip-checks
 fi
 
 SMOKE_STAGE="migrate_clickhouse"

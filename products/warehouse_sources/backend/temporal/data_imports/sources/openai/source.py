@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,8 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openai import OpenAISourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai.openai import (
+    OPENAI_BASE_URL,
     OpenAIResumeConfig,
     openai_source,
     validate_credentials as validate_openai_credentials,
@@ -82,6 +80,19 @@ Create an Admin API key (prefixed `sk-admin...`) in your [OpenAI organization se
         return {
             "401 Client Error: Unauthorized for url: https://api.openai.com": "Your OpenAI Admin API key is invalid or has been revoked. Create a new Admin API key in your OpenAI organization settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.openai.com": "Your OpenAI API key does not have organization admin access. Use an Admin API key (prefixed sk-admin) created by an organization owner, then reconnect.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # The shared RESTClient (rest_client.py) already retries 429/5xx responses, connection
+        # resets, timeouts, and malformed-JSON bodies in-process via tenacity (5 attempts,
+        # exponential backoff honoring Retry-After) before re-raising RESTClientRetryableError.
+        # A failure that survives all 5 attempts is a transient OpenAI / edge blip, not a bug —
+        # Temporal's activity retry recovers once the upstream issue clears, so keep it out of
+        # error tracking as noise. The status code and path vary per request; the API host doesn't,
+        # so match on that rather than the volatile parts of the message.
+        return {
+            f"for {OPENAI_BASE_URL}",
+            f"from {OPENAI_BASE_URL}",
         }
 
     def get_schemas(

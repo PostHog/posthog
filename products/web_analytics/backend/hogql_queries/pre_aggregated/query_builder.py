@@ -31,6 +31,9 @@ class WebAnalyticsPreAggregatedQueryBuilder:
     def can_use_preaggregated_tables(self) -> bool:
         query = self.runner.query
 
+        if self.runner.rewritten_first_pageview_filters:
+            return False
+
         for prop in query.properties:
             if hasattr(prop, "type") and prop.type == "cohort":
                 return False

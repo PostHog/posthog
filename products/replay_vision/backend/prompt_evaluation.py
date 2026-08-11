@@ -12,6 +12,7 @@ from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
+from products.replay_vision.backend.tags import slugify_tag
 
 # Sized for a full run at the session cap (100 sessions, 4 concurrent, a few minutes each).
 # Lives here rather than temporal/constants so quota-path imports don't drag in the temporal package.
@@ -78,7 +79,10 @@ def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
     verdict = output.get("verdict")
     if isinstance(verdict, str) and verdict:
         return f"Verdict: {verdict.strip().lower()}"
-    tags = sorted(t.strip().lower() for t in (output.get("tags") or []) if isinstance(t, str) and t.strip())
+    # Freeform tags are part of a classifier's output, so a rewrite that only changes them must not read as
+    # "no change". Matches `describe_output`, which merges both lists.
+    raw_tags = [*(output.get("tags") or []), *(output.get("tags_freeform") or [])]
+    tags = sorted({slug for t in raw_tags if isinstance(t, str) and (slug := slugify_tag(t))})
     if tags:
         return f"Tags: {', '.join(tags)}"
     # Preview types have no discrete outcome, so show the raw output the reviewer compares by eye.
@@ -126,21 +130,31 @@ def in_flight_evaluation_credits(organization_id: uuid.UUID) -> int:
         team__organization_id=organization_id, evaluation__status="running"
     ).values_list("evaluation", "scanner__model")
     total = 0
-    for evaluation, model in rows:
+    for evaluation, scanner_model in rows:
         if not isinstance(evaluation, dict) or not evaluation_in_flight(evaluation):
             continue
         unsettled = max(0, int(evaluation.get("total") or 0) - len(evaluation.get("results") or []))
+        # Receipts bill the model frozen at workflow start, so the reservation prices from the same frozen
+        # value. Stubs written before the field existed fall back to the scanner's current model.
+        model = evaluation.get("model") or scanner_model
         total += unsettled * observation_credits_for_model(model or "")
     return total
 
 
-def build_running_evaluation(total: int, labels_fingerprint: str) -> dict[str, Any]:
+def build_running_evaluation(
+    total: int,
+    labels_fingerprint: str,
+    model: str | None = None,
+    started_at: str | None = None,
+) -> dict[str, Any]:
     return {
         "status": "running",
-        "started_at": timezone.now().isoformat(),
+        # Usage receipt ids are keyed on this, so a restamp mid-run must reuse the original value.
+        "started_at": started_at or timezone.now().isoformat(),
         "finished_at": None,
         "total": total,
         "labels_fingerprint": labels_fingerprint,
+        "model": model,
         "results": [],
         "summary": None,
     }

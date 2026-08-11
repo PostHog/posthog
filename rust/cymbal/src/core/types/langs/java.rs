@@ -70,7 +70,10 @@ impl RawJavaFrame {
                 vec![self.handle_resolution_error(ProguardError::MissingMap(chunk_id))],
             ),
             Err(ResolveError::ResolutionError(e)) => {
-                warn!("Unexpected Proguard symbol resolution error: {:?}", e);
+                warn!(
+                    team_id,
+                    "Unexpected Proguard symbol resolution error: {:?}", e
+                );
                 Ok(vec![
                     self.handle_resolution_error(ProguardError::InvalidMapping)
                 ])
@@ -188,7 +191,6 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
 
             junk_drawer: None,
             code_variables: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,
@@ -220,7 +222,6 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolve_failure,
             junk_drawer: None,
             code_variables: None,
-            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,

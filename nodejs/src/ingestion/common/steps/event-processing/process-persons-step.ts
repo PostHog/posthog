@@ -45,7 +45,6 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
         partitionCount: options.PERSON_MERGE_EVENTS_PARTITION_COUNT,
         isTeamEnabled: buildIntegerMatcher(options.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST, true),
     }
-
     return async function processPersonsStep(
         input: TInput
     ): Promise<PipelineResult<TInput & ProcessPersonsOutput, AsyncOutput>> {

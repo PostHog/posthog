@@ -14,10 +14,6 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -34,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tiktokads import (
     TikTokAdsSourceConfig,
 )
@@ -43,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     tiktok_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_APP_TOKEN_MISMATCH_MESSAGE,
     TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_CODES,
@@ -84,6 +82,15 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
             # the customer has to reconnect.
             "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your TikTok Ads integration.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # The paginator's `update_state` raises this exact prefix for every TikTok API code
+            # it already classifies as transient (rate limits, "System error", maintenance) — see
+            # `TikTokAdsPaginator.update_state`'s `retryable_codes`. Temporal retries the whole
+            # activity regardless, so this shouldn't page us as a bug.
+            "TikTok API error:",
         }
 
     @property
@@ -156,7 +163,9 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # Transient and TikTok/network-side: map to the same actionable "try again" message.
             raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
         except TikTokAdsAPIError as e:
-            if e.api_code in TIKTOK_AUTH_ERROR_CODES:
+            if e.api_code in TIKTOK_AUTH_ERROR_CODES or (
+                e.api_code == 40000 and TIKTOK_APP_TOKEN_MISMATCH_MESSAGE in str(e)
+            ):
                 raise IntegrationAccountListingError(
                     "TikTok rejected the credentials for this integration. Please reconnect your TikTok Ads "
                     "integration and make sure the connected account can access your advertiser accounts."
@@ -206,6 +215,7 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
                 supports_incremental=endpoint_config.incremental_fields is not None,
                 supports_append=False,
                 incremental_fields=endpoint_config.incremental_fields or [],
+                should_sync_default=endpoint_config.should_sync_default,
             )
             for endpoint_config in TIKTOK_ADS_CONFIG.values()
         ]

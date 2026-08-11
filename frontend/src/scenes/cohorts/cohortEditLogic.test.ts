@@ -1304,4 +1304,32 @@ describe('cohortEditLogic', () => {
             expect(logic.values.activeTab).toBe('overview')
         })
     })
+
+    describe('filter out test accounts', () => {
+        it('setFilterTestAccounts toggles the flag in filters', async () => {
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+            }).toMatchValues({
+                cohort: partial({ filters: partial({ filterTestAccounts: true }) }),
+            })
+        })
+
+        it('setOuterGroupsType preserves the filterTestAccounts flag', async () => {
+            // Regression guard: setOuterGroupsType used to rebuild `filters` from scratch, dropping
+            // sibling keys like filterTestAccounts.
+            await initCohortLogic({ id: 'new' })
+            await expectLogic(logic, () => {
+                logic.actions.setFilterTestAccounts(true)
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({
+                cohort: partial({
+                    filters: partial({
+                        filterTestAccounts: true,
+                        properties: partial({ type: FilterLogicalOperator.And }),
+                    }),
+                }),
+            })
+        })
+    })
 })

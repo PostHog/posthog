@@ -58,7 +58,8 @@ class AlertPolicy:
     flag speculatively, and do not change a default without checking every adopter.
     """
 
-    max_consecutive_failures: int = MAX_CONSECUTIVE_FAILURES
+    # None keeps failures from escalating to BROKEN for products without that state.
+    max_consecutive_failures: int | None = MAX_CONSECUTIVE_FAILURES
     # True (logs): BROKEN is terminal until an explicit user reset. False (billing):
     # a successful check on a BROKEN alert re-evaluates it from scratch — manual
     # check-now is billing's only un-break path.
@@ -73,6 +74,10 @@ class AlertPolicy:
     cooldown_gates_resolve: bool = True
     # True: an alert that stays breached re-notifies once per cooldown window.
     renotify_while_firing: bool = False
+    # False for products that record recovery without sending a resolve notification.
+    notify_resolve: bool = True
+    # Some adopters expose evaluation failures as a visible ERRORED state.
+    errors_set_errored_state: bool = False
     # True (billing): snooze only mutes while breached — a clear check resolves and
     # un-snoozes; a breached check parks the alert in SNOOZED without notifying.
     # False (logs): a snoozed alert stays snoozed untouched until snooze_until passes.
@@ -243,7 +248,8 @@ def evaluate_alert_check(
                 notification = NotificationAction.FIRE
         else:
             new_state = AlertState.NOT_FIRING
-            notification = NotificationAction.RESOLVE
+            if policy.notify_resolve:
+                notification = NotificationAction.RESOLVE
 
     else:
         new_state = AlertState.NOT_FIRING
@@ -301,7 +307,7 @@ def evaluate_alert_failure(
 
     consecutive_failures = snapshot.consecutive_failures + 1
 
-    if consecutive_failures >= policy.max_consecutive_failures:
+    if policy.max_consecutive_failures is not None and consecutive_failures >= policy.max_consecutive_failures:
         return AlertCheckOutcome(
             new_state=AlertState.BROKEN,
             notification=NotificationAction.BROKEN,
@@ -318,8 +324,9 @@ def evaluate_alert_failure(
     else:
         notification = NotificationAction.NONE
 
+    new_state = AlertState.ERRORED if policy.errors_set_errored_state else snapshot.state
     return AlertCheckOutcome(
-        new_state=snapshot.state,
+        new_state=new_state,
         notification=notification,
         consecutive_failures=consecutive_failures,
         update_last_notified_at=False,
@@ -357,10 +364,8 @@ def apply_unsnooze(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
     return ControlPlaneOutcome(new_state=AlertState.NOT_FIRING, consecutive_failures=0)
 
 
-def apply_threshold_change(snapshot: StatefulSnapshot) -> ControlPlaneOutcome:
-    # Snoozed alerts stay snoozed on edit — editing configuration must not wake a
-    # silenced alert.
-    if snapshot.state == AlertState.SNOOZED:
+def apply_threshold_change(snapshot: StatefulSnapshot, *, preserve_snoozed_state: bool = True) -> ControlPlaneOutcome:
+    if preserve_snoozed_state and snapshot.state == AlertState.SNOOZED:
         return ControlPlaneOutcome(
             new_state=AlertState.SNOOZED,
             consecutive_failures=snapshot.consecutive_failures,

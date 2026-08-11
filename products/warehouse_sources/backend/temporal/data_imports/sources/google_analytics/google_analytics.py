@@ -15,14 +15,14 @@ from google.oauth2.credentials import Credentials as OAuthCredentials
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.settings import (
-    GOOGLE_ANALYTICS_REPORT_SCHEMAS,
+    build_report_schemas,
 )
 
 logger = structlog.get_logger(__name__)
@@ -299,10 +299,11 @@ def google_analytics_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
-    if resource_name not in GOOGLE_ANALYTICS_REPORT_SCHEMAS:
+    report_schemas = build_report_schemas(config.custom_reports)
+    if resource_name not in report_schemas:
         raise ValueError(f"Unknown Google Analytics schema: {resource_name}")
 
-    schema = GOOGLE_ANALYTICS_REPORT_SCHEMAS[resource_name]
+    schema = report_schemas[resource_name]
     dimensions = schema["dimensions"]
     metrics = schema["metrics"]
     primary_keys = list(schema["primary_key"])

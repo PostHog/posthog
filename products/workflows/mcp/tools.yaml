@@ -57,6 +57,9 @@ tools:
     hog-flows-discard-draft-create:
         operation: hog_flows_discard_draft_create
         enabled: false
+    hog-flows-email-sending-suspension-retrieve:
+        operation: hog_flows_email_sending_suspension_retrieve
+        enabled: false
     hog-flows-invocations-create:
         operation: hog_flows_invocations_create
         enabled: false
@@ -98,6 +101,9 @@ tools:
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-account-audience-create:
+        operation: internal_hog_flows_account_audience_create
         enabled: false
     internal-hog-flows-batch-jobs-status-update:
         operation: internal_hog_flows_batch_jobs_status_update
@@ -301,6 +307,27 @@ tools:
             Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
             LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
             results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
+    workflows-patch-action-email:
+        operation: hog_flows_actions_email_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: WorkflowActionEmailPatchSchema
+        title: Patch a workflow step's email
+        description: >
+            Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design
+            changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template,
+            addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and
+            email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
+            server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
+            nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
+            reaches real people until workflows-publish. The full updated workflow is returned. Prefer this over
+            workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
+            sync. For library templates use workflows-patch-email-template instead.
     workflows-patch-graph:
         operation: hog_flows_graph_partial_update
         enabled: true
@@ -321,11 +348,10 @@ tools:
             validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise nothing
             changes. On an active workflow, patches stage a draft instead of changing what's running: the first patch
             copies the live graph into the draft, later patches compose onto it, and nothing reaches real people until
-            workflows-publish. A rejection saying active workflows can't be edited means draft editing isn't enabled for
-            this project yet — then a live change means recreating the workflow as a new draft. The full updated
-            workflow is returned, so you don't need to re-fetch before the next edit. When adding or editing a
-            conditional_branch, each condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not
-            {properties:[...]} on the condition. Re-test the changed path with workflows-test-run after patching.
+            workflows-publish. The full updated workflow is returned, so you don't need to re-fetch before the next
+            edit. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
+            {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
+            workflows-test-run after patching.
     workflows-publish:
         operation: hog_flows_publish_create
         enabled: true
@@ -420,10 +446,8 @@ tools:
             Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
-            content fields stage a draft (published with workflows-publish) while name/description apply immediately; a
-            rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet -
-            then a live change means recreating the workflow as a new draft. Status changes go through workflows-enable
-            / workflows-archive.
+            content fields stage a draft (published with workflows-publish) while name/description apply immediately.
+            Status changes go through workflows-enable / workflows-archive.
         exclude_params:
             - status
             - actions

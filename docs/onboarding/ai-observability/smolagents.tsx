@@ -17,7 +17,7 @@ export const getSmolagentsSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-smolagents)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
                             wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-smolagents).
                         </Markdown>

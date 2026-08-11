@@ -6,7 +6,6 @@ import requests
 from requests import Request, Response
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -14,13 +13,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.inflowinventory.settings import (
     INFLOWINVENTORY_ENDPOINTS,
 )
 
 INFLOWINVENTORY_BASE_URL = "https://cloudapi.inflowinventory.com"
-# inFlow requires a date-based API version header on every request; pin a recent documented version.
-INFLOWINVENTORY_API_VERSION = "2023-04-01"
+# inFlow requires a date-based API version on every request, sent in the Accept header. The resolved
+# source pin selects which of these labels is sent, so previously-created sources keep their behaviour.
+INFLOWINVENTORY_API_VERSION_2023_04_01 = "2023-04-01"
+INFLOWINVENTORY_API_VERSION_2026_07_10 = "2026-07-10"
 # The list endpoints accept up to 100 records per page; the largest page minimises round trips.
 PAGE_SIZE = 100
 # inFlow company IDs are GUIDs. Restrict to host/path-safe characters so the credential stays
@@ -40,22 +42,22 @@ def base_url(company_id: str) -> str:
     return f"{INFLOWINVENTORY_BASE_URL}/{company_id}"
 
 
-def _version_headers() -> dict[str, str]:
+def _version_headers(api_version: str) -> dict[str, str]:
     # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs and
     # raised error messages; only the non-secret version/accept header is set here.
-    return {"Accept": f"application/json;version={INFLOWINVENTORY_API_VERSION}"}
+    return {"Accept": f"application/json;version={api_version}"}
 
 
-def _headers(api_key: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {api_key}", **_version_headers()}
+def _headers(api_key: str, api_version: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", **_version_headers(api_version)}
 
 
-def _make_session(api_key: str) -> requests.Session:
+def _make_session(api_key: str, api_version: str) -> requests.Session:
     # Redirects are pinned off so the Bearer key can't be replayed to a cross-host redirect target
     # (SSRF / credential-exfiltration defense). urllib3 retries are disabled — the credential probe
     # is a single request that must not silently retry a transient failure.
     return make_tracked_session(
-        headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0)
+        headers=_headers(api_key, api_version), redact_values=(api_key,), allow_redirects=False, retry=Retry(total=0)
     )
 
 
@@ -121,6 +123,7 @@ def inflowinventory_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[InflowInventoryResumeConfig],
+    api_version: str,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = INFLOWINVENTORY_ENDPOINTS[endpoint]
@@ -128,7 +131,7 @@ def inflowinventory_source(
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": base_url(company_id),
-            "headers": _version_headers(),
+            "headers": _version_headers(api_version),
             "auth": {"type": "bearer", "token": api_key},
             "paginator": InflowInventoryPaginator(id_field=config.id_field, page_size=PAGE_SIZE),
             # Pin every request (including resume URLs) to the base_url host and reject any redirect
@@ -183,7 +186,7 @@ def inflowinventory_source(
     )
 
 
-def check_access(api_key: str, company_id: str, path: str = "products") -> tuple[int, Optional[str]]:
+def check_access(api_key: str, company_id: str, api_version: str, path: str = "products") -> tuple[int, Optional[str]]:
     """Probe a single endpoint to validate the credentials.
 
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
@@ -192,7 +195,7 @@ def check_access(api_key: str, company_id: str, path: str = "products") -> tuple
     if not COMPANY_ID_REGEX.match(company_id):
         return 400, "The inFlow Inventory company ID contains unsupported characters"
 
-    session = _make_session(api_key)
+    session = _make_session(api_key, api_version)
     try:
         response = session.get(f"{base_url(company_id)}/{path}", params={"count": 1}, timeout=15)
     except Exception as e:
@@ -207,8 +210,8 @@ def check_access(api_key: str, company_id: str, path: str = "products") -> tuple
     return 200, None
 
 
-def validate_credentials(api_key: str, company_id: str) -> tuple[bool, str | None]:
-    status, message = check_access(api_key, company_id)
+def validate_credentials(api_key: str, company_id: str, api_version: str) -> tuple[bool, str | None]:
+    status, message = check_access(api_key, company_id, api_version)
     if status == 200:
         return True, None
     if status in (401, 403):

@@ -107,6 +107,15 @@ const sqlVariablesCreate = (): ToolBase<typeof SqlVariablesCreateSchema, Schemas
         if (params.values !== undefined) {
             body['values'] = params.values
         }
+        if (params.is_multi !== undefined) {
+            body['is_multi'] = params.is_multi
+        }
+        if (params.values_query !== undefined) {
+            body['values_query'] = params.values_query
+        }
+        if (params.values_query_connection_id !== undefined) {
+            body['values_query_connection_id'] = params.values_query_connection_id
+        }
         const result = await context.api.request<Schemas.InsightVariable>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/insight_variables/`,
@@ -152,6 +161,15 @@ const sqlVariablesUpdate = (): ToolBase<typeof SqlVariablesUpdateSchema, Schemas
         }
         if (params.values !== undefined) {
             body['values'] = params.values
+        }
+        if (params.is_multi !== undefined) {
+            body['is_multi'] = params.is_multi
+        }
+        if (params.values_query !== undefined) {
+            body['values_query'] = params.values_query
+        }
+        if (params.values_query_connection_id !== undefined) {
+            body['values_query_connection_id'] = params.values_query_connection_id
         }
         const result = await context.api.request<Schemas.InsightVariable>({
             method: 'PATCH',
@@ -200,7 +218,7 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -231,7 +249,7 @@ const viewGet = (): ToolBase<typeof ViewGetSchema, WithPostHogUrl<Schemas.DataWa
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -258,7 +276,7 @@ const viewList = (): ToolBase<
             {
                 ...result,
                 results: await Promise.all(
-                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql/?open_view=${item.id}`))
+                    (result.results ?? []).map((item) => withPostHogUrl(context, item, `/sql?open_view=${item.id}`))
                 ),
             },
             '/sql'
@@ -270,51 +288,21 @@ const ViewMaterializeSchema = WarehouseSavedQueriesMaterializeCreateParams.omit(
     WarehouseSavedQueriesMaterializeCreateBody.shape
 )
 
-const viewMaterialize = (): ToolBase<
-    typeof ViewMaterializeSchema,
-    WithPostHogUrl<Schemas.DataWarehouseSavedQuery>
-> => ({
+const viewMaterialize = (): ToolBase<typeof ViewMaterializeSchema, unknown> => ({
     name: 'view-materialize',
     schema: ViewMaterializeSchema,
     handler: async (context: Context, params: z.infer<typeof ViewMaterializeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
-        if (params.folder_id !== undefined) {
-            body['folder_id'] = params.folder_id
-        }
-        if (params.edited_history_id !== undefined) {
-            body['edited_history_id'] = params.edited_history_id
-        }
-        if (params.soft_update !== undefined) {
-            body['soft_update'] = params.soft_update
-        }
-        if (params.dag_id !== undefined) {
-            body['dag_id'] = params.dag_id
-        }
-        if (params.is_test !== undefined) {
-            body['is_test'] = params.is_test
-        }
-        const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
+        const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/materialize/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
     },
 })
 
@@ -363,7 +351,7 @@ const viewRun = (): ToolBase<typeof ViewRunSchema, WithPostHogUrl<Schemas.DataWa
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -378,7 +366,7 @@ const viewRunHistory = (): ToolBase<typeof ViewRunHistorySchema, WithPostHogUrl<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run_history/`,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -430,7 +418,7 @@ const viewUnmaterialize = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/revert_materialization/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 
@@ -480,7 +468,7 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql/?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
     },
 })
 

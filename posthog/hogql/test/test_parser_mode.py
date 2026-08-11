@@ -10,7 +10,13 @@ from posthog.hogql import (
     parser as parser_module,
 )
 from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
-from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode, parse_expr, parse_select
+from posthog.hogql.parser import (
+    HogQLParserShadowMismatch,
+    _resolve_parser_mode,
+    parse_expr,
+    parse_select,
+    sanitize_client_parser_mode,
+)
 
 
 class TestParserMode(BaseTest):
@@ -47,6 +53,41 @@ class TestParserMode(BaseTest):
     def test_resolve_parser_mode_rejects_both_mode_and_backend(self):
         with self.assertRaises(ValueError):
             _resolve_parser_mode(ParserMode.RUST_PY_ONLY, "cpp-json")
+
+    @parameterized.expand(
+        [
+            # cpp-as-primary modes are untrusted from a client → neutralized to the safe default.
+            (ParserMode.CPP_ONLY, None),
+            (ParserMode.CPP_WITH_RUST_SHADOW, None),
+            (ParserMode.CPP_WITH_RUST_PY_SHADOW, None),
+            # cpp-as-shadow and rust-primary modes are safe (rust primary rejects deep input
+            # before the shadow runs) → passed through untouched.
+            (ParserMode.RUST_WITH_CPP_SHADOW, ParserMode.RUST_WITH_CPP_SHADOW),
+            (ParserMode.RUST_PY_WITH_CPP_SHADOW, ParserMode.RUST_PY_WITH_CPP_SHADOW),
+            (ParserMode.RUST_ONLY, ParserMode.RUST_ONLY),
+            (ParserMode.RUST_PY_ONLY, ParserMode.RUST_PY_ONLY),
+            (None, None),
+        ]
+    )
+    def test_sanitize_client_parser_mode(self, mode, expected):
+        self.assertEqual(sanitize_client_parser_mode(mode), expected)
+
+    def test_client_cpp_parser_mode_does_not_reach_the_parser(self):
+        # A client that sets `parserMode=cpp_only` must not force the cpp backend: the query
+        # path sanitizes it first, so `parse_select` sees the safe (None) mode. This guards the
+        # wiring at the single consume point (query.py), not just the helper in isolation.
+        from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
+        from posthog.hogql.query import HogQLQueryExecutor  # noqa: PLC0415
+
+        executor = HogQLQueryExecutor(
+            query="select 1",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(parserMode=ParserMode.CPP_ONLY),
+        )
+        with patch("posthog.hogql.query.parse_select", wraps=parse_select) as spy:
+            executor._parse_query()
+        self.assertIsNone(spy.call_args.kwargs["parser_mode"])
 
     def test_shadow_silent_when_backends_agree(self):
         with patch("posthog.hogql.parser._SHADOW_SAMPLE_RATE", 1.0):

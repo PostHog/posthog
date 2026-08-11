@@ -91,6 +91,9 @@ export const manifest: ProductManifest = {
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
     },
     redirects: {
+        // Switching projects while in the new-source wizard truncates the URL to bare
+        // `/data-warehouse`, which otherwise 404s. Send it to the sources list instead.
+        '/data-warehouse': () => urls.sources(),
         '/data-warehouse/sources': () => urls.sources(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),

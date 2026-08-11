@@ -52,7 +52,11 @@ export function ConnectionSelector({ tabId }: ConnectionSelectorProps): JSX.Elem
         <LemonSelect
             size="small"
             fullWidth
-            className="flex-1"
+            // min-w-0 lets the flex item shrink past the label's min-content width, and
+            // truncateText ellipsizes the label — a long source name (e.g. "managed_warehouse
+            // (DuckDB)") otherwise wraps and spills out of the narrow database-tree sidebar.
+            className="flex-1 min-w-0"
+            truncateText={{ maxWidthClass: 'max-w-full' }}
             value={connectionSelectorValue}
             onChange={(nextValue) => {
                 if (!nextValue || nextValue === POSTHOG_WAREHOUSE) {

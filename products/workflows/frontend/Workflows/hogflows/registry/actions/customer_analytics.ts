@@ -100,6 +100,14 @@ registerActionNodeCategory({
     nodes: [
         {
             type: 'function',
+            name: 'Create account',
+            description: "Create a Customer analytics account for the event's group, if one doesn't exist yet.",
+            config: { template_id: 'template-posthog-create-account', inputs: {} },
+            getDefaultInputs: getAccountExternalIdDefaultInputs,
+            output_variable: { key: 'account', result_path: null, label: 'Account' },
+        },
+        {
+            type: 'function',
             name: 'Get account',
             description: 'Fetch a Customer analytics account into a workflow variable.',
             config: { template_id: 'template-posthog-get-account', inputs: {} },

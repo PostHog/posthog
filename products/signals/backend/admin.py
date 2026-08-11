@@ -91,6 +91,7 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "team_link",
         "skill_name",
         "enabled",
+        "status",
         "emit",
         "run_interval_minutes",
         "run_cron_schedule",
@@ -98,10 +99,25 @@ class SignalScoutConfigAdmin(admin.ModelAdmin):
         "updated_at",
     )
     list_display_links = ("id",)
-    list_filter = ("enabled", "emit")
+    list_filter = ("enabled", "status", "emit")
     search_fields = ("id", "skill_name", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by", "enabled_by")
-    readonly_fields = ("id", "created_at", "updated_at", "last_run_at")
+    # The status cluster is read-only here: admin's lifecycle control stays the `enabled`
+    # checkbox (the model's save() derives the status pair from it), and a hand-edited status
+    # or attribution stamp would bypass the transition rules the API and system writers
+    # enforce. Read-only also keeps `status_changed_by` off the default user `<select>`,
+    # which would load the whole user table.
+    readonly_fields = (
+        "id",
+        "created_at",
+        "updated_at",
+        "last_run_at",
+        "status",
+        "pause_reason",
+        "status_changed_at",
+        "status_changed_by",
+        "consecutive_failure_count",
+    )
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
 

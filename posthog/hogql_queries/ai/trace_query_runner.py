@@ -49,11 +49,18 @@ TRACE_FIELDS_MAPPING: dict[str, str] = {
 
 class TraceQueryDateRange(QueryDateRange):
     """
-    Extends the QueryDateRange to include a capture range of 10 minutes before and after the date range.
-    It's a naive assumption that a trace finishes generating within 10 minutes of the first event so we can apply the date filters.
+    Provides a bounded capture range for the shared-events fallback.
+
+    The dedicated table is ordered by `(team_id, trace_id, timestamp)`, so an exact trace lookup
+    does not need timestamp bounds. Shared events is ordered by day and event, so its fallback
+    stays time-bounded.
     """
 
+    # Backward buffer: clock skew / the small negative anchor the frontend applies to date_from.
     CAPTURE_RANGE_MINUTES = 10
+    # Forward buffer: an upper bound on a single trace's duration. A trace that maps to a chat can
+    # stay open across days, so a sub-day bound silently truncates it.
+    FORWARD_CAPTURE_RANGE_MINUTES = 7 * 24 * 60
 
     def date_from_for_filtering(self) -> datetime:
         return super().date_from()
@@ -65,7 +72,7 @@ class TraceQueryDateRange(QueryDateRange):
         return super().date_from() - timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
     def date_to(self) -> datetime:
-        return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
+        return super().date_to() + timedelta(minutes=self.FORWARD_CAPTURE_RANGE_MINUTES)
 
 
 class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
@@ -78,10 +85,11 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     def _calculate(self):
         query_result = query_ai_events(
             query=self._build_query(),
-            placeholders={"filter_conditions": self._get_where_clause()},
+            placeholders={"filter_conditions": self._get_where_clause(include_timestamp_bounds=False)},
             team=self.team,
             query_type=NodeKind.TRACE_QUERY,
             fall_back_to_events=True,
+            fallback_placeholders={"filter_conditions": self._get_where_clause()},
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -221,7 +229,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
     @cached_property
     def _date_range(self):
-        # Minute-level precision for 10m capture range
+        # Minute-level precision for the capture range buffers
         return TraceQueryDateRange(self.query.dateRange, self.team, IntervalType.MINUTE, datetime.now())
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
@@ -230,19 +238,23 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
 
         return last_refresh + timedelta(minutes=1)
 
-    def _get_where_clause(self) -> ast.Expr:
-        where_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["ai_events", "timestamp"]),
-                right=self._date_range.date_from_as_hogql(),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.LtEq,
-                left=ast.Field(chain=["ai_events", "timestamp"]),
-                right=self._date_range.date_to_as_hogql(),
-            ),
-        ]
+    def _get_where_clause(self, *, include_timestamp_bounds: bool = True) -> ast.Expr:
+        where_exprs: list[ast.Expr] = []
+        if include_timestamp_bounds:
+            where_exprs.extend(
+                [
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["ai_events", "timestamp"]),
+                        right=self._date_range.date_from_as_hogql(),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.LtEq,
+                        left=ast.Field(chain=["ai_events", "timestamp"]),
+                        right=self._date_range.date_to_as_hogql(),
+                    ),
+                ]
+            )
 
         where_exprs.append(
             ast.CompareOperation(

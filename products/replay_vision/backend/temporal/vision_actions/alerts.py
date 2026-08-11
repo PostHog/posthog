@@ -76,7 +76,14 @@ def _evaluate(inputs: EvaluateAlertInputs) -> EvaluateAlertResult:
     # Idempotency: a retry after the message was already persisted must re-report FIRED, not re-evaluate
     # against a window that may have shifted.
     if run.synthesized_markdown:
-        return EvaluateAlertResult(status=AlertStatus.FIRED, observation_count=run.observation_count)
+        # `_persist_recovered` writes a message too, so the `recovered` marker is what tells the two
+        # apart. Without it a retried recovery re-reports FIRED and delivers the notification the
+        # RECOVERED branch exists to suppress.
+        recovered = bool((run.output or {}).get("recovered"))
+        return EvaluateAlertResult(
+            status=AlertStatus.RECOVERED if recovered else AlertStatus.FIRED,
+            observation_count=run.observation_count,
+        )
 
     selection: dict[str, Any] = action.selection or {}
     requested_scanner_ids = selection.get("scanner_ids") or ([str(action.scanner_id)] if action.scanner_id else [])

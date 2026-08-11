@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     create_source_templates,
     update_external_data_job_model,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -136,6 +136,15 @@ async def postgres_connection(postgres_config, setup_postgres_test_db):
     yield connection
 
     await connection.close()
+
+
+@pytest.fixture(autouse=True)
+def _stub_sync_teardown_dispatch():
+    # transaction=True plus eager Celery makes a real auto-disable run the
+    # disable-teardown task inline, reaching for the queue DB and Temporal.
+    # Tests that assert the dispatch layer their own patch over this one.
+    with mock.patch("products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"):
+        yield
 
 
 def _create_schema(schema_name: str, source: ExternalDataSource, team: Team, table_id: Optional[str] = None):
@@ -551,10 +560,15 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch(
-        # patched at its defining module: update_should_sync imports it function-locally now
-        "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
-        return_value=False,
+    with (
+        mock.patch(
+            # patched at its defining module: update_should_sync imports it function-locally now
+            "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+            return_value=False,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"
+        ) as mock_teardown,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
 
@@ -564,6 +578,9 @@ async def test_update_external_job_activity_with_non_retryable_error(activity_en
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
     assert schema.should_sync is False
+    # The disable must tear down the run's leftovers without cancelling its own workflow.
+    mock_teardown.assert_called_once()
+    assert mock_teardown.call_args.kwargs["exclude_workflow_id"] == activity_environment.info.workflow_id
 
 
 @pytest.mark.django_db(transaction=True)
@@ -604,10 +621,15 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch(
-        # patched at its defining module: update_should_sync imports it function-locally now
-        "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
-        return_value=False,
+    with (
+        mock.patch(
+            # patched at its defining module: update_should_sync imports it function-locally now
+            "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+            return_value=False,
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"
+        ) as mock_teardown,
     ):
         await activity_environment.run(update_external_data_job_model, inputs)
 
@@ -617,6 +639,9 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert new_job.status == ExternalDataJob.Status.COMPLETED
     assert schema.status == ExternalDataJob.Status.COMPLETED
     assert schema.should_sync is False
+    # The disable must tear down the run's leftovers without cancelling its own workflow.
+    mock_teardown.assert_called_once()
+    assert mock_teardown.call_args.kwargs["exclude_workflow_id"] == activity_environment.info.workflow_id
 
 
 # The full message carries volatile parts (host, URL, `_ssl.c:NNNN`) around the stable alert name.

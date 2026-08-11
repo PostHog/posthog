@@ -1,6 +1,7 @@
 import gzip
 import json
 import hashlib
+from dataclasses import dataclass
 from enum import Enum
 from typing import TypeVar
 
@@ -32,12 +33,19 @@ def generate_state_id_from_session_ids(session_ids: list[str]) -> str:
     return hashlib.sha256(",".join(session_ids).encode()).hexdigest()[:16]
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RedisStateContext:
+    client: aioredis.Redis
+    input_key: str | None
+    output_key: str | None
+
+
 def get_redis_state_client(
     key_base: str | None = None,
     input_label: StateActivitiesEnum | None = None,
     output_label: StateActivitiesEnum | None = None,
     state_id: str | None = None,
-) -> tuple[aioredis.Redis, str | None, str | None]:
+) -> RedisStateContext:
     """Return a Redis client and generated state keys.
 
     Parameters
@@ -55,7 +63,7 @@ def get_redis_state_client(
 
     Returns
     -------
-    tuple[Redis, str | None, str | None]
+    RedisStateContext
         The Redis client instance together with the generated input and output
         keys. `None` is returned for a key when its label was not supplied.
     """
@@ -65,7 +73,7 @@ def get_redis_state_client(
         redis_input_key = generate_state_key(key_base=key_base, label=input_label, state_id=state_id)
     if key_base and output_label:
         redis_output_key = generate_state_key(key_base=key_base, label=output_label, state_id=state_id)
-    return redis_client, redis_input_key, redis_output_key
+    return RedisStateContext(client=redis_client, input_key=redis_input_key, output_key=redis_output_key)
 
 
 def generate_state_key(key_base: str, label: StateActivitiesEnum, state_id: str | None = None) -> str:

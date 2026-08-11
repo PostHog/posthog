@@ -39,7 +39,10 @@ import {
 } from './MarkdownNotebookEntityListPicker'
 import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
-import { getMarkdownRegistryForFeatureFlags } from './markdownNotebookRegistry'
+import {
+    getHiddenInsertCommandKeysForFeatureFlags,
+    getMarkdownRegistryForFeatureFlags,
+} from './markdownNotebookRegistry'
 import { useNotebookComponentRunStatusResolver } from './markdownNotebookRunStatus'
 import {
     InlineNotebookAIRequest,
@@ -86,10 +89,20 @@ type MarkdownNotebookEntityPickerKind =
 
 export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
-    const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
-        useValues(notebookLogic)
+    const {
+        isEditable,
+        isShared,
+        notebook,
+        markdownEditorValue,
+        markdownEditorInteractionActive,
+        markdownRemoteCarets,
+    } = useValues(notebookLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
+    const hiddenInsertCommandKeys = useMemo(
+        () => getHiddenInsertCommandKeysForFeatureFlags(featureFlags),
+        [featureFlags]
+    )
     const resolveComponentRunStatus = useNotebookComponentRunStatusResolver(mountedNotebookLogic.props.shortId)
     const {
         handleMarkdownEditorChange,
@@ -742,8 +755,10 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     remoteValue={remoteMarkdown}
                     remoteVersion={notebook?.version}
                     mode={isEditable ? 'edit' : 'view'}
+                    hideResourceLinks={isShared}
                     registry={markdownRegistry}
                     extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
+                    hiddenInsertCommandKeys={hiddenInsertCommandKeys}
                     onChange={isEditable ? handleMarkdownNotebookChange : undefined}
                     onConflict={reportMarkdownMergeConflicts}
                     remoteCarets={remoteCarets}
@@ -754,6 +769,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                     createAIConversationId={uuid}
                     deferRemoteValue={markdownEditorInteractionActive}
                     onInteractionStateChange={setMarkdownEditorInteractionActive}
+                    allowViewModeFilters={mountedNotebookLogic.props.mode === 'canvas'}
                     className="Notebook__markdown-v2"
                     data-attr="notebook-markdown-v2"
                     autoFocus={isEditable}

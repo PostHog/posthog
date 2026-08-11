@@ -55,7 +55,17 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
-            "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+            "pr_number": {
+                "help_text": "Pull request this run ran for, from the run's own-repo PR association; "
+                "0 when unattributed (a default-branch push, or a fork PR)."
+            },
+            "commit_pr_number": {
+                "help_text": "Pull request whose merge produced this run's head commit, resolved through the "
+                "merged pull request's merge commit and falling back to the commit subject's '(#NNNN)' suffix. "
+                "Null when neither resolves. The only PR attribution a default-branch push has: read pr_number "
+                "first and fall back to this.",
+                "allow_null": True,
+            },
         }
 
 
@@ -367,6 +377,16 @@ class RepoOverviewSerializer(DataclassSerializer):
             },
             "estimated_cost_usd_prev": {
                 "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_billable_minutes": {
+                "help_text": "Slice of billable_minutes spent on merge-queue batch branches (trunk-merge/**); "
+                "null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "merge_queue_billable_minutes_prev": {
+                "help_text": "Merge-queue billable minutes over the previous window; null when the job-level "
+                "source isn't synced.",
                 "allow_null": True,
             },
             "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},

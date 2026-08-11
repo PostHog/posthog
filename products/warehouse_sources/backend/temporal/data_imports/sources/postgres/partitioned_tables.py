@@ -12,14 +12,16 @@ import pyarrow as pa
 from psycopg import sql
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    QueryTimeoutException,
+    table_from_iterator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
-    QueryTimeoutException,
-    table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     ValidatedRowFilter,

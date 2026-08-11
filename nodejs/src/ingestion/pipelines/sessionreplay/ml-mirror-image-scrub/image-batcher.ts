@@ -336,7 +336,11 @@ export class ImageBatcher {
             // The ref's hash is a producer-side per-team HMAC; this consumer doesn't hold the key and
             // trusts the producer (the topic's only writer) that the key names these bytes.
             const parsed = ref ? parseImageRef(ref) : null
-            if (!ref || !parsed || !m.value) {
+            // A URL ref names a URL, not these bytes. The shard store indexes by (pseudoTeam, hash)
+            // with the prefix dropped, so accepting one here would file URL-sourced bytes in the
+            // same slot as content-addressed ones. That is the silent mis-join the prefix exists
+            // to prevent, so it counts as an invalid key rather than being stored.
+            if (!ref || !parsed || parsed.source !== 'bytes' || !m.value) {
                 ImageScrubConsumerMetrics.incInvalidKey()
                 continue
             }

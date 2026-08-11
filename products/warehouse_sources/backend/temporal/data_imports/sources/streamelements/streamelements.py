@@ -6,7 +6,6 @@ import requests
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -22,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.streamelements.settings import (
     STREAMELEMENTS_ENDPOINTS,
     streamelements_base_url,

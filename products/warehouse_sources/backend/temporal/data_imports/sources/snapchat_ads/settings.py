@@ -2,11 +2,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # With granularity DAY there is a max of 31 days https://developers.snap.com/api/marketing-api/Ads-API/measurement
@@ -116,6 +116,35 @@ METRICS_FIELDS = [
 
 SNAPCHAT_STATS_METRICS = ",".join(METRICS_FIELDS)
 
+# Delivery insights (`report_dimension`) requests use a smaller metric set than the totals
+# tables: Snapchat documents insights support for the delivery and core conversion metrics
+# below, and a breakdown row exists per dimension value per day, so every extra metric
+# multiplies the payload.
+# Docs: https://developers.snap.com/api/marketing-api/Ads-API/measurement
+INSIGHTS_METRICS_FIELDS = [
+    "impressions",
+    "uniques",
+    "swipes",
+    "swipe_up_percent",
+    "spend",
+    "video_views",
+    "quartile_1",
+    "quartile_2",
+    "quartile_3",
+    "view_completion",
+    "total_installs",
+    "conversion_purchases",
+    "conversion_purchases_value",
+    "conversion_sign_ups",
+    "conversion_add_cart",
+    "conversion_view_content",
+    "conversion_start_checkout",
+    "conversion_page_views",
+    "conversion_app_opens",
+]
+
+SNAPCHAT_INSIGHTS_METRICS = ",".join(INSIGHTS_METRICS_FIELDS)
+
 
 class EndpointType(str, Enum):
     ACCOUNT = "account"
@@ -132,6 +161,77 @@ class EndpointConfig:
     partition_format: Optional[PartitionFormat] = None
     partition_size: int = 1
     endpoint_type: Optional[EndpointType] = None
+    # Snapchat wraps each list item in a singular key (`{"creative": {...}}`). When set, the
+    # entity transform unwraps that key instead of guessing from the campaign/adsquad/ad set.
+    entity_key: Optional[str] = None
+    should_sync_default: bool = True
+
+
+# The column each `report_dimension` adds to a breakdown row, which the row's primary key
+# needs on top of the entity id and day.
+_DIMENSION_PRIMARY_KEYS: dict[str, list[str]] = {
+    "country": ["country"],
+    "age,gender": ["age_bucket", "gender"],
+}
+
+
+def _stats_dimension_endpoint(
+    name: str,
+    breakdown: str,
+    report_dimension: str,
+) -> EndpointConfig:
+    """Build a delivery-insights stats endpoint broken down by one reporting dimension.
+
+    Only one `report_dimension` can be requested per call (age and gender being the one
+    documented pair), so each dimension is its own table rather than an extra column on the
+    existing totals tables.
+    Docs: https://developers.snap.com/api/marketing-api/Ads-API/measurement
+    """
+    return EndpointConfig(
+        resource={
+            "name": name,
+            "table_name": name,
+            "primary_key": ["id", "start_time", *_DIMENSION_PRIMARY_KEYS[report_dimension]],
+            "endpoint": {
+                "path": "/adaccounts/{ad_account_id}/stats",
+                "method": "GET",
+                "params": {
+                    "granularity": "DAY",
+                    "fields": SNAPCHAT_INSIGHTS_METRICS,
+                    "breakdown": breakdown,
+                    "report_dimension": report_dimension,
+                    "start_time": "{start_time}",
+                    "end_time": "{end_time}",
+                    # Insights fan out one row per dimension value per day, so zero-data rows
+                    # are dropped here rather than stored.
+                    "omit_empty": "true",
+                    "limit": 1000,
+                },
+                "data_selector": "timeseries_stats",
+                "incremental": {
+                    "cursor_path": "start_time",
+                    "start_param": "start_time",
+                    "end_param": "end_time",
+                },
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=[
+            {
+                "label": "start_time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "start_time",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        partition_keys=["start_time"],
+        partition_mode="datetime",
+        partition_format="week",
+        partition_size=1,
+        endpoint_type=EndpointType.STATS,
+        # Breakdowns multiply every day by the number of dimension values, so they stay opt-in.
+        should_sync_default=False,
+    )
 
 
 SNAPCHAT_ADS_CONFIG: dict[str, EndpointConfig] = {
@@ -203,6 +303,120 @@ SNAPCHAT_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_format="week",
         partition_size=1,
         endpoint_type=EndpointType.ENTITY,
+    ),
+    "ad_accounts": EndpointConfig(
+        resource={
+            # Docs: https://developers.snap.com/api/marketing-api/Ads-API/ad-accounts
+            "name": "ad_accounts",
+            "table_name": "ad_accounts",
+            "primary_key": ["id"],
+            "endpoint": {
+                "path": "/adaccounts/{ad_account_id}",
+                "method": "GET",
+                "data_selector": "adaccounts",
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=None,
+        partition_keys=["created_at"],
+        partition_mode="datetime",
+        partition_format="week",
+        partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
+        entity_key="adaccount",
+    ),
+    "creatives": EndpointConfig(
+        resource={
+            # Docs: https://developers.snap.com/api/marketing-api/Ads-API/creatives
+            "name": "creatives",
+            "table_name": "creatives",
+            "primary_key": ["id"],
+            "endpoint": {
+                "path": "/adaccounts/{ad_account_id}/creatives",
+                "method": "GET",
+                "params": {
+                    "limit": 1000,
+                },
+                "data_selector": "creatives",
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=None,
+        partition_keys=["created_at"],
+        partition_mode="datetime",
+        partition_format="week",
+        partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
+        entity_key="creative",
+    ),
+    "media": EndpointConfig(
+        resource={
+            # Docs: https://developers.snap.com/api/marketing-api/Ads-API/media
+            "name": "media",
+            "table_name": "media",
+            "primary_key": ["id"],
+            "endpoint": {
+                "path": "/adaccounts/{ad_account_id}/media",
+                "method": "GET",
+                "params": {
+                    "limit": 1000,
+                },
+                "data_selector": "media",
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=None,
+        partition_keys=["created_at"],
+        partition_mode="datetime",
+        partition_format="week",
+        partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
+        entity_key="media",
+    ),
+    "audience_segments": EndpointConfig(
+        resource={
+            # Docs: https://developers.snap.com/api/marketing-api/Ads-API/audience-creation/customer-lists
+            "name": "audience_segments",
+            "table_name": "audience_segments",
+            "primary_key": ["id"],
+            "endpoint": {
+                "path": "/adaccounts/{ad_account_id}/segments",
+                "method": "GET",
+                "params": {
+                    "limit": 1000,
+                },
+                "data_selector": "segments",
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=None,
+        partition_keys=["created_at"],
+        partition_mode="datetime",
+        partition_format="week",
+        partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
+        entity_key="segment",
+    ),
+    "pixels": EndpointConfig(
+        resource={
+            # Docs: https://developers.snap.com/api/marketing-api/Ads-API/snap-pixel
+            "name": "pixels",
+            "table_name": "pixels",
+            "primary_key": ["id"],
+            "endpoint": {
+                "path": "/adaccounts/{ad_account_id}/pixels",
+                "method": "GET",
+                "data_selector": "pixels",
+            },
+            "table_format": "delta",
+        },
+        incremental_fields=None,
+        partition_keys=["created_at"],
+        partition_mode="datetime",
+        partition_format="week",
+        partition_size=1,
+        endpoint_type=EndpointType.ENTITY,
+        entity_key="pixel",
     ),
     "campaign_stats_daily": EndpointConfig(
         resource={
@@ -326,5 +540,17 @@ SNAPCHAT_ADS_CONFIG: dict[str, EndpointConfig] = {
         partition_format="week",
         partition_size=1,
         endpoint_type=EndpointType.STATS,
+    ),
+    "campaign_stats_daily_country": _stats_dimension_endpoint(
+        "campaign_stats_daily_country", breakdown="campaign", report_dimension="country"
+    ),
+    "campaign_stats_daily_demographics": _stats_dimension_endpoint(
+        "campaign_stats_daily_demographics", breakdown="campaign", report_dimension="age,gender"
+    ),
+    "ad_stats_daily_country": _stats_dimension_endpoint(
+        "ad_stats_daily_country", breakdown="ad", report_dimension="country"
+    ),
+    "ad_stats_daily_demographics": _stats_dimension_endpoint(
+        "ad_stats_daily_demographics", breakdown="ad", report_dimension="age,gender"
     ),
 }

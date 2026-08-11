@@ -62,6 +62,12 @@ export const mergeFoldSizeHistogram = new Histogram({
     buckets: [2, 5, 10, 25, 50, 100, 250, 500],
 })
 
+export const mergeDistinctIdOverrideCounter = new Counter({
+    name: 'person_merge_distinct_id_override_total',
+    help: 'Distinct id mapping rows written during merges, each writing a ClickHouse override row.',
+    labelNames: ['call'],
+})
+
 /** Thrown inside the fold transaction to roll it back when merge-mode move bounds would be exceeded. */
 class MergeFoldLimitError extends Error {}
 
@@ -220,27 +226,16 @@ export class PersonMergeService {
 
         // A note about the `distinctIdVersion` logic you'll find below:
         //
-        // Historically, we always INSERT-ed new `posthog_persondistinctid` rows with `version=0`.
-        // Overrides are only created when the version is > 0, see:
+        // Overrides are only created for `posthog_persondistinctid` rows with version > 0, see:
         //   https://github.com/PostHog/posthog/blob/92e17ce307a577c4233d4ab252eebc6c2207a5ee/posthog/models/person/sql.py#L269-L287
         //
-        // With the addition of optional person profile processing, we are no longer creating
-        // `posthog_persondistinctid` and `posthog_person` rows when $process_person_profile=false.
-        // This means that at merge time, it's possible this `distinct_id` and its deterministically
-        // generated `person.uuid` has already been used for events in ClickHouse, but they have no
-        // corresponding rows in the `posthog_persondistinctid` or `posthog_person` tables.
-        //
-        // For this reason, $process_person_profile=false write to the `posthog_personlessdistinctid`
-        // table just to note that a given Distinct ID was used for "personless" mode. Then, during
-        // our merges transactions below, we do two things:
-        //   1. We check whether a row exists in `posthog_personlessdistinctid` for that Distinct ID,
-        //      if so, we need to write out `posthog_persondistinctid` rows with `version=1` so that
-        //      an override is created in ClickHouse which will associate the old "personless" events
-        //      with the Person UUID they were merged into.
-        //   2. We insert and/or update the `posthog_personlessdistinctid` ourselves, to mark that
-        //      the Distinct ID has been merged. This is important so that an event being processed
-        //      concurrently for that Distinct ID doesn't emit an event and _miss_ that a different
-        //      Person UUID needs to be used now. (See the `processPerson` code in `update` for more.)
+        // With $process_person_profile=false, events can exist in ClickHouse stamped with the
+        // deterministic implied person uuid even though no `posthog_persondistinctid` or
+        // `posthog_person` rows exist. So every merge-added mapping for a distinct id without a
+        // person gets version 1: the override either re-points real personless events or is a
+        // harmless transient row the squash job deletes within days. The exception is the distinct
+        // id whose uuid a newly created person is born on — its events already point at the right
+        // person, so it keeps version 0 and stays out of the overrides join.
 
         if ((otherPerson && !mergeIntoPerson) || (!otherPerson && mergeIntoPerson)) {
             // Only one of the two Distinct IDs points at an existing Person
@@ -253,18 +248,18 @@ export class PersonMergeService {
                 }
             })()
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
+            this.discardOverrideCounts()
+            const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctIdToAdd
-                )
-                const distinctIdVersion = insertedDistinctId ? 0 : 1
+                const distinctIdVersion = 1
+                this.recordOverrideCount('oneExists')
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
                 await this.context.produceMessages(kafkaMessages)
                 return mergeSuccess(existingPerson, Promise.resolve(), true)
             })
+            this.flushOverrideCounts()
+            return result
         } else if (otherPerson && mergeIntoPerson) {
             // Both Distinct IDs point at an existing Person
 
@@ -284,43 +279,16 @@ export class PersonMergeService {
         } else {
             // Neither Distinct ID points at an existing Person
 
-            let distinctId1 = mergeIntoDistinctId
-            let distinctId2 = otherPersonDistinctId
+            const distinctId1 = mergeIntoDistinctId
+            const distinctId2 = otherPersonDistinctId
 
-            return await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
-
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
-
-                // `createPerson` uses the first Distinct ID provided to generate the Person
-                // UUID. That means the first Distinct ID definitely doesn't need an override,
-                // and can always use version 0. Below, we exhaust all of the options to decide
-                // whether we can optimize away an override by doing a swap, or whether we
-                // need to actually write an override. (But mostly we're being verbose for
-                // documentation purposes)
-                let distinctId2Version = 0
-                if (insertedDistinctId1 && insertedDistinctId2) {
-                    // We were the first to insert both (neither was used for Personless), so we
-                    // can use either as the primary Person UUID and create no overrides.
-                } else if (insertedDistinctId1 && !insertedDistinctId2) {
-                    // We created 1, but 2 was already used for Personless. Let's swap so
-                    // that 2 can be the primary Person UUID and no override is needed.
-                    ;[distinctId1, distinctId2] = [distinctId2, distinctId1]
-                } else if (!insertedDistinctId1 && insertedDistinctId2) {
-                    // We created 2, but 1 was already used for Personless, so we want to
-                    // use 1 as the primary Person UUID so that no override is needed.
-                } else if (!insertedDistinctId1 && !insertedDistinctId2) {
-                    // Both were used in Personless mode, so there is no more-correct choice of
-                    // primary Person UUID to make here, and we need to drop an override by
-                    // using version = 1 for Distinct ID 2.
-                    distinctId2Version = 1
-                }
-
-                // The first Distinct ID is used to create the new Person's UUID, and so it
-                // never needs an override.
+            this.discardOverrideCounts()
+            const result = await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
+                // See comment above about `distinctIdVersion`: the first Distinct ID derives the
+                // new Person's UUID so it never needs an override; the second always gets one.
                 const distinctId1Version = 0
+                const distinctId2Version = 1
+                this.recordOverrideCount('neitherExist')
 
                 const [person, wasCreated] = await this.personCreateService.createPerson(
                     timestamp,
@@ -339,6 +307,8 @@ export class PersonMergeService {
                 const needsPersonUpdate = !wasCreated && !person.is_identified
                 return mergeSuccess(person, Promise.resolve(), needsPersonUpdate)
             })
+            this.flushOverrideCounts()
+            return result
         }
     }
 
@@ -550,6 +520,7 @@ export class PersonMergeService {
         const version = Math.max(target.version, ...mergeSources.map((source) => source.version)) + 1
 
         const currentTarget = target
+        this.discardOverrideCounts()
         const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
             'mergePeopleFold',
             async (tx) => {
@@ -585,12 +556,13 @@ export class PersonMergeService {
                 if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
                     throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
                 }
+                this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
 
                 const addMessages: PersonMessage[] = []
                 for (const pair of missingPairs) {
-                    // See mergeDistinctIds for the personless distinctIdVersion logic.
-                    const inserted = await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
-                    const distinctIdVersion = inserted ? 0 : 1
+                    // See mergeDistinctIds for the distinctIdVersion logic.
+                    const distinctIdVersion = 1
+                    this.recordOverrideCount('fold')
                     addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
                 }
 
@@ -609,6 +581,7 @@ export class PersonMergeService {
             }
         )
 
+        this.flushOverrideCounts()
         plan.status = 'executed'
         plan.mergedPerson = mergedPerson
         mergeFoldExecutedCounter.inc()
@@ -742,6 +715,7 @@ export class PersonMergeService {
                 })
                 .inc()
 
+            this.discardOverrideCounts()
             const [mergedPerson, kafkaMessages] = await this.context.personStore.inTransaction(
                 'mergePeople',
                 async (tx) => {
@@ -796,6 +770,7 @@ export class PersonMergeService {
                 }
             )
 
+            this.flushOverrideCounts()
             mergeTxnSuccessCounter
                 .labels({
                     call: this.context.event.event, // $identify, $create_alias or $merge_dangerously
@@ -838,6 +813,28 @@ export class PersonMergeService {
                 throw error
             }
         }
+    }
+
+    // Override-counter increments are buffered and flushed only after the enclosing
+    // transaction commits: merges retry and roll back, and rolled-back rows must not
+    // inflate a metric used for override-inflow capacity planning.
+    private pendingOverrideCounts: { call: string; count: number }[] = []
+
+    private recordOverrideCount(call: string, count: number = 1): void {
+        if (count > 0) {
+            this.pendingOverrideCounts.push({ call, count })
+        }
+    }
+
+    private discardOverrideCounts(): void {
+        this.pendingOverrideCounts = []
+    }
+
+    private flushOverrideCounts(): void {
+        for (const { call, count } of this.pendingOverrideCounts) {
+            mergeDistinctIdOverrideCounter.labels({ call }).inc(count)
+        }
+        this.pendingOverrideCounts = []
     }
 
     private async moveDistinctIdsBasedOnMode(
@@ -896,6 +893,7 @@ export class PersonMergeService {
             } else {
                 allDistinctIdMessages.push(...distinctIdResult.messages)
                 hasProcessedAnyDistinctIds = true
+                this.recordOverrideCount('bothExistMove', distinctIdResult.distinctIdsMoved.length)
 
                 // Check if we moved fewer than the batch size, indicating we're done
                 hasMore = distinctIdResult.distinctIdsMoved.length >= batchSize
@@ -945,6 +943,7 @@ export class PersonMergeService {
                 throw new PersonMergeLimitExceededError('person_merge_move_limit_hit')
             }
         }
+        this.recordOverrideCount('bothExistMove', movedCount)
 
         return allDistinctIdMessages
     }

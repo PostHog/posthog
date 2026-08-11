@@ -1,6 +1,6 @@
 """Classified parity report: new Rust cohort pipeline vs an oracle.
 
-Two oracle modes select what the folded shadow topic (the new pipeline's converged membership) is
+Three oracle modes select what the folded shadow topic (the new pipeline's converged membership) is
 compared against:
 
 - ``--oracle old-pipeline`` (default): the argMax of ClickHouse ``cohort_membership`` — the legacy
@@ -15,18 +15,27 @@ compared against:
   hard gate; under-count (oracle - fold) is segmented by day-domain so the boundary-day decay gap is
   separated from real seed/unseeded misses.
 
+- ``--oracle population``: the population the legacy batch calculation wrote to ClickHouse
+  ``cohortpeople`` at the cohort's pinned ``version`` — the set the cohort page shows. The fold is
+  bounded to each cohort's ``last_calculation`` and the two sets are diffed directly. No filter is
+  read, so no cohort shape is unsupported; equally, nothing is adjudicated. Report-only, always
+  exits 0.
+
 Run from a toolbox/web pod (needs KAFKA_INGESTION_HOSTS + the offline ClickHouse host):
 
     manage.py compare_cohort_membership --team-id 2 --since "2026-07-07T19:11:00Z"
     manage.py compare_cohort_membership --team-id 2 --cohort-id 433564 --since "2026-07-24T02:00:00Z" --oracle recompute
+    manage.py compare_cohort_membership --team-id 2 --since "2026-07-07T19:11:00Z" --oracle population
 """
 
 from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from itertools import chain
 from typing import Any, Optional
 from uuid import UUID
 
@@ -35,10 +44,17 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.backfill.pinning import pin_conditions_for_cohorts
+from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortComparison, classify_cohort, summarize
-from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, screen_team
+from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, ScreenedCohort, screen_team
 from products.cohorts.backend.parity.fold import fold_membership_changes, members, reconcile_completeness_by_cohort
-from products.cohorts.backend.parity.kafka_io import DEFAULT_SHADOW_TOPIC, DrainStats, consumer_config, drain_topic
+from products.cohorts.backend.parity.kafka_io import (
+    DEFAULT_MARKER_TOPIC,
+    DEFAULT_SHADOW_TOPIC,
+    DrainStats,
+    consumer_config,
+    drain_topic,
+)
 from products.cohorts.backend.parity.oracle import (
     OracleSetTooLarge,
     load_day_counts,
@@ -46,6 +62,12 @@ from products.cohorts.backend.parity.oracle import (
     load_leaf_members,
     load_run_context,
     run_with_boundary_exists,
+)
+from products.cohorts.backend.parity.population import (
+    PopulationComparison,
+    compare_populations,
+    skip_population,
+    summarize_population,
 )
 from products.cohorts.backend.parity.recompute import (
     ExtendedLeafCounts,
@@ -61,6 +83,8 @@ from products.cohorts.backend.parity.recompute import (
 )
 from products.cohorts.backend.parity.report import (
     format_notes,
+    format_population_summary,
+    format_population_table,
     format_recompute_notes,
     format_recompute_summary,
     format_recompute_table,
@@ -68,9 +92,15 @@ from products.cohorts.backend.parity.report import (
     format_summary,
     format_table,
     to_json,
+    to_population_json,
     to_recompute_json,
 )
-from products.cohorts.backend.parity.snapshots import load_old_membership, load_realtime_cohorts, make_activity_probe
+from products.cohorts.backend.parity.snapshots import (
+    load_cohort_population,
+    load_old_membership,
+    load_realtime_cohorts,
+    make_activity_probe,
+)
 from products.cohorts.backend.parity.tzdates import resolve_zoneinfo, window_start_utc
 
 SHADOW_TOPIC_RETENTION_DAYS = 7
@@ -84,7 +114,8 @@ DEFAULT_GRACE_MINUTES = 10
 # A cohort window wider than this drives an unbounded `events` scan for no diagnostic gain; the Rust
 # side treats such a window as "never evicts" rather than sliding, so SKIP instead of scanning.
 DEFAULT_MAX_WINDOW_DAYS = 400
-# `load_leaf_members` materializes the whole set in a Python set; past this it OOMs a toolbox pod.
+# The oracle reads (leaf recompute, cohortpeople population) materialize whole member sets in
+# Python; past this they OOM a toolbox pod.
 DEFAULT_MAX_ORACLE_MEMBERS = 1_000_000
 # Grace is also the sweep-lag horizon, so a whole day of it would swallow the boundary day.
 MAX_GRACE_MINUTES = 24 * 60
@@ -98,7 +129,7 @@ COVERAGE_CAVEATS = (
     "the diff is bounded to persons the new pipeline decided on (O); old-only persons outside O are excluded and only probed for missed emissions",
     "suspect_missing gates FAIL only where the store provably covers the window (window <= pipeline age, or property-only cohorts); on longer windows unobserved actives are unresolvable until warmup (no snapshot resolves pre-since qualifiers) and report as WARMUP",
     "minute/hour-window cohorts get suspect≈0 by construction — the probe cutoff collapses to now",
-    "cohorts the old pipeline never recomputed count all only_new as fresh (residual_new is 0 there)",
+    "cohorts with no recompute clock (never recomputed, or the stamp cleared by an edit) count all only_new as fresh (residual_new is 0 there)",
     "a partial drain (poll timeout or --max-messages) understates the new side and biases toward FAIL",
 )
 
@@ -111,6 +142,13 @@ RECOMPUTE_CAVEATS = (
     "day boundaries use the current team tz, the only tz the processor uses; a run pinned to a different tz SKIPs rather than mis-attributing seed days",
     "the oracle counts only events ingested by --at (the seeder's inserted_at cutoff), so a longer ingestion lag reads as neither over- nor under-count",
     "override/merge drift (fold ids resolved at processing time vs the oracle's current overrides) can pair a false_member with a missing person; a bounded per-class person-id sample ships in the JSON for triage",
+)
+
+POPULATION_CAVEATS = (
+    "this diffs two independent pipelines and deliberately does not say which side is right",
+    "without a complete 64/64 reconcile run in the fold the pipeline emits membership flips only, so only_legacy is an upper bound on real misses rather than a miss count",
+    "the fold is bounded to each cohort's last_calculation, but the legacy calculation itself ran over some minutes and read ClickHouse with ingestion lag behind it, so minutes of skew on both sides is expected",
+    "a partial drain (poll timeout or --max-messages) understates the fold side",
 )
 
 
@@ -200,6 +238,34 @@ def _collect_recompute_warnings(
     return warnings
 
 
+@dataclass(frozen=True)
+class PopulationCohortState:
+    cohort_id: int
+    last_calculation: datetime
+    is_calculating: bool
+    has_complete_reconcile: bool
+
+
+def _collect_population_warnings(*, now: datetime, states: list[PopulationCohortState]) -> list[str]:
+    """Pure: the three ways a compared population row can be misread."""
+    warnings: list[str] = []
+    retention_floor = now - timedelta(days=SHADOW_TOPIC_RETENTION_DAYS)
+    for state in states:
+        if not state.has_complete_reconcile:
+            warnings.append(
+                f"cohort {state.cohort_id}: no complete 64/64 reconcile run folded; the fold carries only persons "
+                "the pipeline decided on since --since, so only_legacy is an upper bound on real misses"
+            )
+        if state.last_calculation < retention_floor:
+            warnings.append(
+                f"cohort {state.cohort_id}: last_calculation {state.last_calculation.isoformat()} is behind the "
+                f"{SHADOW_TOPIC_RETENTION_DAYS}d shadow-topic retention floor; the fold cannot reach back that far"
+            )
+        if state.is_calculating:
+            warnings.append(f"cohort {state.cohort_id}: is_calculating is set; the legacy population is mid-rewrite")
+    return warnings
+
+
 def _parse_iso_utc(raw: str, flag: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
@@ -229,21 +295,34 @@ def _within_target_cap(targets: list[str], side: str, notes: list[str]) -> bool:
     return False
 
 
-def _reject_flags(options: dict[str, Any], flags: tuple[str, ...], mode: str) -> None:
-    """Reject flags belonging to the other oracle mode.
+# Which oracle mode each mode-specific flag parameterizes. A registry rather than per-mode reject
+# lists: with three modes, pairwise lists drift into silently accepting a flag that does nothing.
+_MODE_FLAGS = {
+    "old-pipeline": ("threshold", "warmup_sample", "no_classify"),
+    "recompute": ("at", "run_id", "grace_minutes", "max_window_days", "max_oracle_members"),
+    "population": ("with_ids", "max_oracle_members"),
+}
+_ALL_MODE_FLAGS = tuple(sorted({flag for flags in _MODE_FLAGS.values() for flag in flags}))
+
+
+def _reject_flags(options: dict[str, Any], mode: str) -> None:
+    """Reject mode-specific flags the active oracle does not own.
 
     Every mode-specific flag defaults to ``None`` (or ``False`` for a store_true) precisely so an
     explicit value that happens to equal the documented default is still caught.
     """
+    owned = set(_MODE_FLAGS[mode])
     rejected = [
-        f"--{flag.replace('_', '-')}" for flag in flags if options[flag] is not None and options[flag] is not False
+        f"--{flag.replace('_', '-')}"
+        for flag in _ALL_MODE_FLAGS
+        if flag not in owned and options[flag] is not None and options[flag] is not False
     ]
     if rejected:
-        raise CommandError(f"not valid with --oracle {mode} (parameterizes the other oracle): {', '.join(rejected)}")
+        raise CommandError(f"not valid with --oracle {mode} (parameterizes another oracle): {', '.join(rejected)}")
 
 
 class Command(BaseCommand):
-    help = "Compare new-pipeline (shadow topic) vs an oracle (old pipeline or recompute) cohort membership"
+    help = "Compare new-pipeline (shadow topic) vs an oracle (old pipeline, recompute or population) cohort membership"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True)
@@ -256,9 +335,14 @@ class Command(BaseCommand):
         parser.add_argument("--cohort-id", type=int, default=None, help="Limit to one cohort")
         parser.add_argument(
             "--oracle",
-            choices=["old-pipeline", "recompute"],
+            choices=sorted(_MODE_FLAGS),
             default="old-pipeline",
             help="What to compare the fold against (default old-pipeline, byte-identical to prior behavior)",
+        )
+        parser.add_argument(
+            "--with-ids",
+            action="store_true",
+            help="population only: carry the complete only_fold / only_legacy person-id lists in the JSON output",
         )
         parser.add_argument(
             "--at",
@@ -291,8 +375,8 @@ class Command(BaseCommand):
             "--max-oracle-members",
             type=int,
             default=None,
-            help=f"recompute only: cohorts whose leaf matches more persons than this SKIP rather than being "
-            f"materialized in memory (default {DEFAULT_MAX_ORACLE_MEMBERS})",
+            help=f"recompute/population only: cohorts whose oracle set (leaf members / cohortpeople population) "
+            f"exceeds this SKIP rather than being materialized in memory (default {DEFAULT_MAX_ORACLE_MEMBERS})",
         )
         parser.add_argument(
             "--threshold",
@@ -313,7 +397,10 @@ class Command(BaseCommand):
             help="old-pipeline only: O-bounded raw diff, no R-FRESH/R-STALE rules or suspect probe",
         )
         parser.add_argument("--shadow-topic", type=str, default=DEFAULT_SHADOW_TOPIC)
-        parser.add_argument("--new-kafka-hosts", type=str, default=None, help="Override shadow-topic bootstrap servers")
+        parser.add_argument("--marker-topic", type=str, default=DEFAULT_MARKER_TOPIC)
+        parser.add_argument(
+            "--new-kafka-hosts", type=str, default=None, help="Override bootstrap servers for both drained topics"
+        )
         parser.add_argument("--security-protocol", type=str, default=None, help="Override Kafka security protocol")
         parser.add_argument("--format", choices=["table", "json"], default="table")
         parser.add_argument("--max-messages", type=int, default=None, help="Cap on shadow messages drained")
@@ -328,9 +415,15 @@ class Command(BaseCommand):
         as_json = options["format"] == "json"
         # Validate every mode-specific flag up front: the drain below takes minutes, and a flag error
         # surfacing after it wastes the whole run.
+        _reject_flags(options, oracle)
         explicit_at: Optional[datetime] = None
         team: Optional[Team] = None
-        if oracle == "recompute":
+        if oracle == "population":
+            if options["with_ids"] and not as_json:
+                raise CommandError("--with-ids needs --format json; the id lists do not fit a fixed-width table")
+            if options["max_oracle_members"] is not None and options["max_oracle_members"] < 1:
+                raise CommandError("--max-oracle-members must be positive")
+        elif oracle == "recompute":
             self._validate_recompute_flags(options)
             if options["at"] is not None:
                 explicit_at = _parse_iso_utc(options["at"], "--at")
@@ -348,8 +441,6 @@ class Command(BaseCommand):
                 raise CommandError(
                     f"--run-id {options['run_id']} is not a backfill run of team {team_id} with a boundary"
                 )
-        else:
-            _reject_flags(options, ("at", "run_id", "grace_minutes", "max_window_days", "max_oracle_members"), oracle)
 
         def log(message: str) -> None:
             # Keep stdout clean for the JSON document.
@@ -367,6 +458,19 @@ class Command(BaseCommand):
         screened = screen_team({c.pk: c.filters for c in cohorts}, cascade_enabled=True)
         names = {c.pk: c.name or "Untitled" for c in cohorts}
         last_calc = {c.pk: c.last_realtime_cohort_calculation_at for c in cohorts}
+        # Each cohort's legacy population was calculated on its own schedule, so the population
+        # oracle's clock is per cohort — one team-wide instant cannot bound a multi-cohort fold.
+        selected = set(selected_ids)
+        until_by_cohort: Optional[dict[int, datetime]] = None
+        pre_drain_versions: dict[int, Optional[int]] = {}
+        pre_drain_calculated_at: dict[int, Optional[datetime]] = {}
+        if oracle == "population":
+            # A never-calculated cohort has no oracle clock, so pin its bound to --since: that
+            # empties its fold instead of accumulating state the never_calculated skip row below
+            # would only throw away.
+            until_by_cohort = {c.pk: c.last_calculation or since for c in cohorts if c.pk in selected}
+            pre_drain_versions = {c.pk: c.version for c in cohorts}
+            pre_drain_calculated_at = {c.pk: c.last_calculation for c in cohorts}
 
         histogram = Counter(s.eligibility for s in screened.values())
         log(f"eligibility histogram (cross-check against cohort_eligibility_total): {dict(histogram)}")
@@ -385,17 +489,28 @@ class Command(BaseCommand):
             hosts_override=options["new_kafka_hosts"],
             security_protocol_override=options["security_protocol"],
         )
-        log(f"draining {options['shadow_topic']} from {since.isoformat()} via {config['bootstrap.servers']}")
+        log(
+            f"draining {options['shadow_topic']} and {options['marker_topic']} from {since.isoformat()} "
+            f"via {config['bootstrap.servers']}"
+        )
         drain_stats = DrainStats()
-        messages = drain_topic(
-            options["shadow_topic"],
-            config=config,
-            since=since,
-            stats=drain_stats,
-            max_messages=options["max_messages"],
+        # Reconcile markers ride their own topic, so completeness needs a second drain chained into
+        # the same fold. Without it every cohort reads as having no complete reconcile run, and the
+        # recompute and population oracles caveat their own numbers as unmeasurable.
+        messages = chain(
+            drain_topic(
+                options["shadow_topic"],
+                config=config,
+                since=since,
+                stats=drain_stats,
+                max_messages=options["max_messages"],
+            ),
+            drain_topic(options["marker_topic"], config=config, since=since, stats=DrainStats()),
         )
         # An explicit --at pins the comparison clock, so the fold has to converge to that instant too.
-        new_state, fold_stats = fold_membership_changes(messages, team_id=team_id, since=since, until=explicit_at)
+        new_state, fold_stats = fold_membership_changes(
+            messages, team_id=team_id, since=since, until=explicit_at, until_by_cohort=until_by_cohort
+        )
         log(
             f"drained {drain_stats.consumed} messages from {drain_stats.partitions_read}/{drain_stats.partitions} "
             f"partitions; folded {fold_stats.folded} for team {team_id} across {len(fold_stats.cohorts_seen)} cohorts "
@@ -433,6 +548,23 @@ class Command(BaseCommand):
                 as_json=as_json,
                 log=log,
             )
+        elif oracle == "population":
+            self._report_population(
+                options=options,
+                team_id=team_id,
+                since=since,
+                now=datetime.now(tz=UTC),
+                selected_ids=selected_ids,
+                screened=screened,
+                names=names,
+                pre_drain_versions=pre_drain_versions,
+                pre_drain_calculated_at=pre_drain_calculated_at,
+                new_state=new_state,
+                fold_stats=fold_stats,
+                drain_warnings=warnings,
+                as_json=as_json,
+                log=log,
+            )
         else:
             self._report_old_pipeline(
                 options=options,
@@ -450,7 +582,6 @@ class Command(BaseCommand):
             )
 
     def _validate_recompute_flags(self, options: dict[str, Any]) -> None:
-        _reject_flags(options, ("threshold", "warmup_sample", "no_classify"), "recompute")
         grace = options["grace_minutes"]
         if grace is not None and not 0 <= grace <= MAX_GRACE_MINUTES:
             # Past a day, grace_start reaches back over the boundary day and buckets seed-day events
@@ -542,6 +673,127 @@ class Command(BaseCommand):
             raise CommandError(
                 f"{summary.failed} eligible cohort(s) FAIL the {threshold_pct}% parity gate (residual or suspect-missing)"
             )
+
+    def _report_population(
+        self,
+        *,
+        options: dict[str, Any],
+        team_id: int,
+        since: datetime,
+        now: datetime,
+        selected_ids: list[int],
+        screened: Mapping[int, ScreenedCohort],
+        names: dict[int, str],
+        pre_drain_versions: dict[int, Optional[int]],
+        pre_drain_calculated_at: dict[int, Optional[datetime]],
+        new_state: Any,
+        fold_stats: Any,
+        drain_warnings: list[str],
+        as_json: bool,
+        log: Any,
+    ) -> None:
+        with_ids: bool = options["with_ids"]
+        max_members = (
+            DEFAULT_MAX_ORACLE_MEMBERS if options["max_oracle_members"] is None else options["max_oracle_members"]
+        )
+        completeness_by_cohort = reconcile_completeness_by_cohort(fold_stats)
+        # Re-read after the drain: the batch calculation is scheduled and the drain takes minutes.
+        current = {
+            c.pk: c
+            for c in Cohort.objects.filter(team_id=team_id, pk__in=selected_ids).only(
+                "id", "version", "last_calculation", "is_calculating", "deleted"
+            )
+        }
+        log(f"diffing up to {len(selected_ids)} cohort(s) against their pinned cohortpeople population")
+
+        rows: list[PopulationComparison] = []
+        warn_states: list[PopulationCohortState] = []
+        for cid in sorted(selected_ids):
+            name = names[cid]
+            s = screened[cid]
+            if not s.emits:
+                # The fold side is structurally empty because the processor never emits for this
+                # cohort, so a compared row would head the table at 0% and drag the aggregate for a
+                # coverage gap the eligibility histogram already reports (and the stderr warning
+                # above already called SKIPPED).
+                reason = "not emit-eligible: " + ", ".join(s.drop_reasons or (s.eligibility,))
+                rows.append(skip_population(cohort_id=cid, name=name, reason=reason))
+                continue
+            cohort = current.get(cid)
+            if cohort is None:
+                rows.append(skip_population(cohort_id=cid, name=name, reason="cohort_row_disappeared"))
+                continue
+            if cohort.deleted:
+                # A soft delete enqueues an async DELETE of the cohort's whole cohortpeople range
+                # with no version bump, so the guard below cannot catch it and the legacy side may
+                # already read back empty.
+                rows.append(skip_population(cohort_id=cid, name=name, reason="deleted_during_run"))
+                continue
+            if cohort.version != pre_drain_versions[cid] or cohort.last_calculation != pre_drain_calculated_at[cid]:
+                # Reading cohortpeople at a version that is being collapsed away would silently
+                # produce a garbage row, and calculate_people_ch stamps version and last_calculation
+                # in separate writes, so either moving alone means the fold's bound no longer
+                # matches the population read. Re-running is the fix, so say so instead of comparing.
+                rows.append(skip_population(cohort_id=cid, name=name, reason="recalculated_during_run"))
+                continue
+            if cohort.version is None or cohort.last_calculation is None:
+                # Reading nothing would render as a clean 100% row rather than "no oracle".
+                rows.append(skip_population(cohort_id=cid, name=name, reason="never_calculated"))
+                continue
+            if cohort.last_calculation < since:
+                # The fold is bounded there, so it is empty by construction and the diff would be a
+                # spurious 0%.
+                rows.append(skip_population(cohort_id=cid, name=name, reason="last_calculation_before_since"))
+                continue
+
+            try:
+                legacy_members = load_cohort_population(team_id, cid, cohort.version, limit=max_members)
+            except OracleSetTooLarge as err:
+                rows.append(skip_population(cohort_id=cid, name=name, reason=f"population_over_{err.limit}"))
+                continue
+            warn_states.append(
+                PopulationCohortState(
+                    cohort_id=cid,
+                    last_calculation=cohort.last_calculation,
+                    is_calculating=cohort.is_calculating,
+                    has_complete_reconcile=any(run.complete for run in completeness_by_cohort.get(cid, ())),
+                )
+            )
+            rows.append(
+                compare_populations(
+                    cohort_id=cid,
+                    name=name,
+                    fold_members=members(new_state.get(cid, {})),
+                    legacy_members=legacy_members,
+                    legacy_version=cohort.version,
+                    calculated_at=cohort.last_calculation,
+                    with_ids=with_ids,
+                )
+            )
+
+        summary = summarize_population(rows)
+        summary.warnings.extend(drain_warnings)
+        summary.warnings.extend(_collect_population_warnings(now=now, states=warn_states))
+
+        if as_json:
+            meta = {
+                "team_id": team_id,
+                "since": since.isoformat(),
+                "now": now.isoformat(),
+                "oracle": "population",
+                "with_ids": with_ids,
+                "shadow_topic": options["shadow_topic"],
+                "caveats": list(POPULATION_CAVEATS),
+            }
+            self.stdout.write(json.dumps(to_population_json(rows, summary, meta), indent=2))
+            return
+        self.stdout.write("")
+        self.stdout.write(format_population_table(rows))
+        self.stdout.write("")
+        self.stdout.write(format_population_summary(summary))
+        self.stdout.write("caveats:")
+        for caveat in POPULATION_CAVEATS:
+            self.stdout.write(f"  {caveat}")
 
     def _report_recompute(
         self,

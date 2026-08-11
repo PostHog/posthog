@@ -3,12 +3,12 @@ from unittest.mock import MagicMock
 
 import pymssql
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,

@@ -184,6 +184,7 @@
             "type": "mcp_analytics",
             "intents": ["mcp_analytics"]
         },
+        { "path": "MCP servers", "category": "AI engineering", "iconType": "tools", "type": null, "intents": [] },
         {
             "path": "Metrics",
             "category": "App monitoring",
@@ -311,6 +312,13 @@
             "intents": []
         },
         { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Warehouse properties",
+            "category": "Schema",
+            "iconType": "data_warehouse",
+            "type": null,
+            "intents": []
+        },
         {
             "path": "Sources",
             "category": "Pipeline",

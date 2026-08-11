@@ -50,10 +50,11 @@ def wait_for_backfill_runs(backfill_id: str, timeout: int = 30) -> list[BatchExp
 
 
 @pytest.mark.django_db(transaction=True)
-def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, team, user, temporal):
+def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, team, user, aws_s3_integration, temporal):
     """Test cancelling a BatchExportBackfill."""
     destination_data = {
         "type": "AwsS3",
+        "integration": aws_s3_integration.id,
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

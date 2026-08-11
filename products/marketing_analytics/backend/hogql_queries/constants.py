@@ -37,6 +37,7 @@ from posthog.schema import (
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
     NativeMarketingSource,
+    NodeKind,
     PinterestAdsDefaultSources,
     PinterestAdsTableExclusions,
     PinterestAdsTableKeywords,
@@ -60,6 +61,16 @@ from posthog.hogql import ast
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
 FALLBACK_COST_VALUE = 999999999
+# The three node kinds a conversion goal can be, derived from the schema enum so they can't drift
+# from ConversionGoalFilter1/2/3. Referenced by name from SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]
+# so the API serializers can expose `kind` as a real enum: the name collides in drf-spectacular, and
+# without a stable override the generated type degrades to a plain string.
+CONVERSION_GOAL_KIND_CHOICES = [
+    NodeKind.EVENTS_NODE.value,
+    NodeKind.ACTIONS_NODE.value,
+    NodeKind.DATA_WAREHOUSE_NODE.value,
+]
+
 UNKNOWN_CAMPAIGN = "Unknown Campaign"
 UNKNOWN_SOURCE = "Unknown Source"
 ORGANIC_CAMPAIGN = "organic"
@@ -92,6 +103,12 @@ SESSIONS_COLUMN_ALIAS = "Sessions"
 # The label every side of the query falls back to when channel can't be derived. Sourced from the
 # enum so the sides can't drift apart and split one row in two.
 UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
+
+# What `$entry_referring_domain` holds when a session arrived with no referrer at all. Stored as a
+# sentinel rather than an empty string, so anything asking "does this session name a referrer?" has
+# to test for it explicitly. Matches the literal the channel-type classifier keys off in
+# posthog/hogql/database/schema/channel_type.py.
+DIRECT_REFERRING_DOMAIN = "$direct"
 
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"

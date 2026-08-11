@@ -26,6 +26,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _is_keepalive_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
+    _mark_sandbox_error_best_effort,
     _persist_final_message,
     _relay_loop,
     relay_sandbox_events,
@@ -64,6 +65,11 @@ class TestIsEndOfTurn:
                 "non_notification",
                 {"type": "event", "notification": {"result": {"stopReason": "end_turn"}}},
                 False,
+            ),
+            (
+                "pi_turn_complete",
+                {"type": "pi_event", "event": {"type": "turn_completed"}},
+                True,
             ),
         ]
     )
@@ -149,6 +155,9 @@ class TestIsActiveAgentUpdate:
     )
     def test_session_update_sub_types(self, _name: str, sub_type: str, expected: bool) -> None:
         assert _is_active_agent_update(self._su(sub_type)) is expected
+
+    def test_pi_generation_event_is_active(self) -> None:
+        assert _is_active_agent_update({"type": "pi_event", "event": {"type": "assistant_message_chunk"}})
 
     @parameterized.expand(
         [
@@ -364,6 +373,22 @@ class TestRelaySandboxEventsMissingActor:
 
 
 class TestRelaySandboxEventsErrorHandling:
+    async def test_confirmed_sandbox_loss_survives_redis_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        redis_stream = SimpleNamespace(mark_error=AsyncMock(side_effect=RuntimeError("redis unavailable")))
+        logger_mock = MagicMock()
+        monkeypatch.setattr(relay_sandbox_events_module, "logger", logger_mock)
+
+        await _mark_sandbox_error_best_effort(
+            cast(TaskRunRedisStream, redis_stream), "run-id", "Sandbox returned HTTP 404"
+        )
+
+        redis_stream.mark_error.assert_awaited_once_with("Sandbox returned HTTP 404")
+        logger_mock.exception.assert_called_once_with(
+            "relay_sandbox_events_mark_error_failed",
+            run_id="run-id",
+            error="redis unavailable",
+        )
+
     @parameterized.expand(
         [
             ("read_error", httpx.ReadError),
@@ -422,7 +447,7 @@ class TestRelaySandboxEventsErrorHandling:
             monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
             monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
 
-            await _relay_loop(
+            sandbox_gone = await _relay_loop(
                 events_url="https://sandbox.example/events",
                 headers={"Authorization": "Bearer token"},
                 params={},
@@ -432,6 +457,7 @@ class TestRelaySandboxEventsErrorHandling:
             )
 
         assert connect_attempts == 2
+        assert sandbox_gone is False
         sleep_mock.assert_awaited_once_with(2)
         redis_stream.write_event.assert_awaited_once()
         redis_stream.mark_complete.assert_awaited_once()
@@ -470,7 +496,7 @@ class TestRelaySandboxEventsErrorHandling:
         monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
         monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
 
-        await _relay_loop(
+        sandbox_gone = await _relay_loop(
             events_url="https://sandbox.example/events",
             headers={"Authorization": "Bearer token"},
             params={},
@@ -480,6 +506,7 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        assert sandbox_gone is False
         redis_stream.mark_complete.assert_awaited_once()
         redis_stream.mark_error.assert_not_awaited()
 
@@ -621,7 +648,7 @@ class TestRelaySandboxEventsErrorHandling:
         redis_stream_mock.mark_complete.assert_not_awaited()
         redis_stream_mock.mark_error.assert_not_awaited()
 
-    async def test_normal_stream_close_marks_stream_complete(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_normal_stream_close_reconnects_before_terminal_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream = SimpleNamespace(
             write_event=AsyncMock(),
             mark_complete=AsyncMock(),
@@ -644,6 +671,67 @@ class TestRelaySandboxEventsErrorHandling:
                 for event in events:
                     yield event
 
+        terminal_event = {
+            "type": "notification",
+            "notification": {"method": "_posthog/task_complete"},
+        }
+
+        class TerminalEventSource(EmptyEventSource):
+            async def aiter_sse(self):
+                yield SimpleNamespace(data=json.dumps(terminal_event))
+
+        def fake_connect_sse(*_args: object, **_kwargs: object) -> EmptyEventSource:
+            nonlocal connect_attempts
+            connect_attempts += 1
+            return EmptyEventSource() if connect_attempts == 1 else TerminalEventSource()
+
+        async def fake_background_heartbeat(*_args: object, **_kwargs: object) -> None:
+            return None
+
+        monkeypatch.setattr(relay_sandbox_events_module.httpx_sse, "aconnect_sse", fake_connect_sse)
+        monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
+        monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
+
+        sandbox_gone = await _relay_loop(
+            events_url="https://sandbox.example/events",
+            headers={"Authorization": "Bearer token"},
+            params={},
+            redis_stream=cast(TaskRunRedisStream, redis_stream),
+            run_id="run-id",
+            task_id="task-id",
+        )
+
+        assert connect_attempts == 2
+        assert sandbox_gone is False
+        sleep_mock.assert_awaited_once_with(2)
+        redis_stream.write_event.assert_awaited_once_with(terminal_event)
+        redis_stream.mark_complete.assert_awaited_once()
+        redis_stream.mark_error.assert_not_awaited()
+
+    async def test_normal_stream_close_marks_sandbox_gone_after_reconnects_exhausted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        redis_stream = SimpleNamespace(
+            write_event=AsyncMock(),
+            mark_complete=AsyncMock(),
+            mark_error=AsyncMock(),
+        )
+        sleep_mock = AsyncMock()
+        connect_attempts = 0
+
+        class EmptyEventSource:
+            response = SimpleNamespace(raise_for_status=lambda: None)
+
+            async def __aenter__(self) -> "EmptyEventSource":
+                return self
+
+            async def __aexit__(self, *_args: object) -> None:
+                return None
+
+            async def aiter_sse(self):
+                if getattr(self, "emit_event", False):
+                    yield SimpleNamespace()
+
         def fake_connect_sse(*_args: object, **_kwargs: object) -> EmptyEventSource:
             nonlocal connect_attempts
             connect_attempts += 1
@@ -656,7 +744,7 @@ class TestRelaySandboxEventsErrorHandling:
         monkeypatch.setattr(relay_sandbox_events_module.asyncio, "sleep", sleep_mock)
         monkeypatch.setattr(relay_sandbox_events_module, "_background_heartbeat", fake_background_heartbeat)
 
-        await _relay_loop(
+        sandbox_gone = await _relay_loop(
             events_url="https://sandbox.example/events",
             headers={"Authorization": "Bearer token"},
             params={},
@@ -665,11 +753,12 @@ class TestRelaySandboxEventsErrorHandling:
             task_id="task-id",
         )
 
-        assert connect_attempts == 1
-        sleep_mock.assert_not_awaited()
+        assert connect_attempts == relay_sandbox_events_module.MAX_RECONNECT_ATTEMPTS + 1
+        assert sandbox_gone is True
+        assert [awaited.args[0] for awaited in sleep_mock.await_args_list] == [2, 4, 6, 8, 10]
         redis_stream.write_event.assert_not_awaited()
-        redis_stream.mark_complete.assert_awaited_once()
-        redis_stream.mark_error.assert_not_awaited()
+        redis_stream.mark_complete.assert_not_awaited()
+        redis_stream.mark_error.assert_awaited_once_with("Lost connection to sandbox after 5 reconnection attempts")
 
     async def test_in_progress_run_marks_stream_error_on_relay_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         redis_stream_mock = SimpleNamespace(mark_complete=AsyncMock(), mark_error=AsyncMock())
@@ -817,7 +906,9 @@ class TestRelaySandboxEventsWorkflowOptions:
             _branch="feature-branch",
         )
         execute_activity_mock = AsyncMock()
+        execute_activity_mock.return_value = True
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", MagicMock())
 
         await workflow._relay_sandbox_events(
             "https://sandbox.example",
@@ -829,6 +920,7 @@ class TestRelaySandboxEventsWorkflowOptions:
         args, kwargs = execute_activity_mock.await_args
         assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+        assert workflow._sandbox_gone is True
 
 
 def _agent_chunk_event(text: str) -> dict:
@@ -841,11 +933,27 @@ def _agent_chunk_event(text: str) -> dict:
     }
 
 
+def _agent_message_event(text: str) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}}},
+        },
+    }
+
+
 class TestFinalMessageTracker:
     def test_snapshots_joined_prose_at_end_of_turn(self) -> None:
         tracker = FinalMessageTracker()
         tracker.collect(_agent_chunk_event("Weekly "))
         tracker.collect(_agent_chunk_event("summary."))
+
+        assert tracker.end_turn() == "Weekly summary."
+
+    def test_snapshots_full_agent_message_at_end_of_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_message_event("Weekly summary."))
 
         assert tracker.end_turn() == "Weekly summary."
 

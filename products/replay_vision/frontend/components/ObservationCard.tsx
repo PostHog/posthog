@@ -1,6 +1,4 @@
-import { useValues } from 'kea'
-
-import { IconCopy, IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import { IconCopy, IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -8,7 +6,6 @@ import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { replayScannerLogic } from '../replay_scanners/replayScannerLogic'
 import {
     type ClassifierScannerConfig,
     type ScorerScannerConfig,
@@ -19,9 +16,9 @@ import {
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
-import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
 import { ObservationProgressBar } from './ObservationProgressBar'
+import { ObservationRetryButton } from './ObservationRetryButton'
 
 export function ObservationStatusTag({
     status,
@@ -413,7 +410,6 @@ export function ObservationDockCard({
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
-    const { scanner } = useValues(replayScannerLogic({ id: observation.scanner_id }))
 
     return (
         <div className="border rounded p-3 bg-surface-primary space-y-2">
@@ -432,23 +428,30 @@ export function ObservationDockCard({
                 <div className="space-y-2">
                     <FailureDetail errorReason={observation.error_reason} />
                     {onRetry && (
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            icon={<IconRefresh />}
-                            onClick={onRetry}
+                        <ObservationRetryButton
+                            status={observation.status}
+                            errorReason={observation.error_reason}
+                            onRetry={onRetry}
                             loading={retrying}
-                            disabledReason={getReplayVisionEditDisabledReason(scanner?.user_access_level)}
-                            data-attr="vision-dock-retry-observation"
-                        >
-                            Retry scan
-                        </LemonButton>
+                            dataAttr="vision-dock-retry-observation"
+                        />
                     )}
                 </div>
             )}
 
             {observation.status === 'ineligible' && observation.error_reason && (
-                <IneligibleDetail errorReason={observation.error_reason} />
+                <div className="space-y-2">
+                    <IneligibleDetail errorReason={observation.error_reason} />
+                    {onRetry && (
+                        <ObservationRetryButton
+                            status={observation.status}
+                            errorReason={observation.error_reason}
+                            onRetry={onRetry}
+                            loading={retrying}
+                            dataAttr="vision-dock-retry-observation"
+                        />
+                    )}
+                </div>
             )}
 
             {observation.status === 'succeeded' && snapshot && result && (

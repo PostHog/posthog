@@ -1,12 +1,26 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from products.conversations.backend.facade.api import SupportMessageSendError, post_support_message
+from posthog.models import Team
+
+from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
+from products.conversations.backend.facade.api import (
+    SupportMessageSendError,
+    list_account_tickets,
+    post_support_message,
+    trigger_immediate_channel_summary,
+)
+from products.conversations.backend.models.ticket import Ticket
 
 CLIENT = "products.conversations.backend.facade.api.get_slack_client"
+FACADE = "products.conversations.backend.facade.api"
 
 
 class FakeSlackResponse(dict):
@@ -74,3 +88,98 @@ class TestPostSupportMessage(BaseTest):
             post_support_message(self.team.pk, "C1", "hi")
         assert ctx.exception.code == expected_code
         assert ctx.exception.retry_after == expected_retry_after
+
+
+class TestListAccountTickets(BaseTest):
+    def _create_ticket(self, *, team: Team, organization_id: str | None, number: int, last_message_at=None) -> Ticket:
+        return Ticket.objects.create(
+            team=team,
+            ticket_number=number,
+            widget_session_id=f"s{number}",
+            distinct_id=f"d{number}",
+            organization_id=organization_id,
+            last_message_at=last_message_at,
+        )
+
+    def test_returns_only_tickets_for_this_team_and_org(self):
+        other_team = Team.objects.create(organization=self.organization)
+        mine = self._create_ticket(team=self.team, organization_id="acct-1", number=1)
+        self._create_ticket(team=self.team, organization_id="acct-2", number=2)
+        self._create_ticket(team=other_team, organization_id="acct-1", number=1)
+
+        result = list_account_tickets(self.team.pk, "acct-1")
+
+        assert [t.id for t in result] == [str(mine.id)]
+        assert result[0].deep_link.endswith(f"/project/{self.team.pk}/support/tickets/1")
+
+    def test_orders_by_last_message_activity_with_nulls_last(self):
+        older = timezone.now() - timedelta(hours=1)
+        newer = timezone.now()
+        self._create_ticket(team=self.team, organization_id="acct-1", number=1, last_message_at=older)
+        self._create_ticket(team=self.team, organization_id="acct-1", number=2, last_message_at=newer)
+        self._create_ticket(team=self.team, organization_id="acct-1", number=3, last_message_at=None)
+
+        result = list_account_tickets(self.team.pk, "acct-1")
+
+        assert [t.ticket_number for t in result] == [2, 1, 3]
+
+    def test_empty_organization_id_matches_nothing(self):
+        self._create_ticket(team=self.team, organization_id="acct-1", number=1)
+
+        assert list_account_tickets(self.team.pk, "") == []
+
+
+ACCOUNT_ID = "e1f4a5b6-0000-4000-8000-000000000001"
+PERIOD_START = datetime(2026, 7, 27, tzinfo=UTC)
+
+
+class TestTriggerImmediateChannelSummary(BaseTest):
+    def _trigger(self) -> bool:
+        return trigger_immediate_channel_summary(
+            team_id=self.team.pk,
+            account_id=ACCOUNT_ID,
+            account_name="Acme Corp",
+            slack_channel_id="C123",
+            cadence="daily",
+            period_start=PERIOD_START,
+            period_end=PERIOD_START + timedelta(days=1),
+        )
+
+    @parameterized.expand(
+        [
+            ("eligible", True, "xoxb-token", True),
+            ("ai_processing_not_approved", False, "xoxb-token", False),
+            ("support_bot_not_configured", True, "", False),
+        ]
+    )
+    def test_gates_on_org_approval_and_bot_config(self, _name, ai_approved, bot_token, expected_dispatch):
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+
+        with (
+            patch(f"{FACADE}.get_support_slack_bot_token", return_value=bot_token),
+            patch(f"{FACADE}.sync_connect") as connect,
+            patch(f"{FACADE}.asyncio.run") as run,
+        ):
+            dispatched = self._trigger()
+
+        assert dispatched is expected_dispatch
+        assert connect.called is expected_dispatch
+        assert run.called is expected_dispatch
+
+    def test_dispatches_under_the_shared_workflow_id(self):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        client = MagicMock()
+
+        with (
+            patch(f"{FACADE}.get_support_slack_bot_token", return_value="xoxb-token"),
+            patch(f"{FACADE}.sync_connect", return_value=client),
+            patch(f"{FACADE}.asyncio.run"),
+        ):
+            self._trigger()
+
+        assert client.start_workflow.call_args.kwargs["id"] == build_channel_summary_workflow_id(
+            account_id=ACCOUNT_ID, cadence="daily", period_start=PERIOD_START.date()
+        )
+        assert client.start_workflow.call_args.args[1].slack_channel_id == "C123"

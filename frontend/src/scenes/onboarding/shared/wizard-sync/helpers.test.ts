@@ -1,14 +1,16 @@
 import {
     activeStep,
+    currentTaskLabel,
     elapsedLabel,
     formatElapsed,
     isRunStale,
     isStreamLost,
+    pendingQuestionLabel,
     prName,
     STALE_RUN_MAX_AGE_MS,
     STALE_RUN_SILENCE_MS,
 } from './helpers'
-import type { InstallationStep } from './installationProgressLogic'
+import type { InstallationProgress, InstallationStep } from './installationProgressLogic'
 import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
 
 const NOW = new Date('2026-01-01T12:00:00Z').getTime()
@@ -114,5 +116,37 @@ describe('wizard-sync helpers', () => {
         ['not a url', null],
     ])('prName(%s) → %s', (url, expected) => {
         expect(prName(url)).toBe(expected)
+    })
+
+    describe('a pending question', () => {
+        const withQuestion = (prompts: string[], sensitive = false): InstallationProgress =>
+            ({
+                phase: 'running',
+                steps: [{ id: '1', label: 'Install the SDK', status: 'in_progress', detail: null }],
+                error: null,
+                prUrl: null,
+                prMerged: false,
+                isCurrent: true,
+                pendingInput: { id: 'ask-1', askedAt: iso(0), questionCount: 1, sensitive, prompts },
+            }) as InstallationProgress
+
+        // The user is looking at the app, not the terminal, so the prominent line has to be the
+        // instruction to go back there. Leading with the question buried that.
+        it('leads with the call to action, not the question', () => {
+            const progress = withQuestion(['Which region is your project in?'])
+            expect(currentTaskLabel(progress)).toBe('Your terminal needs your attention')
+            expect(currentTaskLabel(progress)).not.toContain('region')
+        })
+
+        it('carries the question separately, so it can render below the call to action', () => {
+            expect(pendingQuestionLabel(withQuestion(['Which region is your project in?']))).toBe(
+                'Which region is your project in?'
+            )
+        })
+
+        it('has no question to show for a sensitive ask', () => {
+            expect(pendingQuestionLabel(withQuestion([], true))).toBeNull()
+            expect(currentTaskLabel(withQuestion([], true))).toBe('Your terminal needs your attention')
+        })
     })
 })

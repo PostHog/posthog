@@ -1,8 +1,9 @@
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { pipelineStepDurationHistogram } from './metrics'
-import { PipelineResultWithContext } from './pipeline.interface'
+import { PipelineBuilderContext, PipelineResultWithContext } from './pipeline.interface'
 import { PipelineResult, PipelineResultOk, isOkResult } from './results'
 
 /**
@@ -30,10 +31,11 @@ export type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) 
  * implementation of chunk-step semantics, shared by {@link BaseChunkPipeline}
  * and the group-level pipeChunk in ConcurrentlyGroupingChunkPipeline.
  */
-export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string, RStep extends string>(
+export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string, RStep extends string, D = unknown>(
     step: ChunkProcessingStep<TIn, TOut, RStep>,
     stepName: string,
-    items: PipelineResultWithContext<TIn, C, RPrev>[]
+    items: PipelineResultWithContext<TIn, C, RPrev>[],
+    builderContext?: PipelineBuilderContext<D>
 ): Promise<PipelineResultWithContext<TOut, C, RPrev | RStep>[]> {
     const successfulValues = items
         .filter(isSuccessResultWithContext)
@@ -49,6 +51,23 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
             end({ result: 'chunk' })
         } catch (e) {
             end({ result: 'exception' })
+            // The exception propagates and crashes the process. A chunk step
+            // gets all values at once, so the failure can't be attributed to a
+            // single input; log every value's origin, folded into one summary
+            // when an aggregator is configured.
+            const debugContexts = items
+                .filter(isSuccessResultWithContext)
+                .map((resultWithContext) => resultWithContext.context.debugContext)
+                // Entry points tie D to the contexts' debugContext key, but the
+                // base field is typed unknown, so narrow here.
+                .filter((debugContext): debugContext is D => debugContext !== undefined)
+            const aggregate = builderContext?.aggregateDebugContexts
+            logger.error('🔥', `Chunk step ${stepName} threw`, {
+                error: e instanceof Error ? e.message : String(e),
+                stack: e instanceof Error ? e.stack : undefined,
+                chunkSize: successfulValues.length,
+                debugContext: aggregate && debugContexts.length > 0 ? aggregate(debugContexts) : debugContexts,
+            })
             throw e
         }
         if (stepResults.length !== successfulValues.length) {
@@ -98,13 +117,15 @@ export class BaseChunkPipeline<
     COutput = CInput,
     RPrev extends string = never,
     RStep extends string = never,
+    D = unknown,
 > implements ChunkPipeline<TInput, TOutput, CInput, COutput, RPrev | RStep>
 {
     private stepName: string
 
     constructor(
         private currentStep: ChunkProcessingStep<TIntermediate, TOutput, RStep>,
-        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>
+        private previousPipeline: ChunkPipeline<TInput, TIntermediate, CInput, COutput, RPrev>,
+        private builderContext?: PipelineBuilderContext<D>
     ) {
         this.stepName = this.currentStep.name || 'anonymousChunkStep'
     }
@@ -119,6 +140,6 @@ export class BaseChunkPipeline<
             return null
         }
 
-        return await applyChunkStepToResults(this.currentStep, this.stepName, previousResults)
+        return await applyChunkStepToResults(this.currentStep, this.stepName, previousResults, this.builderContext)
     }
 }

@@ -6,8 +6,8 @@ pipeline. This package is the sanctioned write service the harness tools (Phase 
 code never touches `SignalReport` or the embeddings pipeline directly.
 """
 
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.scout_report.persistence import (
-    MAX_REPORT_CHARTS,
     MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     PersistedScoutReport,

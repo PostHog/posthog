@@ -10,7 +10,7 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
-import { validateMetricName } from '../common'
+import { validateMetricDescription, validateMetricName } from '../common'
 import { metricsLogic, NewMetricDefinitionType } from '../metricsLogic'
 
 // The Text (markdown) option is hidden until its editor UI is polished.
@@ -26,17 +26,20 @@ export function NewMetricModal(): JSX.Element {
         useActions(metricsLogic)
 
     const nameError = validateMetricName(newMetricForm.name.trim())
+    const descriptionError = validateMetricDescription(newMetricForm.description)
     const submitDisabledReason = nameError
         ? nameError
         : !newMetricForm.description.trim()
           ? 'Add a description'
-          : newMetricForm.definitionType === 'sql'
-            ? 'Create SQL metrics from the SQL editor'
-            : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
-              ? 'Choose an insight'
-              : newMetricForm.definitionType === 'markdown' && !newMetricForm.markdown.trim()
-                ? 'Add the markdown definition'
-                : undefined
+          : descriptionError
+            ? descriptionError
+            : newMetricForm.definitionType === 'sql'
+              ? 'Create SQL metrics from the SQL editor'
+              : newMetricForm.definitionType === 'insight' && !newMetricForm.sourceInsightShortId
+                ? 'Choose an insight'
+                : newMetricForm.definitionType === 'markdown' && !newMetricForm.markdown.trim()
+                  ? 'Add the markdown definition'
+                  : undefined
 
     return (
         <LemonModal isOpen={newMetricModalOpen} onClose={closeNewMetricModal} width={640} title="New metric">
@@ -63,7 +66,11 @@ export function NewMetricModal(): JSX.Element {
                         />
                     </LemonField.Pure>
 
-                    <LemonField.Pure label="Description">
+                    <LemonField.Pure
+                        label="Description"
+                        error={descriptionError}
+                        info="1-3 sentences: what the metric means and what it serves."
+                    >
                         <LemonTextArea
                             value={newMetricForm.description}
                             onChange={(description) => setNewMetricForm({ description })}
