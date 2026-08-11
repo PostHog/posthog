@@ -251,19 +251,20 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
     if not email_targets:
         return []
 
-    alert_name = alert.name or "your alert"
-    error_message = str(error.get("message", "Unknown error"))[:1000]
+    alert_name = alert.name or "Your alert"
+    subject_alert_name = alert.name or "your alert"
+    error_message = str(error.get("message") or "Unknown error").strip()[:1000] or "Unknown error"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
     send_alert_email(
         recipients=email_targets,
         campaign_key=f"alert-evaluation-failed-notification-{idempotency_key}",
-        subject=f"PostHog alert {alert_name} could not be evaluated",
+        subject=f"PostHog could not evaluate {subject_alert_name}",
         template_name="alert_check_failed_to_evaluate",
         template_context={
             "alert_error": error_message,
             "alert_url": alert_url,
-            "alert_name": alert.name,
+            "alert_name": alert_name,
             "insight_url": insight_url,
             "insight_name": alert.insight.name,
         },

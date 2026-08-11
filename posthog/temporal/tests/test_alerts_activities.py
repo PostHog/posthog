@@ -591,13 +591,36 @@ class TestNotifyAlert:
             notification.source_url
             == f"/project/{alert_with_user.team_id}/insights/{alert_with_user.insight.short_id}?alert_id={alert_with_user.id}"
         )
-        assert "boom. Review" in notification.body
+        assert "boom. This can happen" in notification.body
         assert "boom.." not in notification.body
-        assert "Review the insight and alert settings" in notification.body
+        assert "when PostHog has a temporary problem" in notification.body
+        assert "Review the alert settings" in notification.body
+        assert "PostHog will try again" in notification.body
         assert "contact support" in notification.body
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+    @pytest.mark.parametrize("message", [None, "", "   "])
+    async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": message})
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_errors",
+                return_value=["alice@posthog.com"],
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
+
+        notification = mock_create_notification.call_args.args[0]
+        assert "Unknown error" in notification.body
+        assert "None" not in notification.body
 
     async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
         await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)

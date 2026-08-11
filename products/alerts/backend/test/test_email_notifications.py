@@ -74,12 +74,15 @@ def test_alert_evaluation_failure_email_includes_the_reason_and_next_check_timin
     )
 
     assert "The query could not run." in html
-    assert "This alert could not be evaluated." in html
+    assert "PostHog could not evaluate this alert." in html
+    assert "PostHog has a temporary problem" in html
     assert "Insight" in html
     assert "Error" in html
-    assert "Review the insight and alert settings" in html
+    assert "Review the alert settings" in html
+    assert "PostHog will try again" in html
     assert "next scheduled check" in html
-    assert "contact support" in html
+    assert "contact" in html
+    assert "support" in html
     assert "Review alert" in html
     assert "alert_id=1" in html
     assert "Example insight" in html

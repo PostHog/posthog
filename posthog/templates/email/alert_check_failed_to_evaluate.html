@@ -1,6 +1,7 @@
 {% extends "email/base.html" %} {% load posthog_assets %} {% block heading %}{{ alert_name }}{% endblock %} {% block section %}
     <p>
-        This alert could not be evaluated.
+        PostHog could not evaluate this alert. This can happen when the insight or alert settings need attention, or
+        when PostHog has a temporary problem.
     </p>
     <p>
         <strong>Insight</strong><br />
@@ -11,8 +12,8 @@
         <i>{{ alert_error }}</i>
     </p>
     <p>
-        Review the insight and alert settings. If they look correct, wait for the next scheduled check. If the alert
-        fails again, contact support.
+        Review the alert settings. PostHog will try again at the next scheduled check. If it fails again, contact
+        support.
     </p>
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri alert_url %}">Review alert</a>

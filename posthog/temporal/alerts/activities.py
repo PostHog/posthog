@@ -390,9 +390,9 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
 def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert_check: AlertCheck) -> None:
     """Create one best-effort inbox notification per eligible recipient for an errored check."""
     error = alert_check.error if isinstance(alert_check.error, dict) else {}
-    error_message = str(error.get("message", "Unknown error")).strip().rstrip(".")[:1000]
+    error_message = str(error.get("message") or "Unknown error").strip().rstrip(".")[:1000] or "Unknown error"
     alert_name = alert.name or "Alert"
-    source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
+    source_url = f"/project/{alert.team_id}/insights/{alert.insight.short_id}?alert_id={alert.id}"
 
     for user_id, _ in get_alert_error_notification_recipients(alert):
         try:
@@ -403,9 +403,10 @@ def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert
                     priority=Priority.NORMAL,
                     title=f"{alert_name[:75]} could not be evaluated",
                     body=(
-                        f"This alert could not be evaluated: {error_message}. "
-                        "Review the insight and alert settings. If they look correct, wait for the next scheduled "
-                        "check. If the alert fails again, contact support."
+                        f"PostHog could not evaluate this alert: {error_message}. "
+                        "This can happen when the insight or alert settings need attention, or when PostHog has a "
+                        "temporary problem. Review the alert settings. PostHog will try again at the next scheduled "
+                        "check. If it fails again, contact support."
                     ),
                     target_type=TargetType.USER,
                     target_id=str(user_id),
