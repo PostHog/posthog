@@ -11,9 +11,11 @@ describe('AccountConnected', () => {
     })
 
     it('a pending install from Slack shows the waiting state and an exit button, not a failure', () => {
+        // project_id is pushed as a number, mirroring how kea-router decodes `project_id=2` from the
+        // real backend redirect — the exit button must still render, not silently no-op.
         router.actions.push('/account-connected/github-integration', {
             provider: 'github',
-            project_id: '2',
+            project_id: 2,
             connect_from: 'slack',
             github_install_pending: '1',
         })

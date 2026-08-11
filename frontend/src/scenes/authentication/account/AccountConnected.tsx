@@ -130,7 +130,13 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
     // splits it back out into its own waiting state rather than a hard failure.
     const status = resolveConnectStatus(searchParams)
     const isPending = status === 'pending'
-    const projectId = typeof searchParams.project_id === 'string' ? searchParams.project_id : undefined
+    // kea-router decodes a numeric `project_id=2` to the number `2`, so coerce whatever type arrives —
+    // the same handling `posthogCodeDeepUrl` already applies — instead of gating on `typeof === 'string'`.
+    const projectIdParam = searchParams.project_id
+    const projectId =
+        projectIdParam !== undefined && projectIdParam !== null && projectIdParam !== ''
+            ? String(projectIdParam)
+            : undefined
     // The Slack flow has no deep link back — the user just returns to Slack themselves, so we only
     // show the success state. PostHog Desktop refreshes its integrations via a desktop deep link.
     const startedFromSlack = searchParams.connect_from === 'slack'
