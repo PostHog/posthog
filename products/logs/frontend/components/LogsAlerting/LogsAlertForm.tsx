@@ -102,17 +102,6 @@ function CheckDotsTooltip({ datapoints, periods }: { datapoints: number; periods
 }
 
 export function LogsAlertForm(): JSX.Element {
-    const { alertForm } = useValues(logsAlertFormLogic)
-    const { setAlertFormValue } = useActions(logsAlertFormLogic)
-
-    const handleFilterGroupChange = useCallback(
-        (group: UniversalFiltersGroup) => setAlertFormValue('filterGroup', group),
-        [setAlertFormValue]
-    )
-    const enabledAdvancedOptionsCount =
-        Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
-        Number(alertForm.cooldownMinutes > 0)
-
     return (
         <div className="space-y-6 max-w-2xl">
             <AlertEditorSection
@@ -120,58 +109,83 @@ export function LogsAlertForm(): JSX.Element {
                 description="Checks run every 5 minutes. Each check queries logs matching these filters."
             >
                 <div className="space-y-6">
-                    <div className="space-y-5">
-                        <h4 className="m-0">Filters</h4>
-                        <LemonField name="severityLevels" label="Severity">
-                            <SeverityLevelsFilter
-                                value={alertForm.severityLevels}
-                                onChange={(levels) => setAlertFormValue('severityLevels', levels)}
-                            />
-                        </LemonField>
-                        <LemonField.Pure label="Service">
-                            <ServiceFilter
-                                value={alertForm.serviceNames}
-                                onChange={(names) => setAlertFormValue('serviceNames', names)}
-                            />
-                        </LemonField.Pure>
-                        <LemonField name="filterGroup" label="Attributes">
-                            <AlertFilterGroup filterGroup={alertForm.filterGroup} onChange={handleFilterGroupChange} />
-                        </LemonField>
-                    </div>
-
-                    <div className="space-y-2">
-                        <h4 className="m-0">Trigger condition</h4>
-                        <AlertDefinitionRow label="Alert if count goes">
-                            <LemonSegmentedButton
-                                value={alertForm.thresholdOperator}
-                                onChange={(value) => setAlertFormValue('thresholdOperator', value)}
-                                options={[
-                                    { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
-                                    { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
-                                ]}
-                                size="small"
-                            />
-                            <LemonInput
-                                type="number"
-                                min={0}
-                                value={alertForm.thresholdCount}
-                                onChange={(value) => setAlertFormValue('thresholdCount', value ?? 0)}
-                                className="w-24"
-                                size="small"
-                                data-attr="logs-alert-threshold-count"
-                            />
-                            <span className="text-sm">in the last</span>
-                            <LemonSelect
-                                value={alertForm.windowMinutes}
-                                onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
-                                options={WINDOW_OPTIONS}
-                                size="small"
-                            />
-                        </AlertDefinitionRow>
-                    </div>
+                    <LogsAlertFilters />
+                    <LogsAlertTrigger />
                 </div>
             </AlertEditorSection>
+        </div>
+    )
+}
 
+export function LogsAlertFilters(): JSX.Element {
+    const { alertForm } = useValues(logsAlertFormLogic)
+    const { setAlertFormValue } = useActions(logsAlertFormLogic)
+    const handleFilterGroupChange = useCallback(
+        (group: UniversalFiltersGroup) => setAlertFormValue('filterGroup', group),
+        [setAlertFormValue]
+    )
+
+    return (
+        <div className="space-y-5">
+            <h4 className="m-0">Filters</h4>
+            <LemonField name="severityLevels" label="Severity">
+                <SeverityLevelsFilter
+                    value={alertForm.severityLevels}
+                    onChange={(levels) => setAlertFormValue('severityLevels', levels)}
+                />
+            </LemonField>
+            <LemonField.Pure label="Service">
+                <ServiceFilter
+                    value={alertForm.serviceNames}
+                    onChange={(names) => setAlertFormValue('serviceNames', names)}
+                />
+            </LemonField.Pure>
+            <LemonField name="filterGroup" label="Attributes">
+                <AlertFilterGroup filterGroup={alertForm.filterGroup} onChange={handleFilterGroupChange} />
+            </LemonField>
+        </div>
+    )
+}
+
+export function LogsAlertTrigger(): JSX.Element {
+    const { alertForm } = useValues(logsAlertFormLogic)
+    const { setAlertFormValue } = useActions(logsAlertFormLogic)
+    const enabledAdvancedOptionsCount =
+        Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
+        Number(alertForm.cooldownMinutes > 0)
+
+    return (
+        <>
+            <div className="space-y-2">
+                <h4 className="m-0">Trigger condition</h4>
+                <AlertDefinitionRow label="Alert if count goes">
+                    <LemonSegmentedButton
+                        value={alertForm.thresholdOperator}
+                        onChange={(value) => setAlertFormValue('thresholdOperator', value)}
+                        options={[
+                            { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
+                            { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
+                        ]}
+                        size="small"
+                    />
+                    <LemonInput
+                        type="number"
+                        min={0}
+                        value={alertForm.thresholdCount}
+                        onChange={(value) => setAlertFormValue('thresholdCount', value ?? 0)}
+                        className="w-24"
+                        size="small"
+                        data-attr="logs-alert-threshold-count"
+                    />
+                    <span className="text-sm">in the last</span>
+                    <LemonSelect
+                        value={alertForm.windowMinutes}
+                        onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
+                        options={WINDOW_OPTIONS}
+                        size="small"
+                    />
+                </AlertDefinitionRow>
+            </div>
             <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
                 <LemonField.Pure
                     label={
@@ -238,7 +252,7 @@ export function LogsAlertForm(): JSX.Element {
                     </div>
                 </LemonField.Pure>
             </AlertAdvancedOptions>
-        </div>
+        </>
     )
 }
 
