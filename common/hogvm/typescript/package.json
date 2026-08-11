@@ -1,6 +1,6 @@
 {
     "name": "@posthog/hogvm",
-    "version": "1.0.67",
+    "version": "1.0.68",
     "description": "PostHog Hog Virtual Machine",
     "license": "MIT",
     "author": "PostHog <hey@posthog.com>",

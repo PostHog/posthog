@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -137,10 +137,27 @@ class Channel(TeamScopedRootMixin):
         return f"#{self.name}"
 
 
+@receiver(pre_delete, sender=Integration)
+def clear_channel_repositories_on_github_integration_delete(
+    sender: type[Integration], instance: Integration, **kwargs: Any
+) -> None:
+    if instance.kind != Integration.IntegrationKind.GITHUB:
+        return
+
+    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+        github_integration=None,
+        repositories=[],
+    )
+
+
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
 PR_READY_EMAIL_QUEUED_AT_STATE_KEY = "pr_ready_email_queued_at"
 PR_READY_EMAIL_SENT_AT_STATE_KEY = "pr_ready_email_sent_at"
 PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
+
+
+class TaskClientProvenance(models.TextChoices):
+    POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
 
 
 class Task(DeletedMetaFields, models.Model):
@@ -188,6 +205,13 @@ class Task(DeletedMetaFields, models.Model):
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct)
+    client_provenance = models.CharField(
+        max_length=32,
+        choices=TaskClientProvenance,
+        null=True,
+        blank=True,
+        editable=False,
+    )
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -503,6 +527,27 @@ class Task(DeletedMetaFields, models.Model):
             capture_fn=capture_fn,
         )
 
+    def soft_delete_if_unclaimed_prewarm(self, task_run: "TaskRun") -> bool:
+        deleted_at = django_timezone.now()
+        updated = Task.objects.filter(
+            pk=self.pk,
+            deleted=False,
+            title="",
+            description="",
+            runs__id=task_run.id,
+            runs__state__prewarmed=True,
+            runs__state__await_user_message=True,
+        ).update(deleted=True, deleted_at=deleted_at, updated_at=deleted_at)
+        if not updated:
+            return False
+        self.deleted = True
+        self.deleted_at = deleted_at
+        self.updated_at = deleted_at
+        self.capture_event(
+            "task_deleted", {"duration_seconds": round((deleted_at - self.created_at).total_seconds(), 1)}
+        )
+        return True
+
     def delete(self, *args, **kwargs):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
 
@@ -539,6 +584,7 @@ class Task(DeletedMetaFields, models.Model):
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        client_provenance: TaskClientProvenance | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -569,6 +615,7 @@ class Task(DeletedMetaFields, models.Model):
         task_stub = Task(
             team=team,
             origin_product=origin_product,
+            client_provenance=client_provenance,
             created_by=created_by,
             repository=repository,
             github_integration=github_integration,
@@ -621,6 +668,7 @@ class Task(DeletedMetaFields, models.Model):
             title=title,
             description=description,
             origin_product=origin_product,
+            client_provenance=client_provenance,
             created_by=created_by,
             github_integration=github_integration,
             github_user_integration=github_user_integration,
@@ -761,6 +809,7 @@ class Task(DeletedMetaFields, models.Model):
         model: str | None = None,
         initial_permission_mode: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
+        client_provenance: TaskClientProvenance | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -786,6 +835,7 @@ class Task(DeletedMetaFields, models.Model):
             model=model,
             initial_permission_mode=initial_permission_mode,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
+            client_provenance=client_provenance,
         )
         return task
 
@@ -1140,6 +1190,92 @@ class TaskActivity(TeamScopedRootMixin):
             )
 
 
+class TaskCommentActivity(TeamScopedRootMixin):
+    class Kind(models.TextChoices):
+        MENTION = "mention", "Mention"
+        THREAD_REPLY = "thread_reply", "Thread reply"
+        OWNED_ITEM_COMMENT = "owned_item_comment", "Owned item comment"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    root_comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_comment_activity"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "comment"],
+                name="task_comment_activity_unique",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_activity_feed"),
+            models.Index(
+                fields=["team", "user"],
+                condition=models.Q(read_at__isnull=True),
+                name="task_comment_activity_unread",
+            ),
+        ]
+
+    @classmethod
+    def record_many(
+        cls,
+        *,
+        team_id: int,
+        task_id: uuid.UUID | str,
+        comment_id: uuid.UUID,
+        root_comment_id: uuid.UUID,
+        activity_at: datetime,
+        recipients: dict[int, str],
+    ) -> None:
+        if not recipients:
+            return
+        values = []
+        params: list[Any] = []
+        for user_id, kind in recipients.items():
+            values.append("(%s, %s, %s, %s, %s, %s, %s, %s, NULL)")
+            params.extend([uuid7(), team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at])
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at, read_at)
+                VALUES {", ".join(values)}
+                ON CONFLICT (team_id, user_id, comment_id) DO UPDATE
+                   SET task_id = EXCLUDED.task_id,
+                       root_comment_id = EXCLUDED.root_comment_id,
+                       kind = EXCLUDED.kind,
+                       activity_at = EXCLUDED.activity_at,
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                                AND {cls._meta.db_table}.kind = EXCLUDED.kind
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE NULL
+                       END
+                 WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                """,
+                params,
+            )
+
+
 class TaskPin(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
@@ -1471,6 +1607,13 @@ class Loop(ModelActivityMixin, TeamScopedRootMixin):
         choices=Task.OriginProduct.choices,
         default=Task.OriginProduct.USER_CREATED,
         help_text="Which product or flow created this loop.",
+    )
+    client_provenance = models.CharField(
+        max_length=32,
+        choices=TaskClientProvenance,
+        null=True,
+        blank=True,
+        editable=False,
     )
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_run_status = models.CharField(max_length=32, null=True, blank=True)
@@ -2116,9 +2259,17 @@ class TaskRun(models.Model):
             props["rtk_enabled"] = rtk
         return props
 
-    def capture_event(self, event: str, properties: dict | None = None, event_uuid: str | None = None) -> None:
+    def capture_event(
+        self,
+        event: str,
+        properties: dict | None = None,
+        event_uuid: str | None = None,
+        distinct_id_override: str | None = None,
+    ) -> None:
         try:
-            distinct_id = (
+            # The override lets the PR webhook attribute pr_merged to the GitHub user who
+            # actually merged, rather than the task's assigned user.
+            distinct_id = distinct_id_override or (
                 str(self.task.created_by.distinct_id)
                 if self.task.created_by_id and self.task.created_by
                 else str(self.team.uuid)
@@ -2423,6 +2574,13 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         blank=True,
         help_text="Task origin at provision time, denormalized for per-origin aggregation",
     )
+    client_provenance = models.CharField(
+        max_length=32,
+        choices=TaskClientProvenance,
+        null=True,
+        blank=True,
+        editable=False,
+    )
     prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
     vm_runtime = models.BooleanField(
         default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
@@ -2452,6 +2610,18 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
     )
     ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+    provider_cpu_usage_attribution_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Cumulative provider CPU time sampled when user attribution starts"
+    )
+    provider_cpu_usage_attribution_measured_at = models.DateTimeField(
+        null=True, blank=True, help_text="When provider CPU usage was sampled at user attribution"
+    )
+    provider_cpu_usage_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Cumulative provider CPU time sampled immediately before sandbox cleanup"
+    )
+    provider_usage_measured_at = models.DateTimeField(
+        null=True, blank=True, help_text="When provider resource usage was sampled"
+    )
 
     class Meta:
         db_table = "posthog_task_sandbox_session"

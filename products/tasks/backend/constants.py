@@ -1,4 +1,5 @@
 import json
+import hashlib
 from typing import Literal, get_args
 
 import posthoganalytics
@@ -14,6 +15,26 @@ PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 # Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
 # Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
+
+# Models a caller may only select while the paired flag is enabled for them. The Desktop
+# pickers already hide these client-side (`products/desktop/packages/shared/src/flags.ts`),
+# but a picker is a convenience rather than a gate: a stored per-task model preference, an
+# older client, or a direct API call all reach the write paths without consulting a flag, so
+# entitlement is re-checked server-side. Keys are the model ids callers send.
+MODEL_ACCESS_FLAGS: dict[str, str] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+}
+
+
+def get_required_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it's generally available."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
 
 
 def _decode_vm_sandbox_payload(payload: object) -> object:
@@ -48,6 +69,35 @@ def vm_sandbox_default_base_origin_products(payload: object) -> set[str]:
     if isinstance(value, list) and all(isinstance(item, str) for item in value):
         return {item for item in value if isinstance(item, str)}
     return set()
+
+
+def vm_sandbox_origin_rollout_percentages(payload: object) -> dict[str, float]:
+    payload = _decode_vm_sandbox_payload(payload)
+    value = payload.get("origin_product_rollout_percentages") if isinstance(payload, dict) else None
+    if not isinstance(value, dict):
+        return {}
+
+    return {
+        origin: float(percentage)
+        for origin, percentage in value.items()
+        if isinstance(origin, str)
+        and isinstance(percentage, int | float)
+        and not isinstance(percentage, bool)
+        and 0 <= percentage <= 100
+    }
+
+
+def vm_sandbox_origin_in_rollout(origin_product: str | None, run_id: str, percentages: dict[str, float]) -> bool:
+    origin_key = origin_product or ""
+    percentage = percentages.get(origin_key, 0)
+    if percentage <= 0:
+        return False
+    if percentage >= 100:
+        return True
+
+    digest = hashlib.sha256(f"{origin_key}:{run_id}".encode()).digest()
+    bucket = int.from_bytes(digest[:8], "big") / 2**64 * 100
+    return bucket < percentage
 
 
 # Published Modal image name of the prebaked PostHog dev-stack VM image. Unlike
@@ -156,13 +206,20 @@ POSTHOG_EXEC_DESTRUCTIVE_SUB_TOOLS: tuple[str, ...] = (
     "inbox-reports-bulk-set-state",
     "inbox-reports-set-state",
     "llma-prompt-label-set",
+    "opt-outs-add",
+    "opt-outs-remove",
     "organization-enforce-2fa",
     "organization-enforce-2fa-execute",
+    # Relayed on every call, not because every call writes: the client decides from the tool it
+    # runs in the connected project, which only it can read out of the arguments.
+    "posthog-connection-call",
+    "posthog-connection-forward",
     "scout-scratchpad-forget",
     "signals-scout-scratchpad-forget",
     "skill-archive",
     "user-interview-topics-remove-interviewee",
     "visual-review-runs-finalize-create",
+    "web-analytics-path-cleaning-suggestions-apply",
     "workflows-discard-draft",
     "workflows-publish",
     "workflows-restore-revision",

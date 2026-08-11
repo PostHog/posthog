@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -79,7 +78,6 @@ export const manifest: ProductManifest = {
             href: () => urls.endpoints(),
             iconColor: ['var(--color-product-endpoints-light)'],
             filterKey: 'endpoints',
-            flag: FEATURE_FLAGS.ENDPOINTS,
         },
     },
     treeItemsProducts: [
@@ -89,7 +87,6 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             href: urls.endpoints(),
             type: 'endpoints',
-            flag: FEATURE_FLAGS.ENDPOINTS,
             iconType: 'endpoints',
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             sceneKey: 'EndpointsScene',
@@ -103,7 +100,6 @@ export const manifest: ProductManifest = {
             iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
             href: urls.endpoints(),
             sceneKey: 'EndpointsScene',
-            flag: FEATURE_FLAGS.ENDPOINTS,
             sceneKeys: ['EndpointsScene', 'EndpointScene'],
         },
     ],

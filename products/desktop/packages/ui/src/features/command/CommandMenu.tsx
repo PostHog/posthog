@@ -1,4 +1,5 @@
 import {
+  ArchiveIcon,
   CaretLeftIcon,
   CaretRightIcon,
   ChartLine,
@@ -61,6 +62,7 @@ import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   goBackInHistory,
   goForwardInHistory,
+  navigateToArchived,
   navigateToChannel,
   navigateToCommandCenter,
   navigateToInbox,
@@ -272,6 +274,17 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         onRun: () => {
           closeSettingsDialog();
           navigateToInbox();
+        },
+      },
+      {
+        id: "archived",
+        label: "Archived",
+        keywords: "archive archived tasks",
+        icon: <ArchiveIcon size={12} className="text-gray-11" />,
+        action: "open-archived",
+        onRun: () => {
+          closeSettingsDialog();
+          navigateToArchived();
         },
       },
       {

@@ -231,6 +231,14 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
     # The node's code at run time — paging must re-query what produced the result,
     # not whatever the editor holds now.
     code = models.TextField(blank=True, default="")
+    # The direct-query data source this run executed against (null = PostHog's own ClickHouse).
+    # Stored, not just passed through, because `code` is only meaningful on the engine that ran
+    # it: a re-query or a cross-cell reference has to target the same one. A plain id rather
+    # than an FK — a deleted source must not take run history with it.
+    connection_id = models.UUIDField(null=True, blank=True)
+    # Whether `code` went to the connection verbatim instead of being compiled from HogQL. Set,
+    # it means `code` is the engine's own dialect and the HogQL parser can't read it.
+    send_raw_query = models.BooleanField(default=False, db_default=False)
     status = models.CharField(choices=Status, default=Status.RUNNING, max_length=20)
     envelope: JSONField = JSONField(default=None, null=True, blank=True)
     result_id = models.UUIDField(null=True, blank=True)

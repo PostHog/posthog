@@ -795,8 +795,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             if "primary_key_columns" in data:
                 new_pk = data.get("primary_key_columns")
                 old_pk = instance.sync_type_config.get("primary_key_columns")
+                # Only swapping an established key breaks merge identity against already-synced
+                # rows. A keyless incremental table can't merge at all, and picking its first key
+                # is the fix we tell the user to apply, so don't block that.
                 if (
                     resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+                    and old_pk
                     and new_pk != old_pk
                     and instance.table is not None
                 ):

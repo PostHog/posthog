@@ -5,11 +5,6 @@
             "description": "Id of the channel to create the canvas in (resolve it with channel-list).",
             "type": "string"
         },
-        "is_home": {
-            "default": false,
-            "description": "Create the canvas as the channel's home board (at most one per channel).",
-            "type": "boolean"
-        },
         "name": {
             "description": "Display name for the canvas.",
             "maxLength": 400,

@@ -947,6 +947,9 @@ class AccessControlPermission(ScopeBasePermission):
         has_access = uac.check_access_level_for_resource(scope_object, required_level=required_level)
         if has_access:
             return True
+        elif getattr(view, "requires_resource_level_access", False):
+            self.message = f"You do not have {required_level} access to this resource."
+            return False
         elif view.action == "create":
             # If the user has no access to the resource level, but is trying to create a new object, we should block it
             # Specific object access isn't relevant here as we are trying to create a new object
@@ -968,13 +971,13 @@ _raw = os.environ.get("POSTHOG_FEATURE_FLAGS_FORCE_ENABLED", "")
 _FORCE_ENABLED_FLAGS: frozenset[str] = frozenset(f.strip() for f in _raw.split(",") if f.strip())
 
 
-def posthog_feature_flag_enabled(
+def posthog_feature_flag_value(
     flag: str,
     distinct_id: str,
     *,
     organization_id: str | uuid.UUID,
     team_id: int | None = None,
-) -> bool:
+) -> bool | None:
     """Server-side check of a PostHog-internal gating flag with org/project group context.
 
     Matches in-app flag evaluation: posthog-js often has project (team) context; server-only org
@@ -993,14 +996,29 @@ def posthog_feature_flag_enabled(
         groups["project"] = project_id
         group_properties["project"] = {"id": project_id}
 
+    return posthoganalytics.feature_enabled(
+        flag,
+        distinct_id,
+        groups=groups,
+        group_properties=group_properties,
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def posthog_feature_flag_enabled(
+    flag: str,
+    distinct_id: str,
+    *,
+    organization_id: str | uuid.UUID,
+    team_id: int | None = None,
+) -> bool:
     return bool(
-        posthoganalytics.feature_enabled(
+        posthog_feature_flag_value(
             flag,
             distinct_id,
-            groups=groups,
-            group_properties=group_properties,
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
+            organization_id=organization_id,
+            team_id=team_id,
         )
     )
 

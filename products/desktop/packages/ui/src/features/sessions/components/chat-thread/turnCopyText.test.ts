@@ -57,7 +57,7 @@ describe("buildTurnCopyText", () => {
     expect(text).toBe("first paragraph\n\nsecond paragraph");
   });
 
-  it("skips tool calls, tool groups and other non-prose rows", () => {
+  it("skips user prompts, tool calls, tool groups and other non-agent rows", () => {
     const text = buildTurnCopyText([
       userMessage("u1", "do the thing"),
       toolCall("t1"),
@@ -65,13 +65,13 @@ describe("buildTurnCopyText", () => {
       agentText("a1", "done"),
     ]);
 
-    expect(text).toBe("do the thing\n\ndone");
+    expect(text).toBe("done");
   });
 
   it.each([
     ["no items", [] as ConversationItem[]],
     ["tools only", [toolCall("t1"), toolGroup("g1")]],
-    ["blank prose", [userMessage("u1", "   "), agentText("a1", "\n")]],
+    ["blank agent prose", [userMessage("u1", "prompt"), agentText("a1", "\n")]],
   ])("returns null when there is nothing to copy: %s", (_label, items) => {
     expect(buildTurnCopyText(items)).toBeNull();
   });

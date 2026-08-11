@@ -13,7 +13,7 @@ use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 
 use crate::domain::{
-    MembershipPartition, NextOffset, PersonSeed, ReconcileTile, SeedTile, WatchPositions,
+    NextOffset, PersonSeed, ReconcileTile, SeedTile, WatchPartition, WatchPositions,
 };
 
 pub use crate::domain::partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
@@ -125,7 +125,7 @@ impl SeedTileProducer {
         self.producer.flush(timeout)
     }
 
-    /// Capture the membership topic's per-partition high watermarks as the marker watcher's start
+    /// Capture the marker topic's per-partition high watermarks as the marker watcher's start
     /// positions. The high watermark is the offset the next record *will* receive, so it is exactly
     /// the first offset the watcher must read — no clock or "latest committed" assumption. Callers
     /// capture these BEFORE producing reconcile tiles: markers acked after this point sit at or above
@@ -150,9 +150,49 @@ impl SeedTileProducer {
                     budget,
                 })
         };
+        let partitions = self.topic_partition_ids(topic, remaining(deadline)?)?;
         let client = self.producer.client();
-        let metadata = client
-            .fetch_metadata(Some(topic), remaining(deadline)?)
+        let mut positions = WatchPositions::new();
+        for partition in partitions {
+            let (_low, high) = client
+                .fetch_watermarks(topic, partition, remaining(deadline)?)
+                .map_err(|source| CaptureOffsetsError::Watermarks {
+                    topic: topic.to_string(),
+                    partition,
+                    source,
+                })?;
+            positions.insert(
+                WatchPartition::new(partition),
+                NextOffset::from_high_watermark(high),
+            );
+        }
+        Ok(positions)
+    }
+
+    /// Prove `topic` exists and reports partitions. Metadata-only, so it costs one round trip where
+    /// [`Self::capture_topic_offsets`] costs another per partition: a preflight needs existence, and
+    /// the offsets it would collect are stale the moment it returns. Blocking — call via
+    /// `spawn_blocking` from async contexts.
+    pub fn verify_topic_reachable(
+        &self,
+        topic: &str,
+        timeout: Duration,
+    ) -> Result<(), CaptureOffsetsError> {
+        self.topic_partition_ids(topic, timeout).map(|_| ())
+    }
+
+    /// The topic's partition ids, with the "is this topic actually there" checks the offset capture
+    /// and the reachability probe share. A topic reporting no partitions is refused here: an empty
+    /// position set would be vacuously "caught up", minting a settlement proof over nothing.
+    fn topic_partition_ids(
+        &self,
+        topic: &str,
+        timeout: Duration,
+    ) -> Result<Vec<i32>, CaptureOffsetsError> {
+        let metadata = self
+            .producer
+            .client()
+            .fetch_metadata(Some(topic), timeout)
             .map_err(CaptureOffsetsError::Metadata)?;
         let topic_metadata = metadata
             .topics()
@@ -168,50 +208,37 @@ impl SeedTileProducer {
             });
         }
         if topic_metadata.partitions().is_empty() {
-            // An empty position set would be vacuously "caught up", minting a settlement proof over
-            // nothing. Refuse it at the source, the way `verify_partition_count` refuses a
-            // mis-provisioned seed topic.
             return Err(CaptureOffsetsError::NoPartitions {
                 topic: topic.to_string(),
             });
         }
-        let mut positions = WatchPositions::new();
-        for partition in topic_metadata.partitions() {
-            let (_low, high) = client
-                .fetch_watermarks(topic, partition.id(), remaining(deadline)?)
-                .map_err(|source| CaptureOffsetsError::Watermarks {
-                    topic: topic.to_string(),
-                    partition: partition.id(),
-                    source,
-                })?;
-            positions.insert(
-                MembershipPartition::new(partition.id()),
-                NextOffset::from_high_watermark(high),
-            );
-        }
-        Ok(positions)
+        Ok(topic_metadata
+            .partitions()
+            .iter()
+            .map(|partition| partition.id())
+            .collect())
     }
 }
 
-/// Why capturing the membership topic's start positions failed. The dispatch cannot record a
-/// resumable watch state without them, so every variant aborts the dispatch (it re-converges on the
-/// next tick).
+/// Why a marker-topic metadata read failed — capturing the watch start positions, or the startup
+/// probe that only proves the topic is there. The dispatch cannot record a resumable watch state
+/// without those positions, so every variant aborts the dispatch (it re-converges on the next tick).
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureOffsetsError {
-    #[error("fetching membership topic metadata")]
+    #[error("fetching marker topic metadata")]
     Metadata(#[source] KafkaError),
-    #[error("membership topic {topic:?} is not present in broker metadata")]
+    #[error("marker topic {topic:?} is not present in broker metadata")]
     Missing { topic: String },
-    #[error("membership topic {topic:?} metadata reports {code}")]
+    #[error("marker topic {topic:?} metadata reports {code}")]
     Topic {
         topic: String,
         code: RDKafkaErrorCode,
     },
-    #[error("membership topic {topic:?} reports no partitions")]
+    #[error("marker topic {topic:?} reports no partitions")]
     NoPartitions { topic: String },
-    #[error("capturing membership topic {topic:?} offsets exceeded its {budget:?} budget")]
+    #[error("capturing marker topic {topic:?} offsets exceeded its {budget:?} budget")]
     BudgetExhausted { topic: String, budget: Duration },
-    #[error("fetching watermarks for membership topic {topic:?} partition {partition}")]
+    #[error("fetching watermarks for marker topic {topic:?} partition {partition}")]
     Watermarks {
         topic: String,
         partition: i32,

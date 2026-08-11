@@ -202,6 +202,38 @@ def _build_initial_params(
     return params
 
 
+def _extract_error_detail(response: requests.Response) -> str | None:
+    """Pull the human-readable reason out of a Klaviyo JSON:API error body, if there is one."""
+    try:
+        errors = response.json().get("errors", [])
+        details = [
+            str(detail)
+            for error in errors
+            if isinstance(error, dict) and (detail := error.get("detail") or error.get("title"))
+        ]
+        return "; ".join(details)[:500] if details else None
+    except Exception:
+        return None
+
+
+def _raise_for_status_with_detail(response: requests.Response) -> None:
+    """`raise_for_status`, with Klaviyo's error detail appended to the exception message.
+
+    requests builds the HTTPError message from the status and URL alone, but a Klaviyo 403 carries
+    the actual denial reason only in the body — a key missing a read scope and an endpoint the
+    account's plan doesn't include (e.g. webhooks without Advanced KDP) are indistinguishable
+    without it. Non-retryable classification matches on the exception message, so the detail must
+    ride along. The response stays attached for handlers that branch on `exc.response`.
+    """
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        detail = _extract_error_detail(response)
+        if detail:
+            raise requests.HTTPError(f"{exc} ({detail})", response=response) from exc
+        raise
+
+
 @retry(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
@@ -237,7 +269,7 @@ def _fetch_page(
         # 404 is expected and handled during a fan-out (a parent deleted mid-sync).
         log = logger.warning if response.status_code == 404 else logger.error
         log(f"Klaviyo API error: status={response.status_code}, body={response.text}, url={page_url}")
-        response.raise_for_status()
+        _raise_for_status_with_detail(response)
 
     return response.json()
 

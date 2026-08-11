@@ -50,9 +50,84 @@ The root `AGENTS.md` architecture rules still apply.
   slide and returning to the list doesn't rebuild every row. A two-finger
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
   accumulated per gesture and locked until the wheel goes quiet).
-- In the list, "Starred"/"Spaces" are headings above lightly indented shared
-  rows; the pinned private "me" row aligns with the headings. The alpha's more
-  deeply indented Channels tree and hash glyphs are unchanged.
+- In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
+  private "me" row leads the Starred section and takes the same inset as the
+  spaces beside it. No row carries a glyph: "me" drops its lock here so every
+  name starts in the same column, and it still marks the space everywhere it is
+  named on its own (the back row, the breadcrumb). The alpha's more deeply
+  indented Channels tree and hash glyphs are unchanged.
+- **The list is a tree.** Each space has a disclosure caret that opens it onto
+  its most recent sessions (`useRecentSpaceTasks` — one task query per open
+  space, polling slower than the channel feed; expansion lives in
+  `spaceTreeStore` and persists). Session rows wear the space's own session
+  vocabulary (`TaskStatusDot` + `TaskBadgeStack`) but are hand-built rather than
+  `ChannelItemRow`: a row has to be an `AutocompleteItem` to stay on the
+  keyboard's path, and that row is a `SidebarItem` button.
+- **An open space offers the sessions it isn't showing.** A "View all" leaf
+  closes the list with what's left over and opens the space.
+  Its number comes from `getTasksPage`, which returns the page's total alongside
+  its rows: a page that came back under the fetch limit is the whole space
+  (exact once archived ones are dropped), a full one falls back to the server's
+  count, which still counts archived tasks.
+  `hasViewAllRow` decides whether that leaf exists, and both the rendered list
+  and the keyboard's flat node list have to call it: a row the keyboard doesn't
+  know about throws the highlight index off from there down.
+- **A session row carries the same card and menu as the space's own list.**
+  Both surfaces render `ChannelItemHoverCard` and `TaskRowContextMenu` from one
+  `TaskRowMenuProps`, so the facts and the actions can't drift.
+  Rename is the one item the tree drops, because it edits in place and there is
+  no inline editor on a row the keyboard is walking.
+  The card also opens on the keyboard's highlight, 350ms after it lands.
+  Rows read that highlight from `spaceTreeStore` as a boolean
+  (`highlightedValue === item.key`) so a keypress re-renders two rows, and the
+  list still writes it to a ref as well, because the arrow handlers read the
+  highlight during the event, before any render.
+  Only a `reason: "keyboard"` highlight is stored: a pointer one is the row's
+  own hover, and `keepHighlight` would otherwise strand a card open after the
+  pointer left the list.
+  The actions behind the menu (`useSpaceTaskActions`) are built once for the
+  whole list and passed through `SpaceTaskActionsProvider`, which keeps one pin
+  and one archive mutation for the tree instead of one per row and keeps them
+  out of the memo comparisons.
+- **A row's own colour utilities outrank quill's highlight styling.** quill
+  brings a highlighted option's contents to `--foreground` with
+  `.quill-autocomplete__item[data-highlighted] *`, but that rule lives in the
+  components layer, so anything carrying a colour utility of its own wins and
+  keeps its resting colour under the keyboard.
+  Row labels therefore state the highlight themselves (`ROW_LABEL_TONE`), and
+  the disclosure caret, which must stay dim while its row is highlighted, needs
+  `!` on a rule aimed at the glyph's descendants, because the `*` reaches the
+  icon's `<path>` where `fill: currentColor` resolves.
+- **The tree's rows are memoized, and have to stay that way.** A space row
+  carries a context menu, two dropdowns, a tooltip and two dialogs, and there
+  are dozens of them; before `ChannelSection`/`PersonalChannelRow`/`SpaceTaskRow`
+  were `memo`ed, expanding one space rebuilt every other row (350-540ms per
+  expand, in 300ms chunks). Keeping that means keeping their props stable: the
+  toggle callback takes a space id instead of closing over one, empty session
+  lists are a shared constant, `useRecentSpaceTasks` caches each space's item
+  list against the query data it was built from, and its `combine` is defined at
+  module scope so `useQueries` can memoize on it. A row's `channel` is compared
+  field by field, because the channel list is polled and hands out new objects.
+- **The tree stays off the host.** Its rows skip the per-task PR lookup
+  (`useChannelTaskStatus(item, { withPrStatus: false })`) — that is a query per
+  row into git, and the tree can show a dozen spaces' worth at once; the PR's
+  existence still shows, because `prUrl` comes from the task itself. Its feed
+  query is its own key with a 20-row page, not the channel feed's 500: sharing
+  the feed's key would hand the space's own list a truncated feed.
+- **Hover prefetch waits for the pointer to rest** (250ms). Arrowing through the
+  tree scrolls rows under a stationary cursor, so prefetching straight from
+  `pointerenter` fired a request for every row the list passed and made each
+  keypress take a second.
+- **Keyboard contract of the list.** The search box holds focus and drives
+  everything: ↑/↓ walk every visible row, → opens the highlighted space (and
+  again steps into it), ← closes the space you're in and puts the highlight back
+  on it. Both arrows defer to the text caret first, so they still edit the
+  query. ⌘⇧S from anywhere opens the sidebar, slides back to the list and takes
+  the keyboard; it is advertised on the search box (until a query replaces it
+  with the clear button) and on the space's back row, which is what it does from
+  inside a space. Autocomplete has no API for setting the highlight, so moving it
+  means synthesizing the arrow keys it listens for — and moving *before*
+  collapsing, while the rows still exist.
 - One `ChannelsFab` serves both panes: given a `channelId` it creates inside
   that channel (task, canvas), and either way it can create a channel. Off the
   layout it keeps its original two-item menu. Archived moves out of the sidebar
@@ -62,6 +137,10 @@ The root `AGENTS.md` architecture rules still apply.
   browses the list while the route, the main pane and the scoped channel stay
   put. Every way into a channel — a row click, a deep link, a mention, ⌘1-9 —
   ends at `showChannelPane()`, directly or through the route effect.
+  The one exception is a session opened from the list's tree: it loads in the
+  main window and leaves the sidebar on the list, because picking a session
+  while browsing across spaces is not a request to go into one. It says so with
+  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
 
 ## Breadcrumbs
 

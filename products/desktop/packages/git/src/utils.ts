@@ -156,6 +156,13 @@ export async function forceRemove(target: string): Promise<void> {
   await fs.rm(target, { recursive: true, force: true, maxRetries: 3 });
 }
 
+// GitHub owner and repo names only ever contain word characters, dots, and
+// hyphens. Callers join the parsed segments into filesystem paths, and
+// scp-style SSH inputs skip WHATWG dot-segment normalization, so a `..`
+// segment would otherwise survive parsing and escape the caller's target
+// directory via path.join.
+const SAFE_SLUG_SEGMENT = /^(?!\.\.?$)[\w.-]+$/;
+
 export function parseGithubUrl(
   url: string | null | undefined,
 ): GitHubUrl | null {
@@ -180,6 +187,9 @@ export function parseGithubUrl(
   if (parts.length < 2 || parts.some((p) => p === "")) return null;
   const [owner, repoRaw, segment, num] = parts;
   const repo = repoRaw.replace(/\.git$/, "");
+  if (!SAFE_SLUG_SEGMENT.test(owner) || !SAFE_SLUG_SEGMENT.test(repo)) {
+    return null;
+  }
 
   if (segment === "issues" || segment === "pull") {
     const number = Number(num);

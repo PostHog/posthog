@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import ClassVar
 from uuid import uuid4
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.utils import timezone as django_timezone
@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 
+from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
@@ -467,6 +468,57 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
+    @parameterized.expand(
+        [
+            # The inbox "Create PR" button sends no branch, so the team's configured base branch is
+            # the only thing that can keep the PR off the repo's GitHub default branch. Repo casing
+            # differs from the stored key because GitHub preserves it while the serializer lowercases.
+            ("configured_branch_applied", {"acme/web": "dev"}, {}, "dev"),
+            # A caller that picked a branch already decided; re-resolving would discard that choice.
+            ("explicit_branch_wins", {"acme/web": "dev"}, {"branch": "hotfix"}, "hotfix"),
+            # Another repo's entry must never be borrowed, because that lands the PR on a
+            # branch belonging to a different repository.
+            ("other_repo_not_borrowed", {"acme/api": "staging"}, {}, None),
+        ]
+    )
+    def test_run_task_applies_configured_base_branch(
+        self, _name: str, overrides: dict, extra_validated_data: dict, expected_branch: str | None
+    ):
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"autostart_base_branches": overrides})
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.SIGNAL_REPORT)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report", **extra_validated_data},
+            )
+
+        assert result is not None and result.error is None
+        run = task.runs.get()
+        self.assertEqual(run.branch, expected_branch)
+        self.assertEqual((run.state or {}).get("pr_base_branch"), expected_branch)
+
+    def test_run_task_leaves_branch_unset_for_user_created_tasks(self):
+        # The override is scoped to self-driving tasks. A user-created task keeps targeting the repo
+        # default, so broadening the resolution would silently redirect unrelated task runs.
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team, defaults={"autostart_base_branches": {"acme/web": "dev"}}
+        )
+        task = self._make_task(repository="Acme/Web", origin_product=Task.OriginProduct.USER_CREATED)
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "run_source": "signal_report"},
+            )
+
+        assert result is not None and result.error is None
+        self.assertIsNone(task.runs.get().branch)
+
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
         now = django_timezone.now()
@@ -750,6 +802,61 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
 
 
+class TestAppendLogAgentActivity(TestCase):
+    # Guards the self-sustaining heartbeat loop: infra log lines (credential refresh ->
+    # _posthog/console) heartbeating with agent_active=True reset the workflow's inactivity
+    # timer on every write, so a run whose agent went silent could never time out.
+    @parameterized.expand(
+        [
+            ("session_update", [{"notification": {"method": "session/update", "params": {}}}], True),
+            ("session_request", [{"notification": {"method": "session/request_permission", "params": {}}}], True),
+            ("console_only", [{"notification": {"method": "_posthog/console", "params": {"message": "x"}}}], False),
+            ("error_only", [{"notification": {"method": "_posthog/error", "params": {}}}], False),
+            # Non-ACP batches keep the old heartbeat behaviour: callers that only post generic
+            # {type, message} entries have no session/* frame to offer and would otherwise lose
+            # their inactivity extension while still working.
+            ("no_notification", [{"message": "plain infra line"}], True),
+            ("malformed_notification", [{"notification": "not-a-dict"}], True),
+            ("non_string_method", [{"notification": {"method": 7}}], False),
+            ("empty_entries", [], False),
+            (
+                "mixed_infra_and_session",
+                [
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                    {"notification": {"method": "session/update", "params": {}}},
+                ],
+                True,
+            ),
+            # One ACP frame is enough to mark the batch as sandbox traffic, so the plain line
+            # riding alongside it does not buy the credential-refresh batch a heartbeat.
+            (
+                "plain_line_alongside_infra_frame",
+                [
+                    {"message": "plain infra line"},
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                ],
+                False,
+            ),
+        ]
+    )
+    def test_entries_show_agent_activity(self, _name, entries, expected):
+        self.assertIs(facade._entries_show_agent_activity(entries), expected)
+
+    def test_append_task_run_log_heartbeats_with_classified_activity(self):
+        run = MagicMock()
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log(
+                "r", "t", 1, entries=[{"notification": {"method": "_posthog/console", "params": {}}}]
+            )
+            run.heartbeat_workflow.assert_called_once_with(agent_active=False)
+            run.reset_mock()
+            facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
+            run.heartbeat_workflow.assert_called_once_with(agent_active=True)
+
+
 class TestRecentWizardCloudRunTimes(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -825,3 +932,211 @@ class TestRecentWizardCloudRunTimes(TestCase):
         times = facade.recent_wizard_cloud_run_times(self.user.id, since)
         self.assertEqual(len(times), 2)
         self.assertEqual(times, sorted(times))
+
+
+class TestSelfDrivingQuotaFacadeGates(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Quota Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Quota Team")
+        cls.user = User.objects.create(email="quota-facade@test.com", distinct_id="quota-facade-distinct")
+
+    def _enforced_gate(self):
+        from products.signals.backend.quota import SelfDrivingQuotaGate
+
+        return patch(
+            "products.signals.backend.quota.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+        )
+
+    def test_create_and_run_task_blocked_for_self_driving_origin_when_enforced(self):
+        # The implementation task is the step that leads to the billable PR; over-quota teams
+        # must not get one through the facade regardless of caller.
+        from posthog.exceptions import QuotaLimitExceeded
+
+        with (
+            self._enforced_gate(),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            self.assertRaises(QuotaLimitExceeded),
+        ):
+            facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        # The facade gate keeps its own stage: its main caller is the auto-start pipeline, whose
+        # over-quota hits must not pollute the manual-path (`manual_create`) telemetry bucket.
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
+        self.assertTrue(capture_mock.call_args.kwargs["enforced"])
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_allows_non_pr_sessions_when_enforced(self, _mock_workflow):
+        # Research / repo-selection sessions create SIGNAL_REPORT tasks with create_pr=False;
+        # they can never open the billable PR, and blocking them would hard-fail the pipeline
+        # mid-run instead of letting the summary gates pause it.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Research: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+                create_pr=False,
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_dark_launch_emits_without_blocking(self, _mock_workflow):
+        # Limited without enforcement must create the task and still emit the would-block
+        # event, or the manual gate is invisible during the dark launch.
+        from products.signals.backend.quota import SelfDrivingQuotaGate
+
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with (
+            patch(
+                "products.signals.backend.quota.self_driving_quota_gate",
+                return_value=SelfDrivingQuotaGate(limited=True, enforced=False),
+            ),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+        ):
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="Implementation: t",
+                description="d",
+                origin_product=facade.TaskOriginProduct.SIGNAL_REPORT,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "task_create")
+        self.assertFalse(capture_mock.call_args.kwargs["enforced"])
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_unaffected_for_other_origins_when_enforced(self, _mock_workflow):
+        # The self-driving PR limit must never block user-created tasks.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        with self._enforced_gate():
+            created = facade.create_and_run_task(
+                team=self.team,
+                title="User task",
+                description="d",
+                origin_product=facade.TaskOriginProduct.USER_CREATED,
+                user_id=self.user.id,
+                repository="posthog/posthog",
+            )
+        self.assertTrue(Task.objects.filter(id=created.task_id).exists())
+
+    @parameterized.expand([(None,), ("implementation",), ("discussion",)])
+    def test_create_task_blocked_for_manual_report_creation_when_enforced(self, relationship):
+        # The inbox "start work from report" path (write serializer binds `signal_report`).
+        # Every relationship label is gated: the label is client-selected and manual tasks run
+        # PR-capable by default, so a "discussion" label must not dodge the limit.
+        from django.apps import apps
+
+        from posthog.exceptions import QuotaLimitExceeded
+
+        SignalReport = apps.get_model("signals", "SignalReport")
+        report = SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
+        with (
+            self._enforced_gate(),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused") as capture_mock,
+            self.assertRaises(QuotaLimitExceeded),
+        ):
+            facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Implementation: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": relationship,
+                },
+            )
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        # Genuinely manual creations keep the `manual_create` stage, distinct from the facade
+        # backstop's `task_create`.
+        self.assertEqual(capture_mock.call_args.kwargs["stage"], "manual_create")
+
+
+class TestSelfDrivingQuotaRefreshDispatch(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Refresh Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Refresh Team")
+        cls.user = User.objects.create(email="refresh@test.com", distinct_id="refresh-distinct")
+
+    def _self_driving_run(self) -> TaskRun:
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=self.user,
+        )
+        return TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+    @parameterized.expand(
+        [
+            # First PR URL on a self-driving-origin run is the billable moment: re-evaluate now.
+            ("first_pr_dispatches", None, {"pr_url": "https://github.com/x/y/pull/1"}, True),
+            # A repeat write for the same PR must not spam the quota task.
+            (
+                "repeat_write_skipped",
+                "https://github.com/x/y/pull/1",
+                {"pr_url": "https://github.com/x/y/pull/1"},
+                False,
+            ),
+            # No PR in the output: nothing billable happened.
+            ("no_pr_skipped", None, {"summary": "wip"}, False),
+            # Billing only counts GitHub PR URLs; anything else must not enqueue a refresh.
+            ("non_github_pr_url_skipped", None, {"pr_url": "https://evil.example/pr/1"}, False),
+        ]
+    )
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
+    def test_refresh_dispatch_on_first_pr(self, _name, old_pr_url, output, expect_dispatch, task_mock):
+        run = self._self_driving_run()
+        run.output = output
+        run.save(update_fields=["output"])
+        with self.captureOnCommitCallbacks(execute=True):
+            facade._refresh_self_driving_quota_for_pr(run, old_pr_url)
+        self.assertEqual(task_mock.delay.call_count, 1 if expect_dispatch else 0)
+        if expect_dispatch:
+            self.assertEqual(task_mock.delay.call_args.args, (str(self.organization.id),))
+
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
+    def test_refresh_swallows_lookup_failure(self, task_mock):
+        # The refresh is best-effort (the quota cron is the backstop): a transient DB fault must
+        # not propagate, or it would 500 an already-committed run write and abort the completion
+        # signaling that follows at both call sites.
+        run = self._self_driving_run()
+        run.output = {"pr_url": "https://github.com/x/y/pull/1"}
+        run.save(update_fields=["output"])
+        with patch("products.tasks.backend.facade.api.Team.objects.filter", side_effect=RuntimeError("db down")):
+            facade._refresh_self_driving_quota_for_pr(run, None)
+        task_mock.delay.assert_not_called()
+
+    @patch("ee.tasks.quota_limiting.refresh_org_self_driving_quota_task")
+    def test_refresh_dispatch_skipped_for_other_origins(self, task_mock):
+        run = self._self_driving_run()
+        run.task.origin_product = Task.OriginProduct.USER_CREATED
+        run.task.save(update_fields=["origin_product"])
+        run.output = {"pr_url": "https://github.com/x/y/pull/1"}
+        run.save(update_fields=["output"])
+        with self.captureOnCommitCallbacks(execute=True):
+            facade._refresh_self_driving_quota_for_pr(run, None)
+        task_mock.delay.assert_not_called()

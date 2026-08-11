@@ -9,11 +9,15 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from products.error_tracking.backend.temporal.weekly_digest.activities import (
+        cleanup_digest_orgs_activity,
         get_digest_orgs_activity,
+        load_page_orgs_activity,
         send_org_digest_activity,
     )
     from products.error_tracking.backend.temporal.weekly_digest.types import (
+        CleanupDigestOrgsInputs,
         GetDigestOrgsInputs,
+        LoadPageOrgsInputs,
         SendOrgDigestInputs,
         SendOrgDigestResult,
         WeeklyDigestInputs,
@@ -26,8 +30,16 @@ PAGE_WORKFLOW_NAME = "error-tracking-weekly-digest-page"
 
 FAILED_ORGS_ERROR_TYPE = "ErrorTrackingWeeklyDigestOrgsFailed"
 
+DIGEST_ORGS_STORAGE_PREFIX = "error_tracking/weekly_digest"
+
 GET_ORGS_RETRY_POLICY = common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30))
 GET_ORGS_TIMEOUT = timedelta(minutes=5)
+
+LOAD_PAGE_RETRY_POLICY = common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5))
+LOAD_PAGE_TIMEOUT = timedelta(minutes=1)
+
+CLEANUP_RETRY_POLICY = common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5))
+CLEANUP_TIMEOUT = timedelta(minutes=1)
 
 SEND_ORG_START_TO_CLOSE_TIMEOUT = timedelta(minutes=30)
 SEND_ORG_HEARTBEAT_TIMEOUT = timedelta(minutes=5)
@@ -101,24 +113,34 @@ async def _send_orgs(org_ids: list[str], dry_run: bool, max_concurrent: int, max
 
 @workflow.defn(name=PAGE_WORKFLOW_NAME)
 class ErrorTrackingWeeklyDigestPageWorkflow(PostHogWorkflow):
-    """Processes one page of orgs. Returns counts instead of raising on org failures so the
-    parent can aggregate across pages and fail the run exactly once."""
+    """Processes one page of orgs, read back from the list discovery stored in object
+    storage. Returns counts instead of raising on org failures so the parent can
+    aggregate across pages and fail the run exactly once."""
 
     inputs_cls = WeeklyDigestPageInputs
 
     @workflow.run
     async def run(self, inputs: WeeklyDigestPageInputs) -> WeeklyDigestResult:
-        outcome = await _send_orgs(inputs.org_ids, inputs.dry_run, inputs.max_concurrent, inputs.max_attempts)
-        return WeeklyDigestResult(orgs=len(inputs.org_ids), orgs_failed=outcome.orgs_failed, sent=outcome.sent)
+        org_ids = await workflow.execute_activity(
+            load_page_orgs_activity,
+            LoadPageOrgsInputs(
+                storage_key=inputs.storage_key, page_number=inputs.page_number, page_size=inputs.page_size
+            ),
+            start_to_close_timeout=LOAD_PAGE_TIMEOUT,
+            retry_policy=LOAD_PAGE_RETRY_POLICY,
+        )
+        outcome = await _send_orgs(org_ids, inputs.dry_run, inputs.max_concurrent, inputs.max_attempts)
+        return WeeklyDigestResult(orgs=len(org_ids), orgs_failed=outcome.orgs_failed, sent=outcome.sent)
 
 
 @workflow.defn(name=WORKFLOW_NAME)
 class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
-    """Fans pages of orgs out as child workflows, ``max_concurrent_pages`` at a time.
+    """Discovers orgs once, stores the list in object storage, and fans every page out as
+    a child workflow immediately.
 
-    Overlapping pages keeps activity slots busy while a page drains its slowest orgs —
-    with sequential pages, each page's tail (one slow org retrying) idles the whole
-    fleet until the next page starts.
+    Only a storage key and a count ride through workflow history, so history and payload
+    sizes stay flat regardless of org count. All children start at once, so the worker
+    fleet's activity-slot capacity is the intended global throttle.
     """
 
     inputs_cls = WeeklyDigestInputs
@@ -129,50 +151,73 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
         if inputs is None:
             inputs = WeeklyDigestInputs()
 
-        window = asyncio.Semaphore(inputs.max_concurrent_pages)
+        # Checked before discovery so a bad value can't orphan a staged list. Zero would
+        # raise ZeroDivisionError from the page arithmetic below, which Temporal retries as
+        # a workflow task forever instead of failing; a negative value yields an empty page
+        # range and reports a successful run that sent nothing.
+        if inputs.page_size < 1:
+            raise ApplicationError(f"page_size must be at least 1, got {inputs.page_size}", non_retryable=True)
 
-        async def run_page(org_ids: list[str], page_number: int) -> WeeklyDigestResult:
-            async with window:
-                return await workflow.execute_child_workflow(
-                    ErrorTrackingWeeklyDigestPageWorkflow.run,
-                    WeeklyDigestPageInputs(
-                        org_ids=org_ids,
-                        dry_run=inputs.dry_run,
-                        max_concurrent=inputs.max_concurrent,
-                        max_attempts=inputs.max_attempts,
-                    ),
-                    id=f"{workflow.info().workflow_id}-page-{page_number}",
-                    # Explicitly the default: terminating the parent must stop all page
-                    # children too, so killing the parent is a reliable stop-everything
-                    # switch and no abandoned child keeps sending digests.
-                    parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
-                )
+        info = workflow.info()
+        # run_id-scoped so a re-run of the same workflow id can never read a stale list.
+        storage_key = f"{DIGEST_ORGS_STORAGE_PREFIX}/{info.workflow_id}/{info.run_id}/orgs.json"
 
-        cursor: str | None = None
-        pages: list[list[str]] = []
-        page_tasks: list[asyncio.Task[WeeklyDigestResult]] = []
-        while True:
-            page = await workflow.execute_activity(
-                get_digest_orgs_activity,
-                GetDigestOrgsInputs(org_ids=inputs.org_ids, after=cursor, limit=inputs.page_size),
-                start_to_close_timeout=GET_ORGS_TIMEOUT,
-                retry_policy=GET_ORGS_RETRY_POLICY,
+        discovery = await workflow.execute_activity(
+            get_digest_orgs_activity,
+            GetDigestOrgsInputs(storage_key=storage_key, org_ids=inputs.org_ids),
+            start_to_close_timeout=GET_ORGS_TIMEOUT,
+            retry_policy=GET_ORGS_RETRY_POLICY,
+        )
+
+        page_count = -(-discovery.total_orgs // inputs.page_size)
+        page_sizes = [
+            min(inputs.page_size, discovery.total_orgs - (page_number - 1) * inputs.page_size)
+            for page_number in range(1, page_count + 1)
+        ]
+
+        async def run_page(page_number: int) -> WeeklyDigestResult:
+            return await workflow.execute_child_workflow(
+                ErrorTrackingWeeklyDigestPageWorkflow.run,
+                WeeklyDigestPageInputs(
+                    storage_key=storage_key,
+                    page_number=page_number,
+                    page_size=inputs.page_size,
+                    dry_run=inputs.dry_run,
+                    max_concurrent=inputs.max_concurrent,
+                    max_attempts=inputs.max_attempts,
+                ),
+                id=f"{info.workflow_id}-page-{page_number}",
+                # Explicitly the default: terminating the parent must stop all page
+                # children too, so killing the parent is a reliable stop-everything
+                # switch and no abandoned child keeps sending digests.
+                parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
             )
-            if not page:
-                break
-            pages.append(page)
-            page_tasks.append(asyncio.create_task(run_page(page, page_number=len(pages))))
-            if len(page) < inputs.page_size:
-                break
-            cursor = page[-1]
 
-        results = await asyncio.gather(*page_tasks, return_exceptions=True)
+        results = await asyncio.gather(
+            *(run_page(page_number) for page_number in range(1, page_count + 1)), return_exceptions=True
+        )
+
+        if discovery.total_orgs:
+            # Best-effort: a leftover object costs pennies and the bucket can carry a
+            # lifecycle rule; failing the whole run over cleanup would be backwards.
+            try:
+                await workflow.execute_activity(
+                    cleanup_digest_orgs_activity,
+                    CleanupDigestOrgsInputs(storage_key=storage_key),
+                    start_to_close_timeout=CLEANUP_TIMEOUT,
+                    retry_policy=CLEANUP_RETRY_POLICY,
+                )
+            except Exception as error:
+                workflow.logger.warning(
+                    "Error Tracking weekly digest org list cleanup failed",
+                    extra={"storage_key": storage_key, "error": str(error)},
+                )
 
         orgs = 0
         orgs_failed = 0
         sent = 0
-        for page, result in zip(pages, results):
-            orgs += len(page)
+        for page_size, result in zip(page_sizes, results):
+            orgs += page_size
             # Same as _send_orgs: a captured CancelledError is the run being cancelled,
             # not a failed page.
             if isinstance(result, asyncio.CancelledError):
@@ -180,10 +225,10 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
             if isinstance(result, BaseException):
                 # The child only propagates unexpected failures (per-org errors are counted
                 # inside it), so attribute the whole page.
-                orgs_failed += len(page)
+                orgs_failed += page_size
                 workflow.logger.error(
                     "Error Tracking weekly digest page failed",
-                    extra={"page_size": len(page), "error": str(result)},
+                    extra={"page_size": page_size, "error": str(result)},
                 )
                 continue
             orgs_failed += result.orgs_failed

@@ -60,7 +60,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
@@ -88,6 +88,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.facade.api import emit_signal
+from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
@@ -97,12 +98,14 @@ from products.signals.backend.models import (
     AutonomyPriority,
     InvalidStatusTransition,
     SignalReport,
+    SignalReportAction,
     SignalReportArtefact,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
@@ -149,6 +152,7 @@ from products.signals.backend.temporal.reingestion import SignalReportReingestio
 from products.signals.backend.temporal.signal_queries import (
     fetch_live_report_ids_for_source_ids,
     fetch_report_ids_for_scout_names,
+    fetch_report_ids_for_scout_prefix,
     fetch_report_ids_for_source_products,
     fetch_signals_for_report_sync,
 )
@@ -452,7 +456,7 @@ SIGNAL_REPORT_TITLE_MAX_LENGTH = 300
 SIGNAL_REPORT_SUMMARY_MAX_LENGTH = 10_000
 
 # Canonical dismissal reason codes, mirrored from the inbox UI source of truth at
-# frontend/src/scenes/inbox/utils/dismissalReasons.ts (itself a port of desktop's
+# products/signals/frontend/inbox/utils/dismissalReasons.ts (itself a port of desktop's
 # packages/shared/src/dismissal-reasons.ts). Constraining the API to these values keeps
 # agent-supplied reasons rendering as labelled chips in the inbox instead of raw,
 # unrecognised codes. Keep the values (and order) in sync with that file.
@@ -583,6 +587,39 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
 
 
+# The thumbs rating at the end of the report body carries an optional note, capped in the UI at the
+# same length as the dismissal note.
+SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH = SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH
+
+
+class SignalReportFeedbackRequestSerializer(serializers.Serializer):
+    sentiment = serializers.ChoiceField(
+        choices=[("positive", "positive"), ("negative", "negative")],
+        help_text="The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).",
+    )
+    note = serializers.CharField(
+        max_length=SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text=(
+            "Free-form note explaining the rating. Capped at "
+            f"{SIGNAL_REPORT_FEEDBACK_NOTE_MAX_LENGTH} characters. Optional — a bare thumb carries "
+            "none. When present and the report was authored by a scout, the note is forwarded to that "
+            "scout as a steering note."
+        ),
+    )
+
+
+class SignalReportFeedbackResponseSerializer(serializers.Serializer):
+    forwarded = serializers.BooleanField(
+        help_text=(
+            "Whether the note was forwarded to the report's authoring scout as a steering note. False "
+            "when the report has no resolvable authoring scout, or the caller lacks scout-steering access."
+        ),
+    )
+
+
 # Whole PR-refund feature gate. Checked server-side (not just in the UI) and keyed on the
 # organization, matching the refund window (the org's billing period).
 SIGNALS_PR_REFUNDS_FEATURE_FLAG = "signals-pr-refunds"
@@ -655,6 +692,13 @@ class SignalReportRefundSummaryResponseSerializer(serializers.Serializer):
             "PR count that reacts to new PRs and same-day refunds immediately."
         ),
     )
+    quota_limited = serializers.BooleanField(
+        help_text=(
+            "Whether autonomous PR generation is currently paused for this project because the "
+            "organization is over its self-driving credits quota. Read from the quota limiter, so it "
+            "reflects the same state the pipeline gates enforce."
+        ),
+    )
 
 
 class SignalReportContentUpdateSerializer(serializers.Serializer):
@@ -694,6 +738,28 @@ class SignalReportContentUpdateSerializer(serializers.Serializer):
         return attrs
 
 
+def _is_person_at_the_ui(request: Request) -> bool:
+    """Whether the caller is a signed-in person in a browser, not an automated credential.
+
+    Consumption evidence (`SignalReportAction`) must prove a person read the report, but every
+    credential this API accepts authenticates *as* a user: through ``request.user`` alone, a
+    personal API key or a sandbox agent's OAuth token is indistinguishable from the person it
+    belongs to. Admitting only a browser session keeps automation — including a scout calling
+    the API on its own reports — from manufacturing the engagement that exempts it from the
+    inactivity sweep.
+
+    Staff impersonation is excluded for the same reason: it is a browser session, but
+    ``request.user`` is the impersonated customer, so a support investigation would otherwise
+    write consumption evidence in that customer's name and rescue a scout nobody on their team
+    read. (Read-only impersonation can't reach these POSTs at all; read-write can.)
+    """
+    return (
+        isinstance(request.successful_authenticator, SessionAuthentication)
+        and isinstance(request.user, User)
+        and not is_impersonated_session(request)
+    )
+
+
 @extend_schema_view(
     destroy=extend_schema(exclude=True),
 )
@@ -725,6 +791,13 @@ class SignalReportViewSet(
     }
 
     def safely_get_queryset(self, queryset):
+        if self.action == "viewed":
+            # Passive telemetry fired right after the detail request that already rendered the
+            # report: only visibility matters here, so skip the rendering annotations and
+            # prefetches every other action's serializer needs.
+            qs = queryset.filter(team=self.team)
+            qs = self._exclude_deleted_signal_reports(qs)
+            return self._apply_signal_report_status_filter(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         qs = self._exclude_deleted_signal_reports(qs)
@@ -733,6 +806,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_source_product_filter(qs)
         qs = self._apply_signal_report_source_id_filter(qs)
         qs = self._apply_signal_report_scout_filter(qs)
+        qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
@@ -781,10 +855,16 @@ class SignalReportViewSet(
     # `state` reopens a dismissed report, `retrieve` loads its detail, and `signals`
     # loads its evidence. `bulk_state` is included so a bulk restore (state='potential')
     # can reach suppressed reports too. `refund` is included so an already-archived but
-    # billed report can still be refunded. Mutating-by-ID actions (delete, reingest) are
+    # billed report can still be refunded, and `feedback` because the detail view the
+    # Dismissed tab renders ends in the thumbs rating, which must be able to forward its
+    # note for the report it is displayed on. Mutating-by-ID actions (delete, reingest) are
     # deliberately NOT here, so a suppressed report stays unreachable for those and keeps
     # returning 404 — matching the existing contract.
-    _SUPPRESSED_VISIBLE_ACTIONS = frozenset({"state", "bulk_state", "retrieve", "signals", "refund"})
+    # `viewed` follows `retrieve` for the same reason: the Dismissed tab's detail view records its
+    # open like any other.
+    _SUPPRESSED_VISIBLE_ACTIONS = frozenset(
+        {"state", "bulk_state", "retrieve", "signals", "refund", "feedback", "viewed"}
+    )
 
     # Human-readable explanation per bulk outcome, surfaced in each result's `detail` field
     # (transitioned needs none — its `status` already says where the report landed).
@@ -901,6 +981,14 @@ class SignalReportViewSet(
 
         report_ids_with_scout = fetch_report_ids_for_scout_names(self.team, scout_names)
         return queryset.filter(id__in=report_ids_with_scout)
+
+    def _apply_signal_report_scout_prefix_filter(self, queryset):
+        scout_prefix = (self.request.query_params.get("scout_prefix") or "").strip()
+        if not scout_prefix:
+            return queryset
+
+        report_ids_with_prefix = fetch_report_ids_for_scout_prefix(self.team, scout_prefix)
+        return queryset.filter(id__in=report_ids_with_prefix)
 
     def _latest_suggested_reviewers_qs(self):
         """`suggested_reviewers` rows that are the *current* (latest) version for the correlated
@@ -1186,6 +1274,10 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
+        if self.action == "viewed":
+            # The lightweight viewed queryset skips the annotations the default ordering sorts
+            # by, and a by-ID lookup has nothing to order anyway.
+            return queryset
         return self._apply_signal_report_ordering(queryset)
 
     def _parse_ordering_string(self, raw: str) -> list[str]:
@@ -1384,6 +1476,18 @@ class SignalReportViewSet(
                     "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). "
                     "Reports are kept if at least one of their contributing signals was authored by one of "
                     "these scouts. Combines with source_product as an AND."
+                ),
+            ),
+            OpenApiParameter(
+                name="scout_prefix",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at "
+                    "least one of their contributing signals was authored by a scout whose skill_name starts "
+                    "with this prefix — new scouts in the family match without callers listing every name. "
+                    "Combines with the other filters as an AND."
                 ),
             ),
             OpenApiParameter(
@@ -1679,6 +1783,97 @@ class SignalReportViewSet(
         )
 
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
+
+    @extend_schema(
+        summary="Leave feedback on a report",
+        description=(
+            "Record the thumbs rating at the end of a report, with an optional note. For "
+            "browser-session requests the rating is persisted as a per-person report action, which "
+            "counts as consumption evidence for the scout that authored the report (scouts whose "
+            "output nobody consumes are eventually paused); requests authenticated any other way "
+            "record no action. When a note is present and the report was authored by a scout, the note is also "
+            "forwarded to that scout as a steering note it reads on its next run; for any other report "
+            "there is nothing to steer. The report's state is never changed."
+        ),
+        request=SignalReportFeedbackRequestSerializer,
+        responses={200: SignalReportFeedbackResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="feedback", required_scopes=["task:write"])
+    def feedback(self, request, pk=None, **kwargs):
+        """Persist a report's thumbs rating and forward its note to the authoring scout.
+
+        Feedback-only: unlike `state`, this never transitions the report. Note forwarding is
+        best-effort and never fails the request; the action row is what the scout inactivity
+        sweep reads as consumption evidence.
+        """
+        report = cast(SignalReport, self.get_object())
+
+        serializer = SignalReportFeedbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        note = data["note"].strip()
+
+        if _is_person_at_the_ui(request):
+            # The inbox posts the bare rating on click and the optional note afterwards, so a
+            # note-carrying request amends a rating the row already counted — bumping again
+            # would record one thumb choice as two interactions.
+            SignalReportAction.record(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                user_id=request.user.id,
+                action_type=SignalReportAction.ActionType.FEEDBACK,
+                metadata={"sentiment": data["sentiment"]},
+                bump_count=not note,
+            )
+
+        if not note:
+            return Response(SignalReportFeedbackResponseSerializer({"forwarded": False}).data)
+
+        note_id = forward_feedback_note(
+            team=self.team,
+            report_id=str(report.id),
+            sentiment=data["sentiment"],
+            note=note,
+            user_id=request.user.id if isinstance(request.user, User) else None,
+            scoped_team_ids=get_authenticator_scoped_team_ids(request.successful_authenticator),
+            api_scopes=get_authenticator_scopes(request.successful_authenticator),
+        )
+        return Response(SignalReportFeedbackResponseSerializer({"forwarded": note_id is not None}).data)
+
+    @extend_schema(
+        summary="Record that a person viewed a report",
+        description=(
+            "Record that the caller opened this report's detail view. One row per person per report is "
+            "kept (repeat views bump a counter), and the record counts as consumption evidence for the "
+            "scout that authored the report — scouts whose reports nobody consumes are eventually "
+            "paused. Intended as fire-and-forget from the inbox UI when a person opens a report. Only "
+            "browser-session requests leave a record; a call with any other credential (personal API "
+            "key, OAuth token) returns 204 but records nothing."
+        ),
+        request=None,
+        responses={204: None},
+    )
+    # task:read, not task:write: recording that someone read a report is part of reading it.
+    # Under resource-level RBAC a `:write` scope demands editor access, which would 403 the
+    # viewer-level members whose reads this endpoint exists to capture. Token automation is
+    # already excluded by the session-authentication gate, not by scope.
+    @action(detail=True, methods=["post"], url_path="viewed", required_scopes=["task:read"])
+    def viewed(self, request, pk=None, **kwargs):
+        """Upsert a per-person view record for the report.
+
+        Only session-authenticated callers leave a record; any other credential is a silent
+        no-op (204, nothing written), since the row exists to prove a person looked.
+        """
+        report = cast(SignalReport, self.get_object())
+        if _is_person_at_the_ui(request):
+            SignalReportAction.record(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                user_id=request.user.id,
+                action_type=SignalReportAction.ActionType.VIEW,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _forward_dismissal_note(
         self,
@@ -2133,7 +2328,11 @@ class SignalReportViewSet(
     )
     @action(detail=False, methods=["get"], url_path="refund-summary", required_scopes=["task:read"])
     def refund_summary(self, request: Request, **kwargs):
-        if not self._signals_pr_refunds_enabled():
+        # Two independent flags can each make this endpoint matter: refunds (the netting numbers)
+        # and quota enforcement (`quota_limited` drives the widget's paused banner, and enforcement
+        # can roll out before refunds). Gating on refunds alone would hide the paused state for
+        # enforcement-only orgs.
+        if not (self._signals_pr_refunds_enabled() or self_driving_quota_enforcement_enabled(self.team)):
             raise NotFound("PR refunds are not enabled for this organization.")
 
         period = current_billing_period_bounds(self.organization)
@@ -2153,6 +2352,7 @@ class SignalReportViewSet(
                 "credited_refund_count": aggregates["credited_refund_count"] or 0,
                 "credited_credits": aggregates["credited_credits"] or 0,
                 "period_billable_credits": period_billable_credits_for_org(self.organization.id, period=period),
+                "quota_limited": self_driving_quota_gate(self.team).enforced,
             }
         )
 

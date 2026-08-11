@@ -157,6 +157,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                # ReviewHog sandbox runs route here (no review_hog entry in the agent's
+                # origin→product map), so its reviewer-experiment arms must be allowed.
+                "gpt-5.6-sol",
             }
             | BEDROCK_MODELS
         ),
@@ -212,7 +215,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     ),
     "slack_app_routing": ProductConfig(
         allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allowed_models=frozenset({"claude-haiku-4-5", "gpt-5.6-luna"}),
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
     ),
@@ -321,6 +324,12 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,  # any model
         allow_api_keys=True,
         credit_bucket=CreditBucket.AI_CREDITS,
+    ),
+    "web_analytics": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        credit_bucket=None,
     ),
     # changelog-bot. Exact-pinned to these two ids (the agent sends "openai/"-prefixed).
     "changelog_bot": ProductConfig(
@@ -442,6 +451,27 @@ def check_free_tier_model_access(
         f"Model '{model}' needs a paid PostHog plan. Models available on the free tier: {available}. "
         "Add a payment method to your organization to unlock all models."
     )
+
+
+# Models a caller may only select while the paired flag is enabled for them, mirroring
+# products/tasks MODEL_ACCESS_FLAGS. Each model maps to its own access flag — the same flag the
+# Desktop picker gates it behind — so an entitlement can't be widened for one model by proxy of
+# another. Keys are the model ids callers send.
+MODEL_ACCESS_FLAGS: Final[dict[str, str]] = {
+    "moonshotai/kimi-k3": "tasks-kimi-k3",
+    "deepseek-ai/deepseek-v4-flash-0731": "posthog-code-deepseek-model",
+}
+
+
+def get_required_model_flag(model: str | None) -> str | None:
+    """The feature flag a caller needs to select `model`, or None when it is generally available."""
+    if not model:
+        return None
+    normalized = model.strip().lower()
+    for gated_model, flag_key in MODEL_ACCESS_FLAGS.items():
+        if gated_model.lower() == normalized:
+            return flag_key
+    return None
 
 
 def filter_to_free_tier_models(model_ids: list[str]) -> list[str]:

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -19,7 +19,7 @@ import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/q
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { isDefaultExposureConfig } from '../exposureContract'
+import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 import { buildExposureSeries } from './exposuresTransforms'
@@ -27,6 +27,32 @@ import { VariantTag } from './VariantTag'
 
 const srmFailureTooltipText =
     "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
+
+// Below this, a load looks like any other; above it, the user has no way to tell a slow query
+// from a stuck one, so we start showing elapsed time and a way to retry.
+const SLOW_LOAD_THRESHOLD_SECONDS = 20
+
+/** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
+function useElapsedSeconds(active: boolean): number {
+    const [elapsed, setElapsed] = useState(0)
+    const startRef = useRef<number | null>(null)
+
+    useEffect(() => {
+        if (!active) {
+            startRef.current = null
+            setElapsed(0)
+            return
+        }
+        startRef.current = performance.now()
+        setElapsed(0)
+        const intervalId = setInterval(() => {
+            setElapsed(Math.floor((performance.now() - (startRef.current as number)) / 1000))
+        }, 1000)
+        return () => clearInterval(intervalId)
+    }, [active])
+
+    return elapsed
+}
 
 interface MicroChartProps {
     exposures: ExperimentExposureQueryResponse
@@ -82,6 +108,11 @@ function getExposureCriteriaLabel(
     exposureCriteria: ExperimentExposureCriteria | undefined,
     defaultEvent: string
 ): string {
+    const activationConfig = getActivationConfig(exposureCriteria)
+    if (activationConfig) {
+        return `Default (${defaultEvent}) + activation (${getExposureConfigDisplayName(activationConfig)})`
+    }
+
     const exposureConfig = exposureCriteria?.exposure_config
     if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
         return `Default (${defaultEvent})`
@@ -102,8 +133,11 @@ export function Exposures(): JSX.Element {
         resolvedExposureEvent,
     } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
+    const { refreshExperimentResults } = useActions(experimentLogic)
 
     const [isCollapsed, setIsCollapsed] = useState(true)
+    const exposuresElapsedSeconds = useElapsedSeconds(exposuresLoading)
+    const exposuresLoadingSlowly = exposuresLoading && exposuresElapsedSeconds >= SLOW_LOAD_THRESHOLD_SECONDS
 
     let totalExposures = 0
     const variants: Array<{ variant: string; count: number; percentage: number }> = []
@@ -163,7 +197,14 @@ export function Exposures(): JSX.Element {
                         }`}
                     >
                         {exposuresLoading ? (
-                            <Spinner className="text-lg" />
+                            <div className="flex items-center gap-2">
+                                <Spinner className="text-lg" />
+                                {exposuresLoadingSlowly && (
+                                    <span className="text-secondary text-xs">
+                                        Still loading ({exposuresElapsedSeconds}s)
+                                    </span>
+                                )}
+                            </div>
                         ) : (
                             <>
                                 <span>
@@ -228,8 +269,22 @@ export function Exposures(): JSX.Element {
                         <div className="space-y-4 bg-bg-light -m-4 p-4">
                             {/* Chart Section */}
                             {exposuresLoading ? (
-                                <div className="relative border rounded h-[200px] flex justify-center items-center">
+                                <div className="relative border rounded h-[200px] flex flex-col gap-3 justify-center items-center">
                                     <Spinner className="text-5xl" />
+                                    {exposuresLoadingSlowly && (
+                                        <div className="flex flex-col items-center gap-2">
+                                            <span className="text-secondary text-sm">
+                                                Still loading exposures after {exposuresElapsedSeconds}s
+                                            </span>
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => refreshExperimentResults(true, 'manual')}
+                                            >
+                                                Retry
+                                            </LemonButton>
+                                        </div>
+                                    )}
                                 </div>
                             ) : !exposures?.timeseries?.length ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">

@@ -3,8 +3,10 @@ import { useMemo } from 'react'
 
 import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -14,7 +16,7 @@ import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
-import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
+import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName, modelNamingVariant } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { QuotaMeterBar } from './QuotaMeterBar'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -62,6 +64,8 @@ export function VisionUsageTab(): JSX.Element {
         billedLimitCredits,
         showStartupCap,
     } = useValues(visionQuotaLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -152,7 +156,7 @@ export function VisionUsageTab(): JSX.Element {
                     <span className="tabular-nums">
                         {scanner.credits_per_observation} credit{scanner.credits_per_observation === 1 ? '' : 's'}
                     </span>
-                    <span className="text-muted"> · {modelName(scanner.model)}</span>
+                    <span className="text-muted"> · {modelName(scanner.model, namingVariant)}</span>
                 </span>
             ),
         },
@@ -227,10 +231,10 @@ export function VisionUsageTab(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="bg-bg-light rounded p-4 flex flex-col InsightCard h-80">
-                <div className="flex items-center justify-between gap-2 mb-1">
+            <div className="bg-bg-light rounded p-4 flex flex-col InsightCard min-h-80 lg:h-80">
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                         {quota && (
                             <Tooltip title={spendTooltip}>
                                 <span className="text-xs text-muted tabular-nums">
