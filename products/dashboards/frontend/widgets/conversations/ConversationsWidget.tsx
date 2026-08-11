@@ -123,7 +123,13 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
     )
 }
 
-export function ConversationsWidget({ result, loading, error, config }: DashboardWidgetComponentProps): JSX.Element {
+export function ConversationsWidget({
+    result,
+    loading,
+    error,
+    config,
+    onRefresh,
+}: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as ConversationsWidgetResult | null | undefined
     const tickets = payload?.results ?? []
     const parsedConfig = parseConversationsWidgetConfig(config)
@@ -140,8 +146,8 @@ export function ConversationsWidget({ result, loading, error, config }: Dashboar
     if (error) {
         return (
             <WidgetCardContent>
-                <WidgetCardBodyMessage>
-                    Couldn't load recent tickets. Refresh the dashboard to try again.
+                <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={loading}>
+                    Couldn't load recent tickets. Try again.
                 </WidgetCardBodyMessage>
             </WidgetCardContent>
         )

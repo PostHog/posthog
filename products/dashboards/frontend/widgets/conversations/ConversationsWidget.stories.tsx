@@ -52,7 +52,14 @@ const meta: Meta<typeof StoryTile> = {
     component: StoryTile,
     parameters: { layout: 'padded', ...widgetStorybookParameters },
     decorators: widgetTileFrameDecorator,
-    args: { tileId: 1, config: DEFAULT_CONFIG, loading: false, result: null, onUpdateConfig: () => undefined },
+    args: {
+        tileId: 1,
+        config: DEFAULT_CONFIG,
+        loading: false,
+        result: null,
+        onUpdateConfig: () => undefined,
+        onRefresh: () => undefined,
+    },
 }
 export default meta
 type Story = StoryObj<typeof StoryTile>
