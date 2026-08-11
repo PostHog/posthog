@@ -117,7 +117,8 @@ pub fn inject_pairs(
         // Chunk ids are content-addressed and stable, so a chunk that already carries one is
         // already injected — leave it untouched (idempotent re-injection).
         if pair.get_chunk_id().is_none() {
-            let chunk_id = stable_chunk_id(&pair.source.inner.content);
+            let sourcemap_json = serde_json::to_string(&pair.sourcemap.inner.content)?;
+            let chunk_id = stable_chunk_id(&pair.source.inner.content, &sourcemap_json);
             pair.add_chunk_id(chunk_id, release_id)?;
         }
     }
@@ -149,11 +150,18 @@ pub fn inject_pairs_legacy(
     Ok(pairs)
 }
 
-/// Deterministically derive a chunk id from the minified source bytes (UUIDv5). Identical
-/// source produces an identical id on every machine and rebuild, so uploads dedupe and symbol
-/// sets stay stable — no per-build random id.
-fn stable_chunk_id(source_content: &str) -> String {
-    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, source_content.as_bytes()).to_string()
+/// Deterministically derive a chunk id from the pristine minified source and its sourcemap
+/// (UUIDv5). Identical builds produce identical ids on every machine and rebuild, so uploads
+/// dedupe — no per-build random id. The sourcemap is part of the identity on purpose: a
+/// map-only change (e.g. enabling `sourcesContent`) mints a new chunk instead of conflicting
+/// with the symbol set already stored under the old id.
+fn stable_chunk_id(source_content: &str, sourcemap_content: &str) -> String {
+    let mut name = Vec::with_capacity(source_content.len() + sourcemap_content.len() + 1);
+    name.extend_from_slice(source_content.as_bytes());
+    // JSON serialization never contains a raw NUL, so it unambiguously separates the parts.
+    name.push(0);
+    name.extend_from_slice(sourcemap_content.as_bytes());
+    uuid::Uuid::new_v5(&CHUNK_ID_NAMESPACE, &name).to_string()
 }
 
 /// Resolve the release row whose id gets injected into the chunks. Reuses the release already
@@ -321,6 +329,15 @@ mod tests {
         fs::write(git_dir.join("HEAD"), "ref: refs/heads/main\n").expect("failed to write HEAD");
 
         temp_root
+    }
+
+    #[test]
+    fn stable_chunk_id_covers_source_and_sourcemap() {
+        let id = stable_chunk_id("code();", r#"{"mappings":"AAAA"}"#);
+
+        assert_eq!(id, stable_chunk_id("code();", r#"{"mappings":"AAAA"}"#));
+        assert_ne!(id, stable_chunk_id("code();", r#"{"mappings":"BBBB"}"#));
+        assert_ne!(id, stable_chunk_id("other();", r#"{"mappings":"AAAA"}"#));
     }
 
     #[test]

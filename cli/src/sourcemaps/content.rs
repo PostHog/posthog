@@ -27,6 +27,32 @@ fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String
         .replace(RELEASE_ID_PLACEHOLDER, &serde_json::to_string(release_id)?))
 }
 
+/// When `source` carries the release-variant snippet, return it with the snippet removed.
+/// The injected release id changes on every release even when the chunk's code didn't, so
+/// content hashes must be computed over the stripped bytes or the server would never skip
+/// an unchanged chunk. Returns `None` for sources without a release-variant snippet.
+pub fn strip_release_snippet(source: &str, chunk_id: &str) -> Option<String> {
+    let (prefix, suffix) = CODE_SNIPPET_WITH_RELEASE_TEMPLATE
+        .split_once(RELEASE_ID_PLACEHOLDER)
+        .expect("release template has a release id placeholder");
+    let suffix = suffix.replace(CHUNKID_PLACEHOLDER, chunk_id);
+
+    let start = source.find(prefix)?;
+    let release_id_start = start + prefix.len();
+    let release_id_len = source[release_id_start..].find(&suffix)?;
+    // The span between prefix and suffix must be the injected release id — a short JSON
+    // string literal. A distant suffix match means user code, not our snippet.
+    if release_id_len > 256 {
+        return None;
+    }
+
+    let end = release_id_start + release_id_len + suffix.len();
+    let mut stripped = String::with_capacity(source.len() - (end - start));
+    stripped.push_str(&source[..start]);
+    stripped.push_str(&source[end..]);
+    Some(stripped)
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SourceMapContent {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -401,6 +427,7 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
             chunk_id,
             release_id,
             data,
+            content_hash: None,
         })
     }
 }
@@ -418,6 +445,39 @@ mod tests {
         MinifiedSourceFile {
             inner: SourceFile::new(PathBuf::from("chunk.js"), content.to_string()),
         }
+    }
+
+    #[test]
+    fn strip_release_snippet_yields_identical_output_across_releases() {
+        let chunk_id = "e0b0778e-ecb0-5900-9b2e-05642a44e6a9";
+        let original = r#"console.log("hi");
+//# sourceMappingURL=index.js.map"#;
+
+        let stripped: Vec<_> = [
+            "11111111-2222-4333-8444-555555555555",
+            "99999999-8888-4777-8666-000000000000",
+        ]
+        .iter()
+        .map(|release_id| {
+            let snippet = build_code_snippet(chunk_id, Some(release_id)).unwrap();
+            strip_release_snippet(&format!("{snippet}{original}"), chunk_id)
+        })
+        .collect();
+
+        assert_eq!(stripped[0].as_deref(), Some(original));
+        assert_eq!(stripped[0], stripped[1]);
+    }
+
+    #[test]
+    fn strip_release_snippet_ignores_sources_without_release_snippet() {
+        let chunk_id = "e0b0778e-ecb0-5900-9b2e-05642a44e6a9";
+        let plain_snippet = build_code_snippet(chunk_id, None).unwrap();
+
+        assert_eq!(
+            strip_release_snippet(&format!("{plain_snippet}code();"), chunk_id),
+            None
+        );
+        assert_eq!(strip_release_snippet("code();", chunk_id), None);
     }
 
     #[test]

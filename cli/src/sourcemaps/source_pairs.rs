@@ -1,6 +1,7 @@
 use crate::{
     api::symbol_sets::SymbolSetUpload,
-    sourcemaps::content::{MinifiedSourceFile, SourceMapFile},
+    sourcemaps::content::{strip_release_snippet, MinifiedSourceFile, SourceMapFile},
+    utils::files::content_hash,
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
@@ -121,8 +122,15 @@ impl TryInto<SymbolSetUpload> for SourcePair {
         let chunk_id = self
             .get_chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
+        let release_id = self.sourcemap.get_release_id();
         let source_content = self.source.inner.content;
         let sourcemap_content = serde_json::to_string(&self.sourcemap.inner.content)?;
+        // Release-injected sources embed a release id that changes every release, so hash
+        // them with the snippet stripped or identical chunks would re-upload each time.
+        // Sources without that snippet keep hashing the raw payload, matching hashes the
+        // server already stores.
+        let content_hash = strip_release_snippet(&source_content, &chunk_id)
+            .map(|stripped| content_hash([stripped.as_bytes(), sourcemap_content.as_bytes()]));
         let data = SourceAndMap {
             minified_source: source_content,
             sourcemap: sourcemap_content,
@@ -133,7 +141,8 @@ impl TryInto<SymbolSetUpload> for SourcePair {
         Ok(SymbolSetUpload {
             chunk_id,
             data,
-            release_id: self.sourcemap.get_release_id(),
+            release_id,
+            content_hash,
         })
     }
 }
