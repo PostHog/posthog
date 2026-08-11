@@ -411,7 +411,7 @@ def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert
                     resource_type="insight",
                     resource_id=str(alert.insight.short_id),
                     source_url=source_url,
-                    source_type=SourceType.INSIGHT,
+                    source_type=None,
                     source_id=str(alert_check.id),
                     idempotency_key=f"alert-evaluation-failure:{alert_check.id}:{user_id}",
                 )

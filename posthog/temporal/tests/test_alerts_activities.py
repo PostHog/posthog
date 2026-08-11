@@ -586,6 +586,7 @@ class TestNotifyAlert:
         assert notification.target_id == str(subscriber_id)
         assert notification.resource_id == str(alert_with_user.insight.short_id)
         assert notification.source_id == str(check.id)
+        assert notification.source_type is None
         assert (
             notification.source_url
             == f"/project/{alert_with_user.team_id}/insights/{alert_with_user.insight.short_id}?alert_id={alert_with_user.id}"
