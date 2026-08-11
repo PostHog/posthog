@@ -1,4 +1,5 @@
-from typing import cast
+from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
@@ -9,6 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -80,18 +82,27 @@ class EvaluationDirectoryViewSet(
         except IntegrityError as error:
             raise serializers.ValidationError({"name": "A directory with this name already exists."}) from error
 
+        self._report_directory_action("llma evaluation directory created", directory.id)
+
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        directory = cast(EvaluationDirectory, serializer.instance)
+        previous_name = directory.name
         try:
             with transaction.atomic():
                 serializer.save()
         except IntegrityError as error:
             raise serializers.ValidationError({"name": "A directory with this name already exists."}) from error
 
+        if directory.name != previous_name:
+            self._report_directory_action("llma evaluation directory renamed", directory.id)
+
     def perform_destroy(self, instance: EvaluationDirectory) -> None:
+        # Django clears the primary key on delete(), so hold onto it for the analytics event below.
+        directory_id = instance.id
         with transaction.atomic():
             evaluations = list(
                 Evaluation.objects.filter(team_id=self.team_id, directory_id=instance.id).only(
-                    "id", "name", "team_id", "directory_id", "enabled", "status"
+                    "id", "name", "team_id", "directory_id", "enabled", "status", "deleted"
                 )
             )
             if evaluations:
@@ -100,3 +111,25 @@ class EvaluationDirectoryViewSet(
                 ).update(directory=None, updated_at=timezone.now())
                 log_evaluations_moved_to_top_level(evaluations)
             instance.delete()
+
+        self._report_directory_action(
+            "llma evaluation directory deleted",
+            directory_id,
+            # Counting only live evaluations keeps this comparable to the evaluation_count the list API returns,
+            # which also excludes soft-deleted evaluations.
+            {"evaluations_moved_to_top_level": sum(1 for evaluation in evaluations if not evaluation.deleted)},
+        )
+
+    def _report_directory_action(
+        self,
+        event: str,
+        directory_id: UUID,
+        properties: Optional[dict[str, Any]] = None,
+    ) -> None:
+        report_user_action(
+            self.request.user,
+            event,
+            {"directory_id": str(directory_id), **(properties or {})},
+            team=self.team,
+            request=self.request,
+        )

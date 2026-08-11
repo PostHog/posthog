@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import Mock, patch
 
 from rest_framework import status
 
@@ -77,7 +78,26 @@ class TestEvaluationDirectoriesApi(APIBaseTest):
         evaluation.refresh_from_db()
         self.assertIsNone(evaluation.directory_id)
 
-    def test_deleting_a_directory_moves_its_evaluations_to_the_top_level(self) -> None:
+    @patch("products.ai_observability.backend.api.evaluation_directories.report_user_action")
+    def test_creating_and_renaming_a_directory_reports_only_successful_changes(self, report_user_action: Mock) -> None:
+        url = f"/api/projects/{self.team.id}/evaluation_directories/"
+
+        created = self.client.post(url, {"name": "Quality"}, format="json")
+        self.client.post(url, {"name": "quality"}, format="json")
+        directory_id = created.json()["id"]
+        self.client.patch(f"{url}{directory_id}/", {"name": "Regressions"}, format="json")
+        self.client.patch(f"{url}{directory_id}/", {"name": "Regressions"}, format="json")
+
+        self.assertEqual(
+            [(call.args[1], call.args[2]) for call in report_user_action.call_args_list],
+            [
+                ("llma evaluation directory created", {"directory_id": directory_id}),
+                ("llma evaluation directory renamed", {"directory_id": directory_id}),
+            ],
+        )
+
+    @patch("products.ai_observability.backend.api.evaluation_directories.report_user_action")
+    def test_deleting_a_directory_moves_its_evaluations_to_the_top_level(self, report_user_action: Mock) -> None:
         directory = self._create_directory()
         active_evaluation = self._create_evaluation("Active")
         deleted_evaluation = self._create_evaluation("Deleted")
@@ -116,6 +136,12 @@ class TestEvaluationDirectoriesApi(APIBaseTest):
                 item_id=str(directory.id),
                 activity="deleted",
             ).exists()
+        )
+        report_user_action.assert_called_once()
+        self.assertEqual(report_user_action.call_args.args[1], "llma evaluation directory deleted")
+        self.assertEqual(
+            report_user_action.call_args.args[2],
+            {"directory_id": str(directory.id), "evaluations_moved_to_top_level": 1},
         )
 
     def test_evaluations_can_be_filtered_to_the_top_level(self) -> None:
