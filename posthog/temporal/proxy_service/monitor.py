@@ -48,6 +48,19 @@ LOGGER = get_logger(__name__)
 # where a single on-demand diagnostics run instead shares its tighter budget across several checks.
 PROXY_LIVE_CHECK_TIMEOUT_S = 5.0
 
+# Every way a resolver reports "no answer". One left uncaught fails the run instead of
+# recording the DNS problem.
+DNS_LOOKUP_FAILURES = (
+    dns.resolver.NoAnswer,
+    dns.resolver.NXDOMAIN,
+    dns.resolver.NoNameservers,
+    dns.resolver.Timeout,
+    dns.resolver.LifetimeTimeout,
+    dns.resolver.NoResolverConfiguration,
+)
+
+CLOUDFLARE_IPS_TIMEOUT_S = 3.0
+
 
 @dataclass
 class MonitorManagedProxyInputs:
@@ -93,8 +106,13 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
         proxy_record.domain,
     )
 
+    # Blocking calls below, and this loop is shared with every activity on the queue.
+    return await asyncio.to_thread(_resolve_dns, proxy_record)
+
+
+def _resolve_dns(proxy_record: ProxyRecord) -> CheckActivityOutput:
     try:
-        cnames = dns.resolver.query(proxy_record.domain, "CNAME")
+        cnames = dns.resolver.resolve(proxy_record.domain, "CNAME")
         value = cnames[0].target.canonicalize().to_text()
         if cnames[0].target == dns.name.from_text(proxy_record.target_cname):
             return CheckActivityOutput(
@@ -113,8 +131,9 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
         # It means there is a record set, but it's not a CNAME record
         # A likely reason for this is that they have set Cloudflare proxying on.
         # Check for this explicitly to create a nice message for the user.
-        arecords = dns.resolver.query(proxy_record.domain, "A")
-        if len(arecords) == 0:
+        try:
+            arecords = dns.resolver.resolve(proxy_record.domain, "A")
+        except DNS_LOOKUP_FAILURES:
             return CheckActivityOutput(
                 errors=["No CNAME or A record DNS records found"],
                 warnings=[],
@@ -122,9 +141,14 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
 
         ip = arecords[0].to_text()
 
-        # this is rare enough and fast enough that it's probably fine
-        # but maybe we want to cache this and/or do it async
-        cloudflare_ips = requests.get("https://www.cloudflare.com/ips-v4").text.split("\n")
+        try:
+            cloudflare_ips = requests.get(
+                "https://www.cloudflare.com/ips-v4", timeout=CLOUDFLARE_IPS_TIMEOUT_S
+            ).text.split("\n")
+        except requests.RequestException:
+            # The list only refines the message below, so a failed fetch is not worth failing on.
+            cloudflare_ips = []
+
         is_cloudflare = any(ipaddress.ip_address(ip) in ipaddress.ip_network(cidr) for cidr in cloudflare_ips)
         if is_cloudflare:
             # the customer has set cloudflare proxying on
@@ -137,7 +161,7 @@ async def check_dns(inputs: CheckActivityInput) -> CheckActivityOutput:
             errors=["DNS records not found"],
             warnings=[],
         )
-    except (dns.resolver.NXDOMAIN, dns.resolver.Timeout, ApplicationError):
+    except (*DNS_LOOKUP_FAILURES, ApplicationError):
         return CheckActivityOutput(
             errors=["Domain name not found"],
             warnings=[],
@@ -260,6 +284,11 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
         proxy_record.domain,
     )
 
+    # Blocking calls below, and this loop is shared with every activity on the queue.
+    return await asyncio.to_thread(_probe_proxy, proxy_record)
+
+
+def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
     # send dummy event to check the proxy is working
     try:
         # allow_redirects=False is a security boundary: the domain is attacker-controllable
