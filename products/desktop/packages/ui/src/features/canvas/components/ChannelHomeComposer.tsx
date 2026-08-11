@@ -19,6 +19,7 @@ import { toast } from "../../../primitives/toast";
 import { track } from "../../../shell/analytics";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
+import { useIntegrationSelectors } from "../../integrations/store";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
 import { PromptInput } from "../../message-editor/components/PromptInput";
 import { contentToPlainText } from "../../message-editor/content";
@@ -197,6 +198,10 @@ export const ChannelHomeComposer = forwardRef<
     (s) => s.drafts[channelId],
   );
   const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const { githubIntegrations } = useIntegrationSelectors();
+  const githubIntegrationIds = githubIntegrations.map(
+    (integration) => integration.id,
+  );
   const {
     repositories: taskRepositories,
     githubIntegration: taskGithubIntegration,
@@ -205,6 +210,7 @@ export const ChannelHomeComposer = forwardRef<
     repositoryDraft,
     channelRepositories,
     channelGithubIntegration,
+    githubIntegrationIds,
   );
   const updateChannelRepositories = useUpdateTaskChannelRepositories();
   const setWorkspaceMode = useCallback(

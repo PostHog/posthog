@@ -225,6 +225,12 @@ export function TaskInput({
     (s) => s.drafts[repositoryDraftKey],
   );
   const setRepositoryDraft = useTaskRepositoryDraftStore((s) => s.setDraft);
+  const { githubIntegrations: orgGithubIntegrations } =
+    useIntegrationSelectors();
+  const orgGithubIntegrationIds = orgGithubIntegrations.map(
+    (integration) => integration.id,
+  );
+  const orgGithubIntegrationId = orgGithubIntegrationIds[0];
   const {
     repositories: taskRepositories,
     githubIntegration: taskGithubIntegration,
@@ -233,6 +239,7 @@ export function TaskInput({
     repositoryDraft,
     channelRepositories,
     channelGithubIntegration,
+    orgGithubIntegrationIds,
   );
   const updateChannelRepositories = useUpdateTaskChannelRepositories();
   // Inline file preview opened from the command palette's file search.
@@ -515,10 +522,6 @@ export function TaskInput({
   const selectedInstallationId = selectedCloudRepository
     ? getInstallationIdForRepo(selectedCloudRepository)
     : undefined;
-
-  const { githubIntegrations: orgGithubIntegrations } =
-    useIntegrationSelectors();
-  const orgGithubIntegrationId = orgGithubIntegrations[0]?.id;
 
   const {
     data: cloudBranchData,

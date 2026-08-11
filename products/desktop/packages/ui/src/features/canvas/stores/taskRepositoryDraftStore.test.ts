@@ -68,4 +68,22 @@ describe("taskRepositoryDraftStore", () => {
     expect(resolved.githubIntegration).toBe(null);
     expect(resolved.folder).toBe("/tmp/work");
   });
+
+  it.each([
+    ["the only available integration", [11], 11],
+    ["no available integration", [], null],
+    ["multiple available integrations", [11, 12], null],
+  ])(
+    "resolves disconnected repositories with %s",
+    (_, integrationIds, expected) => {
+      const resolved = resolveTaskRepositoryDraft(
+        undefined,
+        ["posthog/posthog"],
+        null,
+        integrationIds,
+      );
+
+      expect(resolved.githubIntegration).toBe(expected);
+    },
+  );
 });
