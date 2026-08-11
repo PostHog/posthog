@@ -848,7 +848,11 @@ class AccountUpdateWriteTest(TeamScopedTestMixin, BaseTest):
         account = create_account(team_id=self.team.pk, created_by=self.user, name="Acme")
 
         with self.captureOnCommitCallbacks(execute=True):
-            facade.update_account(account, properties={"known_emails": ["jane@acme.com"]})
+            facade.update_account(
+                account,
+                properties={"known_emails": ["jane@acme.com"]},
+                allow_matching_updates=True,
+            )
 
         mock_send_task.assert_called_once_with(
             "customer_analytics.rematch_account_meetings",
