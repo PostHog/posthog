@@ -35,12 +35,20 @@ const NOTES: Record<number, string[]> = {
 
 /** Step 1 — email (+ region, social, pending-invite branch). */
 function SignupEmailPanel(): JSX.Element {
-    const { isSignupPanelEmailSubmitting, signupPanelEmailManualErrors, pendingInvite, loginUrl, emailCaseNotice } =
-        useValues(signupLogic)
-    const { preflight } = useValues(preflightLogic)
+    const {
+        isSignupPanelEmailSubmitting,
+        signupPanelEmailManualErrors,
+        pendingInvite,
+        loginUrl,
+        emailCaseNotice,
+        signupPanelOnboarding,
+    } = useValues(signupLogic)
+    const { setSignupPanelOnboardingValue } = useActions(signupLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
     const [showJoinOrg, setShowJoinOrg] = useState(false)
     const lastLoginMethod = getCookie('ph_last_login_method') as LoginMethod | null
     const accountExists = !!signupPanelEmailManualErrors?.email
+    const organizationName = signupPanelOnboarding.organization_name?.trim()
 
     if (pendingInvite) {
         return <PendingInvitePanel />
@@ -95,6 +103,18 @@ function SignupEmailPanel(): JSX.Element {
                         </Link>
                     </p>
                 )}
+                {!preflight?.demo && socialAuthAvailable && (
+                    <LemonField.Pure label="Organization name" showOptional>
+                        <LemonInput
+                            className="ph-ignore-input"
+                            data-attr="signup-organization-name"
+                            placeholder="Hogflix Movies"
+                            value={signupPanelOnboarding.organization_name}
+                            onChange={(value) => setSignupPanelOnboardingValue('organization_name', value)}
+                            fullWidth
+                        />
+                    </LemonField.Pure>
+                )}
                 <LemonButton
                     type="primary"
                     size="large"
@@ -113,6 +133,7 @@ function SignupEmailPanel(): JSX.Element {
                     caption="or sign up with"
                     lastUsedProvider={lastLoginMethod ?? undefined}
                     captionLocation="top"
+                    extraQueryParams={organizationName ? { organization_name: organizationName } : undefined}
                 />
             )}
             {!preflight?.demo && (

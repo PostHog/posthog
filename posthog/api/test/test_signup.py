@@ -824,12 +824,15 @@ class TestSignupAPI(APIBaseTest):
             SOCIAL_AUTH_GITHUB_KEY="github_123",
             SOCIAL_AUTH_GITHUB_SECRET="github_secret",
         ):
-            response = self.client.get(reverse("social:begin", kwargs={"backend": "github"}))
+            response = self.client.get(
+                reverse("social:begin", kwargs={"backend": "github"}), {"organization_name": "HogFlix"}
+            )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        session = self.client.session
-        session.update({"organization_name": "HogFlix"})
-        session.save()
+        # The organization name typed on the signup form reaches the backend as a query param on the
+        # provider login URL. python-social-auth stashes whitelisted params (see
+        # SOCIAL_AUTH_FIELDS_STORED_IN_SESSION) so it survives the OAuth round-trip.
+        self.assertEqual(self.client.session["organization_name"], "HogFlix")
 
         url = reverse("social:complete", kwargs={"backend": "github"})
         url += f"?code=2&state={response.client.session['github_state']}"

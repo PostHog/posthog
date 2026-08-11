@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect, useRef } from 'react'
 
@@ -24,8 +24,11 @@ export function SignupPanelEmail(): JSX.Element | null {
         error,
         pendingInvite,
         signupPanelEmail,
+        signupPanelOnboarding,
     } = useValues(signupLogic)
+    const { setSignupPanelOnboardingValue } = useActions(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
+    const organizationName = signupPanelOnboarding.organization_name?.trim()
 
     useEffect(() => {
         emailInputRef?.current?.focus()
@@ -45,7 +48,21 @@ export function SignupPanelEmail(): JSX.Element | null {
             )}
             {!preflight?.demo && socialAuthAvailable && (
                 <>
-                    <SocialLoginButtons caption="Sign up with" bottomDivider className="mt-6" />
+                    <LemonField.Pure label="Organization name" showOptional>
+                        <LemonInput
+                            className="ph-ignore-input"
+                            data-attr="signup-organization-name"
+                            placeholder="Hogflix Movies"
+                            value={signupPanelOnboarding.organization_name}
+                            onChange={(value) => setSignupPanelOnboardingValue('organization_name', value)}
+                        />
+                    </LemonField.Pure>
+                    <SocialLoginButtons
+                        caption="Sign up with"
+                        bottomDivider
+                        className="mt-6"
+                        extraQueryParams={organizationName ? { organization_name: organizationName } : undefined}
+                    />
                     <p className="text-secondary text-center mb-0">Or use email</p>
                 </>
             )}
