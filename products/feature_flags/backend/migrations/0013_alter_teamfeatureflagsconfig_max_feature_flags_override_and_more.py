@@ -3,21 +3,17 @@
 import django.core.validators
 from django.db import migrations, models
 
-from posthog.migration_helpers import AddConstraintNotValid, ValidateConstraint
+from posthog.migration_helpers import AddConstraintNotValid
 
 
 class Migration(migrations.Migration):
-    # ValidateConstraint runs its own non-blocking scan and must not sit inside this migration's
-    # transaction, so the two phases share one file without an atomic block around them.
-    atomic = False
-
     dependencies = [
         ("feature_flags", "0012_teamfeatureflagsconfig_max_feature_flags_override"),
         ("posthog", "1298_user_stripped_alias_index"),
     ]
 
     operations = [
-        # Validator-only change: no DDL, so this is a state-only edit as far as Postgres cares.
+        # Validators run only under full_clean(), so this adds no DDL.
         migrations.AlterField(
             model_name="teamfeatureflagsconfig",
             name="max_feature_flags_override",
@@ -32,9 +28,8 @@ class Migration(migrations.Migration):
             ),
         ),
         # Two-phase even though 0012 just added this column and every row is NULL: a plain
-        # AddConstraint takes ACCESS EXCLUSIVE for the validating scan, and this table has one row
-        # per team. NOT VALID adds the constraint instantly, then VALIDATE scans under SHARE
-        # UPDATE EXCLUSIVE without blocking reads or writes.
+        # AddConstraint takes ACCESS EXCLUSIVE for the validating scan, and this table holds one
+        # row per team. NOT VALID adds the constraint instantly; 0014 validates it.
         AddConstraintNotValid(
             model_name="teamfeatureflagsconfig",
             constraint=models.CheckConstraint(
@@ -48,9 +43,5 @@ class Migration(migrations.Migration):
                 ),
                 name="max_feature_flags_override_in_range",
             ),
-        ),
-        ValidateConstraint(
-            model_name="teamfeatureflagsconfig",
-            name="max_feature_flags_override_in_range",
         ),
     ]
