@@ -65,6 +65,28 @@ describe('loginSessionsLogic', () => {
             })
     })
 
+    it('removes a session even when the server reports it is already gone', async () => {
+        useMocks({
+            // The server no longer knows about the stale session, so the reload only returns the current one.
+            get: {
+                '/api/users/@me/login_sessions/': () => [200, [SESSIONS[0]]],
+            },
+            delete: {
+                '/api/users/@me/login_sessions/:id/': () => [404, { detail: 'Login session not found.' }],
+            },
+        })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.revokeSession(OTHER_ID)
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                loginSessions: [SESSIONS[0]],
+            })
+    })
+
     it('keeps only the current session when revoking others', async () => {
         await expectLogic(logic).toFinishAllListeners()
 

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, events, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import {
@@ -87,7 +88,7 @@ export const loginSessionsLogic = kea<loginSessionsLogicType>([
         revokeOtherSessions: true,
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         loginSessions: [
             [] as UserAuthSessionApi[],
             {
@@ -95,8 +96,20 @@ export const loginSessionsLogic = kea<loginSessionsLogicType>([
                     return await usersLoginSessionsList('@me')
                 },
                 revokeSession: async ({ id }) => {
-                    await usersLoginSessionsDestroy('@me', id)
-                    lemonToast.success('Logged out of that device')
+                    try {
+                        await usersLoginSessionsDestroy('@me', id)
+                        lemonToast.success('Logged out of that device')
+                    } catch (error) {
+                        // A 404 means the session was already gone (expired, swept, or revoked elsewhere).
+                        // The device is logged out either way, so treat it as success and refresh the list
+                        // in case other rows also went stale.
+                        if (error instanceof ApiError && error.status === 404) {
+                            lemonToast.success('That device was already logged out')
+                            actions.loadLoginSessions()
+                        } else {
+                            throw error
+                        }
+                    }
                     return values.loginSessions.filter((session) => session.id !== id)
                 },
                 revokeOtherSessions: async () => {
