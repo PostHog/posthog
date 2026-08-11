@@ -616,9 +616,9 @@ tools:
             to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai,
             together_ai, minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly
             azure_openai) and implies that key's provider. The `providers` list in the response flags providers whose
-            models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise.
-            Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already
-            has a key for (see llma-provider-key-list).
+            models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call
+            this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a
+            key for (see llma-provider-key-list).
     llma-evaluation-list:
         operation: evaluations_list
         enabled: true
