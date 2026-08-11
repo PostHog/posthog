@@ -182,7 +182,10 @@ export function Navigation({
                                 '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 rounded-t focus-visible:outline-none flex flex-col',
                                 {
                                     'p-0': noPaddingScene,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))] rounded-r-none': sidePanelOpen,
+                                    // min-width backs up the scene reserve in SidePanel.tsx so the flex
+                                    // rules can never shrink the scene to nothing behind a wide panel.
+                                    'lg:max-w-[calc(100%-var(--side-panel-width))] lg:min-w-[360px] rounded-r-none':
+                                        sidePanelOpen,
                                 }
                             )}
                         >

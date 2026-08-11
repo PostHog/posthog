@@ -80,6 +80,18 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
 
 const DEFAULT_WIDTH = 512
 const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
+// Viewport width the scene keeps no matter how wide the panel is dragged, so the panel can never
+// squeeze the app into an unusable sliver. Navigation's <main> min-width backs this up.
+const SCENE_MIN_WIDTH = 640
+
+// Cap the panel so the scene keeps SCENE_MIN_WIDTH of the viewport, while never dropping the panel
+// below its own floor on a narrow window. windowWidth is undefined before the first client render.
+export function clampSidePanelWidth(rawWidth: number, windowWidth: number | undefined): number {
+    if (windowWidth == null) {
+        return rawWidth
+    }
+    return Math.min(rawWidth, Math.max(SIDE_PANEL_MIN_WIDTH_COMPACT, windowWidth - SCENE_MIN_WIDTH))
+}
 
 export function SidePanel({ className }: { className?: string }): JSX.Element | null {
     const { theme } = useValues(themeLogic)
@@ -137,7 +149,7 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
           : 0
 
-    const sidePanelWidth = windowSize.width != null ? Math.min(rawSidePanelWidth, windowSize.width) : rawSidePanelWidth
+    const sidePanelWidth = clampSidePanelWidth(rawSidePanelWidth, windowSize.width)
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {
