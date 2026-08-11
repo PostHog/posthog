@@ -11,7 +11,7 @@ import { IntegrationType } from '~/types'
 
 export const SOURCE_MAPS_DETECTION_KIND = 'error-tracking-source-maps'
 
-const DETECTIONS_POLL_INTERVAL_MS = 1000
+export const DETECTIONS_POLL_INTERVAL_MS = 1000
 
 // 'intro' is the modal's default view (hero, account and repository pickers, and the manual
 // command); 'project' renders the scan progress and the detected projects.
@@ -309,6 +309,12 @@ export const sourceMapsCloudSetupLogic = kea<sourceMapsCloudSetupLogicType>([
                 return () => clearInterval(interval)
             }, 'scan-step-ticker')
         }
+        const armDetectionsPoll = (): void => {
+            cache.disposables.add(() => {
+                const timeout = setTimeout(() => actions.loadDetections(), DETECTIONS_POLL_INTERVAL_MS)
+                return () => clearTimeout(timeout)
+            }, 'detections-poll')
+        }
         return {
             setSelectedRepository: () => syncScanStepTicker(),
             setStep: () => syncScanStepTicker(),
@@ -370,14 +376,19 @@ export const sourceMapsCloudSetupLogic = kea<sourceMapsCloudSetupLogicType>([
                 }
                 const anyLive = values.detections.some((detection) => isLiveDetection(detection))
                 if (anyLive) {
-                    cache.disposables.add(() => {
-                        const timeout = setTimeout(() => actions.loadDetections(), DETECTIONS_POLL_INTERVAL_MS)
-                        return () => clearTimeout(timeout)
-                    }, 'detections-poll')
+                    armDetectionsPoll()
                 } else {
                     cache.disposables.dispose('detections-poll')
                 }
                 syncScanStepTicker()
+            },
+            loadDetectionsFailure: () => {
+                // The poll is a one-shot timeout re-armed on success, so a single failed request
+                // would otherwise end polling and strand a running scan on the progress view.
+                // Re-arm from the last good snapshot; no toast, since the next tick usually recovers.
+                if (values.detections.some((detection) => isLiveDetection(detection))) {
+                    armDetectionsPoll()
+                }
             },
         }
     }),
