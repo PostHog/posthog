@@ -155,6 +155,8 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
     connect((props: PlayerCommentOverlayLogicProps) => ({
         values: [sessionRecordingPlayerLogic(props), ['currentPlayerTime', 'currentTimestamp', 'sessionPlayerData']],
         actions: [sessionRecordingPlayerLogic(props), ['setIsCommenting'], membersLogic, ['ensureAllMembersLoaded']],
+        // its subscribers listen by actionTypes, which doesn't mount it, so keep the bus alive here
+        logic: [playerCommentModel],
     })),
     actions({
         editComment: (comment: RecordingCommentForm) => ({ comment }),
