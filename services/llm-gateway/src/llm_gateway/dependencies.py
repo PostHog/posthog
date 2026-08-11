@@ -15,16 +15,15 @@ from llm_gateway.auth.service import (
     UnauthorizedProjectScopeError,
     get_auth_service,
 )
-from llm_gateway.baseten import BASETEN_EXCLUSIVE_MODELS
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
-from llm_gateway.flags import GLM_BASETEN_FLAG, evaluate_flag
+from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
-    required_preview_model_flag,
+    get_required_model_flag,
     resolve_product_alias,
 )
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
@@ -260,13 +259,10 @@ async def enforce_throttles(
             },
         )
 
-    # Entitlement gates for models not cleared for general use on this path. Both fail closed (a
-    # None eval outage blocks) since they decide spend / backend rollout.
-    access_flag = required_preview_model_flag(model)  # preview models (e.g. Kimi K3)
-    if access_flag is None and model in BASETEN_EXCLUSIVE_MODELS:
-        # No non-Baseten fallback, and Baseten isn't cleared for external rollout yet, so these
-        # need the Baseten entitlement flag.
-        access_flag = GLM_BASETEN_FLAG
+    # Entitlement gate for models not cleared for general use on this path (e.g. Kimi K3,
+    # Baseten-only DeepSeek). Each maps to its own access flag. Fails closed (a None eval outage
+    # blocks) since these decide spend / backend rollout.
+    access_flag = get_required_model_flag(model)
     if access_flag is not None and not get_settings().debug:
         if not await evaluate_flag(access_flag, user.distinct_id):
             logger.warning(

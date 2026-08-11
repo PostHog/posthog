@@ -442,12 +442,13 @@ class TestPreviewModelGateWiring:
             await enforce_throttles(request=request, user=user, runner=runner)
 
         flag.assert_awaited_once()
+        assert flag.await_args is not None
         assert flag.await_args.args[0] == "tasks-kimi-k3"
 
 
 class TestBasetenExclusiveModelGateWiring:
-    # Baseten-exclusive models have no non-Baseten fallback and aren't cleared for external
-    # rollout, so they're blocked behind the Baseten entitlement flag rather than rerouted.
+    # DeepSeek V4 Flash is Baseten-only with no fallback and isn't cleared for external rollout,
+    # so it's blocked behind its own access flag (not the GLM Baseten routing flag).
     @pytest.mark.asyncio
     @pytest.mark.parametrize("flag_result", [False, None])
     async def test_baseten_exclusive_model_blocked_when_flag_off_or_unavailable(self, flag_result: bool | None) -> None:
@@ -468,7 +469,8 @@ class TestBasetenExclusiveModelGateWiring:
 
         assert exc_info.value.status_code == 403
         assert exc_info.value.detail["error"]["code"] == "model_gate"
-        assert flag.await_args.args[0] == "tasks-glm-baseten-inference"
+        assert flag.await_args is not None
+        assert flag.await_args.args[0] == "posthog-code-deepseek-model"
 
     @pytest.mark.asyncio
     async def test_baseten_exclusive_model_allowed_when_flag_enabled(self) -> None:
