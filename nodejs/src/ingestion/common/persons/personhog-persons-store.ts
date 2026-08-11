@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogPropertiesSizeError } from '~/common/personhog/persons'
 import { PersonMessage } from '~/common/persons/person-message'
-import { InternalPersonWithDistinctId } from '~/common/persons/repositories/person-repository'
+import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
@@ -675,6 +675,32 @@ class BatchBoundPersonhogStore implements PersonsStoreForBatch, PersonsStoreTran
         _tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
         return this.store.deletePerson(person, distinctId, this.batchId)
+    }
+
+    // Lifecycle marks exist to serialize merges against lifecycle
+    // operations, and merge events are gated off this store.
+
+    claimLifecycleMarks(
+        _opId: string,
+        _teamId: number,
+        _persons: LifecycleMarkPerson[],
+        _distinctId: string,
+        _tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        throw new PersonhogPendingRpcError('claimLifecycleMarks', 'merge saga')
+    }
+
+    releaseLifecycleMarks(
+        _opId: string,
+        _teamId: number,
+        _distinctId: string,
+        _tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        throw new PersonhogPendingRpcError('releaseLifecycleMarks', 'merge saga')
+    }
+
+    isPersonLive(_person: InternalPerson, _distinctId: string, _tx?: PersonRepositoryTransaction): Promise<boolean> {
+        throw new PersonhogPendingRpcError('isPersonLive', 'merge saga')
     }
 
     inTransaction<T>(
