@@ -43,7 +43,7 @@ export function summarizeOutcomeMessage(outcome: ScanOutcomeEnumApi | undefined)
         case 'already_running':
             return { level: 'info', message: 'A summary of this recording is already being generated.' }
         case 'skipped_quota':
-            return { level: 'warning', message: "You've hit the monthly Replay vision credit limit." }
+            return { level: 'warning', message: "You've hit the monthly Replay Vision credit limit." }
         case 'skipped_limit':
             return { level: 'warning', message: 'Too many scans are running right now. Try again in a moment.' }
         default:

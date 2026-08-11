@@ -20,7 +20,7 @@ Does not apply to: code comments, commit messages, log lines, variable/function 
 
 Write the way a person would. Neutral and humane.
 
-- **Sentence case.** Capitalize only the first word and proper nouns. "Save as view", not "Save As View". "Product analytics", not "Product Analytics".
+- **Sentence case.** Capitalize only the first word and proper nouns. "Save as view", not "Save As View". Product names are the exception, see "Product names" below.
 - **Be direct and friendly.** Say what happened and what to do next.
 - **Plain language, no jargon.** Use the label the user sees, not the internal name. `surveyPopupDelaySeconds` becomes "Delay the survey popup".
 - **Don't editorialize.** State what is, not how exciting it is. Cut "powerful", "seamless", "effortless", "simply", "just", "easily", "supercharge", "unlock".
@@ -72,6 +72,26 @@ Say what happened and give the next action. Don't stop at reporting that somethi
 ## How to talk about features
 
 Use the names users see, and stay consistent across every surface.
+
+### Product names
+
+Product names are the one place where sentence case is not the whole rule.
+Their case depends on where they sit.
+
+- **Standing alone**, as a page title, tab, nav item, breadcrumb, button, card title, or column header: **sentence case**.
+  "Session replay", "Replay vision", "Error tracking".
+- **Inside a sentence**, in a description, tooltip, banner, toast, empty state, or docs paragraph: **Title Case**.
+  "Your Session Replay quota", "results count against your Replay Vision credits".
+
+The point of the inline capitals is to separate the product from the same words used generically.
+"Watch the session replay" is a recording; "your Session Replay limit" is the product.
+Without the distinction a reader has to guess which one a sentence means.
+
+This holds when the name opens the sentence too, so "Replay Vision is out of beta", not "Replay vision is out of beta".
+Titles that only contain a product name stay sentence case, so a heading reads "Session replay redesign", not "Session Replay Redesign".
+
+A name interpolated into someone else's sentence follows the sentence, not the variable.
+`<ProductIntroduction productName="Replay Vision" />` renders "Welcome to Replay Vision!", so it takes Title Case even though it looks like a standalone prop.
 
 ### Wizard
 

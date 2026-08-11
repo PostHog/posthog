@@ -220,7 +220,8 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 
 For any text a person reads (UI labels, tooltips, empty/error states, notifications, docs, support replies). Invoke `/writing-user-facing-copy` before writing or editing it — that skill carries the full voice, em-dash, and feature-naming rules. When unsure whether copy reads well, ask a human.
 
-- Sentence case, not Title Case: capitalize only the first word and proper nouns ('Product analytics', 'Save as view').
+- Sentence case, not Title Case: capitalize only the first word and proper nouns ('Save as view', 'Add to notebook').
+- Product names are the one exception: sentence case standing alone ('Session replay' as a page title), Title Case inside a sentence ('scans count against your Replay Vision quota'). See the copy skill for why.
 - Avoid the tells of AI-generated text: em dashes (—), "not just X, but Y", rule-of-three padding, hedging preambles. Write like a person typed it; if you can't tell, ask a human.
 - Plain language, no jargon. Use the labels users see, not internal names (`surveyPopupDelaySeconds` becomes "Delay the survey popup").
 - Be direct and friendly: short sentences, consistent tone across surfaces.

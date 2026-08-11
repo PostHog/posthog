@@ -21,10 +21,10 @@ export function IngestionLimitBanner(): JSX.Element | null {
     }
     const message =
         eventsLimited && recordingsLimited
-            ? 'Your organization is over its Product analytics and Session replay limits, so new events and recordings may not be captured. Scanners may have nothing new to scan until the limits are raised.'
+            ? 'Your organization is over its Product Analytics and Session Replay limits, so new events and recordings may not be captured. Scanners may have nothing new to scan until the limits are raised.'
             : eventsLimited
-              ? 'Your organization is over its Product analytics limit, so new events may not be captured. Sessions without event data are marked ineligible when scanned.'
-              : 'Your organization is over its Session replay limit, so new recordings may not be captured. Scanners may have nothing new to scan until the limit is raised.'
+              ? 'Your organization is over its Product Analytics limit, so new events may not be captured. Sessions without event data are marked ineligible when scanned.'
+              : 'Your organization is over its Session Replay limit, so new recordings may not be captured. Scanners may have nothing new to scan until the limit is raised.'
     return (
         <LemonBanner type="warning">
             {message} <Link to={urls.organizationBilling()}>Manage billing limits</Link>

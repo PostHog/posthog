@@ -27,7 +27,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                         {currentTeam?.session_recording_opt_in ? (
                             <LemonBanner type="success" className="mt-4 max-w-xl mx-auto">
                                 <div className="flex justify-between items-center">
-                                    <div>Session replay is enabled for this project</div>
+                                    <div>Session Replay is enabled for this project</div>
                                     <LemonButton
                                         data-attr="recording-404-edit-settings"
                                         type="secondary"
@@ -41,7 +41,7 @@ export function RecordingNotFound({ sessionRecordingId }: { sessionRecordingId?:
                         ) : (
                             <LemonBanner type="warning" className="mt-4 max-w-xl mx-auto">
                                 <div className="flex justify-between items-center">
-                                    <div>Session replay is disabled for this project</div>
+                                    <div>Session Replay is disabled for this project</div>
                                     <LemonButton
                                         data-attr="recording-404-edit-settings"
                                         type="secondary"
