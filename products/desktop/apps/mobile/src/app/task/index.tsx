@@ -32,16 +32,14 @@ import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   TextInput,
   View,
 } from "react-native";
-import {
-  useKeyboardHandler,
-  useReanimatedKeyboardAnimation,
-} from "react-native-keyboard-controller";
-import Animated, { runOnJS, useAnimatedStyle } from "react-native-reanimated";
 import { useMicPressHandlers, useVoiceRecording } from "@/features/chat";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { GitHubConnectionPrompt } from "@/features/tasks/components/GitHubConnectionPrompt";
@@ -111,7 +109,7 @@ export default function NewTaskScreen() {
   const router = useRouter();
   const themeColors = useThemeColors();
   const { insets, bottom } = useScreenInsets();
-  const keyboard = useReanimatedKeyboardAnimation();
+
   const restingBottom = bottom("compact");
   const [adapter, setAdapter] = useState<Adapter>("claude");
   const {
@@ -136,28 +134,24 @@ export default function NewTaskScreen() {
     getUserIntegrationId,
   } = useUserIntegrations();
 
-  const containerStyle = useAnimatedStyle(() => {
-    const kbHeight = -keyboard.height.value;
-    const progress = keyboard.progress.value;
-    return {
-      paddingBottom: kbHeight + restingBottom * (1 - progress),
-    };
-  });
-
-  const suggestionsStyle = useAnimatedStyle(() => ({
-    opacity: 1 - keyboard.progress.value,
-  }));
-
+  // Core RN keyboard handling, deliberately not the Reanimated-based
+  // keyboard-controller hooks: on this repo's dev builds the worklets runtime
+  // can fail to initialize, silently no-oping every Reanimated style — which
+  // rendered this screen as an empty dot canvas. KeyboardAvoidingView plus
+  // plain Keyboard listeners have no such dependency.
   const [keyboardActive, setKeyboardActive] = useState(false);
-  useKeyboardHandler(
-    {
-      onStart: (event) => {
-        "worklet";
-        runOnJS(setKeyboardActive)(event.height > 0);
-      },
-    },
-    [],
-  );
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardWillShow", () =>
+      setKeyboardActive(true),
+    );
+    const hideSub = Keyboard.addListener("keyboardWillHide", () =>
+      setKeyboardActive(false),
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Default the repo to the URL param (deep-link from a signal report etc.),
   // falling back to the most recently used repo so the user doesn't have to
@@ -293,8 +287,6 @@ export default function NewTaskScreen() {
       hasGithubIntegration,
       isConfigReady,
       repositoryOptions: repositoryOptions.length,
-      keyboardHeight: keyboard.height.value,
-      keyboardProgress: keyboard.progress.value,
       restingBottom,
     });
   }, [
@@ -541,7 +533,10 @@ export default function NewTaskScreen() {
       >
         <DotBackground />
 
-        <Animated.View style={[{ flex: 1 }, containerStyle]}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1, paddingBottom: restingBottom }}
+        >
           <View className="flex-1 justify-center px-4">
             <View
               style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}
@@ -788,8 +783,8 @@ export default function NewTaskScreen() {
               </View>
 
               {!repoSheetOpen && prompt.trim().length === 0 ? (
-                <Animated.View
-                  style={suggestionsStyle}
+                <View
+                  style={{ opacity: keyboardActive ? 0 : 1 }}
                   pointerEvents={keyboardActive ? "none" : "auto"}
                   className="mt-6"
                 >
@@ -809,11 +804,11 @@ export default function NewTaskScreen() {
                       </Pressable>
                     ))}
                   </View>
-                </Animated.View>
+                </View>
               ) : null}
             </View>
           </View>
-        </Animated.View>
+        </KeyboardAvoidingView>
       </View>
 
       <AttachmentSheet
