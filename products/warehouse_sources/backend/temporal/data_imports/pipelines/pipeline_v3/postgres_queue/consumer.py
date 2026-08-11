@@ -12,6 +12,7 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from django.db import close_old_connections
 
@@ -72,7 +73,12 @@ FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
 
 # Stamped on a run the loader abandoned: its extraction ended without a final batch, so nothing
 # finalized it and there is no failed queue batch for the failed-run reconcile to key on.
-STRANDED_RUN_ERROR = "run abandoned before completion (no loader progress; reconciled from queue)"
+# Shown to the customer verbatim as latest_error, so keep it plain and reassuring rather than
+# describing the internal queue mechanics.
+STRANDED_RUN_ERROR = (
+    "This sync run stopped before it finished, so it did not complete. "
+    "The next scheduled sync retries automatically. No action is needed."
+)
 
 # Errors that fail identically on every attempt. Substring-matched because they
 # surface as generic exceptions; keep entries specific so transients can't match.
@@ -318,6 +324,20 @@ class DeltaBatchConsumerAdapter:
         # Piggyback the reconcile cadence for the queue-freshness gauge: same
         # connection, same periodicity, and isolated so it can't break the sweep.
         await self._observe_queue_freshness(conn)
+
+        # Single-flight everything below fleet-wide: the sweeps reconcile global
+        # queue state, so N pods running them do N times the work of one for zero
+        # extra correctness — and their cost scales with the failure backlog,
+        # which is exactly when concurrent copies on every pod can saturate the
+        # queue DB and starve the claim path (the 2026-08-09 loader stall: 36
+        # concurrent sweep queries, claim polls timing out fleet-wide). The
+        # freshness probe above deliberately stays outside the slot: every pod
+        # must keep its own gauge current, or max() across the fleet pins stale
+        # values. The token is throwaway — the slot is never verified or
+        # released, it just expires into the next pod's hands.
+        if not await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token=str(uuid4())):
+            logger.debug("reconcile_sweep_slot_held_elsewhere")
+            return
 
         refs = await BatchQueue.get_failed_runs(
             conn,

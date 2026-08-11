@@ -3,7 +3,10 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 import pyarrow as pa
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     PersonPropertySourceProjection,
@@ -175,6 +178,26 @@ async def test_stage_chunk_filenames_are_unique_per_attempt():
         paths.append(to_thread.await_args.args[2])
 
     assert len(set(paths)) == 2
+
+
+@parameterized.expand([("local_setup", True), ("non_local_setup", False)])
+def test_get_fs_reuses_the_same_filesystem_across_calls(_name, use_local_setup):
+    # stage_chunk() calls _get_fs() once per chunk over a whole sync (potentially thousands of
+    # chunks); constructing a fresh S3FileSystem per call leaks its underlying connections/file
+    # descriptors until the process runs out of them. Both branches build their own S3FileSystem,
+    # so both must cache it.
+    sink = _sink()
+
+    with (
+        patch.object(settings, "USE_LOCAL_SETUP", use_local_setup),
+        patch(f"{_MODULE}.pa_fs.S3FileSystem") as mock_s3_filesystem,
+        patch(f"{_MODULE}.ensure_bucket_exists"),
+    ):
+        first = sink._get_fs()
+        second = sink._get_fs()
+
+    mock_s3_filesystem.assert_called_once()
+    assert first is second
 
 
 @pytest.mark.asyncio

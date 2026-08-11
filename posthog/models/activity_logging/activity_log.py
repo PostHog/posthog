@@ -39,6 +39,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Canvas",
     "Endpoint",
     "EndpointVersion",
     "Dashboard",
@@ -101,6 +102,7 @@ ActivityScope = Literal[
     "StreamlitApp",
     "Metric",
     "TableCertification",
+    "DataQualityCheck",
     "Billing",
     "Loop",
 ]
@@ -508,6 +510,16 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "source_insight_query_hash",
         "referenced_table_names",
     ],
+    "DataQualityCheck": [
+        # Written by the runner, not by a person editing the check.
+        "last_run_at",
+        "last_status",
+        "subject_name",
+        "subject_status",
+        # Subject FKs are immutable after create and not JSON-serializable for the change detail.
+        "saved_query",
+        "table",
+    ],
     "Loop": [
         # FK relations are not JSON-serializable for the change detail (same reason
         # FeatureFlag/Subscription exclude theirs).
@@ -526,13 +538,18 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+        "scim_request_logs",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
     ],
     "IdentityProviderConfig": [
         "organization",
-        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        # Reverse relations, not plain field diffs — and diffing them reads every related row, which
+        # for SCIM request logs is the tenant's whole request history.
         "domains",
+        "linked_identity_provider_configs",
+        "scim_provisioned_users",
+        "scim_request_logs",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another

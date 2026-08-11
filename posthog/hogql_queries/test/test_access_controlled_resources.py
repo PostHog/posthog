@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.schema import (
+    AccountsTableQuery,
     DataWarehouseNode,
     EntityType,
     EventsNode,
@@ -115,6 +116,9 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_structured_query_reads_no_system_table(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         assert queried_access_controlled_resources(query, self.team) == set()
+
+    def test_accounts_table_query_partitions_on_account_access(self):
+        assert queried_access_controlled_resources(AccountsTableQuery(columns=[], filters=[]), self.team) == {"account"}
 
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])

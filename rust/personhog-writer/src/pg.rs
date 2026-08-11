@@ -55,17 +55,19 @@ impl PgStore {
             "INSERT INTO {table} (
                 id, team_id, uuid, properties, properties_last_updated_at,
                 properties_last_operation, created_at, version, is_identified,
-                last_seen_at
+                last_seen_at, is_deleted
             )
             SELECT id, team_id, uuid, properties::jsonb,
                    properties_last_updated_at::jsonb, properties_last_operation::jsonb,
-                   created_at, version, is_identified, last_seen_at
+                   created_at, version, is_identified, last_seen_at, is_deleted
             FROM UNNEST(
                 $1::bigint[], $2::int[], $3::uuid[],
                 $4::text[], $5::text[], $6::text[],
-                $7::timestamptz[], $8::bigint[], $9::bool[], $10::timestamptz[]
+                $7::timestamptz[], $8::bigint[], $9::bool[], $10::timestamptz[],
+                $11::bool[]
             ) AS u(id, team_id, uuid, properties, properties_last_updated_at,
-                   properties_last_operation, created_at, version, is_identified, last_seen_at)
+                   properties_last_operation, created_at, version, is_identified, last_seen_at,
+                   is_deleted)
             ON CONFLICT (team_id, id) DO UPDATE SET
                 uuid = EXCLUDED.uuid,
                 properties = EXCLUDED.properties,
@@ -76,7 +78,8 @@ impl PgStore {
                 created_at = EXCLUDED.created_at,
                 version = EXCLUDED.version,
                 is_identified = EXCLUDED.is_identified,
-                last_seen_at = GREATEST(EXCLUDED.last_seen_at, {table}.last_seen_at)
+                last_seen_at = GREATEST(EXCLUDED.last_seen_at, {table}.last_seen_at),
+                is_deleted = EXCLUDED.is_deleted
             WHERE EXCLUDED.version > COALESCE({table}.version, -1)",
             table = table_name
         );
@@ -96,9 +99,16 @@ impl PgStore {
 /// must halt on. Nothing is ever dropped or substituted here — a silent
 /// repair would diverge PG from the cache and changelog.
 fn prepare_chunk(persons: &[Person]) -> Result<PreparedArrays<'_>, WriteError> {
-    let cap = persons.len();
-    let mut arrays = PreparedArrays::with_capacity(cap);
-    for person in persons {
+    // Bind order is lock order: the upsert acquires row locks in unnest
+    // order, so binding in conflict-key order gives every flush one global
+    // lock direction. Concurrent multi-row writers on overlapping persons
+    // (the delete saga's unmap, another flush) sort the same way, and
+    // sorted-vs-sorted acquisition cannot deadlock. Only the bind order
+    // changes — batch composition and ack accounting are untouched.
+    let mut sorted: Vec<&Person> = persons.iter().collect();
+    sorted.sort_unstable_by_key(|p| (p.team_id, p.id));
+    let mut arrays = PreparedArrays::with_capacity(sorted.len());
+    for person in sorted {
         push_person(&mut arrays, person)?;
     }
     Ok(arrays)
@@ -154,6 +164,7 @@ fn push_person<'a>(arrays: &mut PreparedArrays<'a>, p: &'a Person) -> Result<(),
         Some(p.version),
         p.is_identified,
         last_seen_at,
+        p.is_deleted,
     );
     Ok(())
 }
@@ -180,6 +191,7 @@ async fn run_upsert(
         .bind(&arrays.versions)
         .bind(&arrays.is_identified)
         .bind(&arrays.last_seen_at)
+        .bind(&arrays.is_deleted)
         .execute(pool)
         .await
     {
@@ -254,6 +266,7 @@ struct PreparedArrays<'a> {
     versions: Vec<Option<i64>>,
     is_identified: Vec<bool>,
     last_seen_at: Vec<Option<DateTime<Utc>>>,
+    is_deleted: Vec<bool>,
 }
 
 impl<'a> PreparedArrays<'a> {
@@ -269,6 +282,7 @@ impl<'a> PreparedArrays<'a> {
             versions: Vec::with_capacity(cap),
             is_identified: Vec::with_capacity(cap),
             last_seen_at: Vec::with_capacity(cap),
+            is_deleted: Vec::with_capacity(cap),
         }
     }
 
@@ -285,6 +299,7 @@ impl<'a> PreparedArrays<'a> {
         version: Option<i64>,
         is_identified: bool,
         last_seen_at: Option<DateTime<Utc>>,
+        is_deleted: bool,
     ) {
         self.ids.push(id);
         self.team_ids.push(team_id);
@@ -298,6 +313,7 @@ impl<'a> PreparedArrays<'a> {
         self.versions.push(version);
         self.is_identified.push(is_identified);
         self.last_seen_at.push(last_seen_at);
+        self.is_deleted.push(is_deleted);
     }
 }
 
@@ -403,6 +419,22 @@ mod tests {
             version: 1,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn prepare_chunk_binds_in_conflict_key_order() {
+        // Bind order is the upsert's lock order; a batch bound in buffer
+        // order deadlocks against concurrent sorted writers on overlapping
+        // rows.
+        let persons = [
+            person_with(5, 2),
+            person_with(3, 1),
+            person_with(4, 2),
+            person_with(1, 1),
+        ];
+        let arrays = prepare_chunk(&persons).expect("chunk prepares");
+        assert_eq!(arrays.team_ids, vec![1, 1, 2, 2]);
+        assert_eq!(arrays.ids, vec![1, 3, 4, 5]);
     }
 
     #[test]

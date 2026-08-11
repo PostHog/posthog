@@ -9,6 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureInboxOnboardingDecided } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './reportListLogic'
@@ -22,6 +23,13 @@ const MOUNT_CHECK_JITTER_MS = 3 * 1000
 // `visibilitychange → visible`; without a floor, alt-tab flapping turns into request bursts.
 const VISIBILITY_REFETCH_THROTTLE_MS = 5 * 1000
 
+// Ceiling on how long the wizard verdict may hold the prompt back. The verdict can never arrive:
+// the shortcut below needs the feature-flag payload, which an ad blocker can drop entirely, and a
+// detector whose endpoint keeps erroring only settles after enough consecutive failures. Both leave
+// someone who has not set self-driving up on an inbox that never offers to. Well past the sub-second
+// window the guard exists for (jitter plus one request), so capping it costs the normal path nothing.
+const WIZARD_VERDICT_DEADLINE_MS = 15 * 1000
+
 /** How the self-driving onboarding presents itself over the inbox. */
 export type InboxOnboardingMode = 'takeover' | 'banner' | 'none' | 'pending'
 
@@ -31,6 +39,65 @@ export type InboxSettledUiState = 'takeover' | 'inbox'
 
 /** localStorage key for the per-team last-settled UI state (see `lastSettledUiStateByTeam`). */
 export const INBOX_LAST_UI_STATE_STORAGE_KEY = 'inbox-onboarding-last-ui-state'
+
+/**
+ * Why the onboarding is not showing. `null` whenever it is.
+ *
+ * `'wizard_running'` is the only deliberate suppression; every other value is an input the decision
+ * is still waiting on, or a user who does not need onboarding at all. Carried into telemetry so a
+ * withheld prompt is distinguishable from an absent one.
+ */
+export type InboxOnboardingSuppressionReason =
+    | 'wizard_running'
+    | 'wizard_state_unknown'
+    | 'setup_loading'
+    | 'already_set_up'
+    | 'counts_loading'
+    | 'refetching'
+    | 'banner_dismissed'
+    | null
+
+export interface InboxOnboardingDecision {
+    mode: InboxOnboardingMode
+    reason: InboxOnboardingSuppressionReason
+}
+
+export interface WizardStateInputs {
+    /** The detector reached a verdict: a poll settled, a stream reported in, or polling was killed. */
+    hasResolvedSessionState: boolean
+    /** Programs the detector polls. Derived from the onboarding variant, so it needs flags in hand. */
+    watchedWorkflows: string[]
+    receivedFeatureFlags: boolean
+    /** The deadline above elapsed with no verdict, so waiting longer only withholds the prompt. */
+    verdictWaitExpired: boolean
+}
+
+/**
+ * Whether `isWizardRunning === false` can be acted on.
+ *
+ * Trivially true when the detector isn't watching the self-driving program (control variant, no
+ * surface registered): its verdict could never flip `isWizardRunning`, so waiting on it — or polling
+ * eagerly for it — would cost every inbox user something for nothing. That shortcut needs flags in
+ * hand though: `watchedWorkflows` is derived from the onboarding variant, and before the flags land
+ * it reads as the control arm for everyone, which would let the takeover render for a user whose run
+ * is mid-flight and then flicker back out once the flags arrive.
+ *
+ * The deadline is the backstop for the case where neither of those ever resolves. A takeover that
+ * flickers is a worse first second than one that waits; a takeover that never renders is worse than
+ * both, and it is the only failure of the three a user can't recover from by waiting.
+ */
+export function resolveWizardState({
+    hasResolvedSessionState,
+    watchedWorkflows,
+    receivedFeatureFlags,
+    verdictWaitExpired,
+}: WizardStateInputs): boolean {
+    return (
+        hasResolvedSessionState ||
+        (receivedFeatureFlags && !watchedWorkflows.includes(SELF_DRIVING_WORKFLOW_ID)) ||
+        verdictWaitExpired
+    )
+}
 
 export interface OnboardingModeInputs {
     /** Both source + scout config loaders have settled, so the set-up verdict is trustworthy. */
@@ -62,8 +129,12 @@ export interface OnboardingModeInputs {
  * settled input rules the takeover out – self-driving is set up, a wizard run is in flight, or
  * work already exists (the banner is additive, not a replacement) – the normal inbox shows
  * immediately without waiting on the rest.
+ *
+ * Each outcome carries the input it is waiting on (or the reason it is withheld), so telemetry can
+ * tell a prompt nobody needed from one that never resolved. `resolveWizardState` bounds the one
+ * wait that can hang forever.
  */
-export function computeOnboardingMode({
+export function computeOnboardingDecision({
     isSetupLoaded,
     isSelfDrivingSetUp,
     areCountsResolved,
@@ -72,35 +143,47 @@ export function computeOnboardingMode({
     isWizardRunning,
     isWizardStateResolved,
     isRefetching,
-}: OnboardingModeInputs): InboxOnboardingMode {
+}: OnboardingModeInputs): InboxOnboardingDecision {
     // A run in flight is setup in progress: sources and scouts land as it goes, so telling the user
     // to go and run the wizard would contradict the progress widget already showing it running.
     if (isWizardRunning) {
-        return 'none'
+        return { mode: 'none', reason: 'wizard_running' }
     }
     // Set-up users go straight to their inbox the moment the config check lands – neither the
     // wizard detector nor the report counts could flip their verdict to an onboarding.
     if (isSetupLoaded && isSelfDrivingSetUp) {
-        return 'none'
+        return { mode: 'none', reason: 'already_set_up' }
     }
     // Work already in the inbox rules the takeover out: the only remaining outcomes (banner /
     // none) both render the normal inbox, so show it now rather than holding a skeleton. The
     // non-blocking banner joins once the config and wizard checks settle.
     if (areCountsResolved && hasExistingWork) {
-        if (!isSetupLoaded || !isWizardStateResolved) {
-            return 'none'
+        if (!isSetupLoaded) {
+            return { mode: 'none', reason: 'setup_loading' }
         }
-        return bannerDismissed ? 'none' : 'banner'
+        if (!isWizardStateResolved) {
+            return { mode: 'none', reason: 'wizard_state_unknown' }
+        }
+        return bannerDismissed ? { mode: 'none', reason: 'banner_dismissed' } : { mode: 'banner', reason: null }
     }
     // The takeover is still possible. Until every input has settled – configs (is anything
     // watching?), counts (is there work to keep?), and the wizard detector (is a run in flight?) –
     // committing to either UI risks flashing it and swapping it out, so hold the neutral skeleton.
     // A refetch in flight means the loaded values may be stale in the same way (the wizard just
     // finished, or the user returned to the tab), so it holds the takeover back too.
-    if (!isSetupLoaded || !isWizardStateResolved || !areCountsResolved || isRefetching) {
-        return 'pending'
+    if (!isSetupLoaded) {
+        return { mode: 'pending', reason: 'setup_loading' }
     }
-    return 'takeover'
+    if (!isWizardStateResolved) {
+        return { mode: 'pending', reason: 'wizard_state_unknown' }
+    }
+    if (!areCountsResolved) {
+        return { mode: 'pending', reason: 'counts_loading' }
+    }
+    if (isRefetching) {
+        return { mode: 'pending', reason: 'refetching' }
+    }
+    return { mode: 'takeover', reason: null }
 }
 
 /**
@@ -154,8 +237,10 @@ export interface inboxOnboardingLogicValues {
     isWizardStateResolved: boolean
     lastSettledUiState: InboxSettledUiState | null
     lastSettledUiStateByTeam: Record<string, InboxSettledUiState>
+    onboardingDecision: InboxOnboardingDecision
     onboardingMode: InboxOnboardingMode
     resolvedOnboardingMode: InboxOnboardingMode
+    verdictWaitExpired: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -168,6 +253,9 @@ export interface inboxOnboardingLogicActions {
         value: true
     } // wizardActiveSessionDetectorLogic
     dismissBanner: () => {
+        value: true
+    }
+    expireWizardVerdictWait: () => {
         value: true
     }
     refreshSetupState: () => {
@@ -198,7 +286,8 @@ export interface inboxOnboardingLogicMeta {
         isWizardStateResolved: (
             hasResolvedSessionState: boolean,
             watchedWorkflows: string[],
-            receivedFeatureFlags: boolean
+            receivedFeatureFlags: boolean,
+            verdictWaitExpired: boolean
         ) => boolean
         isRefetching: (
             sourceConfigsLoading: any,
@@ -206,7 +295,7 @@ export interface inboxOnboardingLogicMeta {
             pullsCountLoading: boolean,
             reportsCountLoading: boolean
         ) => boolean
-        resolvedOnboardingMode: (
+        onboardingDecision: (
             isSetupLoaded: boolean,
             isSelfDrivingSetUp: boolean,
             areCountsResolved: boolean,
@@ -215,7 +304,8 @@ export interface inboxOnboardingLogicMeta {
             isWizardRunning: boolean,
             isWizardStateResolved: boolean,
             isRefetching: any
-        ) => InboxOnboardingMode
+        ) => InboxOnboardingDecision
+        resolvedOnboardingMode: (onboardingDecision: InboxOnboardingDecision) => InboxOnboardingMode
         lastSettledUiState: (
             lastSettledUiStateByTeam: Record<string, InboxSettledUiState>,
             currentTeamId: number | null
@@ -289,6 +379,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
 
     actions({
         dismissBanner: true,
+        expireWizardVerdictWait: true,
         setLastSettledUiState: (teamId: number, uiState: InboxSettledUiState) => ({ teamId, uiState }),
         refreshSetupState: true,
     }),
@@ -309,6 +400,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             false,
             {
                 dismissBanner: () => true,
+            },
+        ],
+        verdictWaitExpired: [
+            false,
+            {
+                expireWizardVerdictWait: () => true,
             },
         ],
         // Keyed by team: the verdict is per team, and a cached verdict from another team must not
@@ -359,18 +456,20 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             (s) => [s.activeWorkflowId],
             (activeWorkflowId: string | null): boolean => activeWorkflowId === SELF_DRIVING_WORKFLOW_ID,
         ],
-        // Trivially resolved when the detector isn't watching the self-driving program (control
-        // variant, no surface registered): its verdict could never flip `isWizardRunning`, so
-        // waiting on it — or polling eagerly for it — would cost every inbox user something for
-        // nothing. That shortcut needs flags in hand though: `watchedWorkflows` is derived from the
-        // onboarding variant, and before the flags land it reads as the control arm for everyone,
-        // which would let the takeover render for a user whose run is mid-flight and then flicker
-        // back out once the flags arrive.
         isWizardStateResolved: [
-            (s) => [s.hasResolvedSessionState, s.watchedWorkflows, s.receivedFeatureFlags],
-            (hasResolvedSessionState: boolean, watchedWorkflows: string[], receivedFeatureFlags: boolean): boolean =>
-                hasResolvedSessionState ||
-                (receivedFeatureFlags && !watchedWorkflows.includes(SELF_DRIVING_WORKFLOW_ID)),
+            (s) => [s.hasResolvedSessionState, s.watchedWorkflows, s.receivedFeatureFlags, s.verdictWaitExpired],
+            (
+                hasResolvedSessionState: boolean,
+                watchedWorkflows: string[],
+                receivedFeatureFlags: boolean,
+                verdictWaitExpired: boolean
+            ): boolean =>
+                resolveWizardState({
+                    hasResolvedSessionState,
+                    watchedWorkflows,
+                    receivedFeatureFlags,
+                    verdictWaitExpired,
+                }),
         ],
         // A config or count request is in flight. While true, the verdict must not commit to the
         // takeover: the wizard may just have finished, and the loaded values are about to change.
@@ -383,10 +482,10 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 reportsCountLoading: boolean
             ): boolean => sourceConfigsLoading || scoutConfigsLoading || pullsCountLoading || reportsCountLoading,
         ],
-        // The verdict from live inputs alone – 'pending' while they're still settling. Kept
-        // separate from `onboardingMode` so the cache writer below never re-persists a guess
-        // that itself came from the cache.
-        resolvedOnboardingMode: [
+        // The verdict from live inputs alone, with the input it is still waiting on. Kept separate
+        // from `onboardingMode` so neither the cache writer nor the telemetry below ever reports a
+        // guess that itself came from the cache.
+        onboardingDecision: [
             (s) => [
                 s.isSetupLoaded,
                 s.isSelfDrivingSetUp,
@@ -406,8 +505,8 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 isWizardRunning: boolean,
                 isWizardStateResolved: boolean,
                 isRefetching: boolean
-            ): InboxOnboardingMode =>
-                computeOnboardingMode({
+            ): InboxOnboardingDecision =>
+                computeOnboardingDecision({
                     isSetupLoaded,
                     isSelfDrivingSetUp,
                     areCountsResolved,
@@ -417,6 +516,10 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                     isWizardStateResolved,
                     isRefetching,
                 }),
+        ],
+        resolvedOnboardingMode: [
+            (s) => [s.onboardingDecision],
+            (onboardingDecision: InboxOnboardingDecision): InboxOnboardingMode => onboardingDecision.mode,
         ],
         lastSettledUiState: [
             (s) => [s.lastSettledUiStateByTeam, s.currentTeamId],
@@ -447,7 +550,18 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         ],
     }),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
+        // One event per distinct verdict per mount. The decision settles through several
+        // intermediate holds as its inputs load, so reporting every transition would drown the
+        // real answer; deduping on the pair keeps the loading states as the trail that explains it.
+        onboardingDecision: (decision: InboxOnboardingDecision) => {
+            const key = `${decision.mode}:${decision.reason ?? 'shown'}`
+            if (cache.reportedDecisions?.has(key)) {
+                return
+            }
+            cache.reportedDecisions = (cache.reportedDecisions ?? new Set<string>()).add(key)
+            captureInboxOnboardingDecided({ mode: decision.mode, reason: decision.reason })
+        },
         // Remember what this team's verdict rendered as, so the next visit can paint it
         // immediately while the checks re-run. Watches the resolved mode (not the display mode)
         // so the cache is only ever written from settled inputs.
@@ -513,5 +627,17 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             }, Math.random() * MOUNT_CHECK_JITTER_MS)
             return () => window.clearTimeout(id)
         }, 'mount-wizard-check')
+
+        // Backstop for a verdict that never lands. Runs while the tab is hidden too: a user who
+        // opens the inbox in a background tab and comes back to it should find the prompt already
+        // decided, not a timer that only started when they looked.
+        cache.disposables.add(
+            () => {
+                const id = window.setTimeout(() => actions.expireWizardVerdictWait(), WIZARD_VERDICT_DEADLINE_MS)
+                return () => window.clearTimeout(id)
+            },
+            'wizard-verdict-deadline',
+            { pauseOnPageHidden: false }
+        )
     }),
 ])

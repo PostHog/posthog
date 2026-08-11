@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use std::{fmt, mem};
 
 use common_kafka::config::KafkaConfig;
-use common_kafka::transaction::TransactionalProducer;
+use common_kafka::transaction::{ConnectedTransactionalProducer, TransactionalProducer};
 use dashmap::DashMap;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
@@ -127,6 +127,24 @@ struct Gate {
     waiters: Vec<oneshot::Sender<Result<(), FencedProduceError>>>,
 }
 
+/// Initialize a connected producer on the blocking pool, claiming the
+/// partition's transactional id. On failure the connection is discarded
+/// there too — librdkafka teardown blocks — and only the error comes
+/// back.
+async fn init_producer(
+    connected: ConnectedTransactionalProducer,
+    timeout: Duration,
+) -> Result<TransactionalProducer, String> {
+    match spawn_blocking(move || connected.init(timeout)).await {
+        Ok(Ok(ready)) => Ok(ready),
+        Ok(Err((e, connected))) => {
+            spawn_blocking(move || drop(connected));
+            Err(format!("fence init: {e}"))
+        }
+        Err(e) => Err(format!("fence init join: {e}")),
+    }
+}
+
 /// Send a fence to the blocking pool to die. Dropping the last
 /// reference runs librdkafka's destroy, which blocks while the client
 /// tears down — up to hundreds of milliseconds — and both removal sites
@@ -166,6 +184,9 @@ struct PartitionFence {
     /// epoch once the pod's claim is confirmed.
     unusable: AtomicBool,
     commit_timeout: Duration,
+    /// Clone of the map's repair nudge; a condemnation must be able to
+    /// announce itself from wherever the commit task discovers it.
+    repair_nudge: Option<Arc<Notify>>,
 }
 
 impl PartitionFence {
@@ -182,6 +203,15 @@ impl PartitionFence {
                 partition,
                 reason, "changelog producer left unusable; awaiting re-acquisition"
             );
+            // The only way back is a heal on a convergence to Serving, and
+            // the reconcile tick that would otherwise carry it is seconds
+            // away — writes bounce for that whole gap. The nudge lets the
+            // coordination loop run its repair pass now; Notify stores
+            // the permit, so a nudge landing before the loop listens is
+            // not lost.
+            if let Some(nudge) = &self.repair_nudge {
+                nudge.notify_one();
+            }
         }
     }
 
@@ -416,6 +446,18 @@ pub struct FencedChangelogProducers {
     /// and report a failed drain.
     settle_budget: Duration,
     partitions: DashMap<u32, Arc<PartitionFence>>,
+    /// Nudged on condemnation, so the coordination loop can run a
+    /// repair pass now instead of on its next reconcile tick. Carries no
+    /// payload: the pass re-derives what needs converging, the same way
+    /// the tick does. `None` leaves repair to the tick alone.
+    repair_nudge: Option<Arc<Notify>>,
+    /// Connected-but-uninitialized producers, one per partition at most,
+    /// parked by `preconnect` for a later `acquire` to claim. Connection
+    /// setup is the slow half of acquisition and touches no broker
+    /// transactional state, so it can run ahead of the authority
+    /// transition; `init_transactions` — the fencing action — still
+    /// happens only inside `acquire`.
+    prepared: DashMap<u32, ConnectedTransactionalProducer>,
     /// Outcomes a test stages for the next produce on a partition.
     ///
     /// The uncertain outcomes need a broker fault landing inside a
@@ -461,9 +503,20 @@ impl FencedChangelogProducers {
             window,
             settle_budget,
             partitions: DashMap::new(),
+            repair_nudge: None,
+            prepared: DashMap::new(),
             #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
         }
+    }
+
+    /// Announce condemnations on `nudge`, so the coordination loop can
+    /// run a repair pass immediately instead of on its next reconcile
+    /// tick. The listening end is [`PodHandle::
+    /// with_repair_nudge`](personhog_coordination::pod::PodHandle).
+    pub fn with_repair_nudge(mut self, nudge: Arc<Notify>) -> Self {
+        self.repair_nudge = Some(nudge);
+        self
     }
 
     /// Take the partition's fence: create the transactional producer and
@@ -471,22 +524,55 @@ impl FencedChangelogProducers {
     /// partition's transactional id. Runs on the blocking pool — init is
     /// a synchronous broker round trip.
     async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionFence>, String> {
-        let kafka = self.kafka.clone();
-        let tid = transactional_id(&self.topic, partition);
         let timeout = self.init_timeout;
-        let broker_txn_timeout = self.broker_txn_timeout;
-        let start = Instant::now();
-        let producer = spawn_blocking(move || {
-            TransactionalProducer::from_config_bounded(&kafka, &tid, timeout, broker_txn_timeout)
-        })
-        .await
-        .map_err(|e| format!("fence init join: {e}"))?
-        .map_err(|e| {
-            counter!("personhog_leader_fence_init_total", "outcome" => "error").increment(1);
-            format!("fence init: {e}")
-        })?;
+        let mut start = Instant::now();
+        // The two acquisition shapes differ only in when the connect
+        // happened: a parked connection pays only the init round trip
+        // here, and one whose init fails (it may simply have gone
+        // stale) gets a single fresh connect-and-init rather than
+        // failing the acquisition.
+        let mut path = "cold";
+        let mut producer = None;
+        if let Some((_, parked)) = self.prepared.remove(&partition) {
+            match init_producer(parked, timeout).await {
+                Ok(ready) => {
+                    path = "prepared";
+                    producer = Some(ready);
+                }
+                Err(e) => {
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "init_failed")
+                        .increment(1);
+                    warn!(
+                        partition,
+                        error = %e,
+                        "prepared connection failed to init; connecting fresh"
+                    );
+                }
+            }
+        }
+        let producer = match producer {
+            Some(ready) => ready,
+            None => {
+                // Timed from here so a failed prepared attempt cannot
+                // contaminate the cold path's histogram.
+                start = Instant::now();
+                let count_error = |e: String| {
+                    counter!("personhog_leader_fence_init_total", "outcome" => "error")
+                        .increment(1);
+                    e
+                };
+                let connected = self
+                    .connect_producer(partition)
+                    .await
+                    .map_err(count_error)?;
+                init_producer(connected, timeout)
+                    .await
+                    .map_err(count_error)?
+            }
+        };
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
-        histogram!("personhog_leader_fence_init_ms").record(start.elapsed().as_secs_f64() * 1000.0);
+        histogram!("personhog_leader_fence_init_ms", "path" => path)
+            .record(start.elapsed().as_secs_f64() * 1000.0);
         let installed = Arc::new(PartitionFence {
             producer,
             gate: Mutex::new(Gate {
@@ -502,8 +588,16 @@ impl FencedChangelogProducers {
             panic_next_commit: AtomicBool::new(false),
             unusable: AtomicBool::new(false),
             commit_timeout: self.commit_timeout,
+            repair_nudge: self.repair_nudge.clone(),
         });
-        self.partitions.insert(partition, Arc::clone(&installed));
+        if let Some(replaced) = self.partitions.insert(partition, Arc::clone(&installed)) {
+            // The heal path installs over a still-present condemned
+            // fence, and by then the commit task has usually dropped its
+            // clones — making this insert the last reference and its
+            // drop a blocking librdkafka destroy. Send it to the
+            // blocking pool like every other eviction site.
+            drop_fence_off_worker(replaced);
+        }
         Ok(installed)
     }
 
@@ -524,6 +618,101 @@ impl FencedChangelogProducers {
         if let Some((_, fence)) = self.partitions.remove(&partition) {
             drop_fence_off_worker(fence);
         }
+        self.discard_prepared(partition);
+    }
+
+    /// Connect the partition's producer ahead of acquisition, so the
+    /// acquire that follows pays only the init round trip. Runs the
+    /// connection on the blocking pool and parks it; a failure is only
+    /// logged and counted, because the cold acquire path covers it. At
+    /// most one parked connection survives per partition — concurrent
+    /// preconnects are possible through the pending-ownership window,
+    /// and the loser is discarded and counted.
+    pub async fn preconnect(&self, partition: u32) {
+        if self.prepared.contains_key(&partition) {
+            return;
+        }
+        let start = Instant::now();
+        match self.connect_producer(partition).await {
+            Ok(connected) => {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
+                histogram!("personhog_leader_fence_preconnect_ms")
+                    .record(start.elapsed().as_secs_f64() * 1000.0);
+                if let Some(displaced) = self.prepared.insert(partition, connected) {
+                    // A racing preconnect parked first; one connection is
+                    // as good as the other, keep the newer.
+                    counter!("personhog_leader_fence_preconnect_total", "outcome" => "duplicate")
+                        .increment(1);
+                    spawn_blocking(move || drop(displaced));
+                }
+            }
+            Err(e) => {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
+                    .increment(1);
+                warn!(partition, error = %e, "fence preconnect failed; acquisition will connect cold");
+            }
+        }
+    }
+
+    /// Build the partition's connected-but-uninitialized producer on the
+    /// blocking pool.
+    async fn connect_producer(
+        &self,
+        partition: u32,
+    ) -> Result<ConnectedTransactionalProducer, String> {
+        let kafka = self.kafka.clone();
+        let tid = transactional_id(&self.topic, partition);
+        let timeout = self.init_timeout;
+        let broker_txn_timeout = self.broker_txn_timeout;
+        spawn_blocking(move || {
+            ConnectedTransactionalProducer::connect_bounded(
+                &kafka,
+                &tid,
+                timeout,
+                broker_txn_timeout,
+            )
+        })
+        .await
+        .map_err(|e| format!("fence connect join: {e}"))?
+        .map_err(|e| format!("fence connect: {e}"))
+    }
+
+    /// Drop a parked connection on the blocking pool — librdkafka's
+    /// client teardown blocks, same as a full fence's.
+    fn discard_prepared(&self, partition: u32) {
+        if let Some((_, connected)) = self.prepared.remove(&partition) {
+            spawn_blocking(move || drop(connected));
+        }
+    }
+
+    /// Discard every parked connection. A connection is normally
+    /// consumed within its drain window, seconds after parking; one
+    /// still here at the periodic sweep belongs to an acquire that went
+    /// cold first or to a cancelled inbound handoff — and a cancelled
+    /// inbound handoff leaves no convergence behind to notice it, so
+    /// the sweep is the only owner its lifetime has. A drain window
+    /// that happens to straddle the sweep tick loses its head start and
+    /// acquires cold, which is the behavior this whole path improves on
+    /// rather than a failure.
+    pub fn sweep_prepared(&self) {
+        let parked: Vec<u32> = self.prepared.iter().map(|entry| *entry.key()).collect();
+        for partition in parked {
+            if let Some((_, connected)) = self.prepared.remove(&partition) {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "swept")
+                    .increment(1);
+                warn!(
+                    partition,
+                    "swept a parked changelog connection nothing consumed"
+                );
+                spawn_blocking(move || drop(connected));
+            }
+        }
+    }
+
+    /// Whether a parked connection exists for the partition.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn has_prepared(&self, partition: u32) -> bool {
+        self.prepared.contains_key(&partition)
     }
 
     /// Whether this pod holds a *usable* fence for the partition.
@@ -1014,16 +1203,42 @@ enum WindowVerdict {
 /// record at the same number behind one that may be committed. Reporting
 /// it as merely indeterminate throws away the ownership answer the router
 /// bounces on. `FencedUncertain` is both.
+/// Every reason production code passes to `condemn`, in one place so the
+/// preregistration below cannot drift from the call sites: a reason
+/// missing here first appears as a brand-new series mid-incident instead
+/// of rising from zero.
+const CONDEMN_REASONS: [&str; 6] = [
+    "abort_fenced",
+    "abort_failed",
+    "commit_fenced",
+    "commit_indeterminate",
+    "commit_task_lost",
+    "committer_unwound",
+];
+
 /// Why a window's outcome leaves the producer unusable, if it does.
 ///
 /// Extracted so the arrow *into* the condemned state is reachable: the
 /// tests could reach the aftermath through a staging hook, but the branch
 /// that decides it could be deleted outright with the suite still green,
 /// and it is the only path in production that ever sets the flag.
-fn condemn_reason(outcome: CommitOutcome) -> Option<&'static str> {
+///
+/// A dead producer carries two very different stories, split by
+/// `fenced`: a producer fenced by a newer owner's init lost the epoch (a
+/// handoff, a heal, a zombie being cut off — coordination working), while
+/// an abort that failed on a producer nobody fenced means the broker
+/// could not be reached in time (an infrastructure excursion). The panel
+/// reading this label has to tell those apart without the logs.
+fn condemn_reason(outcome: CommitOutcome, fenced: bool) -> Option<&'static str> {
     match outcome {
         CommitOutcome::Aborted => None,
+        CommitOutcome::AbortedProducerDead if fenced => Some("abort_fenced"),
         CommitOutcome::AbortedProducerDead => Some("abort_failed"),
+        // A commit killed by a newer owner's init reports librdkafka's
+        // fatal class and lands here, not in AbortedProducerDead — the
+        // fenced split must cover this arm or every deploy-shaped
+        // condemnation reads as a broker excursion.
+        CommitOutcome::Unknown if fenced => Some("commit_fenced"),
         CommitOutcome::Unknown => Some("commit_indeterminate"),
     }
 }
@@ -1213,10 +1428,10 @@ async fn commit_window_after(
         Ok(Err((e, outcome))) => {
             histogram!("personhog_leader_fence_commit_ms", "outcome" => "failed")
                 .record(commit_start.elapsed().as_secs_f64() * 1000.0);
-            if let Some(reason) = condemn_reason(outcome) {
+            let fenced_now = is_fenced(&e) || producer_fenced(fence.producer.inner());
+            if let Some(reason) = condemn_reason(outcome, fenced_now) {
                 fence.condemn(partition, reason);
             }
-            let fenced_now = is_fenced(&e) || producer_fenced(fence.producer.inner());
             let verdict = window_verdict(outcome, fenced_now);
             if verdict == WindowVerdict::FencedUncertain {
                 counter!(
@@ -1315,15 +1530,24 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
+    for outcome in ["ok", "error", "duplicate", "swept", "init_failed"] {
+        counter!("personhog_leader_fence_preconnect_total", "outcome" => outcome).increment(0);
+    }
     // The healing counters fire exactly during the incidents an operator
     // would reach for them in, and rarely enough that lazy registration
     // can swallow the first burst between scrapes.
     counter!("personhog_leader_fence_healed_total").increment(0);
     counter!("personhog_leader_fence_heal_abandoned_total").increment(0);
-    for reason in ["abort_failed", "commit_indeterminate", "commit_task_lost"] {
+    for reason in CONDEMN_REASONS {
         counter!("personhog_leader_fence_condemned_total", "reason" => reason).increment(0);
     }
     counter!("personhog_leader_fence_commit_retries_total").increment(0);
+    // The coordination loop's repair-pass counter fires exclusively
+    // mid-incident, exactly when a first-increment series would be
+    // swallowed between scrapes.
+    for outcome in ["run", "suppressed"] {
+        counter!("personhog_coordination_repair_passes_total", "outcome" => outcome).increment(0);
+    }
     counter!("personhog_leader_kafka_produce_errors_total").increment(0);
     for partition in 0..partitions {
         let p = partition.to_string();
@@ -1338,6 +1562,7 @@ pub fn preregister_fencing_metrics(partitions: u32) {
             "partition" => p.clone()
         )
         .increment(0);
+
         counter!(
             "personhog_leader_fence_commit_indeterminate_total",
             "partition" => p.clone()
@@ -1484,15 +1709,55 @@ mod tests {
     /// that cannot serve one, for the life of the process.
     #[test]
     fn a_producer_that_cannot_begin_another_window_is_condemned() {
-        assert_eq!(condemn_reason(CommitOutcome::Aborted), None);
+        for fenced in [false, true] {
+            assert_eq!(condemn_reason(CommitOutcome::Aborted, fenced), None);
+        }
         assert_eq!(
-            condemn_reason(CommitOutcome::AbortedProducerDead),
-            Some("abort_failed")
+            condemn_reason(CommitOutcome::Unknown, true),
+            Some("commit_fenced")
         );
         assert_eq!(
-            condemn_reason(CommitOutcome::Unknown),
+            condemn_reason(CommitOutcome::Unknown, false),
             Some("commit_indeterminate")
         );
+        // The same dead producer, split by what killed it: an epoch lost
+        // to a newer owner is coordination working, an abort nobody
+        // fenced failing is the broker unreachable — the operator's first
+        // question, answered from the series alone.
+        assert_eq!(
+            condemn_reason(CommitOutcome::AbortedProducerDead, true),
+            Some("abort_fenced")
+        );
+        assert_eq!(
+            condemn_reason(CommitOutcome::AbortedProducerDead, false),
+            Some("abort_failed")
+        );
+    }
+
+    /// A condemn reason absent from the preregistration list first
+    /// appears as a new series mid-incident instead of rising from zero.
+    #[test]
+    fn every_condemn_reason_is_preregistered() {
+        for outcome in [
+            CommitOutcome::Aborted,
+            CommitOutcome::AbortedProducerDead,
+            CommitOutcome::Unknown,
+        ] {
+            for fenced in [false, true] {
+                if let Some(reason) = condemn_reason(outcome, fenced) {
+                    assert!(
+                        CONDEMN_REASONS.contains(&reason),
+                        "condemn_reason produced {reason:?}, missing from CONDEMN_REASONS"
+                    );
+                }
+            }
+        }
+        for direct in ["commit_task_lost", "committer_unwound"] {
+            assert!(
+                CONDEMN_REASONS.contains(&direct),
+                "direct condemn call site uses {direct:?}, missing from CONDEMN_REASONS"
+            );
+        }
     }
 
     #[test]

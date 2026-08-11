@@ -8,6 +8,8 @@ export const runArtifactSchema = z.object({
   content_type: z.string().optional(),
   storage_path: z.string().optional(),
   uploaded_at: z.string().optional(),
+  uploaded_by: z.enum(["agent", "user"]).optional(),
+  uploaded_by_user_id: z.number().int().optional(),
   dismissed_at: z.string().nullish(),
 });
 export type RunArtifact = z.infer<typeof runArtifactSchema>;

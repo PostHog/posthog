@@ -109,6 +109,7 @@ PRODUCTS_APPS = [
     "products.approvals.backend.apps.ApprovalsConfig",
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
+    "products.data_quality.backend.apps.DataQualityConfig",
 ]
 
 INSTALLED_APPS = [
@@ -350,14 +351,19 @@ SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "s
 # tests that assert posthoganalytics.feature_enabled call counts.
 SESSION_RISK_ENABLED = get_from_env("SESSION_RISK_ENABLED", not TEST, type_cast=str_to_bool)
 # Kill switch for the real-time signup enrichment workflow (products/growth/backend/enrichment).
-# Off by default: it must stay off until the launch fill-rate/failure alert is in place, and v0 is
-# US-only. Fire-and-forget from signup, so this only gates whether the workflow is dispatched at all.
+# Off by default: it must stay off until the launch fill-rate/failure alert is in place. Also the
+# de facto per-region toggle, since it is the only region-specific control — dispatch itself is
+# open to both US and EU (see get_instance_region gate in signup_enrichment/trigger.py), so a
+# region stays enrichment-free only by leaving this unset there. Fire-and-forget from signup, so
+# this only gates whether the workflow is dispatched at all.
 GROWTH_SIGNUP_ENRICHMENT_ENABLED = get_from_env("GROWTH_SIGNUP_ENRICHMENT_ENABLED", False, type_cast=str_to_bool)
 # The internal analytics project the enrichment pipeline reads/writes bridge and mirror data
-# against (products/growth/backend/enrichment). Defaults to project 2, the internal project the
-# enrichment group properties are projected onto; env-overridable since that id differs across
-# cloud deployments.
-GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env("GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 2, type_cast=int)
+# against (products/growth/backend/enrichment). Region-defaulted to the deployment's own internal
+# project (the same team split the usage report uses), so enrichment lookups never touch another
+# region's project.
+GROWTH_ENRICHMENT_INTERNAL_TEAM_ID = get_from_env(
+    "GROWTH_ENRICHMENT_INTERNAL_TEAM_ID", 1 if (CLOUD_DEPLOYMENT or "").upper() == "EU" else 2, type_cast=int
+)
 # Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
 # one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
 SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
@@ -645,6 +651,7 @@ SPECTACULAR_SETTINGS = {
         "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
         "ObservationStatusEnum": "products.replay_vision.backend.models.replay_observation.ObservationStatus",
         "ObservationTriggerEnum": "products.replay_vision.backend.models.replay_observation.ObservationTrigger",
+        "BackfillStatusEnum": "products.replay_vision.backend.models.replay_scanner_backfill.BackfillStatus",
         "ExportedRecordingStatusEnum": "products.replay.backend.models.exported_recording.ExportedRecording.Status",
         "VisionActionRunStatusEnum": "products.replay_vision.backend.models.vision_action.VisionActionRunStatus",
         "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
@@ -664,6 +671,12 @@ SPECTACULAR_SETTINGS = {
         "PropertyGroupOperator": ["AND", "OR"],
         # `bucket` is a generic field name; name the experiment recordings bucket set explicitly.
         "ExperimentSessionBucketEnum": ["fired_any", "no_metric_activity", "funnel_dropoff"],
+        # `strength` and `kind` are generic enough that the next one added anywhere would collide,
+        # and `multiple_variant_handling` would otherwise generate a bare `MultipleVariantHandling`
+        # sitting next to the schema type of the same name. One prefix for all three.
+        "ExperimentWatchCardKindEnum": ["behavior", "friction", "metric"],
+        "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
+        "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
         # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
         # daily/weekly/monthly choice set; pin one name for both.
         "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
@@ -828,6 +841,7 @@ SPECTACULAR_SETTINGS = {
         "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
         "SurveyResultsWidgetTypeEnum": ["survey_results"],
         "LogsListWidgetTypeEnum": ["logs_list"],
+        "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],
@@ -1246,6 +1260,13 @@ _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS = (
 WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
+]
+
+# Dogfooding list for the precompute-backed web analytics trends path — teams
+# here take it regardless of the `web-analytics-trends-precompute` rollout flag.
+# The shared precompute enrollment gate still applies underneath.
+WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_TRENDS_PRECOMPUTE_TEAM_IDS", ""))
 ]
 
 # Upper bound on the number of distinct precompute shapes (query cache keys) a single
