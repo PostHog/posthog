@@ -2935,10 +2935,9 @@ jobs:
               # persons-on-events: always update (we ignore snapshot divergence there)
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
-              # --snapshot-warn-unused: pytest-split shards individual tests across
-              # runners, so each shard only exercises a subset of snapshots per file.
-              # Without this flag, --snapshot-update deletes "unused" snapshots that
-              # belong to other shards, causing cross-shard data loss.
+              # --snapshot-warn-unused only downgrades the unused-snapshot exit status, and
+              # syrupy reads it only when --snapshot-update is off. Deletion is stopped by
+              # deselection instead, so the restore step below is what guards a shard's patch.
               run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> $GITHUB_ENV
 
             - name: Add snapshot flags for compat subset runs
