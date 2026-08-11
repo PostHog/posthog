@@ -303,15 +303,19 @@ describe("ActivityTimeline events and comments", () => {
 });
 
 describe("ActivityTimeline connectors", () => {
-  it("connects every row but the last", () => {
-    // The line is drawn inside each row, under its own bead: behind the rows it was covered
-    // by the hover fill, and it ran through the beads instead of between them.
+  it("runs the line between every pair of beads, and no further", () => {
+    // Each row draws the half above and the half below its own bead, so consecutive rows
+    // meet: the first row has no upper half and the last has no lower one.
     const { container } = renderTimeline(true);
 
-    const rows = container.querySelectorAll(".group");
-    const connectors = container.querySelectorAll("[aria-hidden].w-px");
-    expect(rows.length).toBeGreaterThan(1);
-    expect(connectors).toHaveLength(rows.length - 1);
+    const rows = [...container.querySelectorAll(".group")];
+    const halves = rows.map(
+      (row) => row.querySelectorAll("[aria-hidden].w-px").length,
+    );
+    expect(rows.length).toBeGreaterThan(2);
+    expect(halves.at(0)).toBe(1);
+    expect(halves.at(-1)).toBe(1);
+    expect(halves.slice(1, -1).every((count) => count === 2)).toBe(true);
   });
 
   it("always opens a message to its full text", () => {

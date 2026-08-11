@@ -44,7 +44,8 @@ export function TimelineRow({
   timestamp,
   detail,
   defaultOpen = false,
-  connected = true,
+  connectedAbove = true,
+  connectedBelow = true,
   ariaLabel,
 }: {
   gutter: ReactNode;
@@ -55,7 +56,8 @@ export function TimelineRow({
   defaultOpen?: boolean;
   /** Draw the line down to the next row. False on the last row, which has nothing to
    *  connect to. */
-  connected?: boolean;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
   ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -84,21 +86,27 @@ export function TimelineRow({
           "cursor-pointer focus-within:bg-gray-2 hover:bg-gray-2 has-[:focus-visible]:bg-gray-2",
       )}
     >
-      {/* The connector sits inside the row, so the hover fill paints behind it rather than
-          over it. It runs from just under this row's bead to the row's bottom edge; the next
-          row's top padding leaves the gap before its bead. Positioned rather than flexed:
-          on a single-line row the bead fills the content box and a flex child gets no
-          height at all. */}
+      {/* The connector lives inside the row, so the hover fill paints behind it rather than
+          over it, and consecutive rows' segments meet to form one line. It runs through the
+          bead's centre; the bead is opaque and sits above it, so the line reads as touching
+          it on both sides. The halves are separate so the first and last rows stop at their
+          own bead instead of running past it. */}
       <div className="relative flex w-10 shrink-0 justify-center self-stretch">
-        {/* h-[22px] is the copy's line height, so the bead centres on the first line
-            whatever the row grows to. */}
-        <div className="flex h-[22px] items-center">{gutter}</div>
-        {connected && (
+        {connectedAbove && (
           <span
             aria-hidden
-            className="-translate-x-1/2 -bottom-1.5 absolute top-6 left-1/2 w-px bg-gray-8"
+            className="-translate-x-1/2 absolute top-0 left-1/2 h-[11px] w-px bg-gray-8"
           />
         )}
+        {connectedBelow && (
+          <span
+            aria-hidden
+            className="-translate-x-1/2 absolute top-[11px] bottom-0 left-1/2 w-px bg-gray-8"
+          />
+        )}
+        {/* h-[22px] is the copy's line height, so the bead centres on the first line
+            whatever the row grows to. */}
+        <div className="relative z-10 flex h-[22px] items-center">{gutter}</div>
       </div>
       <div className="min-w-0 flex-1">
         {hasDetail ? (
@@ -148,7 +156,7 @@ function IconBubble({
   return (
     <span
       className={cn(
-        "relative z-10 flex size-5 items-center justify-center rounded-full border ring-4 ring-gray-1",
+        "relative z-10 flex size-5 items-center justify-center rounded-full border",
         BEAD_TONES[tone],
       )}
     >
@@ -321,9 +329,11 @@ export function ActivityEventRow({
   runCount,
   runOrdinal = 1,
   detail,
-  connected = true,
+  connectedAbove = true,
+  connectedBelow = true,
 }: {
-  connected?: boolean;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
   event: ActivityEvent;
   timestamp: string;
   /** How many runs the task has, so a single-run task doesn't say "run 1". */
@@ -336,7 +346,8 @@ export function ActivityEventRow({
 }) {
   return (
     <TimelineRow
-      connected={connected}
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
       gutter={
         <IconBubble tone={EVENT_TONES[event.kind]}>
           {EVENT_ICONS[event.kind]}
@@ -355,16 +366,19 @@ export function ActivityEventRow({
 export function RunStatusRow({
   status,
   timestamp,
-  connected = true,
+  connectedAbove = true,
+  connectedBelow = true,
 }: {
   status: string;
   timestamp: string;
-  connected?: boolean;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
 }) {
   const succeeded = status === "completed";
   return (
     <TimelineRow
-      connected={connected}
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
       gutter={
         <IconBubble tone={succeeded ? "green" : "red"}>
           {succeeded ? (
@@ -394,9 +408,11 @@ export function CommentRow({
   thread,
   isMentioned,
   onSelect,
-  connected = true,
+  connectedAbove = true,
+  connectedBelow = true,
 }: {
-  connected?: boolean;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
   thread: TaskCommentThreadSummary;
   /** The current user was mentioned somewhere in the thread. */
   isMentioned: boolean;
@@ -407,13 +423,11 @@ export function CommentRow({
   const verb = isMentioned ? "mentioned you on" : "commented on";
   return (
     <TimelineRow
-      connected={connected}
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
       gutter={
         // Decorative: the author's name is written beside it.
-        <div
-          aria-hidden
-          className="relative z-10 rounded-full ring-4 ring-gray-1"
-        >
+        <div aria-hidden className="relative z-10 rounded-full">
           <UserAvatar user={author} size="sm" />
         </div>
       }
@@ -456,17 +470,20 @@ export function CommentRow({
 export function CommentStateRow({
   thread,
   state,
-  connected = true,
+  connectedAbove = true,
+  connectedBelow = true,
 }: {
   thread: TaskCommentThreadSummary;
   state: string;
-  connected?: boolean;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
 }) {
   const author = thread.state_event?.author ?? null;
   const resolved = state === "resolved";
   return (
     <TimelineRow
-      connected={connected}
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
       gutter={
         <IconBubble tone={resolved ? "green" : "amber"}>
           {resolved ? (
@@ -501,7 +518,7 @@ export function ActivityLoadingState() {
         {[36, 52, 44, 60, 40].map((width) => (
           <div key={width} className="flex items-start gap-2 py-1 pr-2 pl-2">
             <div className="flex w-10 shrink-0 justify-center">
-              <Skeleton className="size-5 rounded-full ring-4 ring-gray-1" />
+              <Skeleton className="size-5 rounded-full" />
             </div>
             <div className="min-w-0 flex-1 py-1">
               <Skeleton
@@ -522,21 +539,24 @@ export function ThreadReplyRow({
   author,
   content,
   timestamp,
-  connected = true,
+  connectedAbove = true,
+  connectedBelow = true,
 }: {
   author?: UserBasic | null;
   content: string;
   timestamp: string;
-  connected?: boolean;
+  connectedAbove?: boolean;
+  connectedBelow?: boolean;
 }) {
   const firstLine = content.trim().split("\n", 1)[0] ?? "";
   return (
     <TimelineRow
-      connected={connected}
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
       gutter={
         <div
           aria-hidden
-          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7 ring-4 ring-gray-1"
+          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7"
         >
           <UserAvatar user={author} size="sm" className="size-5" />
         </div>

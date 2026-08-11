@@ -46,12 +46,14 @@ function UserMessageRow({
   author,
   content,
   timestamp,
-  connected,
+  connectedAbove,
+  connectedBelow,
 }: {
   author?: UserBasic | null;
   content: string;
   timestamp: string;
-  connected: boolean;
+  connectedAbove: boolean;
+  connectedBelow: boolean;
 }) {
   const name = author ? userDisplayName(author) : "You";
   const channelContext = useMemo(
@@ -68,13 +70,14 @@ function UserMessageRow({
   const firstLine = trimmed.split("\n", 1)[0] ?? "";
   return (
     <TimelineRow
-      connected={connected}
+      connectedAbove={connectedAbove}
+      connectedBelow={connectedBelow}
       gutter={
         // Decorative: the author's name is written beside it, so keep the avatar's
         // initials out of the row's accessible name.
         <div
           aria-hidden
-          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7 ring-4 ring-gray-1"
+          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7"
         >
           <UserAvatar user={author} size="sm" className="size-5" />
         </div>
@@ -232,15 +235,17 @@ export function ActivityTimeline({
 
   const renderRow = (
     row: ActivityRow<TaskThreadMessage>,
-    connected: boolean,
+    connectedAbove: boolean,
+    connectedBelow: boolean,
   ) => {
     switch (row.kind) {
       case "task_created":
         return (
           <TimelineRow
-            connected={connected}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
             gutter={
-              <span className="relative z-10 flex size-5 items-center justify-center rounded-full border border-gray-7 bg-gray-5 text-gray-12 ring-4 ring-gray-1">
+              <span className="relative z-10 flex size-5 items-center justify-center rounded-full border border-gray-7 bg-gray-5 text-gray-12">
                 <PlusCircleIcon size={11} weight="fill" />
               </span>
             }
@@ -252,7 +257,8 @@ export function ActivityTimeline({
       case "user_message":
         return (
           <UserMessageRow
-            connected={connected}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
             author={task.created_by}
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
@@ -261,7 +267,8 @@ export function ActivityTimeline({
       case "human_message":
         return (
           <ThreadReplyRow
-            connected={connected}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
             author={row.message.author}
             content={row.message.content}
             timestamp={row.message.created_at}
@@ -273,7 +280,8 @@ export function ActivityTimeline({
         const artifactRow = messageRows.get(row.message.id);
         return (
           <ActivityEventRow
-            connected={connected}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
             event={row.event}
             timestamp={row.message.created_at}
             runCount={runCount}
@@ -294,7 +302,8 @@ export function ActivityTimeline({
         if (!thread) return null;
         return (
           <CommentRow
-            connected={connected}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
             thread={thread}
             isMentioned={
               !!currentUserId &&
@@ -311,7 +320,8 @@ export function ActivityTimeline({
           <CommentStateRow
             thread={thread}
             state={row.state}
-            connected={connected}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
           />
         );
       }
@@ -320,7 +330,8 @@ export function ActivityTimeline({
           <RunStatusRow
             status={row.status}
             timestamp={task.updated_at}
-            connected={connected}
+            connectedAbove={connectedAbove}
+            connectedBelow={connectedBelow}
           />
         );
     }
@@ -331,7 +342,7 @@ export function ActivityTimeline({
       <ThreadItemGroup>
         {rows.map((row, index) => (
           <Fragment key={row.key}>
-            {renderRow(row, index < rows.length - 1)}
+            {renderRow(row, index > 0, index < rows.length - 1)}
           </Fragment>
         ))}
       </ThreadItemGroup>
