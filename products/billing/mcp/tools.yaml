@@ -163,8 +163,8 @@ tools:
                 description: >
                     JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions
                     are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or
-                    `["type","team"]` for per-project series within each usage type. Team breakdowns require "type";
-                    do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like
+                    `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do
+                    not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like
                     "type,team" will fail with a 400 error.
             interval:
                 description: Time bucket size, one of "day" or "week". Default "day".
@@ -219,8 +219,8 @@ tools:
                 description: >
                     JSON-encoded array of dimensions to break down by, NOT a comma-separated string. Valid dimensions
                     are "type" (by usage type) and "team" (by project). Pass `["type"]` for per-usage-type series, or
-                    `["type","team"]` for per-project series within each usage type. Team breakdowns require "type";
-                    do not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like
+                    `["type","team"]` for per-project series within each usage type. Team breakdowns require "type"; do
+                    not pass `["team"]` by itself. Omit for a single aggregate series. Sending a bare string like
                     "type,team" will fail with a 400 error.
             interval:
                 description: Time bucket size, one of "day" or "week". Default "day".
