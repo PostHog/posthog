@@ -69,6 +69,11 @@ const ticket = {
     email_subject: null,
 }
 export const Populated: Story = { args: { result: { results: [ticket], hasMore: true, totalCount: 12 } } }
-export const Loading: Story = { args: { loading: true } }
+export const Loading: Story = {
+    args: { loading: true },
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+}
 export const Empty: Story = { args: { result: { results: [] } } }
 export const Error: Story = { args: { error: 'Request failed' } }
