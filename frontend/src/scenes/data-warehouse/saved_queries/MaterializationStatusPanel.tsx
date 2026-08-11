@@ -207,29 +207,57 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                         <span>Materialization scheduled</span>
                                     </div>
                                 )}
-                                <div className="flex gap-4 mt-2">
-                                    <LemonButton
-                                        className="whitespace-nowrap"
-                                        loading={startingMaterialization || currentJobStatus === 'Running'}
-                                        disabledReason={sync || materializationAccessReason}
-                                        onClick={() => {
-                                            setStartingMaterialization(true)
-                                            runDataWarehouseSavedQuery(viewId)
-                                        }}
-                                        type="secondary"
-                                        sideAction={{
-                                            icon: <IconX fontSize={16} />,
-                                            tooltip: 'Cancel materialization',
-                                            onClick: () => cancelDataWarehouseSavedQuery(viewId),
-                                            disabledReason: cancel || materializationAccessReason || undefined,
-                                        }}
-                                    >
-                                        {startingMaterialization
-                                            ? 'Starting...'
-                                            : currentJobStatus === 'Running'
-                                              ? 'Running...'
-                                              : 'Sync now'}
-                                    </LemonButton>
+                                <div className="flex flex-col gap-2 mt-2">
+                                    <div className="flex items-center gap-2">
+                                        <LemonButton
+                                            className="whitespace-nowrap"
+                                            size="small"
+                                            loading={startingMaterialization || currentJobStatus === 'Running'}
+                                            disabledReason={sync || materializationAccessReason}
+                                            onClick={() => {
+                                                setStartingMaterialization(true)
+                                                runDataWarehouseSavedQuery(viewId)
+                                            }}
+                                            type="secondary"
+                                            sideAction={{
+                                                icon: <IconX fontSize={16} />,
+                                                tooltip: 'Cancel materialization',
+                                                onClick: () => cancelDataWarehouseSavedQuery(viewId),
+                                                disabledReason: cancel || materializationAccessReason || undefined,
+                                            }}
+                                        >
+                                            {startingMaterialization
+                                                ? 'Starting...'
+                                                : currentJobStatus === 'Running'
+                                                  ? 'Running...'
+                                                  : 'Sync now'}
+                                        </LemonButton>
+                                        {kind !== 'endpoint' && (
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                tooltip="Revert materialized view to view"
+                                                disabledReason={revert || materializationAccessReason}
+                                                icon={<IconRevert />}
+                                                onClick={() => {
+                                                    LemonDialog.open({
+                                                        title: 'Revert materialization',
+                                                        maxWidth: '30rem',
+                                                        description:
+                                                            'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
+                                                        primaryButton: {
+                                                            status: 'danger',
+                                                            children: 'Revert materialization',
+                                                            onClick: () => revertMaterialization(viewId),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    })
+                                                }}
+                                            />
+                                        )}
+                                    </div>
                                     {kind !== 'endpoint' && (
                                         <SyncFrequencySelect
                                             bounds={savedQuery.sync_frequency_bounds}
@@ -245,31 +273,6 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             }
                                             loading={updatingDataWarehouseSavedQuery}
                                             includeNever
-                                        />
-                                    )}
-                                    {kind !== 'endpoint' && (
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            tooltip="Revert materialized view to view"
-                                            disabledReason={revert || materializationAccessReason}
-                                            icon={<IconRevert />}
-                                            onClick={() => {
-                                                LemonDialog.open({
-                                                    title: 'Revert materialization',
-                                                    maxWidth: '30rem',
-                                                    description:
-                                                        'Are you sure you want to revert this materialized view to a regular view? This will stop all future materializations and remove the materialized table. You will always be able to go back to a materialized view at any time.',
-                                                    primaryButton: {
-                                                        status: 'danger',
-                                                        children: 'Revert materialization',
-                                                        onClick: () => revertMaterialization(viewId),
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                    },
-                                                })
-                                            }}
                                         />
                                     )}
                                 </div>
@@ -289,16 +292,7 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                     </Link>
                                     .
                                 </p>
-                                <div className="flex gap-4">
-                                    <LemonButton
-                                        size="small"
-                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, startingFrequency)}
-                                        type="primary"
-                                        loading={updatingDataWarehouseSavedQuery}
-                                        disabledReason={materializationAccessReason || noCadenceReason}
-                                    >
-                                        Materialize
-                                    </LemonButton>
+                                <div className="flex flex-col gap-2 items-start">
                                     {kind !== 'endpoint' && (
                                         <SyncFrequencySelect
                                             data-attr="initial-sync-frequency"
@@ -310,6 +304,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                                             }
                                         />
                                     )}
+                                    <LemonButton
+                                        size="small"
+                                        onClick={() => materializeDataWarehouseSavedQuery(viewId, startingFrequency)}
+                                        type="primary"
+                                        loading={updatingDataWarehouseSavedQuery}
+                                        disabledReason={materializationAccessReason || noCadenceReason}
+                                    >
+                                        Materialize
+                                    </LemonButton>
                                 </div>
                             </div>
                         )}

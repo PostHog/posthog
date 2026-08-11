@@ -31,12 +31,8 @@ describe('SyncFrequencySelect', () => {
 
         const bySource = options.find((option) => option.value === '15min')
         const byConsumer = options.find((option) => option.value === '24hour')
-        expect(bySource?.disabledReason).toBe(
-            "stripe_invoices delivers every 6 hours, so this view can't be fresher than that."
-        )
-        expect(byConsumer?.disabledReason).toBe(
-            "daily_revenue needs data no older than 12 hours, so this view can't be slower than that."
-        )
+        expect(bySource?.disabledReason).toBe('Fresher than stripe_invoices delivers')
+        expect(byConsumer?.disabledReason).toBe('Too slow for daily_revenue')
         expect(options.find((option) => option.value === '6hour')?.disabledReason).toBeUndefined()
     })
 
