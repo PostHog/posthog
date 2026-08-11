@@ -1306,9 +1306,7 @@ describe('dashboardLogic', () => {
 
             it('shows Not Found only after three consecutive classic-load 404 responses', async () => {
                 logic.unmount()
-                const getResponseSpy = jest
-                    .spyOn(api, 'getResponse')
-                    .mockRejectedValue(new ApiError('Not found.', 404))
+                const getResponseSpy = jest.spyOn(api, 'getResponse').mockRejectedValue(new ApiError('Not found.', 404))
 
                 logic = dashboardLogic({ id: 13 })
                 logic.mount()

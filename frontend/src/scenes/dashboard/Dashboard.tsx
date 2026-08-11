@@ -103,13 +103,8 @@ function DashboardScene({
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const {
-        reportDashboardViewed,
-        abortAnyRunningQuery,
-        setLayoutZoom,
-        loadDashboard,
-        loadDashboardStreaming,
-    } = useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom, loadDashboard, loadDashboardStreaming } =
+        useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
