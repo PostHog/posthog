@@ -96,6 +96,20 @@ export type NotebookNodeAttributeConfig = {
     default?: unknown
 }
 
+export type PostHogWidgetView<T extends CustomNotebookNodeAttributes> = {
+    label: string
+    description?: string
+    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
+}
+
+export type PostHogWidgetViews<T extends CustomNotebookNodeAttributes> = Record<string, PostHogWidgetView<T>>
+
+export type PostHogWidgetDefaultView = {
+    key: string
+    label: string
+    description?: string
+}
+
 export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
     NodeWrapperProps<T>,
     'updateAttributes'
@@ -103,6 +117,8 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
     attributes: Record<keyof T, NotebookNodeAttributeConfig>
     serializedText?: (attributes: NotebookNodeAttributes<T>) => string
+    defaultView?: PostHogWidgetDefaultView
+    views?: PostHogWidgetViews<T>
 }
 
 export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<NotebookNodeLogicProps, 'notebookLogic'> &

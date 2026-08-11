@@ -10,6 +10,10 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import {
+    FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
+    FeatureFlagNotebookWidgetAttributes,
+} from 'scenes/feature-flags/featureFlagNotebookWidgetViews'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { urls } from 'scenes/urls'
@@ -22,7 +26,7 @@ import { notebookNodeLogic } from './notebookNodeLogic'
 import { buildPlaylistContent } from './NotebookNodePlaylist'
 import { buildSurveyContent } from './NotebookNodeSurvey'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>): JSX.Element => {
+const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element => {
     const { id } = attributes
     const {
         featureFlag,
@@ -139,11 +143,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeFlagAttributes>
     )
 }
 
-type NotebookNodeFlagAttributes = {
-    id: FeatureFlagLogicProps['id']
-}
-
-export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttributes>({
+export const NotebookNodeFlag = createPostHogWidgetNode<FeatureFlagNotebookWidgetAttributes>({
     nodeType: NotebookNodeType.FeatureFlag,
     titlePlaceholder: 'Feature flag',
     Component,
@@ -152,7 +152,14 @@ export const NotebookNodeFlag = createPostHogWidgetNode<NotebookNodeFlagAttribut
     resizeable: false,
     attributes: {
         id: {},
+        view: {},
     },
+    defaultView: {
+        key: 'summary',
+        label: 'Summary',
+        description: 'Show the flag status and release conditions',
+    },
+    views: FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
 })
 
 export function buildFlagContent(id: FeatureFlagLogicProps['id']): JSONContent {

@@ -1756,6 +1756,23 @@ h3.MarkdownNotebook__text-block--heading {
     flex: 0 0 auto;
 }
 
+.MarkdownNotebook__component-panel--filters {
+    background: var(--color-bg-fill-secondary);
+    border-top: 1px solid var(--color-border-secondary);
+    border-bottom: 1px solid var(--color-border-secondary);
+
+    .MarkdownNotebook__component-form,
+    .MarkdownNotebook__component-edit,
+    .MarkdownNotebook__real-node,
+    .MarkdownNotebook__real-node-settings {
+        background: transparent;
+    }
+}
+
+.MarkdownNotebook__component-panel--results {
+    background: var(--color-bg-surface-primary);
+}
+
 .MarkdownNotebook__component-panel + .MarkdownNotebook__component-panel {
     border-top: 0;
 }

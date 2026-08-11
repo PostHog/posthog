@@ -20,6 +20,7 @@ import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconPencil, IconX } f
 import {
     CreatePostHogWidgetNodeOptions,
     CustomNotebookNodeAttributes,
+    NotebookNodeProps,
     NodeWrapperProps,
     NotebookNodeResource,
     NotebookNodeType,
@@ -432,8 +433,21 @@ export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>
 ): CreatePostHogWidgetNodeOptions<T> {
-    KNOWN_NODES[options.nodeType] = options
-    return options
+    const DefaultComponent = options.Component
+    const registeredOptions: CreatePostHogWidgetNodeOptions<T> = options.views
+        ? {
+              ...options,
+              Component: (props: NotebookNodeProps<T>): JSX.Element | null => {
+                  const viewKey = typeof props.attributes.view === 'string' ? props.attributes.view : null
+                  const ViewComponent = (viewKey ? options.views?.[viewKey]?.Component : null) ?? DefaultComponent
+
+                  return <ViewComponent {...props} />
+              },
+          }
+        : options
+
+    KNOWN_NODES[options.nodeType] = registeredOptions
+    return registeredOptions
 }
 
 export const NotebookNodeChildRenderer = ({

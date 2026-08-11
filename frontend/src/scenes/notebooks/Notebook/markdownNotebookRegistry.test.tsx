@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
 import {
     buildInsertCommands,
@@ -94,7 +94,8 @@ describe('markdownNotebookRegistry', () => {
         expect(NOTEBOOK_MARKDOWN_REGISTRY.components.FeatureFlagCodeExample.exclusiveEditPanel).toBeUndefined()
     })
 
-    it('renders a lightweight feature flag reference editor instead of the full node view', () => {
+    it('edits a feature flag reference and selects a product-owned view', () => {
+        const updateProps = jest.fn()
         const { getByLabelText } = render(
             <RealNotebookNodeEdit
                 node={{
@@ -104,12 +105,24 @@ describe('markdownNotebookRegistry', () => {
                     props: { id: 123 },
                 }}
                 mode="edit"
-                updateProps={jest.fn()}
+                updateProps={updateProps}
                 deleteNode={jest.fn()}
             />
         )
 
         expect((getByLabelText('Feature flag ID or key') as HTMLInputElement).value).toEqual('123')
+        expect(getByLabelText('View').textContent).toContain('Summary')
+
+        fireEvent.click(getByLabelText('View'))
+        fireEvent.click(screen.getByText('Compact editor'))
+
+        expect(updateProps).toHaveBeenCalledWith({ view: 'compact-editor' })
+        expect(Object.keys(KNOWN_NODES[NotebookNodeType.FeatureFlag].views ?? {})).toEqual([
+            'compact-summary',
+            'compact-editor',
+            'release-conditions',
+            'implementation',
+        ])
     })
 
     it('exposes lightweight editable primitive attrs for real notebook node filters', () => {

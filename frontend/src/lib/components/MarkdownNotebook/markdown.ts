@@ -1346,7 +1346,12 @@ function serializeComponentProps(props: NotebookComponentProps): string {
 
 function getSerializableComponentProps(props: NotebookComponentProps): NotebookComponentProps {
     const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults'
+        ) {
             accumulator[key] = value
         }
         return accumulator

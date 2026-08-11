@@ -44,7 +44,7 @@ import {
 } from 'react'
 
 import { IconComment, IconImage } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import {
     COMMON_INSERT_COMMAND_CATEGORY,
@@ -79,7 +79,15 @@ import { KNOWN_NODES } from '../utils'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { notebookLogic } from './notebookLogic'
 
-const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set(['height', 'nodeId', '__init', 'children', 'tabId', 'placement'])
+const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set([
+    'height',
+    'nodeId',
+    '__init',
+    'children',
+    'tabId',
+    'placement',
+    'view',
+])
 
 const NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS: Partial<Record<NotebookNodeType, string[]>> = {
     [NotebookNodeType.Cohort]: ['id'],
@@ -463,7 +471,54 @@ export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.E
         return <RealNotebookNodeAttributeEdit {...props} notebookNodeType={notebookNodeType} options={options} />
     }
 
-    return <RealNotebookNodeComponent {...props} forceEditing editOnly />
+    return (
+        <>
+            {options.views ? (
+                <div className="MarkdownNotebook__component-form">
+                    <RealNotebookNodeViewSelect {...props} options={options} />
+                </div>
+            ) : null}
+            <RealNotebookNodeComponent {...props} forceEditing editOnly />
+        </>
+    )
+}
+
+function RealNotebookNodeViewSelect({
+    node,
+    updateProps,
+    options,
+}: Pick<NotebookComponentRenderProps, 'node' | 'updateProps'> & {
+    options: CreatePostHogWidgetNodeOptions<any>
+}): JSX.Element {
+    const defaultViewKey = options.defaultView?.key ?? ''
+    const widgetView =
+        typeof node.props.view === 'string' && (node.props.view === defaultViewKey || options.views?.[node.props.view])
+            ? node.props.view
+            : defaultViewKey
+
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-secondary">View</span>
+            <LemonSelect
+                aria-label="View"
+                fullWidth
+                value={widgetView}
+                onChange={(view) => updateProps({ view: view === defaultViewKey ? undefined : view })}
+                options={[
+                    {
+                        value: defaultViewKey,
+                        label: options.defaultView?.label ?? 'Default',
+                        tooltip: options.defaultView?.description,
+                    },
+                    ...Object.entries(options.views ?? {}).map(([value, view]) => ({
+                        value,
+                        label: view.label,
+                        tooltip: view.description,
+                    })),
+                ]}
+            />
+        </label>
+    )
 }
 
 export function RealNotebookNodeAttributeEdit({
@@ -478,7 +533,7 @@ export function RealNotebookNodeAttributeEdit({
     const attributes = getNodeAttributes(node.props, node.id, options, notebookNodeType, true)
     const attributeKeys = getEditableNodeAttributeKeys(options, attributes)
 
-    if (!attributeKeys.length) {
+    if (!attributeKeys.length && !options.views) {
         return (
             <div className="MarkdownNotebook__component-form text-secondary text-sm">
                 No editable filters for this block.
@@ -488,6 +543,9 @@ export function RealNotebookNodeAttributeEdit({
 
     return (
         <div className="MarkdownNotebook__component-form">
+            {options.views ? (
+                <RealNotebookNodeViewSelect node={node} updateProps={updateProps} options={options} />
+            ) : null}
             {attributeKeys.map((key, index) => {
                 const label = getMarkdownNodeAttributeLabel(notebookNodeType, key)
                 return (
@@ -832,7 +890,12 @@ export function getNodeAttributes(
 
 export function getNodeAttributeProps(props: NotebookComponentProps): NotebookComponentProps {
     return Object.entries(props).reduce<NotebookComponentProps>((attributeProps, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults'
+        ) {
             attributeProps[key] = value
         }
         return attributeProps

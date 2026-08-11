@@ -480,7 +480,7 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                     {showEditPanel && EditComponent ? (
-                        <div className="MarkdownNotebook__component-panel">
+                        <div className="MarkdownNotebook__component-panel MarkdownNotebook__component-panel--filters">
                             <NotebookComponentPanelErrorBoundary node={node} panel="filters">
                                 <EditComponent
                                     node={node}
@@ -493,7 +493,7 @@ export function NotebookComponentShell({
                         </div>
                     ) : null}
                     {showViewPanel ? (
-                        <div className="MarkdownNotebook__component-panel">
+                        <div className="MarkdownNotebook__component-panel MarkdownNotebook__component-panel--results">
                             {ViewComponent ? (
                                 <NotebookComponentPanelErrorBoundary node={node} panel="results">
                                     <ViewComponent

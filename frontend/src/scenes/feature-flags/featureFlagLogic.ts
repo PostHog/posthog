@@ -35,6 +35,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
@@ -3471,7 +3472,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             lemonToast.success('Feature flag saved')
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
-            featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
+            if (
+                featureFlag.id &&
+                removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(props.id)
+            ) {
+                router.actions.replace(urls.featureFlag(featureFlag.id))
+            }
             actions.editFeatureFlag(false)
 
             const isCreate = props.id === 'new'

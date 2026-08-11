@@ -975,6 +975,14 @@ continued line
         )
     })
 
+    it('preserves a named component view while normalizing panel props', () => {
+        const markdown = `<FeatureFlag id={123} view="compact-editor" edit={false} />`
+
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(
+            `<FeatureFlag hideFilters id={123} view="compact-editor" />`
+        )
+    })
+
     it('round-trips markdown tables', () => {
         const markdown = `| Name | Count | Ratio |
 | :--- | ---: | :---: |
