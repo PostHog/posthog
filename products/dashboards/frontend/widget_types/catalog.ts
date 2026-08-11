@@ -196,8 +196,8 @@ export const DASHBOARD_WIDGET_CATALOG = {
         },
         availability: {
             requirement: 'conversations_enabled',
-            unavailableTitle: 'Support is not enabled',
-            unavailableReason: 'Enable Support for this project to see recent tickets on your dashboard.',
+            unavailableTitle: 'Keep customer conversations close to your product data',
+            unavailableReason: 'Triage and respond to customer questions with the context you need to solve them.',
             setupActionLabel: 'Set up Support',
             docsHref: 'https://posthog.com/docs/conversations',
             compactSetupPrompt: true,
