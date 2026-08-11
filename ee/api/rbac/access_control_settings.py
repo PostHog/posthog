@@ -600,6 +600,9 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         ids_by_resource: dict[str, list[str]] = defaultdict(list)
         for ac in rows:
             ids_by_resource[ac.resource].append(ac.resource_id)
+        # Names resolve for every rule, including objects the caller cannot access themselves:
+        # rules lists show what is configured, while the picker search and the rule write are the
+        # surfaces that hide inaccessible objects
         names_by_resource = {
             resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
         }
