@@ -1,6 +1,4 @@
-import { Redis } from 'ioredis'
-
-import { RedisPool } from '~/types'
+import { Pool } from 'generic-pool'
 
 /**
  * The dry run records sightings under their own prefix, separate from the fetch results a later
@@ -42,6 +40,21 @@ export interface SightingReadResult {
     failed: number
 }
 
+/**
+ * The two commands this store issues. Narrower than `Redis` so a test supplies exactly these, and a
+ * command added here has to be added to the fake before it compiles.
+ */
+export interface SightingRedis {
+    mget(...keys: string[]): Promise<(string | null)[]>
+    pipeline(): {
+        set(key: string, value: string, expiryMode: 'EX', seconds: number): unknown
+        exec(): Promise<[Error | null, unknown][] | null>
+    }
+}
+
+/** The three pool operations this store uses. Narrow so a test needs no cast to supply them. */
+export type SightingRedisPool = Pick<Pool<SightingRedis>, 'acquire' | 'release' | 'destroy'>
+
 /** What the consumer needs of the store, so its tests exercise the real contract rather than a cast. */
 export interface SightingStore {
     read(keys: string[]): Promise<SightingReadResult>
@@ -61,7 +74,7 @@ export interface SightingStore {
  */
 export class UrlSightings implements SightingStore {
     constructor(
-        private readonly pool: RedisPool,
+        private readonly pool: SightingRedisPool,
         private readonly commandTimeoutMs: number,
         private readonly batchBudgetMs: number
     ) {}
@@ -114,7 +127,7 @@ export class UrlSightings implements SightingStore {
     private async forEachChunk(
         keys: string[],
         handlers: {
-            onChunk: (client: Redis, batch: string[], base: number) => Promise<void>
+            onChunk: (client: SightingRedis, batch: string[], base: number) => Promise<void>
             onChunkFailed: (batch: string[], base: number) => void
         }
     ): Promise<void> {
@@ -144,7 +157,7 @@ export class UrlSightings implements SightingStore {
      * A connection whose command was abandoned is destroyed rather than returned, because its reply
      * is still in flight and would be read as the answer to whichever command borrowed it next.
      */
-    private async withClient(run: (client: Redis) => Promise<void>): Promise<void> {
+    private async withClient(run: (client: SightingRedis) => Promise<void>): Promise<void> {
         const client = await this.pool.acquire()
         let timer: NodeJS.Timeout | undefined
         try {

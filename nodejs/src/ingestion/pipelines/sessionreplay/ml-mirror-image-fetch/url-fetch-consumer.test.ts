@@ -52,6 +52,18 @@ class FakeSightings implements SightingStore {
     }
 }
 
+/** A real Message, so a field the consumer starts reading cannot be missing without the type saying so. */
+function message(value: Buffer | null, key: string | null): Message {
+    return {
+        value,
+        key: key === null ? null : Buffer.from(key),
+        size: value?.length ?? 0,
+        topic: 'session_replay_image_fetch',
+        partition: 0,
+        offset: 0,
+    }
+}
+
 function record(
     urls: { ref: string; url: string; host: string }[],
     overrides: { v?: unknown; pseudoTeam?: string; capturedAtMs?: number; key?: string | null } = {}
@@ -62,10 +74,7 @@ function record(
         capturedAtMs: overrides.capturedAtMs ?? NOW,
         urls,
     }
-    return {
-        value: Buffer.from(JSON.stringify(body)),
-        key: overrides.key === null ? null : Buffer.from(overrides.key ?? 'example.com'),
-    } as unknown as Message
+    return message(Buffer.from(JSON.stringify(body)), overrides.key === null ? null : (overrides.key ?? 'example.com'))
 }
 
 function url(name: string, host = 'cdn.example.com'): { ref: string; url: string; host: string } {
@@ -141,8 +150,8 @@ describe('UrlFetchConsumer', () => {
     it.each([
         ['an unsupported version', record([url('a')], { v: 2 })],
         ['a missing kafka key', record([url('a')], { key: null })],
-        ['a body that is not json', { value: Buffer.from('{oh no'), key: Buffer.from('example.com') } as Message],
-        ['an empty value', { value: null, key: Buffer.from('example.com') } as unknown as Message],
+        ['a body that is not json', message(Buffer.from('{oh no'), 'example.com')],
+        ['an empty value', message(null, 'example.com')],
     ])('drops %s without throwing', async (_name, message) => {
         await expect(consumer.handleBatch([message], NOW)).resolves.toBeUndefined()
 
