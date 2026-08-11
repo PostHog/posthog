@@ -762,6 +762,12 @@ describe('replayScannerLogic', () => {
             expect(scannedLogic.values.observationResultSearchFilter).toBe('refund')
         })
 
+        it('keeps a digits-only result_search term the router coerces to a number', async () => {
+            router.actions.push(urls.replayVision('sid'), { result_search: 2024 })
+            await expectLogic(scannedLogic).toFinishAllListeners()
+            expect(scannedLogic.values.observationResultSearchFilter).toBe('2024')
+        })
+
         it('drops default state from the URL', async () => {
             await expectLogic(scannedLogic, () => {
                 scannedLogic.actions.setObservationsPage(1)

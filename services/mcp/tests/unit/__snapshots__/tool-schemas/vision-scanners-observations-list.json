@@ -41,11 +41,11 @@
             "description": "Filter to observations whose person email contains this value (case-insensitive).",
             "type": "string"
         },
-        "scanner_id": {
-            "type": "string"
-        },
         "result_search": {
             "description": "Case-insensitive text search over summarizer output: matches when the term appears in the title, summary, intent, or outcome, or equals one of the keywords. Other scanner types emit none of these fields, so they never match.",
+            "type": "string"
+        },
+        "scanner_id": {
             "type": "string"
         },
         "session_id": {

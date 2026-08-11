@@ -1645,7 +1645,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             setObservationBackfillFilter: () => reloadObservationsAndStats(),
             setObservationDateRange: () => reloadObservationsAndStats(),
             setObservationResultSearchFilter: async (_, breakpoint) => {
-                // Free-text search — debounce so typing doesn't fire a request per keystroke.
                 await breakpoint(300)
                 reloadObservationsAndStats()
             },
@@ -1751,7 +1750,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             const tags = parseCsvParam<string>(searchParams.tags)
             const minScore = parseNumericParam(searchParams.min_score)
             const maxScore = parseNumericParam(searchParams.max_score)
-            const resultSearch = typeof searchParams.result_search === 'string' ? searchParams.result_search : ''
+            const resultSearchRaw = searchParams.result_search
+            // String() so a numeric-looking term (`?result_search=2024`) survives the router's coercion.
+            const resultSearch =
+                typeof resultSearchRaw === 'string'
+                    ? resultSearchRaw
+                    : typeof resultSearchRaw === 'number'
+                      ? String(resultSearchRaw)
+                      : ''
             const subjectRaw = searchParams.recording_subject
             // String() so a numeric-looking subject (`?recording_subject=12345`) survives the router's coercion.
             const subject =

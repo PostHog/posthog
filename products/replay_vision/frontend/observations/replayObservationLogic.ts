@@ -31,8 +31,12 @@ export function neighborFilterParams(searchParams: Record<string, unknown>): Vis
             if (parsed !== null) {
                 params[key] = parsed
             }
-        } else if (typeof value === 'string' && value) {
-            params[key] = value
+        } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            // String() so values the router coerced (numbers, booleans) still reach the API as strings.
+            const asString = String(value)
+            if (asString) {
+                params[key] = asString
+            }
         }
     }
     return params as VisionObservationsRetrieveParams
