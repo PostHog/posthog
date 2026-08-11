@@ -1,29 +1,25 @@
-# PostHog integration-service (Hono / Node.js).
+# PostHog integration-service (Hono / Node.js). Serves the platform integration
+# credentials PostHog itself owns over HTTP; see README.md.
 #
-# Serves platform integration credentials (the OAuth app client ids/secrets and API
-# keys PostHog itself owns) over HTTP, so they stop being injected as env vars into
-# every pod that might need one. Credentials arrive on a mounted Kubernetes Secret;
-# usage counters live in Postgres.
-#
-# Build from repo root (build context must be the workspace root so pnpm can
+# Build from repo root (the build context must be the workspace root so pnpm can
 # resolve cross-package deps):
 #
 #   docker build -f services/integration-service/Dockerfile -t posthog-integration-service .
 
 # Pin the same Node version as the rest of the monorepo (.nvmrc).
-# The digest wins over the tag — update both together when bumping NODE_VERSION.
+# The digest wins over the tag; update both together when bumping NODE_VERSION.
 ARG NODE_VERSION=24.13.0
 ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f
 
 #
-# Build stage — install workspace deps, bundle the entry into a single .mjs.
-# Everything is bundled so the runtime stage ships with no node_modules at all.
+# Build stage: install workspace deps, bundle the entry into a single self-contained
+# .mjs, so the runtime stage ships with no node_modules at all.
 #
 FROM ${NODE_IMAGE} AS build
 WORKDIR /code
 
 # `corepack enable` reads the `packageManager` field in package.json to pick the
-# pnpm version — no `corepack prepare pnpm@latest` (non-deterministic).
+# pnpm version; `corepack prepare pnpm@latest` would be non-deterministic.
 RUN corepack enable
 
 # Copy lockfile + workspace manifests first so the install layer caches across
@@ -32,14 +28,13 @@ RUN corepack enable
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.json ./
 COPY patches/ patches/
 
-# pnpm needs the referenced workspace package's `package.json` BEFORE install so it
-# can build the dependency graph. Copy the manifest only (cache-friendly), then
-# source after.
+# pnpm needs the workspace package's manifest before install to build the
+# dependency graph; copying only the manifest keeps the layer cache-friendly.
 COPY services/integration-service/package.json services/integration-service/package.json
 
-# --ignore-scripts: no dependency runs code at install time. This service holds every
-# platform integration credential, so an install-time script in a transitive package
-# is exactly the supply-chain path worth closing. None of the deps here need one.
+# --ignore-scripts: nothing in this tree needs an install-time script, and for a
+# service holding every platform integration credential that is the supply-chain
+# path worth closing.
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
     pnpm install --frozen-lockfile --ignore-scripts --filter @posthog/integration-service...
 
@@ -52,7 +47,7 @@ RUN pnpm exec tsx scripts/build-integration-service.ts
 RUN pnpm exec tsx scripts/check-import-boundary.ts && pnpm exec tsx scripts/check-deps-allowlist.ts
 
 #
-# Runtime stage — minimal slim image with just the self-contained bundle.
+# Runtime stage: the slim image plus the self-contained bundle.
 #
 FROM ${NODE_IMAGE}
 WORKDIR /code
@@ -61,7 +56,6 @@ WORKDIR /code
 ARG COMMIT_HASH
 RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
 
-# Bundle is fully self-contained — every dep is inlined.
 COPY --from=build --chown=node:node /code/services/integration-service/dist/integration-service.mjs ./integration-service.mjs
 COPY --from=build --chown=node:node /code/services/integration-service/dist/integration-service.mjs.map ./integration-service.mjs.map
 
