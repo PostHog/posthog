@@ -525,6 +525,39 @@ def classify_slack_app_model_override(
     return SlackAppModelOverride(model=choice.model if choice else None, reasoning_effort=reply.reasoning_effort)
 
 
+def classify_model_override_for_integration(
+    integration: Integration,
+    event_text: str,
+) -> SlackAppModelOverride | None:
+    """The model a Slack message asked for, gated on the flag and the live catalogue.
+
+    Shared by the mention path (through its own activity) and the follow-up path, which
+    calls it inline once it knows the message is reaching a run — classifying earlier
+    would spend a call on every mention that turns out to start a new task instead.
+    """
+    if not is_slack_app_model_classifier_enabled(integration):
+        return None
+
+    choices = available_model_choices()
+    if not choices:
+        # The gateway is the source of truth for what can run; with no catalogue we
+        # cannot validate a request, and guessing is worse than doing nothing.
+        logger.info("slack_app_model_override_empty_catalogue", integration_id=integration.id)
+        return None
+
+    override = classify_slack_app_model_override(event_text, choices)
+    if override is None:
+        return None
+
+    logger.info(
+        "slack_app_model_override_classified",
+        integration_id=integration.id,
+        model=override.model,
+        reasoning_effort=override.reasoning_effort,
+    )
+    return override
+
+
 @activity.defn
 @close_db_connections
 def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
@@ -544,24 +577,4 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
         kind="slack",
         integration_id=input.slack_team_id,
     )
-    if not is_slack_app_model_classifier_enabled(integration):
-        return None
-
-    choices = available_model_choices()
-    if not choices:
-        # The gateway is the source of truth for what can run; with no catalogue we
-        # cannot validate a request, and guessing is worse than doing nothing.
-        logger.info("slack_app_model_override_empty_catalogue", integration_id=input.integration_id)
-        return None
-
-    override = classify_slack_app_model_override(input.event_text, choices)
-    if override is None:
-        return None
-
-    logger.info(
-        "slack_app_model_override_classified",
-        integration_id=input.integration_id,
-        model=override.model,
-        reasoning_effort=override.reasoning_effort,
-    )
-    return override
+    return classify_model_override_for_integration(integration, input.event_text)
