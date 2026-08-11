@@ -1254,12 +1254,12 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         it('abandons the load instead of failing on unmounted values reads', async () => {
             let resolveList: (value: unknown) => void = () => {}
-            const listSpy = jest.spyOn(api.recordings, 'list').mockImplementation(
-                () =>
-                    new Promise((resolve) => {
-                        resolveList = resolve
-                    }) as ReturnType<typeof api.recordings.list>
-            )
+            const pendingList = new Promise((resolve) => {
+                resolveList = resolve
+            })
+            const listSpy = jest
+                .spyOn(api.recordings, 'list')
+                .mockImplementation(() => pendingList as ReturnType<typeof api.recordings.list>)
 
             const embeddedLogic = sessionRecordingsPlaylistLogic({ logicKey: 'unmount-mid-load' })
             embeddedLogic.mount()
