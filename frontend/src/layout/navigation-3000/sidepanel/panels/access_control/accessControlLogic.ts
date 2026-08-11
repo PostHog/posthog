@@ -4,7 +4,12 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { AccessControlUIVersion, captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
+import {
+    AccessControlUIVersion,
+    captureAccessControlEvent,
+    pluralizeResource,
+    resourceToApiRoute,
+} from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -1138,16 +1143,7 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 if (resource === 'project') {
                     return `api/projects/${currentProjectId}/access_controls`
                 }
-                // Resources whose API route doesn't match the naive `${resource}s` pluralization
-                const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
-                    warehouse_view: 'warehouse_saved_queries',
-                    early_access_feature: 'early_access_feature',
-                    ticket: 'conversations/tickets',
-                    heatmap: 'saved',
-                    replay_scanner: 'vision/scanners',
-                }
-                const route = resourceToRoute[resource] ?? `${resource}s`
-                return `api/projects/${currentProjectId}/${route}/${resource_id}/access_controls`
+                return `api/projects/${currentProjectId}/${resourceToApiRoute(resource)}/${resource_id}/access_controls`
             },
         ],
 
