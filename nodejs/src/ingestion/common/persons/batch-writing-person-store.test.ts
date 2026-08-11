@@ -147,9 +147,6 @@ describe('BatchWritingPersonStore', () => {
             deletePerson: jest.fn().mockResolvedValue([]),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
-            addPersonlessDistinctId: jest.fn().mockResolvedValue(true),
-            addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
-            addPersonlessDistinctIdsBatch: jest.fn().mockResolvedValue(new Map()),
             personPropertiesSize: jest.fn().mockResolvedValue(1024),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
             inTransaction: jest.fn().mockImplementation(async (description, transaction) => {
@@ -171,7 +168,6 @@ describe('BatchWritingPersonStore', () => {
             moveDistinctIdsFromPersons: jest
                 .fn()
                 .mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
-            addPersonlessDistinctIdForMerge: jest.fn().mockResolvedValue(true),
             updateCohortsAndFeatureFlagsForMerge: jest.fn().mockResolvedValue(undefined),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             countDistinctIdsForPersons: jest.fn().mockResolvedValue(new Map()),
@@ -1519,52 +1515,6 @@ describe('BatchWritingPersonStore', () => {
                 target_prop: 'target_value',
             })
             expect(finalCache?.properties_to_unset).toEqual([])
-        })
-    })
-
-    describe('addPersonlessDistinctId', () => {
-        it('should call repository method and return result', async () => {
-            const mockRepo = createMockRepository()
-            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
-
-            const result = await personStore.addPersonlessDistinctId(teamId, 'test-distinct', 0)
-
-            expect(mockRepo.addPersonlessDistinctId).toHaveBeenCalledWith(teamId, 'test-distinct')
-            expect(result).toBe(true)
-        })
-
-        it('should handle repository returning false', async () => {
-            const mockRepo = createMockRepository()
-            mockRepo.addPersonlessDistinctId = jest.fn().mockResolvedValue(false)
-            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
-
-            const result = await personStore.addPersonlessDistinctId(teamId, 'test-distinct', 0)
-
-            expect(mockRepo.addPersonlessDistinctId).toHaveBeenCalledWith(teamId, 'test-distinct')
-            expect(result).toBe(false)
-        })
-    })
-
-    describe('addPersonlessDistinctIdForMerge', () => {
-        it('should call repository method and return result', async () => {
-            const mockRepo = createMockRepository()
-            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
-
-            const result = await personStore.addPersonlessDistinctIdForMerge(teamId, 'test-distinct', undefined, 0)
-
-            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
-            expect(result).toBe(true)
-        })
-
-        it('should handle repository returning false', async () => {
-            const mockRepo = createMockRepository()
-            mockRepo.addPersonlessDistinctIdForMerge = jest.fn().mockResolvedValue(false)
-            const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs)
-
-            const result = await personStore.addPersonlessDistinctIdForMerge(teamId, 'test-distinct', undefined, 0)
-
-            expect(mockRepo.addPersonlessDistinctIdForMerge).toHaveBeenCalledWith(teamId, 'test-distinct')
-            expect(result).toBe(false)
         })
     })
 
@@ -3242,26 +3192,6 @@ describe('BatchWritingPersonStore', () => {
             personStore.releaseBatch(0)
 
             expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toBeUndefined()
-        })
-
-        it('clears personlessBatchResults for evicted distinct IDs', () => {
-            personStore.setCheckCachedPerson(teamId, 'user-a', null, 0)
-            ;(personStore as any)['personlessBatchResults'].set(`${teamId}:user-a`, true)
-
-            personStore.releaseBatch(0)
-
-            expect(personStore.getPersonlessBatchResult(teamId, 'user-a')).toBeUndefined()
-        })
-
-        it('evicts personlessBatchResults written via addPersonlessDistinctIdForMerge after batch release', async () => {
-            const batchStore = new BatchBoundPersonsStore(personStore, 0)
-
-            await batchStore.addPersonlessDistinctIdForMerge(teamId, 'lonely-merge-distinct')
-            expect(personStore.getPersonlessBatchResult(teamId, 'lonely-merge-distinct')).toBe(true)
-
-            personStore.releaseBatch(0)
-
-            expect(personStore.getPersonlessBatchResult(teamId, 'lonely-merge-distinct')).toBeUndefined()
         })
 
         it('tracks property-update cache writes through the batch-bound store', async () => {
