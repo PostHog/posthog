@@ -230,7 +230,9 @@ class TestCodeBasedVerifierSuppressionIntegration(SimpleTestCase):
 
     @patch("posthog.helpers.two_factor_session.capture_exception")
     @patch("posthog.helpers.two_factor_session.invalidate_esp_suppression_cache")
-    @patch("posthog.helpers.two_factor_session.code_based_verification_token_generator.make_code", return_value="123456")
+    @patch(
+        "posthog.helpers.two_factor_session.code_based_verification_token_generator.make_code", return_value="123456"
+    )
     @patch("posthog.tasks.email.send_code_based_verification", side_effect=Exception("send failed"))
     def test_send_failure_invalidates_suppression_cache(
         self, mock_send, mock_make_code, mock_invalidate, mock_capture_exception
