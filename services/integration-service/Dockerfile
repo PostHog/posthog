@@ -2,8 +2,8 @@
 #
 # Serves platform integration credentials (the OAuth app client ids/secrets and API
 # keys PostHog itself owns) over HTTP, so they stop being injected as env vars into
-# every pod that might need one. Backed by AWS Secrets Manager, cached in memory and
-# in Redis under a KMS-wrapped data key.
+# every pod that might need one. Credentials arrive on a mounted Kubernetes Secret;
+# usage counters live in Postgres.
 #
 # Build from repo root (build context must be the workspace root so pnpm can
 # resolve cross-package deps):

@@ -22,9 +22,10 @@ import type { SigningKeyLoader } from './registry.js'
 import { AUDIENCE, AuthError, type Verifier } from './types.js'
 
 // Caps on the `keys` claim. A holder of a valid signing key would otherwise be able to
-// grow this process's memory without bound: every distinct key name becomes a Redis usage
-// field, and it is never reclaimed. Revoking a deployment's key bounds what a compromised
-// caller can *read*; these bound what it can *cost* before anyone notices.
+// grow this process's memory without bound: every distinct key name becomes an entry in
+// the in-memory usage batch and then a Postgres row, and neither is reclaimed. Revoking a
+// deployment's key bounds what a compromised caller can *read*; these bound what it can
+// *cost* before anyone notices.
 //
 // The real ceiling is the provider manifest, well under 50 fields in total, so no
 // legitimate request comes close.

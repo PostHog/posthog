@@ -7,7 +7,7 @@
 // reviewable, versioned statement of which integration apps PostHog owns and what
 // credential material each one holds.
 //
-// One AWS secret holds every field (see store/secretsManager.ts); the provider a key
+// One AWS secret holds every field (see store/fileStore.ts); the provider a key
 // belongs to is a grouping for metrics, rotation reporting and review, not a storage
 // boundary. Rotation rides an explicit `<KEY>_FALLBACKS` sibling rather than AWS staging
 // labels, precisely because a staging label applies to a whole secret version.

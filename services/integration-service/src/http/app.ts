@@ -61,9 +61,9 @@ export function createApp(opts: AppOptions): Hono {
 
     app.get('/_liveness', (c) => c.json({ status: 'ok' }))
 
-    // Not ready until the client registry is loaded and every provider has been warmed
-    // once. A pod that cannot reach Secrets Manager should fail its probe rather than
-    // accept traffic it will have to error on.
+    // Not ready until the pod holds a credential snapshot. One that does not would answer
+    // every resolve all-missing, which callers treat as terminal rather than retryable, so
+    // it must fail its probe instead of accepting traffic.
     app.get('/_readiness', (c) => {
         if (opts.lifecycle.shuttingDown) {
             return c.json({ status: 'shutting_down' }, 503)
@@ -77,7 +77,7 @@ export function createApp(opts: AppOptions): Hono {
     app.get('/metrics', async (c) => {
         if (opts.metricsToken) {
             const provided = bearerOrEmpty(c.req.header('Authorization'))
-            if (!provided || !tokensMatch(provided, opts.metricsToken)) {
+            if (!provided || provided !== opts.metricsToken) {
                 return c.json({ error: 'Unauthorized' }, 401)
             }
         }
@@ -102,9 +102,9 @@ export function createApp(opts: AppOptions): Hono {
             const response = await resolveKeys(verified, opts.resolveDeps)
             return c.json(response)
         } catch (err) {
-            // A cold miss with a broken store. Everything softer than this — a stale
-            // snapshot, an unreadable Redis entry — has already degraded gracefully by
-            // the time it reaches here.
+            // No snapshot at all. A mount that merely failed to re-read has already
+            // degraded gracefully by keeping the previous snapshot, so reaching here means
+            // the pod has never held one.
             logger.error('secrets:resolve_failed', {
                 deployment: verified.deployment,
                 error: err instanceof Error ? err.message : String(err),

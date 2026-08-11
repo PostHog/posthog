@@ -26,11 +26,6 @@ import type { SigningKeys } from './types.js'
 
 export const CALLER_KEY_PREFIX = 'CALLER_KEY_'
 
-/** `temporal-worker-data-warehouse` -> `CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE`. */
-export function secretKeyFor(deployment: string): string {
-    return `${CALLER_KEY_PREFIX}${deployment.toUpperCase().replaceAll('-', '_')}`
-}
-
 /**
  * Reject a key value listed under more than one deployment.
  *
