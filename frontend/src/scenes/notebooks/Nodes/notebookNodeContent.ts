@@ -54,6 +54,10 @@ export type NotebookDependencyNode = {
     uses: string[]
     code?: string
     returnVariable?: string
+    // SQLV2 only: the data source the cell runs against, so a chain-dispatched run targets the
+    // same one its own Run button would.
+    connectionId?: string | null
+    sendRawQuery?: boolean
 }
 
 export type NotebookDependencyGraph = {
@@ -810,6 +814,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 usedSqlV2ReturnVariables.add(normalizeSqlIdentifier(returnVariable))
             }
             const code = typeof attrs.code === 'string' ? attrs.code : ''
+            const connectionId =
+                typeof attrs.connectionId === 'string' && attrs.connectionId ? attrs.connectionId : null
             nodes.push({
                 nodeId: attrs.nodeId ?? '',
                 nodeType: NotebookNodeType.SQLV2,
@@ -819,6 +825,8 @@ export const buildNotebookDependencyGraph = (content?: JSONContent | null): Note
                 uses: extractDuckSqlTables(code),
                 code,
                 returnVariable,
+                connectionId,
+                sendRawQuery: !!connectionId && !!attrs.sendRawQuery,
             })
         }
 

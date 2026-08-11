@@ -126,6 +126,44 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
     return context
 }
 
+export function convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals({
+    team,
+    externalId,
+    groupType,
+    siteUrl,
+}: {
+    team: Team
+    externalId: string
+    groupType: string
+    siteUrl: string
+}): HogFunctionInvocationGlobals {
+    const projectUrl = `${siteUrl}/project/${team.id}`
+
+    const context: HogFunctionInvocationGlobals = {
+        project: {
+            id: team.id,
+            name: team.name,
+            url: projectUrl,
+        },
+        event: {
+            event: '$batch_hog_flow_invocation',
+            // $groups drives the worker's group hydration, so account actions defaulting to
+            // {groups.<type>.id} resolve without any account-specific plumbing.
+            properties: { $groups: { [groupType]: externalId } },
+            uuid: new UUIDT().toString(),
+            // The account's group key doubles as the invocation's distinct_id so
+            // invocation_results are filterable per account. Account runs carry no person;
+            // the hogflow worker skips person resolution for account audiences.
+            distinct_id: externalId,
+            elements_chain: '',
+            timestamp: DateTime.now().toISO(),
+            url: '',
+        },
+    }
+
+    return context
+}
+
 export function convertInternalEventToHogFunctionInvocationGlobals(
     data: CdpInternalEvent,
     team: Team,

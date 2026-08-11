@@ -2,9 +2,13 @@
 
 PostHog web analytics has two parallel precomputation systems. They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
 
+For how these tiers fit into the full serving ladder (fast paths, full join, dispatch order, query_type tags), see [docs/internal/web-analytics-query-serving.md](../../docs/internal/web-analytics-query-serving.md).
+
 ## The two systems
 
 ### v2 pre-aggregated tables
+
+**Status: deprecated.** No new enrollments — retained only for the largest existing customers until lazy computation fully replaces it, at which point this system goes away.
 
 DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bounces`) that store hourly-rollup data computed in the background. Gated per-team by the `useWebAnalyticsPreAggregatedTables` modifier plus the `SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES` feature flag.
 
@@ -15,24 +19,25 @@ DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bo
 
 ### Lazy computation
 
-The newer general-purpose framework at `products/analytics_platform/backend/lazy_computation/`. Computes precomputed buckets on first read, caches them in a dedicated CH table per query family, and serves subsequent reads from the cache. Gated per-org by the `web-analytics-precompute-toggle` PostHog feature flag (evaluated against the team's organization).
+The newer general-purpose framework at `products/analytics_platform/backend/lazy_computation/`. Builds precomputed buckets in the background, caches them in a dedicated CH table per query family, and serves reads from the cache; a user read that misses serves the live path and enqueues a debounced background warm. Gated per-org by the `web-analytics-precompute-toggle` PostHog feature flag (evaluated against the team's organization).
 
 - **Owned by**: web analytics team, riding on the analytics_platform framework
-- **Population**: synchronous, on first read miss; subsequent reads hit the cache
-- **Coverage** (today): `web_overview_query` and the PATHS (`WebStatsBreakdown.PAGE` + `includeBounceRate`) tile of `web_stats_table_query`. See `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` and `web_stats_paths_lazy_precompute.py`
+- **Population**: background-only since #72959 — user reads never build inline; a miss serves live and enqueues a debounced background warm. The hourly demand-driven warmer (`dags/cache_warming.py`) and stale revalidation keep hot shapes fresh
+- **Coverage** (today): overview, goals, vitals path breakdown, and three stats-table families — paths (`WebStatsBreakdown.PAGE`/`INITIAL_PAGE` + `includeBounceRate`), frustration metrics, and simple breakdowns. See the `*_lazy_precompute.py` modules in `products/web_analytics/backend/hogql_queries/`
 - **Adoption** (as of 2026-05): freshly enabled, org feature flag gates further rollout
 
 ## When to use which
 
 Both systems can coexist. The runner tries each in order; if both miss or are disabled the runner falls through to a raw events scan.
 
-| You want…                                                             | Use                                                 |
-| --------------------------------------------------------------------- | --------------------------------------------------- |
-| A new query family where the cache shape is bounded and stable        | lazy computation                                    |
-| Coverage of an existing query family that v2 already handles          | v2 if a team already has v2 enabled; otherwise lazy |
-| Per-team custom precompute logic (uncommon)                           | lazy computation                                    |
-| Background warming on a schedule                                      | v2                                                  |
-| First-read latency budget that includes a precompute cost (~1.3x raw) | lazy computation accepts this; v2 doesn't have it   |
+| You want…                                                      | Use                                                                               |
+| -------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| A new query family where the cache shape is bounded and stable | lazy computation                                                                  |
+| Coverage of an existing query family that v2 already handles   | v2 if a team already has v2 enabled; otherwise lazy                               |
+| Per-team custom precompute logic (uncommon)                    | lazy computation                                                                  |
+| Background warming on a schedule                               | either — lazy has the hourly eager + demand warmers; v2 uses its own Dagster DAGs |
+
+A miss never builds inline on either system: since #72959 `run_inserts` is true only for background-warming requests, so the first read of a cold shape serves the live path while the warm happens behind it.
 
 ## Lazy computation for web overview (current production path)
 
@@ -92,14 +97,17 @@ When the gate returns False the runner silently falls through to v2 / raw. **Tod
 
 Different freshness per how recent the data is:
 
-| Window    | TTL    | Rationale                                       |
-| --------- | ------ | ----------------------------------------------- |
-| Today     | 15 min | Dashboard refresh feels current                 |
-| Yesterday | 1 hr   | Recently-stabilized data, occasional re-compute |
-| Last 7d   | 1 day  | Stable enough that hourly recompute is wasteful |
-| Older     | 7 days | Functionally static                             |
+| Day age   | TTL     | Rationale                                                                        |
+| --------- | ------- | -------------------------------------------------------------------------------- |
+| Today     | 4 h     | Must outlast the hourly eager warmer so user reads never race a refresh          |
+| Yesterday | 6 h     | Distinct from today's TTL so `split_ranges_by_ttl` keeps the two days separate   |
+| 2–7d      | 5 days  | Session-final (24h session cap) — recomputing an immutable window buys nothing   |
+| 8–14d     | 7 days  | Distinct per-week TTLs force weekly job boundaries, keeping INSERT scans bounded |
+| 15–21d    | 10 days | —                                                                                |
+| 22–35d    | 12–14 d | —                                                                                |
+| 36d+      | 21 days | Bounded in practice by hash rotations (AST-affecting deploys rebuild everything) |
 
-Stored via the `LAZY_TTL_SECONDS` dict; consumed by `lazy_computation_executor.parse_ttl_schedule` against the team's timezone.
+Stored via the `LAZY_TTL_SECONDS` dict in `web_lazy_precompute_common.py` (see the comment there for the full freshness-vs-job-sizing reasoning); consumed by `lazy_computation_executor.parse_ttl_schedule` against the team's timezone.
 
 ### Read path
 
@@ -134,7 +142,7 @@ If we later move back to HogQL (after the consistency story is settled), the Hog
 
 ## Adding lazy computation to another web analytics query family
 
-Reference implementation: `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py`.
+Reference implementation: `products/web_analytics/backend/hogql_queries/web_overview_lazy_precompute.py`.
 
 Roughly:
 
@@ -253,7 +261,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 
 ## Eager baseline warming (hourly Dagster job)
 
-The lazy path computes on first read, but for high-traffic teams the dashboard's main tiles are requested constantly — there's no reason to make the first user of every cycle pay the INSERT cost. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
+A cold or expired shape's first read serves the live path and only warms in the background — but for high-traffic teams the dashboard's main tiles are requested constantly, and there's no reason to let the first user of every cycle take that live-path miss. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
 
 - **Location**: `products/web_analytics/dags/eager_web_analytics_precompute.py`
 - **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
@@ -271,12 +279,12 @@ This job is complementary to `cache_warming.py`, which replays whatever queries 
 
 ## Related code
 
-- `posthog/hogql_queries/web_analytics/web_overview.py` — runner
-- `posthog/hogql_queries/web_analytics/web_overview_lazy_precompute.py` — overview lazy path
-- `posthog/hogql_queries/web_analytics/web_overview_pre_aggregated.py` — overview v2 path
-- `posthog/hogql_queries/web_analytics/stats_table.py` — stats table runner
-- `posthog/hogql_queries/web_analytics/web_stats_paths_lazy_precompute.py` — PATHS lazy path
-- `posthog/hogql_queries/web_analytics/web_lazy_precompute_common.py` — shared eligibility gate + helpers
+- `products/web_analytics/backend/hogql_queries/web_overview.py` — runner
+- `products/web_analytics/backend/hogql_queries/web_overview_lazy_precompute.py` — overview lazy path
+- `products/web_analytics/backend/hogql_queries/web_overview_pre_aggregated.py` — overview v2 path
+- `products/web_analytics/backend/hogql_queries/stats_table.py` — stats table runner
+- `products/web_analytics/backend/hogql_queries/web_stats_paths_lazy_precompute.py` — PATHS lazy path
+- `products/web_analytics/backend/hogql_queries/web_lazy_precompute_common.py` — shared eligibility gate + helpers
 - `posthog/clickhouse/preaggregation/web_overview_preaggregated_sql.py` — overview schema
 - `posthog/clickhouse/preaggregation/web_stats_paths_preaggregated_sql.py` — PATHS schema
 - `products/web_analytics/backend/hogql_queries/web_vitals_path_breakdown.py` — vitals runner

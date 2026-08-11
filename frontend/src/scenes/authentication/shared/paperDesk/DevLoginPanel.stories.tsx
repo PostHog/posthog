@@ -3,6 +3,7 @@ import type { Meta, StoryFn } from '@storybook/react'
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 
+import type { DevUser } from '../devLoginLogic'
 import { DevLoginPanel } from './DevLoginPanel'
 
 type StoryArgs = {
@@ -10,35 +11,45 @@ type StoryArgs = {
     devUsers: 'none' | 'default' | 'many'
 }
 
-const DEV_USERS_MOCKS = {
-    none: { users: [] },
-    default: {
-        users: [
-            {
-                email: 'test@posthog.com',
-                is_staff: true,
-                label: 'Default test user',
-            },
-            { email: 'staff@posthog.com', is_staff: true, label: null },
-        ],
-    },
-    many: {
-        users: [
-            {
-                email: 'test@posthog.com',
-                is_staff: true,
-                label: 'Default test user',
-            },
-            { email: 'staff@posthog.com', is_staff: true, label: null },
-            { email: 'admin@posthog.com', is_staff: true, label: 'Admin' },
-            { email: 'user@posthog.com', is_staff: false, label: null },
-            {
-                email: 'long-email-address-that-truncates@posthog.com',
+const DEV_USERS_MOCKS: Record<StoryArgs['devUsers'], DevUser[]> = {
+    none: [],
+    default: [
+        {
+            email: 'test@posthog.com',
+            first_name: 'Test',
+            is_staff: true,
+            label: 'Default test user',
+            last_login: '2026-07-31T09:00:00Z',
+        },
+        { email: 'staff@posthog.com', first_name: 'Staff', is_staff: true, label: null, last_login: null },
+        {
+            email: 'long-email-address-that-truncates@posthog.com',
+            first_name: 'Longwinded',
+            is_staff: false,
+            label: null,
+            last_login: null,
+        },
+    ],
+    // The growth team's local instances look like this: hundreds of throwaway signup test accounts.
+    many: [
+        {
+            email: 'test@posthog.com',
+            first_name: 'Test',
+            is_staff: true,
+            label: 'Default test user',
+            last_login: '2026-07-31T09:00:00Z',
+        },
+        ...Array.from({ length: 320 }, (_, index): DevUser => {
+            const firstName = ['Ada', 'Byron', 'Cleo', 'Dorian', 'Edith', 'Felix', 'Greta'][index % 7]
+            return {
+                email: `${firstName.toLowerCase()}-${String(index).padStart(4, '0')}@posthog.dev`,
+                first_name: firstName,
                 is_staff: false,
-                label: 'New',
-            },
-        ],
-    },
+                label: null,
+                last_login: index < 5 ? `2026-07-3${index}T09:00:00Z` : null,
+            }
+        }),
+    ],
 }
 
 const meta: Meta<StoryArgs> = {
@@ -71,7 +82,7 @@ const Template: StoryFn<StoryArgs> = ({ allowDevLogin, devUsers }) => {
                 is_debug: true,
                 allow_dev_login: allowDevLogin,
             },
-            '/api/login/dev': DEV_USERS_MOCKS[devUsers],
+            '/api/login/dev': { users: DEV_USERS_MOCKS[devUsers] },
         },
     })
 

@@ -1,4 +1,5 @@
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
@@ -19,6 +20,7 @@ from posthog.query_creator_access import creator_access_revoked, report_creator_
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
+from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
@@ -57,6 +59,8 @@ from products.notifications.backend.facade.api import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 
 @temporalio.activity.defn
@@ -297,6 +301,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
 
         should_start_investigation = False
         should_gate_notification = False
+        should_run_metrics_investigation = False
         with transaction.atomic():
             alert_check, should_notify = add_alert_check(
                 alert,
@@ -318,6 +323,19 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 if claim_investigation_slot(alert, alert_check):
                     should_start_investigation = True
                     should_gate_notification = bool(alert.investigation_gates_notifications)
+
+            # Claim the cooldown slot inside the transaction so a flapping or
+            # concurrently-retried alert can't pile up investigations.
+            if should_investigate_metrics_alert(
+                alert, previous_state=previous_state, new_state=alert_check.state
+            ) and claim_investigation_slot(alert, alert_check):
+                should_run_metrics_investigation = True
+
+        # Outside the persistence transaction: the metrics investigation issues
+        # ClickHouse queries and must never hold the row lock; a failure is
+        # recorded on the check and can't affect the alert outcome.
+        if should_run_metrics_investigation:
+            run_metrics_alert_investigation(alert, alert_check)
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -372,7 +390,7 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
 async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
     """Send notifications for a previously evaluated alert check (idempotent)."""
 
-    @database_sync_to_async(thread_sensitive=False)
+    @database_sync_to_async(thread_sensitive=False, executor=_NOTIFICATION_DELIVERY_EXECUTOR)
     def _notify() -> None:
         # Mismatched pair surfaces as DoesNotExist instead of notifying the wrong alert.
         alert_check = AlertCheck.objects.select_related("alert_configuration", "alert_configuration__team").get(

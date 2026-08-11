@@ -510,6 +510,16 @@ class TestGetRows:
 
         assert send.call_args_list[0][0][3]["TimePeriod"]["End"] == "2024-03-04"
 
+    @pytest.mark.parametrize("endpoint", ["reservation_utilization_daily", "savings_plans_utilization_daily"])
+    def test_utilization_endpoints_stop_at_today_because_aws_has_no_data_for_it_yet(self, endpoint: str) -> None:
+        # Unlike cost-and-usage, AWS rejects a utilization request whose window reaches into
+        # the current, still-in-progress day with DataUnavailableException.
+        manager = FakeResumeManager()
+
+        _, send = self._run([{}], manager, endpoint=endpoint)
+
+        assert send.call_args_list[0][0][3]["TimePeriod"]["End"] == "2024-03-03"
+
     def test_wide_ranges_are_split_into_windows_walked_oldest_first(self) -> None:
         manager = FakeResumeManager()
 

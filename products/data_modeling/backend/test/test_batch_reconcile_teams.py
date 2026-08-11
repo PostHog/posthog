@@ -8,6 +8,8 @@ from unittest import mock
 
 from django.core.management import call_command
 
+from temporalio.service import RPCError, RPCStatusCode
+
 from posthog.models.team import Team
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
@@ -135,6 +137,33 @@ class TestBatchReconcileTeams(BaseTest):
         invalid = team_record["dags"][0]["invalid_targets"]
         assert [t["node_id"] for t in invalid] == [str(parent.id)]
         assert invalid[0]["consumer_ceiling"] == int(timedelta(hours=1).total_seconds())
+
+    def test_rate_limited_team_retries_instead_of_halting(self):
+        # a temporal namespace rate limit mid-batch must back off and retry the team,
+        # not halt the whole batch (halted a real 200-team production run)
+        dag, _node = self._legacy_dag(self.team)
+        listing = _temporal_listing([str(dag.id)])
+        rate_limit = RPCError("namespace rate limit exceeded", RPCStatusCode.RESOURCE_EXHAUSTED, b"")
+
+        out = StringIO()
+        with (
+            mock.patch(f"{BATCH}.tiered_schedules_enabled", return_value=True),
+            mock.patch(f"{BATCH}.time.sleep") as sleep,
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.delete_schedule"),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(side_effect=[rate_limit, listing])),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{BATCH}.async_connect", new=mock.AsyncMock()),
+            mock.patch(f"{BATCH}.a_schedule_exists", new=mock.AsyncMock(return_value=False)),
+        ):
+            call_command("batch_reconcile_teams", "--team-ids", str(self.team.pk), stdout=out, stderr=StringIO())
+        report = json.loads(out.getvalue().split(REPORT_MARKER, 1)[1])
+
+        assert report["halted"] is False
+        assert report["teams"][0]["status"] == "planned"
+        assert len(report["teams"][0]["dags"]) == 1
+        sleep.assert_called_once_with(10)
 
     def test_plan_only_writes_nothing(self):
         dag, node = self._legacy_dag(self.team)

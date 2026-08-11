@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
     TIMEOUT,
+    DcrClientRegistration,
     OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
@@ -942,12 +943,12 @@ class TestRegisterDCRClient(SimpleTestCase):
             (
                 "drops_secret_when_server_honors_public_client",
                 {"client_id": "abc", "token_endpoint_auth_method": "none"},
-                ("abc", None, "none"),
+                DcrClientRegistration(client_id="abc", client_secret=None, token_endpoint_auth_method="none"),
             ),
             (
                 "drops_secret_when_server_omits_it",
                 {"client_id": "abc", "token_endpoint_auth_method": "none", "client_secret": ""},
-                ("abc", None, "none"),
+                DcrClientRegistration(client_id="abc", client_secret=None, token_endpoint_auth_method="none"),
             ),
             (
                 "keeps_secret_when_server_registered_confidential_client_post",
@@ -956,7 +957,9 @@ class TestRegisterDCRClient(SimpleTestCase):
                     "client_secret": "minted-secret",
                     "token_endpoint_auth_method": "client_secret_post",
                 },
-                ("abc", "minted-secret", "client_secret_post"),
+                DcrClientRegistration(
+                    client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_post"
+                ),
             ),
             (
                 "keeps_secret_when_server_registered_confidential_client_basic",
@@ -965,12 +968,16 @@ class TestRegisterDCRClient(SimpleTestCase):
                     "client_secret": "minted-secret",
                     "token_endpoint_auth_method": "client_secret_basic",
                 },
-                ("abc", "minted-secret", "client_secret_basic"),
+                DcrClientRegistration(
+                    client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_basic"
+                ),
             ),
             (
                 "keeps_secret_with_basic_auth_when_auth_method_unspecified",
                 {"client_id": "abc", "client_secret": "minted-secret"},
-                ("abc", "minted-secret", "client_secret_basic"),
+                DcrClientRegistration(
+                    client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_basic"
+                ),
             ),
         ]
     )
@@ -1015,7 +1022,9 @@ class TestRegisterDCRClient(SimpleTestCase):
             "https://app.posthog.com/callback",
         )
 
-        assert result == ("abc", "minted-secret", "client_secret_post")
+        assert result == DcrClientRegistration(
+            client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_post"
+        )
         payload = mock_post.call_args.kwargs["json"]
         assert payload["grant_types"] == ["authorization_code", "refresh_token"]
         assert payload["token_endpoint_auth_method"] == "client_secret_post"
@@ -1043,7 +1052,9 @@ class TestRegisterDCRClient(SimpleTestCase):
             "https://app.posthog.com/callback",
         )
 
-        assert result == ("abc", "minted-secret", "client_secret_basic")
+        assert result == DcrClientRegistration(
+            client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_basic"
+        )
         assert mock_post.call_args.kwargs["json"]["token_endpoint_auth_method"] == "client_secret_basic"
 
     def test_scope_selection_prefers_protected_resource_scopes(self):
@@ -1080,12 +1091,12 @@ class TestResolveInstallationOauthContext(BaseTest):
             sensitive_configuration={"access_token": "tok"},
         )
 
-        metadata, client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert metadata["token_endpoint"] == "https://auth.template.example.com/token"
-        assert client_id == "template-client"
-        assert client_secret == "template-secret"
-        assert auth_method == "client_secret_basic"
+        assert ctx.metadata["token_endpoint"] == "https://auth.template.example.com/token"
+        assert ctx.client_id == "template-client"
+        assert ctx.client_secret == "template-secret"
+        assert ctx.token_endpoint_auth_method == "client_secret_basic"
 
     def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
         # DCR templates carry no shared client_id AND no trusted metadata —
@@ -1114,12 +1125,12 @@ class TestResolveInstallationOauthContext(BaseTest):
             },
         )
 
-        metadata, client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert metadata["token_endpoint"] == "https://auth.dcr-template.example.com/token"
-        assert client_id == "minted-for-user"
-        assert client_secret is None
-        assert auth_method == "none"
+        assert ctx.metadata["token_endpoint"] == "https://auth.dcr-template.example.com/token"
+        assert ctx.client_id == "minted-for-user"
+        assert ctx.client_secret is None
+        assert ctx.token_endpoint_auth_method == "none"
 
     def test_custom_install_returns_per_installation_dcr_creds(self):
         installation = MCPServerInstallation.objects.create(
@@ -1134,12 +1145,12 @@ class TestResolveInstallationOauthContext(BaseTest):
             },
         )
 
-        metadata, client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert metadata["token_endpoint"] == "https://auth.custom.example.com/token"
-        assert client_id == "per-user-client"
-        assert client_secret == "per-user-secret"
-        assert auth_method == "client_secret_basic"
+        assert ctx.metadata["token_endpoint"] == "https://auth.custom.example.com/token"
+        assert ctx.client_id == "per-user-client"
+        assert ctx.client_secret == "per-user-secret"
+        assert ctx.token_endpoint_auth_method == "client_secret_basic"
 
     def test_custom_install_without_secret_returns_none(self):
         installation = MCPServerInstallation.objects.create(
@@ -1151,10 +1162,10 @@ class TestResolveInstallationOauthContext(BaseTest):
             sensitive_configuration={"dcr_client_id": "public-client"},
         )
 
-        _metadata, _client_id, client_secret, auth_method = resolve_installation_oauth_context(installation)
+        ctx = resolve_installation_oauth_context(installation)
 
-        assert client_secret is None
-        assert auth_method == "none"
+        assert ctx.client_secret is None
+        assert ctx.token_endpoint_auth_method == "none"
 
 
 class TestExchangeOauthToken(BaseTest):

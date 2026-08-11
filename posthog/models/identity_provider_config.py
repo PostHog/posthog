@@ -9,6 +9,17 @@ from posthog.models.utils import UUIDModel
 logger = structlog.get_logger(__name__)
 
 
+class DomainScope(models.TextChoices):
+    ALL = "all"
+    SELECTED = "selected"
+
+
+class ConfigScope(models.TextChoices):
+    SAML = "saml"
+    SCIM = "scim"
+    XAA = "xaa"
+
+
 class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     """
     Identity provider (IdP) configuration for an organization.
@@ -31,6 +42,8 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         default="",
         help_text="Display name for this IdP configuration (e.g. 'Okta production').",
     )
+    domain_scope = models.CharField(max_length=8, choices=DomainScope, blank=True, null=True)
+    config_scope = models.CharField(max_length=4, choices=ConfigScope, blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -40,8 +53,10 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     saml_entity_id = models.CharField(max_length=512, blank=True, null=True)
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
+    saml_relay_state = models.CharField(max_length=36, blank=True, null=True)
 
     # ---- SCIM attributes ----
+    scim_slug = models.CharField(max_length=36, blank=True, null=True, unique=True)
     scim_enabled = models.BooleanField(default=False)
     scim_bearer_token = models.CharField(
         max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"

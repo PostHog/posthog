@@ -34,6 +34,26 @@ def default_logs_distinct_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS)
 
 
+# Built-in distinct-id attribute key conventions. Mirror of the frontend DISTINCT_ID_KEYS in
+# products/logs/frontend/utils.tsx — keep the two in sync. The logs UI renders a value under
+# any of these keys as a clickable person link (isDistinctIdKey), so the person Logs tab scopes
+# on them too (on top of a team's configured keys), otherwise a log shown as belonging to a
+# person would not appear on that person's tab. Literal keys only: the frontend additionally
+# matches dot-suffixed variants (e.g. `span.distinct_id`), which an exact attribute filter can't
+# express.
+DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS = [
+    "distinct.id",
+    "distinct_id",
+    "distinctId",
+    "distinctID",
+    "posthogDistinctId",
+    "posthogDistinctID",
+    "posthog_distinct_id",
+    "posthog.distinct.id",
+    "posthog.distinct_id",
+]
+
+
 # Default log attribute keys whose values hold the PostHog session ID. `posthogSessionId`
 # is the key the posthog-js / posthog-react-native SDKs auto-attach to every log they
 # emit (see https://posthog.com/docs/logs/link-session-replay). Ordered: detection checks

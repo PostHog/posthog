@@ -227,3 +227,9 @@ All lifecycle actions require an experiment ID. If you don't have one, load the
 | "Group-aggregated experiments cannot have their exposure frozen." | Structural limitation — don't retry  |
 
 When you get a 400, explain the situation to the user rather than retrying.
+
+## Related skills
+
+- **`creating-experiments`** — create the next experiment from scratch
+- **`diagnosing-experiment-results`** — sanity-check results before a ship or end decision
+- **`configuring-experiment-rollout`** — split and rollout changes, which are config edits rather than lifecycle operations

@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.schema import (
+    AccountsTableQuery,
     DataWarehouseNode,
     EntityType,
     EventsNode,
@@ -116,6 +117,9 @@ class TestQueriedAccessControlledResources(BaseTest):
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
         assert queried_access_controlled_resources(query, self.team) == set()
 
+    def test_accounts_table_query_partitions_on_account_access(self):
+        assert queried_access_controlled_resources(AccountsTableQuery(columns=[], filters=[]), self.team) == {"account"}
+
     def test_structured_query_with_data_warehouse_series(self):
         query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])
         assert queried_access_controlled_resources(query, self.team) == {
@@ -139,7 +143,11 @@ class TestQueriedAccessControlledResources(BaseTest):
         # Retention reads warehouse tables through RetentionEntity rather than a DataWarehouseNode; missing
         # it here would serve an allowed user's cached warehouse rows to a denied user on a cache hit.
         query = RetentionQuery(retentionFilter=RetentionFilter(**{entity_field: self._dw_retention_entity()}))
-        assert queried_access_controlled_resources(query, self.team) == {"warehouse_table", "warehouse_view"}
+        assert queried_access_controlled_resources(query, self.team) == {
+            "warehouse_table",
+            "warehouse_view",
+            "external_data_source",
+        }
 
     def test_retention_query_without_data_warehouse_entity(self):
         query = RetentionQuery(

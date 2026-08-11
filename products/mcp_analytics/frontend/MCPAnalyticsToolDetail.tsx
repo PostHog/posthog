@@ -39,6 +39,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
 import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
@@ -228,6 +229,7 @@ function StatTiles({
     theme,
     dateRangeLabel,
     interval,
+    incompleteTail,
 }: {
     summary: ToolSummary | null
     loading: boolean
@@ -235,6 +237,10 @@ function StatTiles({
     theme: ChartTheme
     dateRangeLabel: string
     interval: TimeInterval
+    // When true, the final bucket is the current in-progress interval — dash the sparkline from
+    // there so a partial period doesn't read as a decline. Required rather than optional: an
+    // omitted prop silently renders the partial bucket as settled data.
+    incompleteTail: boolean
 }): JSX.Element {
     const calls = summary?.calls ?? 0
     const errors = summary?.errors ?? 0
@@ -311,6 +317,7 @@ function StatTiles({
                     theme={theme}
                     restingSubtitle={dateRangeLabel}
                     sparklineHeight={40}
+                    sparklineDashedFromIndex={incompleteTail ? sparkLabels.length - 1 : undefined}
                 />
             ))}
         </div>
@@ -410,12 +417,16 @@ const SERIES_META: Record<TrendSeriesKey, { label: string; colorIndex: number }>
     p95: { label: 'p95', colorIndex: 0 },
 }
 
-function seriesFor(data: DailyChartData, theme: ChartTheme, keys: TrendSeriesKey[]): Series[] {
+// `incompleteTail` is only true when the window has ≥2 buckets (lastBucketIsInProgress owns that
+// rule), and every series is filled to the bucket count, so the final segment exists.
+function seriesFor(data: DailyChartData, theme: ChartTheme, keys: TrendSeriesKey[], incompleteTail: boolean): Series[] {
+    const stroke = incompleteTail ? { partial: { fromIndex: data.labels.length - 1 } } : undefined
     return keys.map((key) => ({
         key,
         label: SERIES_META[key].label,
         color: theme.colors[SERIES_META[key].colorIndex],
         data: data[key],
+        stroke,
     }))
 }
 
@@ -493,18 +504,19 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
         dateRangeLabel,
         dateFilter,
         interval,
+        incompleteTail,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
     const { timezone } = useValues(teamLogic)
 
     const theme = useChartTheme()
     const callsSeries = useMemo<Series[]>(
-        () => seriesFor(dailyChartData, theme, ['calls', 'errors']),
-        [dailyChartData, theme]
+        () => seriesFor(dailyChartData, theme, ['calls', 'errors'], incompleteTail),
+        [dailyChartData, theme, incompleteTail]
     )
     const latencySeries = useMemo<Series[]>(
-        () => seriesFor(dailyChartData, theme, ['p50', 'p95']),
-        [dailyChartData, theme]
+        () => seriesFor(dailyChartData, theme, ['p50', 'p95'], incompleteTail),
+        [dailyChartData, theme, incompleteTail]
     )
     const countsConfig = useChartConfig(() => trendChartConfig(timezone, interval), [timezone, interval])
     const latencyConfig = useChartConfig(
@@ -534,6 +546,7 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                     theme={theme}
                     dateRangeLabel={dateRangeLabel}
                     interval={interval}
+                    incompleteTail={incompleteTail}
                 />
             </div>
 
@@ -608,6 +621,13 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                         />
                     </div>
                 </div>
+            </div>
+
+            <LemonDivider />
+
+            <div className="flex flex-col gap-3 px-4 pb-4">
+                <SectionHeader title="Intents served" subtitle="From the latest intent cluster snapshot" />
+                <ToolDetailIntentsSection toolName={toolName} />
             </div>
 
             <LemonDivider />

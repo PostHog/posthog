@@ -16,26 +16,14 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <CalloutBox type="info" icon="IconInfo" title="Full working examples">
                         <Markdown>
                             See the complete
-                            [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-portkey) and
-                            [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-portkey)
-                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
-                            the [Node.js
-                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-portkey)
-                            and [Python
-                            wrapper](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-portkey)
-                            examples.
+                            [Node.js](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-portkey)
+                            and
+                            [Python](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-portkey)
+                            examples on GitHub.
                         </Markdown>
                     </CalloutBox>
 
-                    <CalloutBox type="fyi" icon="IconInfo" title="About Portkey">
-                        <Markdown>
-                            Portkey acts as an AI gateway that routes requests to 250+ LLM providers. The model string
-                            format (`@integration-slug/model`) determines which provider to use, where the slug is the
-                            name you chose when setting up the integration in Portkey.
-                        </Markdown>
-                    </CalloutBox>
-
-                    <Markdown>Install the OpenTelemetry SDK, the OpenAI instrumentation, and the OpenAI SDK.</Markdown>
+                    <Markdown>Install the PostHog SDK, the OpenAI SDK, and the Portkey SDK.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -43,14 +31,14 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install openai portkey-ai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
+                                    pip install posthog openai portkey-ai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install openai portkey-ai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @opentelemetry/instrumentation-openai
+                                    npm install @posthog/ai posthog-node openai portkey-ai
                                 `,
                             },
                         ]}
@@ -59,13 +47,15 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
                     <Markdown>
-                        Configure OpenTelemetry to auto-instrument OpenAI SDK calls and export traces to PostHog.
-                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
+                        {dedent`
+                            Create a PostHog client, then swap in PostHog's OpenAI wrapper, pointed at Portkey's
+                            gateway URL.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -74,54 +64,35 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.openai import OpenAI
+                                    from portkey_ai import PORTKEY_GATEWAY_URL
+                                    import time, uuid, json
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
-                                        )
+                                    client = OpenAI(
+                                        base_url=PORTKEY_GATEWAY_URL,
+                                        api_key="<portkey_api_key>",
+                                        posthog_client=posthog,
                                     )
-                                    trace.set_tracer_provider(provider)
-
-                                    OpenAIInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { OpenAIInstrumentation } from '@opentelemetry/instrumentation-openai'
+                                    import { OpenAI } from '@posthog/ai/openai'
+                                    import { PostHog } from 'posthog-node'
+                                    import { PORTKEY_GATEWAY_URL } from 'portkey-ai'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new OpenAIInstrumentation()],
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new OpenAI({
+                                      baseURL: PORTKEY_GATEWAY_URL,
+                                      apiKey: '<portkey_api_key>',
+                                      posthog,
                                     })
-                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -135,8 +106,10 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        Now, when you call Portkey with the OpenAI SDK, PostHog automatically captures `$ai_generation`
-                        events via the OpenTelemetry instrumentation.
+                        {dedent`
+                            When you use the wrapped client to call Portkey, PostHog automatically captures an
+                            \`$ai_generation\` event.
+                        `}
                     </Markdown>
 
                     <CodeBlock
@@ -145,42 +118,38 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    import openai
-                                    from portkey_ai import PORTKEY_GATEWAY_URL
-
-                                    client = openai.OpenAI(
-                                        base_url=PORTKEY_GATEWAY_URL,
-                                        api_key="<portkey_api_key>",
-                                    )
+                                    trace_id = str(uuid.uuid4())
 
                                     response = client.chat.completions.create(
                                         model="@<integration-slug>/gpt-5-mini",
-                                        messages=[
-                                            {"role": "user", "content": "Tell me a fun fact about hedgehogs"}
-                                        ],
+                                        messages=[{"role": "user", "content": "What's the weather in Paris?"}],
+                                        tools=tools,
+                                        posthog_distinct_id="user_123",
+                                        posthog_trace_id=trace_id,
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                            "$ai_provider": "portkey",
+                                        },
                                     )
-
-                                    print(response.choices[0].message.content)
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import OpenAI from 'openai'
-                                    import { PORTKEY_GATEWAY_URL } from 'portkey-ai'
-
-                                    const client = new OpenAI({
-                                      baseURL: PORTKEY_GATEWAY_URL,
-                                      apiKey: '<portkey_api_key>',
-                                    })
+                                    const traceId = crypto.randomUUID()
 
                                     const response = await client.chat.completions.create({
                                       model: '@<integration-slug>/gpt-5-mini',
-                                      messages: [{ role: 'user', content: 'Tell me a fun fact about hedgehogs' }],
+                                      messages: [{ role: 'user', content: "What's the weather in Paris?" }],
+                                      tools,
+                                      posthogDistinctId: 'user_123',
+                                      posthogTraceId: traceId,
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                        $ai_provider: 'portkey',
+                                      },
                                     })
-
-                                    console.log(response.choices[0].message.content)
                                 `,
                             },
                         ]}
@@ -188,8 +157,8 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, omit `posthog_distinct_id` from the
+                            call. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -201,6 +170,79 @@ export const getPortkeySteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            For standard responses, the posthog client captures it as a generation. For all tool
+                            calls, you must manually capture them as \`$ai_span\` events.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    for call in response.choices[0].message.tool_calls or []:
+                                        start = time.time()
+                                        result = run_tool(call.function.name, json.loads(call.function.arguments))
+
+                                        posthog.capture(
+                                            distinct_id="user_123",
+                                            event="$ai_span",
+                                            properties={
+                                                "$ai_trace_id": trace_id,
+                                                "$ai_session_id": "conversation-abc",
+                                                "$ai_span_id": str(uuid.uuid4()),
+                                                "$ai_span_name": call.function.name,
+                                                "$ai_input_state": call.function.arguments,
+                                                "$ai_output_state": result,
+                                                "$ai_latency": time.time() - start,
+                                            },
+                                        )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    for (const call of response.choices[0].message.tool_calls ?? []) {
+                                      const start = Date.now()
+                                      const result = await runTool(call.function.name, JSON.parse(call.function.arguments))
+
+                                      posthog.capture({
+                                        distinctId: 'user_123',
+                                        event: '$ai_span',
+                                        properties: {
+                                          $ai_trace_id: traceId,
+                                          $ai_session_id: 'conversation-abc',
+                                          $ai_span_id: crypto.randomUUID(),
+                                          $ai_span_name: call.function.name,
+                                          $ai_input_state: call.function.arguments,
+                                          $ai_output_state: result,
+                                          $ai_latency: (Date.now() - start) / 1000,
+                                        },
+                                      })
+                                    }
+                                `,
+                            },
+                        ]}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                            properties.
+                        `}
+                    </Markdown>
                 </>
             ),
         },

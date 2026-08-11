@@ -3389,6 +3389,54 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(regular_response["persisted_variables"], dashboard_variables)
         self.assertEqual(sse_dashboard["persisted_variables"], dashboard_variables)
 
+    def test_tile_insights_carry_alerts_on_regular_and_sse_endpoints(self):
+        # Alert threshold lines on dashboards render from the tile insight's inline alerts, and
+        # InsightSerializer.get_alerts silently serializes [] when the loading path forgot the
+        # alerts prefetch — so both dashboard-loading endpoints must emit them.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "dashboards": [dashboard_id],
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            }
+        )
+        threshold = Threshold.objects.create(
+            team=self.team,
+            insight_id=insight_id,
+            created_by=self.user,
+            configuration={"type": "absolute", "bounds": {"upper": 1}},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=insight_id,
+            created_by=self.user,
+            name="tile alert",
+            threshold=threshold,
+            condition={"type": "absolute_value"},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+        )
+
+        regular_response = self.dashboard_api.get_dashboard(dashboard_id)
+        assert [a["id"] for a in regular_response["tiles"][0]["insight"]["alerts"]] == [str(alert.id)]
+
+        sse_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
+        assert sse_response.status_code == status.HTTP_200_OK
+        sse_content = b"".join(sse_response.streaming_content).decode("utf-8")  # type: ignore
+        metadata_line = next(
+            (
+                line[len("data: ") :]
+                for line in sse_content.split("\n")
+                if line.startswith("data: ") and '"type":"metadata"' in line
+            ),
+            None,
+        )
+        assert metadata_line is not None, f"Could not find metadata in SSE response. Content: {repr(sse_content)}"
+        streamed_tiles = json.loads(metadata_line)["dashboard"]["tiles"]
+        assert [a["id"] for a in streamed_tiles[0]["insight"]["alerts"]] == [str(alert.id)]
+
     def test_streamed_tile_error_preserves_insight_metadata_without_exception_detail(self):
         dashboard = Dashboard.objects.create(
             team=self.team,

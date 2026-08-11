@@ -10,7 +10,7 @@
  * zxing-wasm. The source is decoded once to raw RGB (area-capped at SCRUB_MAX_PIXELS) and shared
  * across stages.
  */
-import sharp from 'sharp'
+import sharp, { type Sharp } from 'sharp'
 
 import { BLANK_PNG, LIMIT_INPUT_PIXELS, UndecodableImageError, blurOnly } from './blur.ts'
 import { type DbnetModel, detectTextDbnet, loadDbnet } from './dbnet.ts'
@@ -420,7 +420,7 @@ export async function compose(
  * has to happen in a second pass over the composited pixels rather than chained onto the first.
  */
 async function encodeStored(
-    redacted: sharp.Sharp,
+    redacted: Sharp,
     W: number,
     H: number,
     stored: Dims,

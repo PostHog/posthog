@@ -1,7 +1,7 @@
 """Summarize the team's written thumbs-down feedback into recurring failure modes.
 
 Themes are cached on the scanner (`ReplayScanner.feedback_themes`) and shown as chips on the
-Quality tab, so raters know what to look for. They also feed the prompt-suggestion generation
+calibration tab, so raters know what to look for. They also feed the prompt-suggestion generation
 context, so the rewrite attacks the failure modes the team keeps reporting.
 """
 

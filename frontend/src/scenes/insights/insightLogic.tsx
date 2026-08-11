@@ -21,7 +21,6 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -130,8 +129,6 @@ export interface insightLogicValues {
     isInExperimentContext: boolean
     isInViewMode: boolean
     isSavingTags: boolean
-    isUsingPathsV1: boolean
-    isUsingPathsV2: boolean | string | undefined
     previousQuery: Node | null
     query: Node | null
     savedInsight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
@@ -503,8 +500,6 @@ export interface insightLogicMeta {
             insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
             activeSceneId: string | null
         ) => boolean | null
-        isUsingPathsV1: (featureFlags: FeatureFlagsSet) => boolean
-        isUsingPathsV2: (featureFlags: FeatureFlagsSet) => boolean | string | undefined
         hasOverrides: (arg: any, arg2: any, arg3: any) => boolean
         editingDisabledReason: (hasOverrides: boolean) => 'Discard overrides to edit the insight.' | null
     }
@@ -516,6 +511,18 @@ export type insightLogicType = MakeLogicType<
     InsightLogicProps,
     insightLogicMeta
 >
+
+export function insightOverridesPresent(
+    filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
+    tileFiltersOverride?: TileFilters | null
+): boolean {
+    return (
+        !isDashboardFilterEmpty(filtersOverride) ||
+        (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
+        !isDashboardFilterEmpty(tileFiltersOverride)
+    )
+}
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({ filtersOverride: null, variablesOverride: null, tileFiltersOverride: null } as InsightLogicProps),
@@ -615,10 +622,21 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 ) => {
                     await breakpoint(100)
                     try {
+                        // Overrides are merged into the query before caching, giving the overridden
+                        // variant a cache key of its own that no scheduled refresh warms. A plain
+                        // `async` read returns `result: null` on that cold key, and in dashboard
+                        // context the data node won't load on its own — the scene dead-ends on
+                        // "Chart data didn't load". Block on a genuine miss instead; warm and stale
+                        // keys behave exactly as before.
+                        const hasOverrides = insightOverridesPresent(
+                            filtersOverride,
+                            variablesOverride,
+                            tileFiltersOverride
+                        )
                         const insight = await insightsApi.getByShortId(
                             shortId,
                             undefined,
-                            'async',
+                            hasOverrides ? 'async_except_on_cache_miss' : 'async',
                             filtersOverride,
                             variablesOverride,
                             tileFiltersOverride
@@ -982,16 +1000,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     Scene.ExperimentsSharedMetrics,
                 ].includes(activeSceneId),
         ],
-        isUsingPathsV1: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
-                !featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2],
-        ],
-        isUsingPathsV2: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet) =>
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_V2],
-        ],
         hasOverrides: [
             () => [
                 (_, props) => props.filtersOverride,
@@ -1003,11 +1011,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 variablesOverride: Record<string, HogQLVariable> | null,
                 tileFiltersOverride: TileFilters | null
             ) => {
-                return (
-                    !isDashboardFilterEmpty(filtersOverride) ||
-                    (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                    !isDashboardFilterEmpty(tileFiltersOverride)
-                )
+                return insightOverridesPresent(filtersOverride, variablesOverride, tileFiltersOverride)
             },
         ],
         editingDisabledReason: [

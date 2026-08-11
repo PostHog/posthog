@@ -95,6 +95,20 @@ class TestGetRowsPaged:
         with pytest.raises(MondayRetryableError):
             list(get_rows("token", "users", mock.MagicMock()))
 
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_404_status_is_retried_then_succeeds(self, mock_session, _mock_sleep):
+        not_found = mock.MagicMock(status_code=404, ok=False)
+        mock_session.return_value.post.side_effect = [
+            not_found,
+            _response({"users": [{"id": "1"}]}),
+        ]
+
+        batches = list(get_rows("token", "users", mock.MagicMock()))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_session.return_value.post.call_count == 2
+
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_requests_carry_token_and_api_version(self, mock_session):
         mock_session.return_value.post.return_value = _response({"users": []})

@@ -13,7 +13,6 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_explorer.settings import (
     AWS_COST_EXPLORER_ENDPOINTS,
     CE_CONTENT_TYPE,
@@ -26,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 REQUEST_TIMEOUT_SECONDS = 120
 MAX_THROTTLE_ATTEMPTS = 6
@@ -369,8 +369,11 @@ def get_rows(
     session = make_session(aws_secret_access_key, aws_session_token)
     credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
 
-    # `End` is exclusive, so tomorrow captures today's partial (flagged estimated) too.
-    end = dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1)
+    # `End` is exclusive. Cost-and-usage operations report today's partial figures (flagged
+    # estimated), so their window reaches into tomorrow; the utilization operations have no
+    # data for the current, still-in-progress day and reject a window that includes it.
+    today = dt.datetime.now(dt.UTC).date()
+    end = today + dt.timedelta(days=1) if endpoint_config.includes_current_day else today
     start = resolve_start_date(
         start_date, endpoint_config, should_use_incremental_field, db_incremental_field_last_value, end
     )

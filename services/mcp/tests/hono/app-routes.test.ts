@@ -15,6 +15,7 @@ beforeAll(() => {
 })
 
 interface MockRedis extends RedisLike {
+    incrby(key: string, increment: number): Promise<number>
     ping: Mock<() => Promise<string>>
     _store: Map<string, string>
 }

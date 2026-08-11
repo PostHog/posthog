@@ -42,8 +42,8 @@ class AdjustReportConfig:
     dimensions: list[str]
     metrics: list[str] = field(default_factory=lambda: list(_CORE_METRICS))
     # Aggregated reports have no row ids — the requested dimensions are the natural key. Blank
-    # dimension values (e.g. an unattributed campaign) can collide, so rows are merged with
-    # `has_duplicate_primary_keys=True`.
+    # dimension values (e.g. an unattributed campaign) can collide; the merge's per-batch dedup
+    # (keep-last-per-key) resolves that safely, so incremental syncing stays available.
     primary_keys: list[str] = field(default_factory=lambda: ["day", "app_token"])
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_DAY_INCREMENTAL_FIELDS))
     description: str | None = None
