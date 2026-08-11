@@ -34,7 +34,6 @@ class SandboxComputePricingSerializer(serializers.Serializer):
     )
 
 
-@extend_schema(tags=["sandbox-compute-pricing"])
 class SandboxComputePricingViewSet(viewsets.ViewSet):
     authentication_classes: list[type] = []
     permission_classes = [AllowAny]
