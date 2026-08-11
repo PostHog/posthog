@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from products.slack_app.backend.services.slack_messages import RunFooter, load_run_footer, reply_footer_block
 
-TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3"
+TASK_URL = "https://us.posthog.com/project/1/tasks/2?runId=3&unfurl=false"
 DESKTOP_URL = "posthog-code://task/2"
 
 

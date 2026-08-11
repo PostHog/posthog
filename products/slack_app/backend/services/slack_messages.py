@@ -335,6 +335,10 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 # minted server-side always target the production build.
 DESKTOP_URL_SCHEME = "posthog-code"
 
+# Query param a link we compose can carry to tell our own unfurler to leave it alone
+# (honoured by `parse_posthog_resource_link`).
+UNFURL_OPT_OUT_PARAM = "unfurl"
+
 
 @dataclass(frozen=True)
 class RunFooter:
@@ -420,7 +424,9 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
 
 
 def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
-    path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}"
+    # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
+    # says what the card would, right next to the link.
+    path = f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false"
     # Mirrors the Slack onboarding links: in local dev the tunnel is what makes a link
     # posted into Slack actually reachable.
     if settings.DEBUG and settings.NGROK_URL:

@@ -404,8 +404,6 @@ class TestRelayedAnswerFooter(SimpleTestCase):
 
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["text"] == "the answer"
-        # Our links are navigation; a preview card would just repeat the line above it.
-        assert kwargs["unfurl_links"] is not expected
         # Without a footer the message carries no blocks, staying the plain-text post it
         # has always been.
         assert bool(kwargs.get("blocks")) is expected

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -19,6 +19,7 @@ from posthog.rbac.user_access_control import UserAccessControl, access_level_sat
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
+from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
 
@@ -75,12 +76,17 @@ def parse_posthog_resource_link(
     Reference is insight short_id (str), dashboard primary key (int), or ticket ref (str — ticket
     number or UUID).
 
+    A URL carrying `?unfurl=false` is not a resource here: links we post ourselves already
+    sit beside the detail a card would add, so they opt out rather than repeat it.
+
     If the path includes `/project/:id`, that segment is ignored — lookup is always scoped to the
     Slack-connected project and the resolved PostHog user, not to any project id in the URL.
 
     Related: `removeProjectIdIfPresent` + `urlToResource` (`router-utils.ts`, `urls.ts`); legacy paths in `get_target_queryset` (`middleware.py`).
     """
     parsed = urlparse(url)
+    if "false" in parse_qs(parsed.query).get(UNFURL_OPT_OUT_PARAM, []):
+        return None
     parts = [p for p in parsed.path.split("/") if p]
     if not parts:
         return None

@@ -468,10 +468,6 @@ class SlackThreadHandler:
                 thread_ts=self.context.thread_ts,
                 text=text,
                 blocks=blocks,
-                # The footer's links are navigation, not content: an unfurl card for the
-                # run's own page would repeat what the line above it already says.
-                unfurl_links=not footer,
-                unfurl_media=not footer,
             )
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
@@ -606,9 +602,6 @@ class SlackThreadHandler:
                 thread_ts=self.context.thread_ts,
                 text=text,
                 blocks=blocks,
-                # Every link on a card is one we put there, so a preview only repeats it.
-                unfurl_links=False,
-                unfurl_media=False,
             )
         except Exception as e:
             logger.exception("slack_completion_post_failed", error=str(e))
