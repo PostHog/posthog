@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
 import { LemonButton, LemonCard, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { DefaultTooltip, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
@@ -255,23 +255,9 @@ function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi })
     )
 }
 
-export function LogsAlertSimulation({
-    embedded = false,
-    autoRun = false,
-}: {
-    embedded?: boolean
-    autoRun?: boolean
-}): JSX.Element {
+export function LogsAlertSimulation({ embedded = false }: { embedded?: boolean }): JSX.Element {
     const { simulationResult, simulationResultLoading, simulationDateFrom } = useValues(logsAlertFormLogic)
     const { simulateAlert, setSimulationDateFrom } = useActions(logsAlertFormLogic)
-    const hasAutomaticallyRun = useRef(false)
-
-    useEffect(() => {
-        if (autoRun && !hasAutomaticallyRun.current && !simulationResult && !simulationResultLoading) {
-            hasAutomaticallyRun.current = true
-            simulateAlert()
-        }
-    }, [autoRun, simulateAlert, simulationResult, simulationResultLoading])
 
     const simulation = (
         <div className="space-y-4">

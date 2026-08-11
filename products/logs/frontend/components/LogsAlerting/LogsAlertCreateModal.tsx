@@ -104,7 +104,7 @@ function buildLogsAlertWizardSteps({
             content: (
                 <div className="max-w-2xl space-y-6">
                     <LogsAlertTrigger />
-                    <LogsAlertSimulation embedded autoRun />
+                    <LogsAlertSimulation embedded />
                 </div>
             ),
         },
