@@ -299,7 +299,7 @@ export function GitHubRepoPicker({
           )}
         </ComboboxList>
         {hasMore ? (
-          <div className="shrink-0 border-t p-2">
+          <div className="shrink-0 border-t p-1">
             <Button
               variant="outline"
               size="sm"

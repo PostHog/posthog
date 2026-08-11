@@ -502,7 +502,12 @@ export function HogFunctionScene(): JSX.Element {
     }
 
     if (id && !loaded) {
-        return <NotFound object="Hog function" />
+        return (
+            <NotFound
+                object="Hog function"
+                caption="This function may belong to a different project. Switch to that project, or ask the person who shared the link which one it's in."
+            />
+        )
     }
 
     if (!templateId && !id) {
