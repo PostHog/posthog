@@ -244,33 +244,40 @@ def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str]
     )
 
 
-def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> list[str]:
+def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempotency_key: str) -> list[str]:
     logger.info("Sending alert error notifications", alert_id=alert.id, error=error)
-    email_targets = alert.get_subscribed_users_emails()
+    email_targets = [email for _, email in get_alert_error_notification_recipients(alert) if email]
+    if not email_targets:
+        return []
 
-    # TODO: uncomment this after checking errors sent
-    # if email_targets:
-    #     subject = f"PostHog alert {alert.name} check failed to evaluate"
-    #     campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    #     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    #     alert_url = f"{insight_url}?alert_id={alert.id}"
-    #     message = EmailMessage(
-    #         campaign_key=campaign_key,
-    #         subject=subject,
-    #         template_name="alert_check_failed_to_evaluate",
-    #         template_context={
-    #             "alert_error": error,
-    #             "insight_url": insight_url,
-    #             "insight_name": alert.insight.name,
-    #             "alert_url": alert_url,
-    #             "alert_name": alert.name,
-    #         },
-    #     )
-    #     for target in email_targets:
-    #         message.add_recipient(email=target)
-    #     message.send()
-
+    alert_name = alert.name or "your alert"
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    alert_url = f"{insight_url}?alert_id={alert.id}"
+    send_alert_email(
+        recipients=email_targets,
+        campaign_key=f"alert-evaluation-failed-notification-{idempotency_key}",
+        subject=f"PostHog alert {alert_name} could not be evaluated",
+        template_name="alert_check_failed_to_evaluate",
+        template_context={
+            "alert_error": error.get("message", "Unknown error"),
+            "alert_url": alert_url,
+            "alert_name": alert.name,
+            "insight_url": insight_url,
+            "insight_name": alert.insight.name,
+        },
+    )
     return email_targets
+
+
+def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
+    recipient_ids = set(alert.subscribed_users.values_list("id", flat=True))
+    if alert.created_by_id:
+        recipient_ids.add(alert.created_by_id)
+
+    if not recipient_ids:
+        return []
+
+    return list(alert.team.all_users_with_access().filter(id__in=recipient_ids).values_list("id", "email"))
 
 
 def dispatch_alert_notification(
@@ -320,7 +327,7 @@ def dispatch_alert_notification(
                         alert_check_id=alert_check.id,
                     )
                     return None
-                return send_notifications_for_errors(alert, alert_check.error)
+                return send_notifications_for_errors(alert, alert_check.error, idempotency_key=str(alert_check.id))
             case AlertState.FIRING:
                 if not breaches:
                     raise ValueError(

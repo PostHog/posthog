@@ -27,6 +27,7 @@ from posthog.tasks.alerts.utils import (
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
+    get_alert_error_notification_recipients,
     next_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
@@ -56,6 +57,7 @@ from products.notifications.backend.facade.api import (
     SourceType,
     TargetType,
     create_notification,
+    has_been_dispatched,
 )
 
 logger = structlog.get_logger(__name__)
@@ -384,6 +386,51 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
         logger.exception("alerts.realtime_notification_failed", alert_id=str(alert.id))
 
 
+def dispatch_alert_error_realtime_notifications(alert: AlertConfiguration, alert_check: AlertCheck) -> None:
+    """Create one best-effort inbox notification per eligible recipient for an errored check."""
+    error = alert_check.error if isinstance(alert_check.error, dict) else {}
+    error_message = error.get("message", "Unknown error")
+    alert_name = alert.name or "Alert"
+    source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
+
+    for user_id, _ in get_alert_error_notification_recipients(alert):
+        try:
+            if has_been_dispatched(
+                notification_type=NotificationType.PIPELINE_FAILURE,
+                target_type=TargetType.USER,
+                target_id=str(user_id),
+                resource_id=str(alert.insight.short_id),
+                source_id=str(alert_check.id),
+            ):
+                continue
+            create_notification(
+                NotificationData(
+                    team_id=alert.team_id,
+                    notification_type=NotificationType.PIPELINE_FAILURE,
+                    priority=Priority.NORMAL,
+                    title=f"{alert_name[:75]} could not be evaluated",
+                    body=(
+                        f"This alert could not be evaluated: {error_message}. "
+                        "PostHog will check it again on its normal schedule."
+                    ),
+                    target_type=TargetType.USER,
+                    target_id=str(user_id),
+                    resource_type="insight",
+                    resource_id=str(alert.insight.short_id),
+                    source_url=source_url,
+                    source_type=SourceType.INSIGHT,
+                    source_id=str(alert_check.id),
+                )
+            )
+        except Exception:
+            logger.exception(
+                "alerts.error_realtime_notification_failed",
+                alert_id=str(alert.id),
+                alert_check_id=str(alert_check.id),
+                user_id=user_id,
+            )
+
+
 # Idempotency: empty targets_notified = not yet delivered; non-empty = already delivered.
 # Lets Temporal retry notify_alert safely after a transient failure past the send.
 @temporalio.activity.defn
@@ -393,7 +440,9 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
     @database_sync_to_async(thread_sensitive=False, executor=_NOTIFICATION_DELIVERY_EXECUTOR)
     def _notify() -> None:
         # Mismatched pair surfaces as DoesNotExist instead of notifying the wrong alert.
-        alert_check = AlertCheck.objects.select_related("alert_configuration", "alert_configuration__team").get(
+        alert_check = AlertCheck.objects.select_related(
+            "alert_configuration", "alert_configuration__team", "alert_configuration__insight"
+        ).get(
             pk=inputs.alert_check_id,
             alert_configuration_id=inputs.alert_id,
         )
@@ -424,6 +473,8 @@ async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
         # past this point sees `targets_notified` populated and skips the whole _notify.
         if alert_check.state == AlertState.FIRING.value and inputs.breaches:
             dispatch_alert_firing_realtime_notification(alert, inputs.breaches)
+        elif alert_check.state == AlertState.ERRORED.value:
+            dispatch_alert_error_realtime_notifications(alert, alert_check)
 
     async with Heartbeater():
         await _notify()

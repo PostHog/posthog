@@ -568,6 +568,8 @@ class TestNotifyAlert:
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
                 return_value=["alice@posthog.com"],
             ) as mock_errors,
+            patch("posthog.temporal.alerts.activities.has_been_dispatched", return_value=False),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
             env = ActivityEnvironment()
             await env.run(
@@ -577,6 +579,52 @@ class TestNotifyAlert:
 
         mock_errors.assert_called_once()
         mock_breaches.assert_not_called()
+        assert mock_errors.call_args.kwargs["idempotency_key"] == str(check.id)
+        notification = mock_create_notification.call_args.args[0]
+        assert notification.notification_type.value == "pipeline_failure"
+        assert notification.priority.value == "normal"
+        subscriber_id = await sync_to_async(lambda: alert_with_user.subscribed_users.get().id)()
+        assert notification.target_id == str(subscriber_id)
+        assert notification.resource_id == str(alert_with_user.insight.short_id)
+        assert notification.source_id == str(check.id)
+        assert "boom" in notification.body
+        assert "normal schedule" in notification.body
+
+        refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+    async def test_error_notification_includes_the_creator_when_they_have_project_access(self, alert, auser) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)
+        check = await _create_alert_check(alert, state=AlertState.ERRORED, error={"message": "boom"})
+
+        with (
+            patch("posthog.tasks.alerts.utils.send_notifications_for_errors", return_value=[auser.email]),
+            patch("posthog.temporal.alerts.activities.has_been_dispatched", return_value=False),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert.id), alert_check_id=str(check.id)),
+            )
+
+        assert mock_create_notification.call_args.args[0].target_id == str(auser.id)
+
+    async def test_error_realtime_notification_failure_does_not_block_recording_delivery(self, alert_with_user) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": "boom"})
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_errors",
+                return_value=["alice@posthog.com"],
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification", side_effect=RuntimeError("kafka down")),
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
