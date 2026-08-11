@@ -216,6 +216,28 @@ describe('hogFlowEditorLogic', () => {
             expect(continueEdge?.data?.label).toBe('No match')
         })
 
+        it('gives each incoming edge its own target handle so converging anchors do not stack', async () => {
+            // Every edge into a step used to share one centre handle, so their reconnect anchors
+            // landed on identical coordinates and only the last-rendered edge could be grabbed —
+            // exactly the shape an insert produces, where every branch output points at one step.
+            const mockFlow = createMockHogFlow()
+            const converging = {
+                ...mockFlow,
+                edges: mockFlow.edges.map((edge) => ({ ...edge, to: 'exit' })),
+            }
+            await expectLogic(logic, () => {
+                logic.actions.resetFlowFromHogFlow(converging)
+            }).toDispatchActions(['setNodesRaw'])
+
+            const exitNode = logic.values.nodes.find((node) => node.id === 'exit')
+            const targetXs = (exitNode?.handles ?? [])
+                .filter((handle) => handle.type === 'target' && handle.id !== 'target_exit')
+                .map((handle) => handle.x)
+
+            expect(targetXs.length).toBe(converging.edges.length)
+            expect(new Set(targetXs).size).toBe(targetXs.length)
+        })
+
         it('keeps a target handle on a step nothing points at', async () => {
             const mockFlow = createMockHogFlow()
             // Re-pointing an edge can leave a step with no incoming edge. It still needs a target

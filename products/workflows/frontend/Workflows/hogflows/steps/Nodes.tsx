@@ -85,6 +85,11 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
                     key={handle.id}
                     className="opacity-0"
                     {...handle}
+                    // `x` is the handle's offset along the node in flow units. React Flow lays
+                    // handles out with CSS, so it has to be applied here too — the edge path maths
+                    // reads `x` directly, but the rendered handle (and the reconnect anchor React
+                    // Flow draws on it) follows the DOM position.
+                    style={{ left: handle.x, transform: 'translate(-50%, -50%)' }}
                     isConnectable={handle.type === 'target'}
                     isConnectableStart={false}
                 />
