@@ -52,6 +52,10 @@ def get_git_branch() -> Optional[str]:
 
 _TOKEN_PUNCTUATION = "`'\"()[]{}<>,.;:!?"
 _GITHUB_HOSTS = frozenset({"github.com", "www.github.com"})
+_REPO_TOKEN = re.compile(r"[\w.-]+/[\w.-]+")
+# Slack formats links as <url|label> and either side can carry the repo, so `|` separates
+# candidates the same way whitespace does.
+_CANDIDATE_SEPARATOR = re.compile(r"[\s|]+")
 
 
 def _repo_from_github_url(token: str) -> str | None:
@@ -96,19 +100,16 @@ def extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
     normalized_repos = {repo.lower(): repo for repo in all_repos}
     linked: set[str] = set()
 
-    for token in text.split():
-        # Slack formats links as <url|label>; either side can carry the repo, so try both.
-        for candidate in (part.strip(_TOKEN_PUNCTUATION) for part in token.split("|")):
-            if not candidate:
-                continue
+    for part in _CANDIDATE_SEPARATOR.split(text):
+        candidate = part.strip(_TOKEN_PUNCTUATION)
+        if not candidate:
+            continue
 
-            if re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
-                match = normalized_repos.get(candidate.lower())
-                if match:
-                    return match
+        if _REPO_TOKEN.fullmatch(candidate) and (match := normalized_repos.get(candidate.lower())):
+            return match
 
-            from_url = _repo_from_github_url(candidate)
-            if from_url and (match := normalized_repos.get(from_url.lower())):
-                linked.add(match)
+        from_url = _repo_from_github_url(candidate)
+        if from_url and (match := normalized_repos.get(from_url.lower())):
+            linked.add(match)
 
     return next(iter(linked)) if len(linked) == 1 else None

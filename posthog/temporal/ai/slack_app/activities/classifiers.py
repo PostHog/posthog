@@ -125,10 +125,9 @@ def classify_task_needs_repo(
         r"\bserializer\b",
         r"\bviewset\b",
         r"\bmigration\b",
-        # A failing test is code work, but it is usually named after the feature it covers,
-        # so the product terms above would answer no-repo before the model reads the sentence.
-        # Both match the whole thread, so keep them narrow enough that passing chatter cannot
-        # veto an analytics ask: a bare "ci" also means confidence interval here.
+        # A failing test is code work, but it is named after the feature it covers, so the
+        # product terms above would answer no-repo first. Keep these narrow: they match the
+        # whole thread, and a bare "ci" would also catch confidence intervals.
         r"\bflak(?:y|e|es|iness)\b",
         r"\bmerge queue\b",
     )
