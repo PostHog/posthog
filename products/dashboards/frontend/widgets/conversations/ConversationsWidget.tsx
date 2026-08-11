@@ -222,19 +222,15 @@ function ConversationsWidgetRow({
                         <LemonBadge.Number count={ticket.unread_team_count} size="small" status="primary" />
                     ) : null}
                 </div>
-                <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-muted">
-                    <div className="ml-auto shrink-0">
-                        <TZLabel time={ticket.updated_at} showPopover={false} className="text-xs text-muted" />
-                    </div>
-                </div>
             </Link>
-            <div className="mt-2 flex min-w-0 items-center gap-1">
+            <div className="mt-1.5 flex min-w-0 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-1">
                     {ticket.priority ? (
                         <LemonTag type={priorityTagType(ticket.priority)}>{ticket.priority}</LemonTag>
                     ) : null}
                     <LemonTag type={statusTagType(ticket.status)}>{ticket.status.replace('_', ' ')}</LemonTag>
                 </div>
+                <TZLabel time={ticket.updated_at} showPopover={false} className="shrink-0 text-xs text-muted" />
             </div>
         </div>
     )
@@ -256,15 +252,11 @@ function ConversationsWidgetLoadingState(): JSX.Element {
                             <LemonSkeleton className="mt-0.5 size-4 rounded-full" />
                         </div>
                         <div className="flex items-center justify-between gap-2">
-                            <LemonSkeleton className="h-3 w-24" />
-                            <LemonSkeleton className="h-3 w-28" />
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-1">
                                 <LemonSkeleton className="h-5 w-12 rounded" />
                                 <LemonSkeleton className="h-5 w-10 rounded" />
                             </div>
-                            <LemonSkeleton className="h-5 w-16 rounded" />
+                            <LemonSkeleton className="h-3 w-16" />
                         </div>
                     </div>
                 ))}
