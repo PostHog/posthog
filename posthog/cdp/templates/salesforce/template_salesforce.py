@@ -27,6 +27,9 @@ let salesforceError := (res) -> {
   if (code in ('INVALID_SESSION_ID', 'INVALID_AUTH_HEADER', 'INVALID_LOGIN') or (res.status == 401 and code == '')) {
     return f'Salesforce rejected the credentials (status {res.status}, {detail}). Reconnect the Salesforce account for this destination.'
   }
+  if (res.status == 405 or code == 'METHOD_NOT_ALLOWED') {
+    return f'Salesforce rejected the request because the object path points at a collection, not a single record (status {res.status}, {detail}). To update a record, set the object path to Object/ExternalIdField/value, for example Lead/Email/jane@example.com. Make sure the external ID field and its value are both present.'
+  }
   if (res.status >= 400 and res.status < 500 and res.status != 408 and res.status != 429) {
     return f'Salesforce rejected the request (status {res.status}, {detail}). Retrying will not help. Check the object permissions, the field values, and the object path in Salesforce.'
   }
@@ -145,7 +148,7 @@ template_update: HogFunctionTemplateDC = HogFunctionTemplateDC(
     type="destination",
     id="template-salesforce-update",
     name="Salesforce",
-    description="Update objects in Salesforce",
+    description="Update or create objects in Salesforce. Salesforce upserts on the object path: it updates the record that matches, or creates a new record when none matches.",
     icon_url="/static/services/salesforce.png",
     category=["CRM", "Customer Success"],
     code_language="hog",
@@ -184,9 +187,9 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
         {
             "key": "path",
             "type": "string",
-            "label": "Object path",
-            "description": "The path to the object you want to create or update. This can be a standard object like 'Contact' for creating records or `Lead/Email/{person.properties.email}` for updating a lead by email. See https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/dome_upsert.htm for more information.",
-            "default": "Leads/Email/{person.properties.email}",
+            "label": "Object path (upsert)",
+            "description": "The path to the record to upsert, in the form Object/ExternalIdField/value. For example, Lead/Email/{person.properties.email} matches a lead by email. Salesforce updates the matching record, or creates a new record when none matches. A bare object name like 'Contact' points at the collection and fails with METHOD_NOT_ALLOWED, so it does not work here. The external ID value must not be empty. See https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/dome_upsert.htm for more information.",
+            "default": "Lead/Email/{person.properties.email}",
             "secret": False,
             "required": True,
         },

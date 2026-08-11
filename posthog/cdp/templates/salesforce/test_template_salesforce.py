@@ -87,6 +87,17 @@ class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
                 "Salesforce rejected the request (status 400, STRING_TOO_LONG: Landing_URL__c: data value too large). Retrying will not help. Check the object permissions, the field values, and the object path in Salesforce.",
             ),
             (
+                "path_points_at_collection",
+                405,
+                [
+                    {
+                        "message": "HTTP Method PATCH not allowed. Allowed are HEAD,GET,POST",
+                        "errorCode": "METHOD_NOT_ALLOWED",
+                    }
+                ],
+                "Salesforce rejected the request because the object path points at a collection, not a single record (status 405, METHOD_NOT_ALLOWED: HTTP Method PATCH not allowed. Allowed are HEAD,GET,POST). To update a record, set the object path to Object/ExternalIdField/value, for example Lead/Email/jane@example.com. Make sure the external ID field and its value are both present.",
+            ),
+            (
                 "forbidden_without_error_code",
                 403,
                 "Forbidden",
