@@ -6796,6 +6796,15 @@ class TestPostgresPrinter(BaseTest):
     def test_null_comparisons_in_postgres(self, _name: str, expr: str, expected: str):
         self.assertEqual(self._expr(expr), expected)
 
+    def test_concat_casts_bound_string_parameters_to_text(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+
+        self.assertEqual(
+            self._expr("f'{event} {event}'", context=context),
+            "concat(events.event, CAST(%(hogql_val_0)s AS TEXT), events.event)",
+        )
+        self.assertEqual(context.values, {"hogql_val_0": " "})
+
     @parameterized.expand(
         [
             (

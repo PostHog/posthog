@@ -13,7 +13,7 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import exceptions, filters, request, response, serializers, viewsets
+from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
@@ -41,6 +41,7 @@ from posthog.api.team import (
     _format_serializer_errors,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_experiments_config,
     handle_logs_config,
     report_conversations_settings_changes,
     validate_secret_token_generation,
@@ -53,6 +54,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
+from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
@@ -317,37 +319,6 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
-
-
-def team_experiments_config_view(team: Team, request: request.Request) -> response.Response:
-    """Manage experiment configuration for this project."""
-    from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-
-    class TeamExperimentsConfigSerializer(serializers.ModelSerializer):
-        class Meta:
-            model = TeamExperimentsConfig
-            fields = [
-                "experiment_recalculation_time",
-                "default_experiment_confidence_level",
-                "default_experiment_stats_method",
-                "experiment_precomputation_enabled",
-                "default_only_count_matured_users",
-                "default_cuped_enabled",
-                "default_cuped_lookback_days",
-                "default_minimum_detectable_effect",
-                "default_sequential_testing_enabled",
-                "default_sequential_tuning_parameter",
-            ]
-
-    config = get_or_create_team_extension(team, TeamExperimentsConfig)
-
-    if request.method == "PATCH":
-        serializer = TeamExperimentsConfigSerializer(config, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return response.Response(serializer.data)
-
-    return response.Response(TeamExperimentsConfigSerializer(config).data)
 
 
 def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
@@ -1358,7 +1329,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     queryset = Project.objects.all().select_related("organization").prefetch_related("teams")
     lookup_field = "id"
     ordering = "-created_by"
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [PhraseSearchFilter]
     search_fields = ["name"]
 
     def safely_get_queryset(self, queryset):
@@ -1703,7 +1674,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     )
     def experiments_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
         """Manage experiment configuration for this project."""
-        return team_experiments_config_view(self.get_object().passthrough_team, request)
+        return handle_experiments_config(request, self.get_object().passthrough_team)
 
     @action(
         methods=["GET", "POST", "DELETE"],

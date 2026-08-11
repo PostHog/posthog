@@ -66,7 +66,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
             issue=issue,
             fingerprint=str(uuid4()),
         )
-        # issue_id_v2 resolves via the fingerprint issue state table in ClickHouse
+        # issue_id resolves via the fingerprint issue state table in ClickHouse
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=self.team.pk)
         return issue
 

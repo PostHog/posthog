@@ -48,9 +48,10 @@ export const SignalsReportsPartialUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Record a note left with the thumbs rating at the end of a report. The rating itself is a product-analytics event; this endpoint exists to carry the note into the scout steering channel. For a report authored by a scout, the note is forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer and the call is a no-op success. The report's state is never changed.
+ * Record the thumbs rating at the end of a report, with an optional note. For browser-session requests the rating is persisted as a per-person report action, which counts as consumption evidence for the scout that authored the report (scouts whose output nobody consumes are eventually paused); requests authenticated any other way record no action. When a note is present and the report was authored by a scout, the note is also forwarded to that scout as a steering note it reads on its next run; for any other report there is nothing to steer. The report's state is never changed.
  * @summary Leave feedback on a report
  */
+export const signalsReportsFeedbackCreateBodyNoteDefault = ``
 export const signalsReportsFeedbackCreateBodyNoteMax = 4000
 
 export const SignalsReportsFeedbackCreateBody = /* @__PURE__ */ zod.object({
@@ -63,8 +64,9 @@ export const SignalsReportsFeedbackCreateBody = /* @__PURE__ */ zod.object({
     note: zod
         .string()
         .max(signalsReportsFeedbackCreateBodyNoteMax)
+        .default(signalsReportsFeedbackCreateBodyNoteDefault)
         .describe(
-            'Free-form note explaining the rating. Capped at 4000 characters. Only submitted alongside a note — a bare thumb carries none — and, for a report authored by a scout, forwarded to that scout as a steering note.'
+            'Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.'
         ),
 })
 

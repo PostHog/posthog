@@ -130,7 +130,7 @@ class TestFactorialSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         # No row pin at creation time, so the probe runs under the default (newest) version.
-        mock_validate.assert_called_once_with("test-key", "2026-04-01")
+        mock_validate.assert_called_once_with("test-key", "2026-07-01")
 
     def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_make_inputs())
@@ -141,9 +141,10 @@ class TestFactorialSource:
         ("pin", "resolved"),
         [
             # None pin resolves to the default (the newest supported version) — new sources land here.
-            (None, "2026-04-01"),
+            (None, "2026-07-01"),
             ("2025-04-01", "2025-04-01"),
             ("2026-04-01", "2026-04-01"),
+            ("2026-07-01", "2026-07-01"),
         ],
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.factorial.source.factorial_source")

@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     MessagingPreferencesBulkAddOptOutsCreateBody,
     MessagingPreferencesOptOutsRetrieveQueryParams,
+    MessagingPreferencesRemoveOptOutCreateBody,
 } from '@/generated/messaging/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -51,7 +52,31 @@ const optOutsList = (): ToolBase<typeof OptOutsListSchema, Schemas.PaginatedOptO
     },
 })
 
+const OptOutsRemoveSchema = MessagingPreferencesRemoveOptOutCreateBody
+
+const optOutsRemove = (): ToolBase<typeof OptOutsRemoveSchema, Schemas.MessagePreferences> => ({
+    name: 'opt-outs-remove',
+    schema: OptOutsRemoveSchema,
+    handler: async (context: Context, params: z.infer<typeof OptOutsRemoveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.identifier !== undefined) {
+            body['identifier'] = params.identifier
+        }
+        if (params.category_key !== undefined) {
+            body['category_key'] = params.category_key
+        }
+        const result = await context.api.request<Schemas.MessagePreferences>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_preferences/remove_opt_out/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'opt-outs-add': optOutsAdd,
     'opt-outs-list': optOutsList,
+    'opt-outs-remove': optOutsRemove,
 }

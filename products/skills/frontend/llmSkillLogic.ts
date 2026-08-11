@@ -14,13 +14,14 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
-import { ApiConfig } from '~/lib/api'
+import { ApiConfig, ApiError } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from '~/scenes/urls'
 import { Breadcrumb } from '~/types'
 
+import { getApiErrorDetail, openDiscardChangesDialog } from 'products/ai_observability/frontend/prompts/utils'
 import {
     llmSkillsCreate,
     llmSkillsNameArchiveCreate,
@@ -115,6 +116,28 @@ const DEFAULT_SKILL_FORM_VALUES: SkillFormValues = {
 }
 
 const SKILL_VERSIONS_LIMIT = 50
+const STALE_SKILL_ERROR_MESSAGE =
+    'This skill changed while you were editing it. Your edits are preserved. Review the latest version and publish again.'
+
+export interface PublishConflict {
+    latestVersion: number | null
+}
+
+// Sorted by path so a reorder that ends up byte-identical on the server is not presented as a change.
+function sortSkillFilesByPath(files: SkillFormFileValues[]): SkillFormFileValues[] {
+    return [...files].sort((a, b) => a.path.localeCompare(b.path))
+}
+
+function normalizeSkillFormForCompare(form: SkillFormValues): SkillFormValues {
+    return {
+        ...form,
+        files: sortSkillFilesByPath(form.files),
+    }
+}
+
+function areSkillFilesEqual(a: SkillFormFileValues[], b: SkillFormFileValues[]): boolean {
+    return JSON.stringify(sortSkillFilesByPath(a)) === JSON.stringify(sortSkillFilesByPath(b))
+}
 
 async function fetchResolvedSkill(
     skillName: string,
@@ -183,17 +206,22 @@ export interface llmSkillLogicValues {
     isHistoricalVersion: boolean
     isNewSkill: boolean
     isOutlineExpanded: boolean
+    isPublishReviewOpen: boolean
+    isSkillFormDirty: boolean
     isSkillFormSubmitting: boolean
     isSkillFormValid: boolean
     isSkillMissing: boolean
     isViewMode: boolean
     mode: SkillMode
+    nextVersion: number | null
+    publishConflict: PublishConflict | null
     shouldDisplaySkeleton: boolean
     showSkillFormErrors: boolean
     skill: ResolvedLLMSkill | SkillFormValues | null
     skillFetched: boolean
     skillForm: SkillFormValues
     skillFormAllErrors: Record<string, any>
+    skillFormBaseline: SkillFormValues | null
     skillFormChanged: boolean
     skillFormErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
     skillFormHasErrors: boolean
@@ -202,6 +230,7 @@ export interface llmSkillLogicValues {
     skillFormTouches: Record<string, boolean>
     skillFormValidationErrors: DeepPartialMap<SkillFormValues, ValidationErrorType>
     skillLoading: boolean
+    versionDescription: string
     versions: LLMSkillVersionSummaryApi[]
     versionsLoading: boolean
 }
@@ -210,6 +239,12 @@ export interface llmSkillLogicValues {
 export interface llmSkillLogicActions {
     addUploadedFiles: (files: SkillFileUpload[]) => {
         files: SkillFileUpload[]
+    }
+    cancelEditing: () => {
+        value: true
+    }
+    closePublishReview: () => {
+        value: true
     }
     deleteSkill: () => {
         value: true
@@ -253,6 +288,12 @@ export interface llmSkillLogicActions {
         skill: ResolvedLLMSkill
         payload?: any
     }
+    openPublishReview: () => {
+        value: true
+    }
+    requestPublish: () => {
+        value: true
+    }
     resetSkillForm: (values?: SkillFormValues) => {
         values?: SkillFormValues
     }
@@ -268,8 +309,14 @@ export interface llmSkillLogicActions {
     setMode: (mode: SkillMode) => {
         mode: SkillMode
     }
+    setPublishConflict: (publishConflict: PublishConflict | null) => {
+        publishConflict: PublishConflict | null
+    }
     setSkill: (skill: ResolvedLLMSkill | SkillFormValues) => {
         skill: ResolvedLLMSkill | SkillFormValues
+    }
+    setSkillFormBaseline: (baseline: SkillFormValues | null) => {
+        baseline: SkillFormValues | null
     }
     setSkillFormManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -283,6 +330,9 @@ export interface llmSkillLogicActions {
     }
     setSkillFormValues: (values: DeepPartial<SkillFormValues>) => {
         values: DeepPartial<SkillFormValues>
+    }
+    setVersionDescription: (versionDescription: string) => {
+        versionDescription: string
     }
     setVersionsLoading: (versionsLoading: boolean) => {
         versionsLoading: boolean
@@ -334,6 +384,12 @@ export interface llmSkillLogicMeta {
         ) => Breadcrumb[]
         isViewMode: (mode: SkillMode, arg: any) => boolean
         isEditMode: (mode: SkillMode, arg: any) => boolean
+        isSkillFormDirty: (
+            skillForm: SkillFormValues,
+            skillFormBaseline: SkillFormValues | null,
+            isNewSkill: boolean
+        ) => boolean
+        nextVersion: (skill: ResolvedLLMSkill | SkillFormValues | null) => number | null
         versions: (skill: ResolvedLLMSkill | SkillFormValues | null) => LLMSkillVersionSummaryApi[]
         canLoadMoreVersions: (skill: ResolvedLLMSkill | SkillFormValues | null) => boolean
         isDiffVisible: (compareVersion: number | null) => boolean
@@ -372,6 +428,13 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
         downloadSkill: true,
         setDownloadingZip: (downloadingZip: boolean) => ({ downloadingZip }),
+        cancelEditing: true,
+        setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
+        requestPublish: true,
+        openPublishReview: true,
+        closePublishReview: true,
+        setVersionDescription: (versionDescription: string) => ({ versionDescription }),
+        setSkillFormBaseline: (baseline: SkillFormValues | null) => ({ baseline }),
     }),
 
     reducers(({ props }) => ({
@@ -436,6 +499,44 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 setDownloadingZip: (_, { downloadingZip }) => downloadingZip,
             },
         ],
+        publishConflict: [
+            null as PublishConflict | null,
+            {
+                setPublishConflict: (_, { publishConflict }) => publishConflict,
+                setMode: () => null,
+                loadSkillSuccess: () => null,
+            },
+        ],
+        isPublishReviewOpen: [
+            false,
+            {
+                openPublishReview: () => true,
+                closePublishReview: () => false,
+                submitSkillFormSuccess: () => false,
+                // A publish conflict (409) needs the editor visible again to show the banner
+                setPublishConflict: () => false,
+                setMode: () => false,
+            },
+        ],
+        versionDescription: [
+            '',
+            {
+                setVersionDescription: (_, { versionDescription }) => versionDescription,
+                submitSkillFormSuccess: () => '',
+                closePublishReview: () => '',
+                setMode: () => '',
+            },
+        ],
+        // What the editor started from, including lazily loaded file contents. The dirty check
+        // compares the form against this, so a load that fills the form (loadFileContents) must
+        // update it too or the fill itself would read as an edit.
+        skillFormBaseline: [
+            null as SkillFormValues | null,
+            {
+                loadSkillSuccess: (_, { skill }) => (isSkill(skill) ? getSkillFormDefaults(skill) : null),
+                setSkillFormBaseline: (_, { baseline }) => baseline,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -476,14 +577,19 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 try {
                     let savedSkill: LLMSkillApi
 
-                    const filesToSend: LLMSkillFileInputApi[] | undefined =
-                        formValues.files.length > 0
-                            ? formValues.files.map((f) => ({
-                                  path: f.path,
-                                  content: f.content,
-                                  content_type: f.content_type || undefined,
-                              }))
-                            : undefined
+                    const formFiles: LLMSkillFileInputApi[] = formValues.files.map((f) => ({
+                        path: f.path,
+                        content: f.content,
+                        content_type: f.content_type || undefined,
+                    }))
+                    // Send files only when the user changed them: omitting the key carries the
+                    // current latest's files forward on the server, so an untouched file set can't
+                    // clobber files a concurrent publish added, and publishing before the lazy file
+                    // contents finish loading can't wipe content. An emptied set is a real change
+                    // and goes through as [].
+                    const baselineFiles = values.skillFormBaseline?.files
+                    const filesChanged = !baselineFiles || !areSkillFilesEqual(formValues.files, baselineFiles)
+                    const filesToSend: LLMSkillFileInputApi[] | undefined = filesChanged ? formFiles : undefined
 
                     if (isNew) {
                         const createResponse = await llmSkillsCreate(String(ApiConfig.getCurrentTeamId()), {
@@ -492,7 +598,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             body: formValues.body,
                             license: formValues.license || undefined,
                             compatibility: formValues.compatibility || undefined,
-                            files: filesToSend,
+                            files: formFiles.length > 0 ? formFiles : undefined,
                         })
                         savedSkill = { ...createResponse, files: [] }
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
@@ -505,6 +611,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             throw new Error('Cannot publish skill version: skill data not loaded')
                         }
 
+                        const versionDescription = values.versionDescription.trim()
                         savedSkill = await llmSkillsNamePartialUpdate(
                             String(ApiConfig.getCurrentTeamId()),
                             props.skillName,
@@ -517,10 +624,11 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                                 metadata: currentSkill.metadata,
                                 base_version: currentSkill.latest_version,
                                 files: filesToSend,
+                                ...(versionDescription ? { version_description: versionDescription } : {}),
                             }
                         )
                         llmSkillsLogic.findMounted()?.actions.loadSkills(false)
-                        lemonToast.success('Skill version published successfully')
+                        lemonToast.success(`Published v${savedSkill.version}`)
 
                         actions.setSkill({
                             ...savedSkill,
@@ -528,6 +636,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                                 {
                                     id: savedSkill.id,
                                     version: savedSkill.version,
+                                    version_description: savedSkill.version_description ?? null,
                                     created_by: savedSkill.created_by,
                                     created_at: savedSkill.created_at,
                                     is_latest: true,
@@ -539,12 +648,15 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             has_more: currentSkill.has_more,
                         })
                         actions.setSkillFormValues(getSkillFormDefaults(savedSkill))
+                        actions.setSkillFormBaseline(getSkillFormDefaults(savedSkill))
                         router.actions.replace(urls.skill(props.skillName))
 
+                        // PATCH already succeeded, so keep optimistic state even if follow-up read fails.
                         try {
                             const latest = await fetchResolvedSkill(props.skillName)
                             actions.setSkill(latest)
                             actions.setSkillFormValues(getSkillFormDefaults(latest))
+                            actions.setSkillFormBaseline(getSkillFormDefaults(latest))
                         } catch (err) {
                             console.error('Failed to refresh skill after publish', err)
                         }
@@ -558,13 +670,25 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                             has_more: false,
                         })
                         actions.setSkillFormValues(getSkillFormDefaults(savedSkill))
+                        actions.setSkillFormBaseline(getSkillFormDefaults(savedSkill))
                     }
                 } catch (error: unknown) {
-                    const detail =
-                        error !== null && typeof error === 'object' && 'detail' in error
-                            ? (error as { detail: string }).detail
-                            : undefined
-                    lemonToast.error(detail || 'Failed to save skill')
+                    if (error instanceof ApiError && error.status === 409) {
+                        // Refresh the underlying skill so base_version advances, but keep the
+                        // user's in-progress edits in the form. Never overwrite their work.
+                        let latestVersion: number | null = null
+                        try {
+                            const latestSkill = await fetchResolvedSkill(props.skillName)
+                            actions.setSkill(latestSkill)
+                            latestVersion = latestSkill.latest_version ?? latestSkill.version
+                        } catch {}
+
+                        actions.setPublishConflict({ latestVersion })
+                        lemonToast.error(STALE_SKILL_ERROR_MESSAGE)
+                        throw error
+                    }
+
+                    lemonToast.error(getApiErrorDetail(error) || 'Failed to save skill')
                     throw error
                 }
             },
@@ -623,6 +747,35 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         isEditMode: [
             (s) => [s.mode, (_, props) => props],
             (mode: SkillMode, props) => props.skillName === 'new' || mode === SkillMode.Edit,
+        ],
+
+        isSkillFormDirty: [
+            (s) => [s.skillForm, s.skillFormBaseline, s.isNewSkill],
+            (skillForm: SkillFormValues, skillFormBaseline: SkillFormValues | null, isNewSkill: boolean): boolean => {
+                if (isNewSkill) {
+                    return (
+                        !!skillForm.name.trim() ||
+                        !!skillForm.description.trim() ||
+                        !!skillForm.body.trim() ||
+                        !!skillForm.license.trim() ||
+                        !!skillForm.compatibility.trim() ||
+                        skillForm.files.length > 0
+                    )
+                }
+                if (!skillFormBaseline) {
+                    return false
+                }
+                return (
+                    JSON.stringify(normalizeSkillFormForCompare(skillForm)) !==
+                    JSON.stringify(normalizeSkillFormForCompare(skillFormBaseline))
+                )
+            },
+        ],
+
+        nextVersion: [
+            (s) => [s.skill],
+            (skill: ResolvedLLMSkill | SkillFormValues | null): number | null =>
+                isSkill(skill) ? (skill.latest_version ?? skill.version) + 1 : null,
         ],
 
         versions: [
@@ -789,13 +942,17 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
             }
             try {
                 const fileContents = await fetchAllFileContents(props.skillName, skill)
-                actions.setSkillFormValues({
-                    files: fileContents.map((f) => ({
-                        path: f.path,
-                        content: f.content,
-                        content_type: f.content_type || 'text/plain',
-                    })),
-                })
+                const files = fileContents.map((f) => ({
+                    path: f.path,
+                    content: f.content,
+                    content_type: f.content_type || 'text/plain',
+                }))
+                actions.setSkillFormValues({ files })
+                actions.setSkillFormBaseline(
+                    values.skillFormBaseline
+                        ? { ...values.skillFormBaseline, files }
+                        : { ...getSkillFormDefaults(skill), files }
+                )
             } catch (e) {
                 console.error('Failed to load file contents for editing', e)
             } finally {
@@ -811,6 +968,35 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
                 values.skill.files.length > 0
             ) {
                 actions.loadFileContents()
+            }
+        },
+
+        requestPublish: () => {
+            // New skills publish directly (v1, nothing to diff against); an invalid form goes
+            // through submit so kea-forms surfaces the validation errors.
+            if (values.isNewSkill || !values.skillForm.body?.trim() || !values.skillForm.description?.trim()) {
+                actions.submitSkillForm()
+                return
+            }
+            actions.openPublishReview()
+        },
+
+        cancelEditing: () => {
+            const exitEditMode = (): void => {
+                if (values.isNewSkill) {
+                    router.actions.push(urls.skills())
+                    return
+                }
+                if (isSkill(values.skill)) {
+                    actions.setSkillFormValues(values.skillFormBaseline ?? getSkillFormDefaults(values.skill))
+                }
+                actions.setMode(SkillMode.View)
+            }
+
+            if (values.isSkillFormDirty) {
+                openDiscardChangesDialog(exitEditMode)
+            } else {
+                exitEditMode()
             }
         },
 
@@ -877,14 +1063,48 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
         }
     ),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
         if (values.isNewSkill) {
             actions.setSkill(DEFAULT_SKILL_FORM_VALUES)
             actions.resetSkillForm(DEFAULT_SKILL_FORM_VALUES)
         } else {
             actions.loadSkill()
         }
+
+        // pauseOnPageHidden: false because closing a background tab must still warn about unsaved edits.
+        cache.disposables.add(
+            () => {
+                const handler = (e: BeforeUnloadEvent): void => {
+                    if (values.isEditMode && values.isSkillFormDirty && !values.isSkillFormSubmitting) {
+                        e.preventDefault()
+                        // Some engines only show the native dialog when returnValue is set
+                        e.returnValue = ''
+                    }
+                }
+                window.addEventListener('beforeunload', handler)
+                return () => window.removeEventListener('beforeunload', handler)
+            },
+            'unsavedEditsGuard',
+            { pauseOnPageHidden: false }
+        )
     }),
+
+    actionToUrl(({ props }) => ({
+        // replace, not push: a push would re-trigger loadSkill via urlToAction and
+        // its success handler would reset the form under the user's edits.
+        setMode: ({ mode }) => {
+            if (props.skillName === 'new') {
+                return undefined
+            }
+            const { edit: _edit, ...searchParams } = router.values.searchParams
+            return [
+                router.values.location.pathname,
+                mode === SkillMode.Edit ? { ...searchParams, edit: true } : searchParams,
+                router.values.hashParams,
+                { replace: true },
+            ]
+        },
+    })),
 
     urlToAction(({ actions, values }) => ({
         '/skills/:name': (_, __, ___, { method }) => {

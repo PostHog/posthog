@@ -10,6 +10,7 @@ import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
 import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import type { SelfDrivingOnboardingStepId } from 'scenes/onboarding/onboardingEventUsageLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -119,11 +120,58 @@ export enum GraphSeriesAddedSource {
     Duplicate = 'duplicate',
 }
 
+/**
+ * Whether the experiment's recordings tab can do its job at all, captured once the session
+ * linkability check has resolved. An unmatchable exposure event makes the tab a dead page, and
+ * a fallback or an empty selectable-metric list makes it a weaker one, so these are the numbers
+ * that say how often the feature is useless to somebody rather than how often it is opened.
+ */
+export interface ExperimentRecordingsTabContext {
+    exposure_unlinkable: boolean
+    using_exposure_fallback: boolean
+    variant_count: number
+    metric_count: number
+    linkable_metric_count: number
+}
+
+/** The facets the recordings list was narrowed by when a recording was opened from it. */
+export interface ExperimentRecordingsFilterContext {
+    variant: string | null
+    /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
+    metric_filter_mode: string
+    selected_metric_count: number
+    /** True when the list is a server-computed session set rather than client-side event filters. */
+    is_bucketed: boolean
+}
+
+/** A server-computed session set for the recordings tab: how big, how long, how clamped. */
+export interface ExperimentRecordingsBucketLoadedContext {
+    bucket: string
+    metric_count: number
+    session_count: number
+    truncated: boolean
+    considered_metric_count: number
+    excluded_metric_count: number
+    duration_ms: number
+}
+
+export interface ExperimentRecordingsBucketFailedContext {
+    bucket: string
+    metric_count: number
+    duration_ms: number
+    error: string
+}
+
 // GROW-89: both onboarding flows fire the same funnel event names during the transition, told apart
 // by `version` (1 = legacy, 2 = context-first redesign) and `flow_variant`. Stamping properties
 // instead of renaming keeps every existing dashboard and alert on the v1 events working. The
 // redesign's v2 events live in `scenes/onboarding/onboardingEventUsageLogic`.
-const LEGACY_ONBOARDING_EVENT_PROPS = { version: 1, flow_variant: 'legacy' } as const
+export type OnboardingEventProperties = {
+    flow_variant: 'context_first' | 'legacy'
+    version: 1 | 2
+}
+
+const LEGACY_ONBOARDING_EVENT_PROPS: OnboardingEventProperties = { version: 1, flow_variant: 'legacy' }
 
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
@@ -1154,6 +1202,34 @@ export interface eventUsageLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportExperimentRecordingOpened: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsFilterContext
+    ) => {
+        context: ExperimentRecordingsFilterContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsBucketFailed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsBucketFailedContext
+    ) => {
+        context: ExperimentRecordingsBucketFailedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsBucketLoaded: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsBucketLoadedContext
+    ) => {
+        context: ExperimentRecordingsBucketLoadedContext
+        experimentId: ExperimentIdType
+    }
+    reportExperimentRecordingsTabViewed: (
+        experimentId: ExperimentIdType,
+        context: ExperimentRecordingsTabContext
+    ) => {
+        context: ExperimentRecordingsTabContext
+        experimentId: ExperimentIdType
+    }
     reportExperimentReleaseConditionsUpdated: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     }
@@ -1220,6 +1296,13 @@ export interface eventUsageLogicActions {
         experiment: Experiment
         newStartDate: string
     }
+    reportExperimentTabViewed: (
+        experimentId: ExperimentIdType,
+        tab: string
+    ) => {
+        experimentId: ExperimentIdType
+        tab: string
+    }
     reportExperimentTimeseriesRecalculated: (
         experimentId: ExperimentIdType,
         metric: ExperimentMetric
@@ -1284,6 +1367,15 @@ export interface eventUsageLogicActions {
     }
     reportFeatureFlagScheduleSuccess: () => {
         value: true
+    }
+    reportFeatureFlagsBulkArchived: (
+        archivedCount: number,
+        pendingApprovalCount: number,
+        failedCount: number
+    ) => {
+        archivedCount: number
+        failedCount: number
+        pendingApprovalCount: number
     }
     reportFlagsCodeExampleInteraction: (optionType: string) => {
         optionType: string
@@ -1519,8 +1611,12 @@ export interface eventUsageLogicActions {
         reportKey: string
         role: string | null
     }
-    reportOnboardingCompleted: (productKey: string) => {
+    reportOnboardingCompleted: (
+        productKey: string,
+        properties?: OnboardingEventProperties
+    ) => {
         productKey: string
+        properties: OnboardingEventProperties | undefined
     }
     reportOnboardingProductSelectionPath: (
         path: 'ai' | 'browsing_history' | 'manual' | 'use_case',
@@ -1548,22 +1644,30 @@ export interface eventUsageLogicActions {
         recommendationSource: string
         selected: boolean
     }
-    reportOnboardingStarted: (entrypoint: string) => {
+    reportOnboardingStarted: (
+        entrypoint: string,
+        properties?: OnboardingEventProperties
+    ) => {
         entrypoint: string
+        properties: OnboardingEventProperties | undefined
     }
     reportOnboardingStepCompleted: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+        productKey?: string,
+        properties?: OnboardingEventProperties
     ) => {
         productKey: string | undefined
-        stepKey: OnboardingStepKey
+        properties: OnboardingEventProperties | undefined
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
     }
     reportOnboardingStepSkipped: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+        productKey?: string,
+        properties?: OnboardingEventProperties
     ) => {
         productKey: string | undefined
-        stepKey: OnboardingStepKey
+        properties: OnboardingEventProperties | undefined
+        stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId
     }
     reportOnboardingUseCaseSelected: (
         useCase: string,
@@ -2490,6 +2594,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
         reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
+        reportExperimentTabViewed: (experimentId: ExperimentIdType, tab: string) => ({ experimentId, tab }),
+        reportExperimentRecordingsTabViewed: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsTabContext
+        ) => ({ experimentId, context }),
+        reportExperimentRecordingsBucketLoaded: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsBucketLoadedContext
+        ) => ({ experimentId, context }),
+        reportExperimentRecordingsBucketFailed: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsBucketFailedContext
+        ) => ({ experimentId, context }),
+        reportExperimentRecordingOpened: (
+            experimentId: ExperimentIdType,
+            context: ExperimentRecordingsFilterContext
+        ) => ({ experimentId, context }),
         // Taxonomic Filter
         reportTaxonomicFilterCategorySelected: (groupType: TaxonomicFilterGroupType, eventName?: string) => ({
             groupType,
@@ -2564,6 +2685,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             projectCount,
             failedCount,
         }),
+        reportFeatureFlagsBulkArchived: (archivedCount: number, pendingApprovalCount: number, failedCount: number) => ({
+            archivedCount,
+            pendingApprovalCount,
+            failedCount,
+        }),
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
@@ -2625,14 +2751,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
-        reportOnboardingStarted: (entrypoint: string) => ({ entrypoint }),
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
-            stepKey,
-            productKey,
+        reportOnboardingStarted: (entrypoint: string, properties?: OnboardingEventProperties) => ({
+            entrypoint,
+            properties,
         }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
+        reportOnboardingStepCompleted: (
+            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+            productKey?: string,
+            properties?: OnboardingEventProperties
+        ) => ({
             stepKey,
             productKey,
+            properties,
+        }),
+        reportOnboardingStepSkipped: (
+            stepKey: OnboardingStepKey | SelfDrivingOnboardingStepId,
+            productKey?: string,
+            properties?: OnboardingEventProperties
+        ) => ({
+            stepKey,
+            productKey,
+            properties,
         }),
         reportOnboardingAIReportSubscribed: (role: string | null, reportKey: string, experimentArm: string | null) => ({
             role,
@@ -2644,7 +2783,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             reportKey,
             experimentArm,
         }),
-        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
+        reportOnboardingCompleted: (productKey: string, properties?: OnboardingEventProperties) => ({
+            productKey,
+            properties,
+        }),
         reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
             useCase,
             recommendedProducts,
@@ -3621,6 +3763,39 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
+        // The recordings-tab events below carry the experiment id alone rather than
+        // `getEventPropertiesForExperiment`, which serializes every metric definition. These fire on
+        // tab switches and recording clicks, so that payload would be sent many times per visit.
+        reportExperimentTabViewed: ({ experimentId, tab }) => {
+            posthog.capture('experiment tab viewed', {
+                experiment_id: experimentId,
+                tab,
+            })
+        },
+        reportExperimentRecordingsTabViewed: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings tab viewed', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsBucketLoaded: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings bucket loaded', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingsBucketFailed: ({ experimentId, context }) => {
+            posthog.capture('experiment recordings bucket failed', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
+        reportExperimentRecordingOpened: ({ experimentId, context }) => {
+            posthog.capture('experiment recording opened', {
+                experiment_id: experimentId,
+                ...context,
+            })
+        },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
@@ -3750,6 +3925,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('feature flags bulk copied', {
                 flag_count: flagCount,
                 project_count: projectCount,
+                failed_count: failedCount,
+            })
+        },
+        reportFeatureFlagsBulkArchived: ({ archivedCount, pendingApprovalCount, failedCount }) => {
+            posthog.capture('feature flags bulk archived', {
+                archived_count: archivedCount,
+                pending_approval_count: pendingApprovalCount,
                 failed_count: failedCount,
             })
         },
@@ -3991,26 +4173,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 product_key: productKey,
             })
         },
-        reportOnboardingStarted: ({ entrypoint }) => {
+        reportOnboardingStarted: ({ entrypoint, properties }) => {
             posthog.capture('onboarding started', {
                 entry_point: entrypoint,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
-        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
+        reportOnboardingStepCompleted: ({ stepKey, productKey, properties }) => {
             posthog.capture('onboarding step completed', {
                 step_key: stepKey,
                 // Optional — only set when the caller knows which product owns the step.
                 // Lets dashboards split step funnels by product without joining elsewhere.
                 ...(productKey ? { product_key: productKey } : {}),
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
-        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
+        reportOnboardingStepSkipped: ({ stepKey, productKey, properties }) => {
             posthog.capture('onboarding step skipped', {
                 step_key: stepKey,
                 ...(productKey ? { product_key: productKey } : {}),
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
         reportOnboardingAIReportSubscribed: ({ role, reportKey, experimentArm }) => {
@@ -4029,10 +4214,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
             })
         },
-        reportOnboardingCompleted: ({ productKey }) => {
+        reportOnboardingCompleted: ({ productKey, properties }) => {
             posthog.capture('onboarding completed', {
                 product_key: productKey,
                 ...LEGACY_ONBOARDING_EVENT_PROPS,
+                ...properties,
             })
         },
         reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
