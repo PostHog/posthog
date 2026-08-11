@@ -42,6 +42,21 @@ const ERROR_TRACKING_TYPE_LABELS: Partial<Record<string, { name: string; detail:
     },
 }
 
+/** Entity kinds arrive as raw enum values, so they need display copy before they reach a tag. */
+const ENTITY_KIND_LABELS: Record<string, string> = {
+    monitor: 'Monitor',
+    classifier: 'Classifier',
+    scorer: 'Scorer',
+    summarizer: 'Summarizer',
+    llm_judge: 'LLM judge',
+    hog: 'Hog',
+    sentiment: 'Sentiment',
+}
+
+function entityKindLabel(kind: string): string {
+    return ENTITY_KIND_LABELS[kind] ?? kind
+}
+
 /** Above this many entities the list gets a filter box rather than only a scroll bar. */
 const ENTITY_FILTER_THRESHOLD = 8
 
@@ -176,7 +191,7 @@ function EntityRow({
             </span>
             {entity.kind && (
                 <LemonTag size="small" type="muted">
-                    {entity.kind}
+                    {entityKindLabel(entity.kind)}
                 </LemonTag>
             )}
             <span className="min-w-0 flex-1 truncate text-xs text-muted">{entity.detail}</span>
@@ -188,20 +203,21 @@ interface ExpansionProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
     tool?: SourceToolStatus
-    enablingTool: boolean
-    onEnableTool: (tool: SourceToolStatus) => void
     onToggleEntity: (entityId: string) => void
     onConfigureFilters?: () => void
+    /** AI observability only: the periodic digest, which is its own signal stream, not a master. */
+    onToggleReports?: () => void
+    reportsEnabled?: boolean
 }
 
 function Expansion({
     agent,
     state,
     tool,
-    enablingTool,
-    onEnableTool,
     onToggleEntity,
     onConfigureFilters,
+    onToggleReports,
+    reportsEnabled,
 }: ExpansionProps): JSX.Element {
     const [filter, setFilter] = useState('')
     const { entities } = state
@@ -213,31 +229,15 @@ function Expansion({
 
     return (
         <div className="flex flex-col gap-2 border-t border-primary bg-surface-secondary px-3 py-2.5">
-            <p className="mb-0 text-xs text-secondary">
-                {agent.description}{' '}
-                {agent.docsUrl && (
-                    <Link to={agent.docsUrl} target="_blank" className="whitespace-nowrap text-xs">
-                        Learn about {agent.docsLabel ?? agent.label}
-                        <IconArrowUpRight />
-                    </Link>
-                )}
-            </p>
-
-            {toolOff && tool && (
+            {onToggleReports && (
                 <div className="flex items-center gap-2">
-                    <span className="text-xs text-warning">
-                        {tool.toolName} is off, so this source has nothing to read.
-                    </span>
-                    {tool.enablement && (
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            loading={enablingTool}
-                            onClick={() => onEnableTool(tool)}
-                        >
-                            Turn it on
-                        </LemonButton>
-                    )}
+                    <LemonSwitch
+                        size="xsmall"
+                        checked={!!reportsEnabled}
+                        onChange={onToggleReports}
+                        aria-label="Send a periodic report for each evaluation"
+                    />
+                    <span className="text-xs text-secondary">Send a periodic report for each evaluation.</span>
                 </div>
             )}
 
@@ -335,6 +335,8 @@ interface AgentRowProps {
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
     onEnableTool: (tool: SourceToolStatus) => void
     onConfigureFilters?: () => void
+    onToggleReports?: () => void
+    reportsEnabled?: boolean
 }
 
 const AgentRow = memo(function AgentRow({
@@ -348,6 +350,8 @@ const AgentRow = memo(function AgentRow({
     onToggleEntity,
     onEnableTool,
     onConfigureFilters,
+    onToggleReports,
+    reportsEnabled,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
@@ -356,16 +360,20 @@ const AgentRow = memo(function AgentRow({
     const armingBlocked = toolOff && !armed
     const tag = notableTag(status, armed, toolOff, tool)
     const enabledCount = entities.filter((entity) => entity.enabled).length
-    const partiallyOn = enabledCount > 0 && enabledCount < entities.length
-    const switchState: boolean | 'indeterminate' = entities.length && partiallyOn ? 'indeterminate' : armed
+    // Stable across data: a source that can hold entities always opens, even before it has any,
+    // so the chevron never appears or disappears under the user.
+    const expandable = !!agent.entityNoun || !!onConfigureFilters
+    // No master over a list the user created: it would bulk mutate an unbounded set. A fixed,
+    // product-defined list (error tracking's three signal types) keeps its switch.
+    const hasMasterSwitch = !agent.entitiesAreUserCreated
 
     return (
         <div>
             <div
-                onClick={onExpand}
-                className={`group flex h-13 cursor-pointer items-center gap-2 px-2 transition-colors ${
-                    expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
-                }`}
+                onClick={expandable ? onExpand : undefined}
+                className={`group flex h-13 items-center gap-2 px-2 transition-colors ${
+                    expandable ? 'cursor-pointer' : 'cursor-default'
+                } ${expanded ? 'bg-surface-secondary' : expandable ? 'hover:bg-surface-secondary' : ''}`}
             >
                 <StatusDot status={status} tool={tool} toolOff={toolOff} />
                 <AgentIcon source={agent} />
@@ -386,6 +394,18 @@ const AgentRow = memo(function AgentRow({
                                 Legacy
                             </LemonTag>
                         )}
+                        {agent.docsUrl && (
+                            <Tooltip title={`Learn about ${agent.docsLabel ?? agent.label}`}>
+                                <Link
+                                    to={agent.docsUrl}
+                                    target="_blank"
+                                    className="shrink-0 text-muted"
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <IconArrowUpRight />
+                                </Link>
+                            </Tooltip>
+                        )}
                     </div>
                     <span className="truncate text-xs leading-4 text-muted">{agent.watches ?? agent.description}</span>
                 </div>
@@ -394,6 +414,20 @@ const AgentRow = memo(function AgentRow({
                         {tag.label}
                     </LemonTag>
                 )}
+                {toolOff &&
+                    tool?.enablement && (
+                        // eslint-disable-next-line react/no-unknown-property
+                        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                loading={enablingTool}
+                                onClick={() => onEnableTool(tool)}
+                            >
+                                Turn on {tool.toolName.toLowerCase()}
+                            </LemonButton>
+                        </div>
+                    )}
                 <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
                     {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
                 </span>
@@ -405,10 +439,10 @@ const AgentRow = memo(function AgentRow({
                         <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
                             Connect
                         </LemonButton>
-                    ) : (
+                    ) : hasMasterSwitch ? (
                         <LemonSwitch
                             size="xsmall"
-                            checked={switchState}
+                            checked={armed}
                             onChange={() => onToggle(agent.source)}
                             disabledReason={
                                 armingBlocked
@@ -417,21 +451,26 @@ const AgentRow = memo(function AgentRow({
                             }
                             aria-label={`Arm ${agent.label}`}
                         />
-                    )}
+                    ) : null}
                 </div>
-                <IconChevronRight
-                    className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
-                />
+                {expandable ? (
+                    <IconChevronRight
+                        className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
+                    />
+                ) : (
+                    // Keeps the switches of expandable and plain rows on one vertical line.
+                    <span className="size-4 shrink-0" />
+                )}
             </div>
             {expanded && (
                 <Expansion
                     agent={agent}
                     state={state}
                     tool={tool}
-                    enablingTool={enablingTool}
-                    onEnableTool={onEnableTool}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     onConfigureFilters={onConfigureFilters}
+                    onToggleReports={onToggleReports}
+                    reportsEnabled={reportsEnabled}
                 />
             )}
         </div>
@@ -452,7 +491,6 @@ export function AgentsRoster(): JSX.Element {
         ciSignalsConfig,
         ciSignalsConfigLoading,
         ciSignalsIsFullyEnabled,
-        errorTrackingIsFullyEnabled,
         errorTrackingTypeStates,
         visionScanners,
         visionScannersLoading,
@@ -541,7 +579,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'error_tracking':
                     return {
                         ...base,
-                        armed: errorTrackingIsFullyEnabled,
+                        // Any type on means it is emitting, so the row reads Watching rather than
+                        // Standby while two of the three are armed.
+                        armed: errorTrackingTypeStates.some(({ enabled }) => enabled),
                         loading: isErrorTrackingToggling,
                         requiresSetup: false,
                         syncStatus: null,
@@ -576,7 +616,9 @@ export function AgentsRoster(): JSX.Element {
                 case 'llm_analytics':
                     return {
                         ...base,
-                        armed: !!evalReportsConfig?.enabled,
+                        // No master switch here, so the row is on when anything under it is: an
+                        // allowlisted evaluation, or the periodic digest.
+                        armed: !!evalReportsConfig?.enabled || evaluationEntities.some((e) => e.enabled),
                         loading: isEvalReportsToggling,
                         requiresSetup: false,
                         syncStatus: null,
@@ -619,8 +661,8 @@ export function AgentsRoster(): JSX.Element {
             }
         },
         [
-            errorTrackingIsFullyEnabled,
             errorTrackingEntities,
+            errorTrackingTypeStates,
             isErrorTrackingToggling,
             conversationsConfig,
             isConversationsToggling,
@@ -760,6 +802,8 @@ export function AgentsRoster(): JSX.Element {
                                 onConfigureFilters={
                                     agent.source === 'session_replay' ? openSessionAnalysisSetup : undefined
                                 }
+                                onToggleReports={agent.source === 'llm_analytics' ? toggleEvalReports : undefined}
+                                reportsEnabled={!!evalReportsConfig?.enabled}
                             />
                         ))}
                     </div>

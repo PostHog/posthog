@@ -1133,7 +1133,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 }
             },
             toggleErrorTracking: async (_, breakpoint) => {
-                const desiredEnabled = !values.errorTrackingIsFullyEnabled
+                // The row switch reads "on" as soon as one type is armed, so turning it off has to
+                // stand every type down rather than arm the remaining ones.
+                const desiredEnabled = !values.errorTrackingTypeStates.some(({ enabled }) => enabled)
                 const configs = values.sourceConfigs ?? []
                 // First connection when no persisted error-tracking config existed before this enable.
                 const wasConnected = configs.some(

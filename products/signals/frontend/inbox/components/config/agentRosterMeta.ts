@@ -35,6 +35,12 @@ export interface AgentRosterDefinition {
     watches?: string
     /** Plural noun for the things listed inside this source, e.g. "scanners". */
     entityNoun?: string
+    /**
+     * The entities are created by the user, so the list has no fixed length. Such a source gets no
+     * row-level switch: a master over an unbounded list is a bulk mutation of things we did not
+     * define. A fixed, product-defined list (error tracking's three signal types) keeps its master.
+     */
+    entitiesAreUserCreated?: boolean
     /** Singular of `entityNoun`, for the "New scanner" button. */
     entityNounSingular?: string
     docsUrl?: string
@@ -88,6 +94,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 watches: 'UX problems your scanners find while watching recordings',
                 entityNoun: 'scanners',
                 entityNounSingular: 'scanner',
+                entitiesAreUserCreated: true,
                 docsUrl: 'https://posthog.com/docs/replay-vision',
                 docsLabel: 'Replay vision',
                 manageUrl: urls.replayVision(),
@@ -110,6 +117,8 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 watches: 'AI quality problems your evaluations catch',
                 entityNoun: 'evaluations',
                 entityNounSingular: 'evaluation',
+                entitiesAreUserCreated: true,
+                manageUrl: urls.aiObservabilityEvaluations(),
                 docsUrl: 'https://posthog.com/docs/ai-evals',
                 docsLabel: 'evaluations',
             },
