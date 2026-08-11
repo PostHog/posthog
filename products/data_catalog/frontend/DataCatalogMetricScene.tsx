@@ -14,7 +14,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -32,7 +31,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { InsightShortId } from '~/types'
 
-import { humanizeDefinitionKind } from './common'
+import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, METRIC_MARKDOWN_MAX_LENGTH } from './common'
+import { MetricMarkdownEditorField } from './components/MetricMarkdownEditorField'
 import {
     dataCatalogMetricSceneLogic,
     DataCatalogMetricSceneLogicProps,
@@ -69,6 +69,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         loadRunResult,
         setEditingDefinition,
         setDraftMarkdown,
+        startEditingMarkdown,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
@@ -209,6 +210,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     canEdit
                     onNameChange={(value) => updateMetric({ display_name: value })}
                     onDescriptionChange={(value) => confirmAndUpdate({ description: value })}
+                    descriptionMaxLength={METRIC_DESCRIPTION_MAX_LENGTH}
                     renameDebounceMs={0}
                     saveOnBlur
                 />
@@ -263,6 +265,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     runResultLoading={runResultLoading}
                     onDraftMarkdown={setDraftMarkdown}
                     onEdit={setEditingDefinition}
+                    onStartEditingMarkdown={startEditingMarkdown}
                     onSaveMarkdown={(markdown) =>
                         confirmAndUpdate({ definition: { kind: 'MarkdownDefinition', markdown } })
                     }
@@ -403,6 +406,46 @@ function UnitEditor({ unit, onSave }: { unit: string; onSave: (unit: string) => 
     )
 }
 
+function MarkdownDefinitionEditor({
+    draftMarkdown,
+    saving,
+    onDraftMarkdown,
+    onSave,
+    onCancel,
+}: {
+    draftMarkdown: string
+    saving: boolean
+    onDraftMarkdown: (value: string) => void
+    onSave: (markdown: string) => void
+    onCancel: () => void
+}): JSX.Element {
+    const saveDisabledReason = !draftMarkdown.trim()
+        ? 'Add the markdown definition'
+        : draftMarkdown.length > METRIC_MARKDOWN_MAX_LENGTH
+          ? `Keep the definition under ${METRIC_MARKDOWN_MAX_LENGTH} characters`
+          : undefined
+
+    return (
+        <>
+            <MetricMarkdownEditorField value={draftMarkdown} onChange={onDraftMarkdown} />
+            <div className="flex gap-2">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    loading={saving}
+                    disabledReason={saveDisabledReason}
+                    onClick={() => onSave(draftMarkdown)}
+                >
+                    Save
+                </LemonButton>
+                <LemonButton type="secondary" size="small" onClick={onCancel}>
+                    Cancel
+                </LemonButton>
+            </div>
+        </>
+    )
+}
+
 function MetricDefinition({
     metric,
     editingDefinition,
@@ -412,6 +455,7 @@ function MetricDefinition({
     runResultLoading,
     onDraftMarkdown,
     onEdit,
+    onStartEditingMarkdown,
     onSaveMarkdown,
     onRun,
 }: {
@@ -423,6 +467,7 @@ function MetricDefinition({
     runResultLoading: boolean
     onDraftMarkdown: (value: string) => void
     onEdit: (editing: boolean) => void
+    onStartEditingMarkdown: () => void
     onSaveMarkdown: (markdown: string) => void
     onRun: () => void
 }): JSX.Element {
@@ -467,22 +512,13 @@ function MetricDefinition({
         return (
             <Section title="Definition">
                 {editingDefinition ? (
-                    <>
-                        <LemonTextAreaMarkdown value={draftMarkdown} onChange={onDraftMarkdown} />
-                        <div className="flex gap-2">
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                loading={saving}
-                                onClick={() => onSaveMarkdown(draftMarkdown)}
-                            >
-                                Save
-                            </LemonButton>
-                            <LemonButton type="secondary" size="small" onClick={() => onEdit(false)}>
-                                Cancel
-                            </LemonButton>
-                        </div>
-                    </>
+                    <MarkdownDefinitionEditor
+                        draftMarkdown={draftMarkdown}
+                        saving={saving}
+                        onDraftMarkdown={onDraftMarkdown}
+                        onSave={onSaveMarkdown}
+                        onCancel={() => onEdit(false)}
+                    />
                 ) : (
                     <>
                         <LemonMarkdown disableImages>
@@ -509,26 +545,31 @@ function MetricDefinition({
     if (!kind) {
         return (
             <Section title="Definition">
-                <LemonBanner type="info">
-                    This metric is a stub with no definition. Add one to make it runnable.
-                    <div className="flex gap-2 mt-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={urls.sqlEditor({ source: 'metric', metricName: metric.name })}
-                        >
-                            Write SQL
-                        </LemonButton>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            loading={saving}
-                            onClick={() => onSaveMarkdown('1. Describe how to calculate this metric')}
-                        >
-                            Write markdown
-                        </LemonButton>
-                    </div>
-                </LemonBanner>
+                {editingDefinition ? (
+                    <MarkdownDefinitionEditor
+                        draftMarkdown={draftMarkdown}
+                        saving={saving}
+                        onDraftMarkdown={onDraftMarkdown}
+                        onSave={onSaveMarkdown}
+                        onCancel={() => onEdit(false)}
+                    />
+                ) : (
+                    <LemonBanner type="info">
+                        This metric is a stub with no definition. Add one to make it runnable.
+                        <div className="flex gap-2 mt-2">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={urls.sqlEditor({ source: 'metric', metricName: metric.name })}
+                            >
+                                Write SQL
+                            </LemonButton>
+                            <LemonButton type="secondary" size="small" onClick={onStartEditingMarkdown}>
+                                Write markdown
+                            </LemonButton>
+                        </div>
+                    </LemonBanner>
+                )}
             </Section>
         )
     }

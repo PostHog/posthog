@@ -220,7 +220,7 @@ export function AccountBillingChart({
 }): JSX.Element {
     const billingLogic = accountBillingLogic(logicProps)
     const { ephemeralHiddenSeriesKeysByShortId } = useValues(billingLogic)
-    const { toggleHiddenSeriesKey } = useActions(billingLogic)
+    const { toggleHiddenSeriesKey, setAllSeriesHidden } = useActions(billingLogic)
 
     const vizLogic = dataVisualizationLogic({
         key: queryKey,
@@ -272,6 +272,13 @@ export function AccountBillingChart({
                     series={chipItems}
                     hiddenKeys={hiddenKeys}
                     onToggle={(seriesKey) => toggleHiddenSeriesKey(shortId, seriesKey, chipItems.length)}
+                    onToggleAll={(hidden) =>
+                        setAllSeriesHidden(
+                            shortId,
+                            chipItems.map(({ key }) => key),
+                            hidden
+                        )
+                    }
                 />
             )}
         </div>

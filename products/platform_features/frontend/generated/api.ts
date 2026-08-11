@@ -27,6 +27,7 @@ import type {
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
+    OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
     PaginatedActivityLogListApi,
@@ -178,6 +179,23 @@ export const requestAiAccessCreate = async (
     return apiMutator<OrganizationAIAccessRequestResponseApi>(getRequestAiAccessCreateUrl(id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getTeamsDataFreshnessRetrieveUrl = (id: string) => {
+    return `/api/organizations/${id}/teams/data_freshness/`
+}
+
+/**
+ * When each project in the organization last received data, broken down by kind of data.
+ */
+export const teamsDataFreshnessRetrieve = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationDataFreshnessApi> => {
+    return apiMutator<OrganizationDataFreshnessApi>(getTeamsDataFreshnessRetrieveUrl(id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -886,9 +904,16 @@ export const getCommentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/comments/`
 }
 
+/**
+ * Create a comment.
+ *
+ * Support messages are deduplicated: an identical message from the same author on the same
+ * ticket within a short window returns the original comment with a 200 instead of creating a
+ * second one, and a 409 while a concurrent request is still creating it.
+ */
 export const commentsCreate = async (
     projectId: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsCreateUrl(projectId), {
@@ -917,7 +942,7 @@ export const getCommentsUpdateUrl = (projectId: string, id: string) => {
 export const commentsUpdate = async (
     projectId: string,
     id: string,
-    commentApi: NonReadonly<CommentApi>,
+    commentApi?: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<CommentApi> => {
     return apiMutator<CommentApi>(getCommentsUpdateUrl(projectId, id), {

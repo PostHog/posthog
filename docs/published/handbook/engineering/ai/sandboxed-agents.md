@@ -299,9 +299,9 @@ snapshots the filesystem, and publishes it under the fixed
 Modal image name `posthog-dev-stack` (see `products/tasks/backend/logic/services/dev_stack_image.py`).
 It is dispatched on two cadences, both gated per region on the `tasks-dev-stack-image-bake` flag
 via a `region` person property: a nightly full rebake that keeps the heavy state (migrations,
-docker pulls) close to master, and — mirroring the custom-image refresh fanout — a ten-minute
-sweep that rebakes as soon as the VM base image digest moves (e.g. an agent-server release),
-at most once per new digest.
+docker pulls) close to master, and a two-minute sweep that rebakes as soon as the VM base image
+digest moves (e.g. an agent-server release), at most once per new digest. User-authored custom
+images retain their separate ten-minute, batched refresh fanout.
 `python manage.py bake_dev_stack_image` triggers a bake manually and bypasses the flag.
 Pointing an org's `default_custom_image` payload key at that name gives its VM runs warm docker
 state and already-migrated databases, so a task-time `hogli start` only applies the migrations

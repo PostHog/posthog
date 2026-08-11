@@ -16,7 +16,6 @@ import {
     TophogOutput,
 } from '~/common/outputs'
 import {
-    AiEventOutput,
     AsyncOutput,
     EventOutput,
     PersonDistinctIdsOutput,
@@ -62,7 +61,6 @@ import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflo
 import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
 import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
 import { createAnalyticsOverflowStrategies } from './common/overflow-redirect/overflow-strategy'
-import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
@@ -78,7 +76,6 @@ export interface IngestionConsumerDeps {
     featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
-        | AiEventOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -97,7 +94,6 @@ export interface IngestionConsumerDeps {
     personRepository: PersonRepository
     cookielessManager: CookielessManager
     hogTransformer: HogTransformer
-    aiSubpipelineFactory: AiEventSubpipelineFactory
 }
 
 export const latestOffsetTimestampGauge = new Gauge({
@@ -295,8 +291,7 @@ export class IngestionConsumer {
                 PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: this.config.PERSON_MERGE_EVENTS_TEAM_ALLOWLIST,
                 PERSON_MERGE_FOLD_ENABLED: this.config.PERSON_MERGE_FOLD_ENABLED,
                 PERSON_MERGE_FOLD_TEAM_ALLOWLIST: this.config.PERSON_MERGE_FOLD_TEAM_ALLOWLIST,
-                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: this.config.PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST,
-                PERSONLESS_WRITES_DISABLED_TEAMS: this.config.PERSONLESS_WRITES_DISABLED_TEAMS,
+                PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -308,7 +303,6 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
-            aiSubpipelineFactory: this.deps.aiSubpipelineFactory,
             eventFilterManager: this.eventFilterManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,

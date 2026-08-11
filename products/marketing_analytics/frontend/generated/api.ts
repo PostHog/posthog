@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ConversionGoalWriteApi,
+    ConversionGoalWriteResponseApi,
     ConversionGoalsListResponseApi,
     DataSourceHealthResponseApi,
     EventSuggestionsResponseApi,
@@ -16,10 +18,13 @@ import type {
     MarketingAnalyticsDataSourcesRetrieveParams,
     MarketingAnalyticsDiagnoseRetrieveParams,
     MarketingAnalyticsExplainConversionGoalRetrieveParams,
+    MarketingAnalyticsSetupPlanRetrieveParams,
     MarketingAnalyticsSuggestConversionGoalsRetrieveParams,
     MarketingAnalyticsSuggestUtmMappingsRetrieveParams,
     MarketingAnalyticsUtmAuditRetrieveParams,
     MarketingDiagnosticResponseApi,
+    PatchedConversionGoalUpdateApi,
+    SetupPlanResponseApi,
     UtmAuditResponseApi,
     UtmMappingSuggestionsResponseApi,
 } from './api.schemas'
@@ -39,6 +44,77 @@ export const marketingAnalyticsConversionGoalsRetrieve = async (
     return apiMutator<ConversionGoalsListResponseApi>(getMarketingAnalyticsConversionGoalsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsConversionGoalsDeleteDestroyUrl = (projectId: string, conversionGoalId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_goals/${conversionGoalId}/delete/`
+}
+
+/**
+ * Remove one conversion goal from the project, leaving the others in place.
+ * @summary Delete conversion goal
+ */
+export const marketingAnalyticsConversionGoalsDeleteDestroy = async (
+    projectId: string,
+    conversionGoalId: string,
+    options?: RequestInit
+): Promise<ConversionGoalWriteResponseApi> => {
+    return apiMutator<ConversionGoalWriteResponseApi>(
+        getMarketingAnalyticsConversionGoalsDeleteDestroyUrl(projectId, conversionGoalId),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionGoalsUpdatePartialUpdateUrl = (
+    projectId: string,
+    conversionGoalId: string
+) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_goals/${conversionGoalId}/update/`
+}
+
+/**
+ * Change one conversion goal in place. Fields you send are merged into the stored goal, the rest are kept, and the goal keeps its position in the list. Sending a different `kind` replaces the goal instead, since the shapes don't share their fields.
+ * @summary Update conversion goal
+ */
+export const marketingAnalyticsConversionGoalsUpdatePartialUpdate = async (
+    projectId: string,
+    conversionGoalId: string,
+    patchedConversionGoalUpdateApi?: PatchedConversionGoalUpdateApi,
+    options?: RequestInit
+): Promise<ConversionGoalWriteResponseApi> => {
+    return apiMutator<ConversionGoalWriteResponseApi>(
+        getMarketingAnalyticsConversionGoalsUpdatePartialUpdateUrl(projectId, conversionGoalId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedConversionGoalUpdateApi),
+        }
+    )
+}
+
+export const getMarketingAnalyticsConversionGoalsCreateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/marketing_analytics/conversion_goals/create/`
+}
+
+/**
+ * Add one conversion goal to the project. The server assigns conversion_goal_id and appends the goal to the end of the list, leaving existing goals untouched.
+ * @summary Create conversion goal
+ */
+export const marketingAnalyticsConversionGoalsCreateCreate = async (
+    projectId: string,
+    conversionGoalWriteApi: ConversionGoalWriteApi,
+    options?: RequestInit
+): Promise<ConversionGoalWriteResponseApi> => {
+    return apiMutator<ConversionGoalWriteResponseApi>(getMarketingAnalyticsConversionGoalsCreateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(conversionGoalWriteApi),
     })
 }
 
@@ -139,6 +215,40 @@ export const marketingAnalyticsExplainConversionGoalRetrieve = async (
     options?: RequestInit
 ): Promise<GoalExplanationApi> => {
     return apiMutator<GoalExplanationApi>(getMarketingAnalyticsExplainConversionGoalRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMarketingAnalyticsSetupPlanRetrieveUrl = (
+    projectId: string,
+    params?: MarketingAnalyticsSetupPlanRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/marketing_analytics/setup_plan/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/setup_plan/`
+}
+
+/**
+ * Rank everything wrong with a team's marketing analytics setup into concrete suggestions, each carrying the evidence behind it and — where one exists — an `apply` operation to pass straight to apply_setup_ops, plus a `readiness` block saying which capabilities (cost, ROAS, cost per customer, retention by channel) are unlocked and which suggestion is blocking each. Prefer this over `diagnose` when the question is 'what should I fix next': diagnose explains what is wrong, setup_plan says what to do about it in a form you can act on. Read-only.
+ * @summary Get the marketing analytics setup plan
+ */
+export const marketingAnalyticsSetupPlanRetrieve = async (
+    projectId: string,
+    params?: MarketingAnalyticsSetupPlanRetrieveParams,
+    options?: RequestInit
+): Promise<SetupPlanResponseApi> => {
+    return apiMutator<SetupPlanResponseApi>(getMarketingAnalyticsSetupPlanRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

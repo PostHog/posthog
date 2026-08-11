@@ -4,11 +4,14 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend import build_service
+from products.canvas.backend import activity_visibility, build_service
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.models import Channel
@@ -62,6 +65,15 @@ class CanvasAPIBaseTest(APIBaseTest):
             {"project": project or self._project(), **payload},
             format="json",
         )
+
+    def _activity(self, activity: str) -> list[ActivityLog]:
+        return list(
+            ActivityLog.objects.filter(team_id=self.team.id, scope="Canvas", activity=activity).order_by("created_at")
+        )
+
+    def _changes(self, entry: ActivityLog) -> list[dict[str, Any]]:
+        assert entry.detail is not None
+        return entry.detail["changes"]
 
 
 class TestCanvasCrud(CanvasAPIBaseTest):
@@ -403,6 +415,26 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         assert body["published_build_id"] == str(published.id)
         assert str(published.id) in {build["id"] for build in body["builds"]}
 
+    def test_builds_lifecycle_includes_requested_historical_build_beyond_window(self):
+        canvas_id, v1, v2 = self._published_canvas()
+        historical = CanvasBuild.objects.unscoped().get(canvas_id=canvas_id, source_version_id=v1)
+        historical.status = CanvasBuild.STATUS_READY
+        historical.save(update_fields=["status"])
+        version = CanvasSourceVersion.objects.unscoped().get(id=v2)
+        with team_scope(self.team.id):
+            for _ in range(25):
+                CanvasBuild.objects.create(
+                    team_id=self.team.id,
+                    canvas_id=canvas_id,
+                    source_version=version,
+                    status=CanvasBuild.STATUS_FAILED,
+                )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/?version_id={v1}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert str(historical.id) in {build["id"] for build in response.json()["builds"]}
+
     def test_build_with_pruned_artifacts_advertises_no_url(self):
         canvas_id, v1, _ = self._published_canvas()
         build = CanvasBuild.objects.unscoped().filter(canvas_id=canvas_id).first()
@@ -463,3 +495,283 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         act("cancel")
         with patch.object(build_service, "MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM", 0):
             assert act("retry").status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+class TestCanvasActivityLog(CanvasAPIBaseTest):
+    def test_publish_snapshots_capabilities_and_logs_the_diff(self):
+        canvas_id = self._create_canvas()
+        first = self._publish(canvas_id, expected_current_version_id=None)
+        assert first.status_code == status.HTTP_200_OK, first.json()
+
+        default_capabilities = {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "network": {"origins": []},
+        }
+        widened_capabilities = {
+            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": []},
+            "network": {"origins": []},
+        }
+        widened = self._project("export default function C() { return 2 }")
+        widened["capabilities"] = widened_capabilities
+        second = self._publish(canvas_id, widened, expected_current_version_id=first.json()["current_version_id"])
+        assert second.status_code == status.HTTP_200_OK, second.json()
+
+        versions = CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id).order_by("created_at")
+        assert [version.capabilities for version in versions] == [default_capabilities, widened_capabilities]
+
+        entries = self._activity("published")
+        assert len(entries) == 2
+        assert entries[0].user == self.user
+        changes = self._changes(entries[1])
+        assert len(changes) == 1
+        assert changes[0]["field"] == "capabilities"
+        assert changes[0]["before"] == default_capabilities
+        assert changes[0]["after"] == widened_capabilities
+
+    def test_revert_logs_the_head_move(self):
+        canvas_id = self._create_canvas()
+        first = self._publish(canvas_id, expected_current_version_id=None)
+        v1 = first.json()["current_version_id"]
+        second = self._publish(
+            canvas_id,
+            self._project("export default function C() { return 2 }"),
+            expected_current_version_id=v1,
+        )
+        v2 = second.json()["current_version_id"]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/revert/",
+            {"version_id": v1, "expected_current_version_id": v2},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        entries = self._activity("reverted")
+        assert len(entries) == 1
+        changes = self._changes(entries[0])
+        assert changes[0]["field"] == "current_source_version"
+        assert changes[0]["before"] == v2
+        assert changes[0]["after"] == v1
+
+    def test_rename_logs_a_change_but_a_no_op_update_does_not(self):
+        canvas_id = self._create_canvas()
+        base = f"/api/projects/{self.team.id}/canvases/{canvas_id}"
+
+        response = self.client.patch(f"{base}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        entries = self._activity("updated")
+        assert len(entries) == 1
+        assert self._changes(entries[0]) == [
+            {"type": "Canvas", "action": "changed", "field": "name", "before": "My canvas", "after": "Renamed"}
+        ]
+
+        response = self.client.patch(f"{base}/", {"name": "Renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(self._activity("updated")) == 1
+
+
+class TestCanvasActivityVisibility(CanvasAPIBaseTest):
+    """Personal-channel canvases are owner-only, so their team-scoped activity rows must
+    not leak to other members through the team- or org-wide activity feed."""
+
+    def _personal_canvas(self, owner) -> Canvas:
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=owner
+            )
+            return Canvas.objects.create(team_id=self.team.id, channel=channel, name="Private", created_by=owner)
+
+    def test_team_visible_ids_include_public_but_hide_others_personal_canvas(self):
+        other = self._create_user("teammate-vis@example.com")
+        private = self._personal_canvas(self.user)
+        public_id = self._create_canvas(name="Public")
+
+        owner_visible = activity_visibility.visible_canvas_ids(self.team.id, self.user)
+        other_visible = activity_visibility.visible_canvas_ids(self.team.id, other)
+
+        assert {public_id, str(private.id)} <= owner_visible
+        assert public_id in other_visible
+        assert str(private.id) not in other_visible
+
+    def test_org_hidden_ids_exclude_owner_but_include_other_members(self):
+        other = self._create_user("teammate-org@example.com")
+        private = self._personal_canvas(self.user)
+
+        assert str(private.id) not in activity_visibility.hidden_personal_canvas_ids_for_org(
+            self.organization.id, self.user
+        )
+        assert str(private.id) in activity_visibility.hidden_personal_canvas_ids_for_org(self.organization.id, other)
+
+
+class TestCanvasDraftBuilds(CanvasAPIBaseTest):
+    def _draft(self, canvas_id: str, project: dict | None = None, **payload):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/draft/",
+            {"project": project or self._project(), **payload},
+            format="json",
+        )
+
+    def _promote(self, canvas_id: str, version_id: str, expected: str | None):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/promote/",
+            {"version_id": version_id, "expected_current_version_id": expected},
+            format="json",
+        )
+
+    def _published_canvas(self) -> tuple[str, str]:
+        canvas_id = self._create_canvas()
+        response = self._publish(canvas_id, expected_current_version_id=None)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return canvas_id, response.json()["current_version_id"]
+
+    def test_draft_stages_version_and_build_without_moving_head(self):
+        canvas_id, head_id = self._published_canvas()
+
+        response = self._draft(canvas_id, self._project("export default function C() { return 2 }"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["version_id"] != head_id
+        assert body["build"]["build_status"] == "queued"
+
+        builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
+        assert builds["current_version_id"] == head_id
+
+        # A draft stays out of the published-history timeline (undo/revert), so
+        # only the head shows there and the draft is not revertable onto.
+        version_ids = [
+            row["id"]
+            for row in self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/versions/").json()["results"]
+        ]
+        assert version_ids == [head_id]
+
+    def test_drafts_endpoint_lists_drafts_with_build_status(self):
+        canvas_id, head_id = self._published_canvas()
+        draft_body = self._draft(canvas_id, self._project("export default function C() { return 2 }")).json()
+
+        drafts = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/drafts/").json()
+        assert [row["version_id"] for row in drafts] == [draft_body["version_id"]]
+        assert drafts[0]["build_status"] == "queued"
+        assert drafts[0]["build_id"] == draft_body["build"]["id"]
+
+    def test_draft_is_not_revertable(self):
+        canvas_id, head_id = self._published_canvas()
+        draft_version_id = self._draft(canvas_id).json()["version_id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/revert/",
+            {"version_id": draft_version_id, "expected_current_version_id": head_id},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_draft_reports_capability_widening_over_head(self):
+        canvas_id, head_id = self._published_canvas()
+
+        widened = self._project("export default function C() { return 2 }")
+        widened["capabilities"] = {
+            "posthog": {"insights": ["abc123"], "inlineQueries": True, "captureEvents": []},
+            "network": {"origins": []},
+        }
+        response = self._draft(canvas_id, widened)
+        widening = response.json()["capability_widening"]
+        assert widening["widens"] is True
+        assert widening["insights_added"] == ["abc123"]
+        assert widening["inline_queries_enabled"] is True
+
+        entries = self._activity("drafted")
+        assert len(entries) == 1
+        changes = self._changes(entries[0])
+        assert changes[0]["field"] == "capabilities"
+
+        unchanged = self._draft(canvas_id, self._project("export default function C() { return 3 }"))
+        assert unchanged.json()["capability_widening"]["widens"] is False
+
+    def test_promote_reuses_ready_build_and_moves_head(self):
+        canvas_id, head_id = self._published_canvas()
+        draft_body = self._draft(canvas_id, self._project("export default function C() { return 2 }")).json()
+        draft_version_id = draft_body["version_id"]
+        CanvasBuild.objects.for_team(self.team.id).filter(id=draft_body["build"]["id"]).update(
+            status=CanvasBuild.STATUS_READY,
+            artifact_object_prefix="canvas_artifact/test",
+            finished_at=timezone.now(),
+        )
+        enqueued_before = self.enqueue.call_count
+
+        response = self._promote(canvas_id, draft_version_id, expected=head_id)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == draft_body["build"]["id"]
+        assert response.json()["build_status"] == "ready"
+        assert self.enqueue.call_count == enqueued_before
+
+        builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
+        assert builds["current_version_id"] == draft_version_id
+        assert builds["published_build_id"] == draft_body["build"]["id"]
+        versions = {
+            row["id"]: row
+            for row in self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/versions/").json()["results"]
+        }
+        assert versions[draft_version_id]["draft"] is False
+        assert len(self._activity("published")) == 2
+
+    def test_promote_rebuilds_when_artifacts_pruned(self):
+        canvas_id, head_id = self._published_canvas()
+        draft_body = self._draft(canvas_id).json()
+        CanvasBuild.objects.for_team(self.team.id).filter(id=draft_body["build"]["id"]).update(
+            status=CanvasBuild.STATUS_READY, artifact_object_prefix=None, finished_at=timezone.now()
+        )
+
+        response = self._promote(canvas_id, draft_body["version_id"], expected=head_id)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] != draft_body["build"]["id"]
+        assert response.json()["build_status"] == "queued"
+
+    def test_promote_adopts_in_flight_build_without_requeuing(self):
+        # Promoting while the draft's build is still running must adopt that
+        # build, not queue a duplicate of the same version — _finalize_ready
+        # advances the live pointer once it completes, now that the version is
+        # the head.
+        canvas_id, head_id = self._published_canvas()
+        draft_body = self._draft(canvas_id).json()
+        CanvasBuild.objects.for_team(self.team.id).filter(id=draft_body["build"]["id"]).update(
+            status=CanvasBuild.STATUS_BUILDING
+        )
+        published_before = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()[
+            "published_build_id"
+        ]
+        enqueued_before = self.enqueue.call_count
+
+        response = self._promote(canvas_id, draft_body["version_id"], expected=head_id)
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["id"] == draft_body["build"]["id"]
+        assert response.json()["build_status"] == "building"
+        assert self.enqueue.call_count == enqueued_before
+        assert (
+            CanvasBuild.objects.for_team(self.team.id).filter(source_version_id=draft_body["version_id"]).count() == 1
+        )
+
+        builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
+        assert builds["current_version_id"] == draft_body["version_id"]
+        # The live artifact does not move until the adopted build finalizes.
+        assert builds["published_build_id"] == published_before
+
+    def test_draft_rejects_at_capacity_before_uploading(self):
+        canvas_id, _ = self._published_canvas()
+        objects_before = set(self.storage.objects)
+
+        with patch.object(build_service, "MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM", 0):
+            response = self._draft(canvas_id, self._project("export default function C() { return 3 }"))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert set(self.storage.objects) == objects_before
+
+    def test_promote_rejects_stale_guard_and_non_draft_versions(self):
+        canvas_id, head_id = self._published_canvas()
+        draft_version_id = self._draft(canvas_id).json()["version_id"]
+
+        stale = self._promote(canvas_id, draft_version_id, expected=str(uuid4()))
+        assert stale.status_code == status.HTTP_409_CONFLICT
+
+        not_a_draft = self._promote(canvas_id, head_id, expected=head_id)
+        assert not_a_draft.status_code == status.HTTP_404_NOT_FOUND
+
+        builds = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/").json()
+        assert builds["current_version_id"] == head_id

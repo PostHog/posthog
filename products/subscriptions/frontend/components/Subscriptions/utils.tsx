@@ -65,6 +65,10 @@ export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) 
 
 export type FrequencyOptionValue = 'daily' | 'weekly' | 'monthly'
 
+export function shouldShowDayPicker(frequency: SubscriptionType['frequency'], interval: number): boolean {
+    return frequency === 'weekly' || (frequency === 'daily' && interval === 1)
+}
+
 export const frequencyOptionsSingular: LemonSelectOption<FrequencyOptionValue>[] = [
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },
@@ -87,13 +91,45 @@ export const weekdayOptions = [
 ] satisfies LemonSelectOptionLeaf<WeekdayType>[]
 
 export const ALL_DAYS = weekdayOptions.map(({ value }) => value)
-export const weekdayInputOptions = weekdayOptions.map(({ value, label }) => ({
-    key: value,
-    value,
-    label,
-}))
+export const WEEKDAY_DAYS = ALL_DAYS.slice(0, 5)
+export const WEEKEND_DAYS = ALL_DAYS.slice(5)
 
-export const WEEKDAYS: Set<string> = new Set(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'])
+export const WEEKDAYS: Set<string> = new Set(WEEKDAY_DAYS)
+
+function hasSameDays(selectedDays: WeekdayType[], presetDays: WeekdayType[]): boolean {
+    const selectedSet = new Set(selectedDays)
+    return selectedSet.size === presetDays.length && presetDays.every((day) => selectedSet.has(day))
+}
+
+export function selectedDaysToDayPickerLabel(selectedDays: WeekdayType[]): string {
+    if (selectedDays.length === 0) {
+        return 'Select at least one day'
+    }
+    if (hasSameDays(selectedDays, ALL_DAYS)) {
+        return 'on Monday to Sunday'
+    }
+    if (hasSameDays(selectedDays, WEEKDAY_DAYS)) {
+        return 'on weekdays'
+    }
+    if (hasSameDays(selectedDays, WEEKEND_DAYS)) {
+        return 'on weekends'
+    }
+    if (selectedDays.length === 1) {
+        const dayLabel = weekdayOptions.find(({ value }) => value === selectedDays[0])?.label ?? selectedDays[0]
+        return `on ${dayLabel}`
+    }
+    return `on ${selectedDays.length} days`
+}
+
+export function toggleSelectedDay(selectedDays: WeekdayType[], day: WeekdayType): WeekdayType[] {
+    const nextDays = new Set(selectedDays)
+    if (nextDays.has(day)) {
+        nextDays.delete(day)
+    } else {
+        nextDays.add(day)
+    }
+    return ALL_DAYS.filter((weekday) => nextDays.has(weekday))
+}
 
 export const monthlyWeekdayOptions: LemonSelectOptions<
     'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday' | 'day' | 'weekday'

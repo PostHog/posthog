@@ -7,7 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
@@ -135,6 +136,19 @@ class Channel(TeamScopedRootMixin):
 
     def __str__(self):
         return f"#{self.name}"
+
+
+@receiver(pre_delete, sender=Integration)
+def clear_channel_repositories_on_github_integration_delete(
+    sender: type[Integration], instance: Integration, **kwargs: Any
+) -> None:
+    if instance.kind != Integration.IntegrationKind.GITHUB:
+        return
+
+    Channel.objects.for_team(instance.team_id).filter(github_integration_id=instance.id).update(
+        github_integration=None,
+        repositories=[],
+    )
 
 
 SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
@@ -513,6 +527,27 @@ class Task(DeletedMetaFields, models.Model):
             {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
             capture_fn=capture_fn,
         )
+
+    def soft_delete_if_unclaimed_prewarm(self, task_run: "TaskRun") -> bool:
+        deleted_at = django_timezone.now()
+        updated = Task.objects.filter(
+            pk=self.pk,
+            deleted=False,
+            title="",
+            description="",
+            runs__id=task_run.id,
+            runs__state__prewarmed=True,
+            runs__state__await_user_message=True,
+        ).update(deleted=True, deleted_at=deleted_at, updated_at=deleted_at)
+        if not updated:
+            return False
+        self.deleted = True
+        self.deleted_at = deleted_at
+        self.updated_at = deleted_at
+        self.capture_event(
+            "task_deleted", {"duration_seconds": round((deleted_at - self.created_at).total_seconds(), 1)}
+        )
+        return True
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot hard delete Task. Use soft_delete() instead.")
@@ -1153,6 +1188,92 @@ class TaskActivity(TeamScopedRootMixin):
                  WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
                 """,
                 [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
+            )
+
+
+class TaskCommentActivity(TeamScopedRootMixin):
+    class Kind(models.TextChoices):
+        MENTION = "mention", "Mention"
+        THREAD_REPLY = "thread_reply", "Thread reply"
+        OWNED_ITEM_COMMENT = "owned_item_comment", "Owned item comment"
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    root_comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_comment_activity"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "comment"],
+                name="task_comment_activity_unique",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_comment_activity_feed"),
+            models.Index(
+                fields=["team", "user"],
+                condition=models.Q(read_at__isnull=True),
+                name="task_comment_activity_unread",
+            ),
+        ]
+
+    @classmethod
+    def record_many(
+        cls,
+        *,
+        team_id: int,
+        task_id: uuid.UUID | str,
+        comment_id: uuid.UUID,
+        root_comment_id: uuid.UUID,
+        activity_at: datetime,
+        recipients: dict[int, str],
+    ) -> None:
+        if not recipients:
+            return
+        values = []
+        params: list[Any] = []
+        for user_id, kind in recipients.items():
+            values.append("(%s, %s, %s, %s, %s, %s, %s, %s, NULL)")
+            params.extend([uuid7(), team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at])
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at, read_at)
+                VALUES {", ".join(values)}
+                ON CONFLICT (team_id, user_id, comment_id) DO UPDATE
+                   SET task_id = EXCLUDED.task_id,
+                       root_comment_id = EXCLUDED.root_comment_id,
+                       kind = EXCLUDED.kind,
+                       activity_at = EXCLUDED.activity_at,
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                                AND {cls._meta.db_table}.kind = EXCLUDED.kind
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE NULL
+                       END
+                 WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                """,
+                params,
             )
 
 
@@ -2422,6 +2543,41 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         return f"{self.name} ({self.artifact_type})"
 
 
+class TaskSearchDocument(TeamScopedRootMixin, UUIDModel):
+    """Small, rebuildable search projection for Desktop's global command menu."""
+
+    class Kind(models.TextChoices):
+        TASK = "task", "Task"
+        PULL_REQUEST = "pull_request", "Pull request"
+        ARTIFACT = "artifact", "Artifact"
+        CHANNEL = "channel", "Channel"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    channel = models.ForeignKey(Channel, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
+    kind = models.CharField(max_length=32, choices=Kind)
+    source_key = models.CharField(max_length=512)
+    title = models.CharField(max_length=512)
+    subtitle = models.CharField(max_length=512, blank=True, default="")
+    search_text = models.TextField()
+    exact_identifiers = ArrayField(models.CharField(max_length=512), default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_search_document"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "kind", "source_key"], name="task_search_doc_source_unique")
+        ]
+        indexes = [
+            models.Index(fields=["team", "kind"], name="task_search_doc_team_kind_idx"),
+            GinIndex(fields=["exact_identifiers"], name="task_search_doc_exact_gin"),
+            GinIndex(fields=["search_text"], name="task_search_doc_text_trgm", opclasses=["gin_trgm_ops"]),
+        ]
+
+
 class SandboxSession(TeamScopedRootMixin, UUIDModel):
     """Usage ledger for one cloud sandbox: when it ran, its resource shape, and which
     slice of its lifetime is attributable to a user.
@@ -2490,6 +2646,18 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
         null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
     )
     ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+    provider_cpu_usage_attribution_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Cumulative provider CPU time sampled when user attribution starts"
+    )
+    provider_cpu_usage_attribution_measured_at = models.DateTimeField(
+        null=True, blank=True, help_text="When provider CPU usage was sampled at user attribution"
+    )
+    provider_cpu_usage_usec = models.PositiveBigIntegerField(
+        null=True, blank=True, help_text="Cumulative provider CPU time sampled immediately before sandbox cleanup"
+    )
+    provider_usage_measured_at = models.DateTimeField(
+        null=True, blank=True, help_text="When provider resource usage was sampled"
+    )
 
     class Meta:
         db_table = "posthog_task_sandbox_session"

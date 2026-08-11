@@ -18,13 +18,65 @@ import * as zod from 'zod'
  * the metadata, matching the token links the partner app to this organization and
  * grants a higher default rate limit for account provisioning.
  *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreateBodyLabelMax = 40
 
-export const CimdVerificationTokensCreateBody = /* @__PURE__ */ zod.object({
-    label: zod.string().max(cimdVerificationTokensCreateBodyLabelMax),
-})
+export const cimdVerificationTokensCreateBodyCimdUrlMax = 2048
+
+export const CimdVerificationTokensCreateBody = /* @__PURE__ */ zod
+    .object({
+        label: zod
+            .string()
+            .max(cimdVerificationTokensCreateBodyLabelMax)
+            .describe("Human-readable name to identify this token later, e.g. 'Production CIMD partner'."),
+        cimd_url: zod
+            .string()
+            .max(cimdVerificationTokensCreateBodyCimdUrlMax)
+            .describe(
+                'HTTPS URL of the CIMD metadata document this token will be published in. The token only verifies at this URL, so a copy hosted anywhere else is rejected. Host case, an explicit :443 and a trailing slash are normalized away; the path is case-sensitive.'
+            ),
+    })
+    .describe(
+        'Write shape for `create`. `cimd_url` is required and non-null: only tokens\nissued before URL binding existed are nullable, not new ones.'
+    )
+
+/**
+ * Manage CIMD verification tokens for an organization.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
+ * The plaintext value is only available on creation; we store a hash.
+ */
+export const cimdVerificationTokensPartialUpdateBodyCimdUrlMax = 2048
+
+export const CimdVerificationTokensPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        cimd_url: zod
+            .string()
+            .max(cimdVerificationTokensPartialUpdateBodyCimdUrlMax)
+            .optional()
+            .describe(
+                'HTTPS URL of the CIMD metadata document to bind this token to. Only settable once, on a token with no existing binding; an already-bound token must be reissued instead.'
+            ),
+    })
+    .describe(
+        'Write shape for `partial_update` (PATCH). Exposes only `cimd_url`, and only ever\nperforms a null -> value transition: `validate` rejects any instance whose `cimd_url`\nis already set, so an existing binding can never be re-pointed through this endpoint.'
+    )
 
 export const domainsCreateBodyDomainMax = 128
 

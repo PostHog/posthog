@@ -168,16 +168,13 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_FOLD_ENABLED: boolean
     // Teams eligible for merge folding: comma-separated team IDs, or '*' for all teams.
     PERSON_MERGE_FOLD_TEAM_ALLOWLIST: string
-    // Always-v1 rollout of the personless-table removal RFC: for these teams, merge-added distinct
-    // id mappings get version 1 unconditionally (always writing a ClickHouse override) instead of
-    // consulting posthog_personlessdistinctid for the version-0 optimization. Comma-separated team
-    // IDs, or '*' for all teams; empty means no teams.
-    PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: string
-    // Steps 3+4 of the personless-table removal RFC: for these teams, stop writing
-    // posthog_personlessdistinctid (chunk inserts, single-row fallback, merge upserts) and stop
-    // reading the is_merged race hint. Implies always-v1 merge versioning for the team, so the
-    // table's absence can never orphan events. Comma-separated team IDs, or '*' for all teams.
-    PERSONLESS_WRITES_DISABLED_TEAMS: string
+    // Tombstone rollout of the person-deletion-gaps RFC: for these teams, a merge tombstones the
+    // source person row (is_deleted = true, version stamped in the same transaction, properties
+    // scrubbed) instead of hard-deleting it, and the ClickHouse death row carries that exact
+    // version instead of the version + 100 fudge. The row keeps the key's version counter so a
+    // recreated person revives above its own tombstone. Comma-separated team IDs, or '*' for all
+    // teams; empty means no teams.
+    PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -322,8 +319,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
-        PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '',
-        PERSONLESS_WRITES_DISABLED_TEAMS: '',
+        PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
