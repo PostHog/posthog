@@ -390,6 +390,12 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         post_feedback=False,
     )
     if not user_context:
+        logger.info(
+            "slack_app_link_unfurl_user_unresolved",
+            team_id=integration.team_id,
+            integration_id=integration.id,
+            slack_user_id=slack_user_id,
+        )
         return
 
     user = user_context.user
@@ -397,6 +403,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     uac = UserAccessControl(user, team=team)
 
     unfurls: dict[str, dict] = {}
+    # Every resource we recognized but chose not to unfurl, so a report of "no unfurl appeared"
+    # can be answered from logs instead of by re-deriving the path by hand.
+    skipped: list[dict[str, str]] = []
 
     for link_obj in links:
         raw_url = link_obj.get("url")
@@ -414,9 +423,11 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 continue
             insight = Insight.objects.filter(team_id=team.pk, short_id=ref).first()
             if not insight:
+                skipped.append({"kind": kind, "ref": ref, "reason": "not_found"})
                 continue
             level = uac.get_user_access_level(insight)
             if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
+                skipped.append({"kind": kind, "ref": ref, "reason": "no_access"})
                 continue
             title = insight.name or insight.derived_name or "Untitled"
             desc = (insight.description or "").strip() or None
@@ -428,9 +439,11 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 continue
             dashboard = Dashboard.objects.filter(pk=ref, team_id=team.pk).first()
             if not dashboard:
+                skipped.append({"kind": kind, "ref": str(ref), "reason": "not_found"})
                 continue
             level = uac.get_user_access_level(dashboard)
             if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+                skipped.append({"kind": kind, "ref": str(ref), "reason": "no_access"})
                 continue
             title = dashboard.name or "Untitled"
             desc = (dashboard.description or "").strip() or None
@@ -444,9 +457,14 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             # of the same number — refuse rather than show the wrong ticket.
             url_team_id = _url_team_id(raw_url)
             if url_team_id is not None and url_team_id != team.pk:
+                skipped.append({"kind": kind, "ref": ref, "reason": "other_project"})
                 continue
             ticket = _find_ticket(team.pk, ref)
-            if not ticket or not uac.check_access_level_for_object(ticket, required_level="viewer"):
+            if not ticket:
+                skipped.append({"kind": kind, "ref": ref, "reason": "not_found"})
+                continue
+            if not uac.check_access_level_for_object(ticket, required_level="viewer"):
+                skipped.append({"kind": kind, "ref": ref, "reason": "no_access"})
                 continue
             unfurls[raw_url] = _ticket_unfurl_payload(
                 url=raw_url,
@@ -459,9 +477,11 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 continue
             url_team_id = _url_team_id(raw_url)
             if url_team_id is not None and url_team_id != team.pk:
+                skipped.append({"kind": kind, "ref": ref, "reason": "other_project"})
                 continue
             task = tasks_facade.get_task_for_slack_unfurl(ref, team.pk, user.id)
             if task is None:
+                skipped.append({"kind": kind, "ref": ref, "reason": "not_found_or_no_access"})
                 continue
             label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
             unfurls[raw_url] = _unfurl_payload(resource_label=label, title=_escape_mrkdwn(task.title), description=None)
@@ -477,6 +497,15 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
                 )
             except Exception:
                 logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
+
+    logger.info(
+        "slack_app_link_unfurl_result",
+        team_id=team.pk,
+        integration_id=integration.id,
+        channel=channel,
+        unfurled=len(unfurls),
+        skipped=skipped,
+    )
 
     if not unfurls:
         return
