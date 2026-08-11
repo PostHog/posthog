@@ -1,1 +1,1 @@
-0023_symbolset_autovacuum_scale_factor
+0024_errortrackingissue_severity

@@ -14,7 +14,7 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
 /** Stages of the URL lane. Deliberately the same vocabulary as {@link MlImageLaneStage}, so the two
  *  lanes read the same way on a dashboard even though only `collected` exists until the fetch lane
  *  ships. */
-export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed'
+export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
 
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({

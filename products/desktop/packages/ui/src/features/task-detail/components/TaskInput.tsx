@@ -296,6 +296,8 @@ export function TaskInput({
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<AgentRuntime>("acp");
+  // Keep the menu open when a harness switch swaps its ACP/Pi control.
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const didResolveRuntimeRef = useRef(false);
   const [selectedPiModelId, setSelectedPiModelId] = useState<string | null>(
     null,
@@ -1493,9 +1495,12 @@ export function TaskInput({
                         }
                         thinkingLevels={piThinkingLevels}
                         disabled={isCreatingTask || isPiConfigLoading}
+                        isLoading={isPiConfigLoading}
                         onChange={handlePiModelChange}
                         onThinkingLevelChange={handlePiThinkingLevelChange}
                         onHarnessChange={handleHarnessChange}
+                        menuOpen={modelMenuOpen}
+                        onMenuOpenChange={setModelMenuOpen}
                       />
                     ) : null
                   }
@@ -1522,6 +1527,8 @@ export function TaskInput({
                         }
                         includePiHarness={piHarnessEnabled}
                         onConfigOptionChange={setConfigOption}
+                        menuOpen={modelMenuOpen}
+                        onMenuOpenChange={setModelMenuOpen}
                         disabled={isCreatingTask}
                         isLoading={isPreviewLoading}
                       />

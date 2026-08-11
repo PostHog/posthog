@@ -220,7 +220,11 @@ class GithubSource(
 6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
 7. Click **Add webhook**
 
-If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
+If automatic creation failed with a permissions error, the fix depends on how you connected:
+
+- **Classic personal access token**: add the **admin:repo_hook** scope, then reconnect the source.
+- **Fine-grained personal access token**: add **Repository webhooks: read and write**, then reconnect the source.
+- **GitHub app**: an installation only holds what the app itself requests, so you cannot add this permission yourself. Use the manual steps above, or reconnect the source with a personal access token.""",
             webhookFields=cast(
                 list[FieldType],
                 [
@@ -476,6 +480,20 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             return held if isinstance(held, dict) else None
         except Exception:
             return None
+
+    def webhook_creation_blocked_reason(self, config: GithubSourceConfig, team_id: int) -> str | None:
+        # Creating a repo hook needs write on repository_hooks. An installation only ever holds what
+        # the GitHub app requests, so when the persisted permission set says otherwise the button
+        # can only 403 — send the user straight to the manual steps instead. Unknown permissions
+        # (token connections, rows predating persistence) fail open, as everywhere else.
+        held = self._installation_permissions(config, team_id)
+        if held is None or held.get("repository_hooks") == "write":
+            return None
+        return (
+            "This GitHub app installation cannot manage repository webhooks, so PostHog cannot "
+            "create the webhook for you. Set it up manually using the steps below, or reconnect "
+            "the source with a personal access token that has the admin:repo_hook scope."
+        )
 
     @staticmethod
     def _missing_permission_reason(required_permission: str) -> str:
