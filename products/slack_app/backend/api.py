@@ -97,7 +97,11 @@ from products.slack_app.backend.services.slack_user_oauth import (
     find_linked_posthog_user,
     post_link_invite_message,
 )
-from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl, parse_posthog_resource_link
+from products.slack_app.backend.slack_link_unfurl import (
+    handle_posthog_link_unfurl,
+    link_url_region,
+    parse_posthog_resource_link,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -2193,29 +2197,29 @@ def route_posthog_code_event_to_relevant_region(
             incoming_host=incoming_host,
         )
 
+    # The link's own host decides the region, from URL parsing alone — ahead of ``load_integrations``,
+    # whose query and Slack auth check would be thrown away on the forward. A workspace connected in
+    # both regions otherwise resolves a `us.` link's `/project/:id` against this region's project of
+    # the same number, which holds someone else's data or nothing at all.
+    link_region = _link_shared_url_region(event) if event_type == "link_shared" else None
+    if (
+        link_region is not None
+        and link_region != get_instance_region()
+        and not proxied
+        and cross_region_routing_enabled()
+    ):
+        logger.info(
+            "slack_app_link_unfurl_region_forward",
+            slack_team_id=slack_team_id,
+            event_id=event_id,
+            link_region=link_region,
+            incoming_host=incoming_host,
+        )
+        return _proxy_event_and_return_route(request, other_domain)
+
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
-    link_region: str | None = None
     if event_type == "link_shared":
-        # The link's own host decides the region before anything is resolved locally. A workspace
-        # connected in both regions otherwise resolves a `us.` link's `/project/:id` against this
-        # region's project of the same number, which holds someone else's data or nothing at all.
-        link_region = _link_shared_url_region(event)
-        if (
-            link_region is not None
-            and link_region != get_instance_region()
-            and not proxied
-            and cross_region_routing_enabled()
-        ):
-            logger.info(
-                "slack_app_link_unfurl_region_forward",
-                slack_team_id=slack_team_id,
-                event_id=event_id,
-                link_region=link_region,
-                incoming_host=incoming_host,
-            )
-            return _proxy_event_and_return_route(request, other_domain)
-
         link_target = _link_shared_target(event, link_result.candidates, slack_team_id=slack_team_id)
         logger.info(
             "slack_app_link_unfurl_target_selected",
@@ -3085,15 +3089,6 @@ class LinkSharedTarget:
     source: str
 
 
-# App hosts that name a Cloud region. `app.posthog.com` is the legacy alias for US Cloud. A bare
-# `posthog.com` link names no region, so it stays out.
-_APP_HOST_REGIONS: dict[str, str] = {
-    "us.posthog.com": "US",
-    "app.posthog.com": "US",
-    "eu.posthog.com": "EU",
-}
-
-
 def _link_shared_resource_urls(event: dict[str, Any]) -> list[str]:
     """The event's links that parse as a resource we can unfurl.
 
@@ -3121,11 +3116,7 @@ def _link_shared_url_region(event: dict[str, Any]) -> str | None:
     link are unrelated projects. Reading the region off the host is what keeps a link from being
     resolved against the same number in the wrong region.
     """
-    regions = set()
-    for url in _link_shared_resource_urls(event):
-        region = _APP_HOST_REGIONS.get(urlparse(url).hostname or "")
-        if region is not None:
-            regions.add(region)
+    regions = {region for url in _link_shared_resource_urls(event) if (region := link_url_region(url)) is not None}
     return regions.pop() if len(regions) == 1 else None
 
 
