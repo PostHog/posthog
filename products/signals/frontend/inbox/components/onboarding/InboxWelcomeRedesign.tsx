@@ -6,6 +6,7 @@ import { IconRewindPlay, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
@@ -68,7 +69,7 @@ function StageCard({
     className,
     children,
 }: {
-    stage: 'signals' | 'agents' | 'inbox'
+    stage: 'signals' | 'pipeline' | 'inbox'
     className?: string
     children: React.ReactNode
 }): JSX.Element {
@@ -96,7 +97,7 @@ function Arrow({ second = false }: { second?: boolean }): JSX.Element {
 }
 
 /**
- * The illustrative loop: signal sources -> agents -> a PR in your inbox. Never interactive
+ * The illustrative loop: signal sources -> scouts & pipeline -> a PR in your inbox. Never interactive
  * (pointer-events-none on the whole grid); the cards and the Review button are props, not UI.
  */
 function LoopDiagram(): JSX.Element {
@@ -105,24 +106,28 @@ function LoopDiagram(): JSX.Element {
             <div className="flex flex-col gap-2">
                 <StageLabel>Signal sources</StageLabel>
                 <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <IconRewindPlay className="shrink-0 text-sm text-warning" />
+                    <span className="flex size-5 shrink-0 items-center justify-center">
+                        <IconRewindPlay className="text-sm text-[var(--color-product-session-replay-light)] dark:text-[var(--color-product-session-replay-dark)]" />
+                    </span>
                     <span className="truncate text-xs">Rage clicks in checkout replay</span>
                 </StageCard>
                 <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <IconWarning className="shrink-0 text-sm text-danger" />
+                    <span className="flex size-5 shrink-0 items-center justify-center">
+                        <IconWarning className="text-sm text-[var(--color-product-error-tracking-light)] dark:text-[var(--color-product-error-tracking-dark)]" />
+                    </span>
                     <span className="truncate font-mono text-xs">TypeError in checkout</span>
                 </StageCard>
                 <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
-                    <span className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-[#a56eff] text-[10px] font-bold text-white">
-                        S
+                    <span className="flex size-5 shrink-0 items-center justify-center">
+                        <IconSlack className="size-4" />
                     </span>
                     <span className="truncate text-xs">"checkout hangs on Safari"</span>
                 </StageCard>
             </div>
             <Arrow />
             <div className="flex flex-col gap-2">
-                <StageLabel>Agents</StageLabel>
-                <StageCard stage="agents" className="flex flex-col gap-1.5 px-3.5 py-3">
+                <StageLabel>Scouts &amp; pipeline</StageLabel>
+                <StageCard stage="pipeline" className="flex flex-col gap-1.5 px-3.5 py-3">
                     <div className="flex items-center gap-2 text-[13px] font-semibold">
                         <span className="size-[7px] shrink-0 rounded-full bg-success" />
                         Reproduced the bug, wrote the fix
@@ -159,7 +164,7 @@ function LoopDiagram(): JSX.Element {
 /**
  * Redesigned self-driving welcome takeover (test arm of the `inbox-welcome-redesign` experiment;
  * `InboxOnboardingTakeover` is control). Leads with the payoff, makes the wizard command the one
- * CTA, and explains signal sources and agents as labels over an animated loop instead of prose.
+ * CTA, and explains signal sources and the scouts & pipeline stage as labels over an animated loop instead of prose.
  * Rendered without the tab bar: this variant is a full-pane welcome, not a locked tab.
  */
 export function InboxWelcomeRedesign(): JSX.Element {
@@ -168,8 +173,8 @@ export function InboxWelcomeRedesign(): JSX.Element {
     }, [])
 
     return (
-        <div className="InboxWelcomeRedesign">
-            <div className="px-6 pb-14 pt-12 lg:pt-[72px]">
+        <div className="InboxWelcomeRedesign flex min-h-full flex-col justify-center py-10">
+            <div className="px-6 pb-12">
                 <div className="mx-auto flex max-w-[720px] flex-col items-center text-center">
                     <div className="mb-7">
                         <Logomark jumpOnClick size="xl" />
@@ -188,7 +193,7 @@ export function InboxWelcomeRedesign(): JSX.Element {
                     </p>
                 </div>
             </div>
-            <div className="px-6 pb-13 md:px-12">
+            <div className="px-6 md:px-12">
                 <div className="mx-auto max-w-[1060px]">
                     <LoopDiagram />
                     <p className="mt-6 text-center text-xs text-tertiary">

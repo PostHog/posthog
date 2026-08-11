@@ -26,7 +26,7 @@
     &__stage {
         animation: InboxWelcomeRedesign__stage 9s infinite;
 
-        &--agents {
+        &--pipeline {
             animation-delay: 3s;
         }
 
@@ -44,8 +44,8 @@
     }
 }
 
-// Each stage lights up in sequence (signals at 0s, agents at 3s, inbox at 6s) so the diagram
-// reads as a loop: signal sources -> agents -> your inbox.
+// Each stage lights up in sequence (signals at 0s, pipeline at 3s, inbox at 6s) so the diagram
+// reads as a loop: signal sources -> scouts & pipeline -> your inbox.
 @keyframes InboxWelcomeRedesign__stage {
     0%,
     30%,
