@@ -26,19 +26,14 @@ import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Pressable, View } from "react-native";
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { FloatingBackButton } from "@/components/FloatingBackButton";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
+import { PinTaskButton } from "@/features/tasks/components/PinTaskButton";
 import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { StopRunButton } from "@/features/tasks/components/StopRunButton";
@@ -81,6 +76,7 @@ import {
   useAnalytics,
 } from "@/lib/analytics";
 import { logger } from "@/lib/logger";
+import { modalTopOffset } from "@/lib/navigation";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
 import { useThemeColors } from "@/lib/theme";
 
@@ -827,6 +823,7 @@ export default function TaskDetailScreen() {
         subtitle={task?.repository ?? undefined}
         rightSlot={
           <>
+            {taskId ? <PinTaskButton taskId={taskId} /> : null}
             {task ? <CustomImageBadge task={task} /> : null}
             {canStopRun ? (
               <StopRunButton onPress={handleStopRun} />
@@ -843,7 +840,7 @@ export default function TaskDetailScreen() {
         {showAutomationContext && automationContextLabel && (
           <View
             className="absolute inset-x-3 z-10 rounded-lg border border-accent-6 bg-accent-2 px-3 py-2"
-            style={{ top: (Platform.OS === "ios" ? 6 : insets.top) + 52 }}
+            style={{ top: modalTopOffset(insets.top) + 52 }}
           >
             <Text className="text-accent-11 text-xs">
               {automationName
@@ -886,7 +883,7 @@ export default function TaskDetailScreen() {
           contentContainerStyle={{
             paddingTop: 8,
             paddingBottom:
-              (Platform.OS === "ios" ? 6 : insets.top) +
+              modalTopOffset(insets.top) +
               60 +
               (showAutomationContext ? 44 : 0),
           }}

@@ -3,7 +3,13 @@ import { taskActivityTimestamp } from "@posthog/core/tasks/taskActivity";
 import type { Task } from "@posthog/shared";
 import * as Haptics from "expo-haptics";
 import { Archive, GitBranch, Plus, Sparkle, X } from "phosphor-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -28,6 +34,8 @@ interface TaskListProps {
   /** Fired when long-press multi-select starts/ends, so the parent can hide
    *  chrome (e.g. the new-task FAB) that overlaps the selection bar. */
   onSelectionModeChange?: (active: boolean) => void;
+  /** Rendered above the first row, scrolling with the list. */
+  listHeader?: ReactNode;
 }
 
 interface CreateTaskEmptyStateProps {
@@ -102,6 +110,7 @@ export function TaskList({
   onCreateTask,
   contentInsetTop = 0,
   onSelectionModeChange,
+  listHeader,
 }: TaskListProps) {
   const { tasks, isLoading, error, refetch } = useTasks();
   const {
@@ -314,12 +323,15 @@ export function TaskList({
           }
         }}
         ListHeaderComponent={
-          integrationsError ? (
-            <GitHubLoadNotice
-              message={integrationsError}
-              onRetry={handleRefresh}
-            />
-          ) : null
+          <>
+            {listHeader}
+            {integrationsError ? (
+              <GitHubLoadNotice
+                message={integrationsError}
+                onRetry={handleRefresh}
+              />
+            ) : null}
+          </>
         }
         renderItem={({ item }) => {
           if (item.type === "repo-header") {

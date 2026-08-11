@@ -3,6 +3,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { FunnelSimple, UsersThree } from "phosphor-react-native";
 import { Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useActiveProjectName } from "@/features/auth";
 import { MenuButton } from "@/features/navigation/components/MenuButton";
 import { toRgba, useThemeColors } from "@/lib/theme";
 import { LiveDot } from "./LiveDot";
@@ -32,6 +33,7 @@ export function FloatingInboxHeader({
 }: FloatingInboxHeaderProps) {
   const insets = useSafeAreaInsets();
   const themeColors = useThemeColors();
+  const projectName = useActiveProjectName();
 
   const fadeHeight = insets.top + 80;
 
@@ -60,16 +62,23 @@ export function FloatingInboxHeader({
 
         <View
           pointerEvents="none"
-          className="absolute inset-x-0 flex-row items-center justify-center gap-1.5"
+          className="absolute inset-x-0 items-center justify-center"
           style={{ top: insets.top + 6, bottom: 8 }}
         >
-          <Text
-            className="font-semibold text-[15px] text-gray-12"
-            numberOfLines={1}
-          >
-            Inbox
-          </Text>
-          <LiveDot active={isFetching} hasError={hasError} />
+          <View className="flex-row items-center gap-1.5">
+            <Text
+              className="font-semibold text-[15px] text-gray-12"
+              numberOfLines={1}
+            >
+              Inbox
+            </Text>
+            <LiveDot active={isFetching} hasError={hasError} />
+          </View>
+          {projectName ? (
+            <Text className="text-[11px] text-gray-10" numberOfLines={1}>
+              {projectName}
+            </Text>
+          ) : null}
         </View>
 
         <View className="flex-row items-center gap-2">

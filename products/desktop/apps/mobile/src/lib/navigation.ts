@@ -10,3 +10,15 @@ export const MODAL_PRESENTATION =
   Platform.OS === "ios" && Platform.isPad
     ? ("fullScreenModal" as const)
     : ("modal" as const);
+
+/**
+ * Top offset for floating chrome inside modal-presented screens. iPhone
+ * sheets already sit below the status bar, so a fixed 6pt breathing space
+ * suffices; full-screen modals (iPad, Android) extend under the status bar
+ * and need the real safe-area inset.
+ */
+export function modalTopOffset(safeAreaTop: number): number {
+  return MODAL_PRESENTATION === "modal" && Platform.OS === "ios"
+    ? 6
+    : safeAreaTop;
+}

@@ -1,8 +1,31 @@
 import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Alert } from "react-native";
 import { logger } from "@/lib/logger";
 
 const log = logger.scope("voice-recording");
+
+function friendlyVoiceError(code?: string, message?: string): string {
+  if (code === "service-not-allowed") {
+    return "Dictation is turned off on this device. Enable it under Settings → General → Keyboards → Enable Dictation, then try again.";
+  }
+  return message || "Speech recognition failed";
+}
+
+// Surfacing failures matters more than silence here: without it a failed
+// start just snaps the mic button back with no explanation. Debounced so
+// rapid retries don't stack alerts.
+let lastVoiceAlertAt = 0;
+
+/** Once on-device recognition fails with missing assets, stop requesting it —
+ *  network recognition works whenever Siri/Dictation is enabled. */
+let onDeviceRecognitionBroken = false;
+function alertVoiceError(friendly: string): void {
+  const now = Date.now();
+  if (now - lastVoiceAlertAt < 3_000) return;
+  lastVoiceAlertAt = now;
+  Alert.alert("Voice input unavailable", friendly);
+}
 
 type RecordingStatus = "idle" | "recording" | "transcribing" | "error";
 
@@ -91,7 +114,9 @@ export function useVoiceRecording(
       setError(null);
 
       if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
-        setError("Speech recognition is not available on this device");
+        const message = "Speech recognition is not available on this device";
+        setError(message);
+        alertVoiceError(message);
         setStatus("error");
         return;
       }
@@ -99,7 +124,10 @@ export function useVoiceRecording(
       const { granted } =
         await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!granted) {
-        setError("Speech recognition permission is required");
+        const message =
+          "Speech recognition permission is required. You can grant it in Settings → PostHog.";
+        setError(message);
+        alertVoiceError(message);
         setStatus("error");
         return;
       }
@@ -129,7 +157,26 @@ export function useVoiceRecording(
             handleFinalEvent();
             return;
           }
-          setError(event.message || "Speech recognition failed");
+          // Devices can claim on-device support while the language assets
+          // were never downloaded ("Assets are not installed..."). Retry the
+          // same recording over network recognition instead of failing.
+          if (
+            event.error === "service-not-allowed" &&
+            !onDeviceRecognitionBroken
+          ) {
+            onDeviceRecognitionBroken = true;
+            log.warn("On-device recognition unavailable; retrying via network");
+            ExpoSpeechRecognitionModule.start({
+              lang: "en-US",
+              interimResults: true,
+              requiresOnDeviceRecognition: false,
+              addsPunctuation: true,
+            });
+            return;
+          }
+          const friendly = friendlyVoiceError(event.error, event.message);
+          setError(friendly);
+          alertVoiceError(friendly);
           removeListeners();
           transcriptRef.current = "";
           const waiter = stopWaitRef.current;
@@ -151,6 +198,7 @@ export function useVoiceRecording(
       ];
 
       const useOnDevice =
+        !onDeviceRecognitionBroken &&
         ExpoSpeechRecognitionModule.supportsOnDeviceRecognition();
 
       ExpoSpeechRecognitionModule.start({

@@ -10,6 +10,7 @@ import {
 } from "phosphor-react-native";
 import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,9 +29,12 @@ import { TaskStatusIcon } from "@/features/tasks/components/TaskStatusIcon";
 import { useTasks } from "@/features/tasks/hooks/useTasks";
 import { useArchivedTasksStore } from "@/features/tasks/stores/archivedTasksStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { logger } from "@/lib/logger";
 import { useThemeColors } from "@/lib/theme";
 import { useNavDrawerStore } from "../stores/navDrawerStore";
 import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
+
+const log = logger.scope("nav-drawer-view");
 
 const OPEN_DURATION = 280;
 const CLOSE_DURATION = 220;
@@ -333,12 +337,29 @@ export function NavDrawer() {
     progress.value = useNavDrawerStore.getState().isOpen ? 1 : 0;
     return useNavDrawerStore.subscribe((state, prev) => {
       if (state.isOpen === prev.isOpen) return;
+      log.debug("drawer state change", {
+        isOpen: state.isOpen,
+        drawerWidth,
+      });
       progress.value = withTiming(state.isOpen ? 1 : 0, {
         duration: state.isOpen ? OPEN_DURATION : CLOSE_DURATION,
         easing: state.isOpen
           ? Easing.out(Easing.cubic)
           : Easing.in(Easing.cubic),
       });
+      // Watchdog: if the timing animation hasn't visibly moved the drawer
+      // shortly after an open, snap it fully open so a stalled animation
+      // driver (seen on iPad) degrades to a jump cut instead of an
+      // invisible, stuck-open drawer.
+      if (state.isOpen) {
+        setTimeout(() => {
+          log.debug("drawer progress watchdog", { progress: progress.value });
+          if (useNavDrawerStore.getState().isOpen && progress.value < 0.05) {
+            log.warn("drawer animation stalled; snapping open");
+            progress.value = 1;
+          }
+        }, 500);
+      }
     });
   }, [progress]);
 
@@ -350,29 +371,51 @@ export function NavDrawer() {
     opacity: progress.value,
   }));
 
-  return (
-    <View
-      pointerEvents={isOpen ? "auto" : "none"}
-      style={StyleSheet.absoluteFillObject}
-    >
-      <Animated.View
-        pointerEvents={isOpen ? "auto" : "none"}
-        style={[
-          StyleSheet.absoluteFillObject,
-          { backgroundColor: "rgba(0,0,0,0.4)" },
-          backdropStyle,
-        ]}
-      >
-        {/* Touch-down close so the dismiss starts the moment the finger lands. */}
-        <Pressable className="flex-1" onPressIn={close} />
-      </Animated.View>
+  // Host the drawer in a native Modal: react-native-screens' native screen
+  // containers paint above plain sibling views on iPad regardless of zIndex,
+  // which left the drawer opening invisibly behind the Stack. A transparent
+  // Modal always renders on top. Kept mounted through the close animation.
+  const [rendered, setRendered] = useState(isOpen);
+  useEffect(() => {
+    if (isOpen) {
+      setRendered(true);
+      return;
+    }
+    const timeout = setTimeout(() => setRendered(false), CLOSE_DURATION + 50);
+    return () => clearTimeout(timeout);
+  }, [isOpen]);
 
-      <Animated.View
-        className="absolute bottom-0 left-0 border-gray-6 border-r bg-gray-2"
-        style={[{ top: drawerTop, width: drawerWidth }, drawerStyle]}
+  return (
+    <Modal
+      transparent
+      statusBarTranslucent
+      visible={rendered}
+      animationType="none"
+      onRequestClose={close}
+    >
+      <View
+        pointerEvents={isOpen ? "auto" : "none"}
+        style={StyleSheet.absoluteFillObject}
       >
-        <NavDrawerContent paddingTop={drawerPaddingTop} />
-      </Animated.View>
-    </View>
+        <Animated.View
+          pointerEvents={isOpen ? "auto" : "none"}
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backgroundColor: "rgba(0,0,0,0.4)" },
+            backdropStyle,
+          ]}
+        >
+          {/* Touch-down close so the dismiss starts the moment the finger lands. */}
+          <Pressable className="flex-1" onPressIn={close} />
+        </Animated.View>
+
+        <Animated.View
+          className="absolute bottom-0 left-0 border-gray-6 border-r bg-gray-2"
+          style={[{ top: drawerTop, width: drawerWidth }, drawerStyle]}
+        >
+          <NavDrawerContent paddingTop={drawerPaddingTop} />
+        </Animated.View>
+      </View>
+    </Modal>
   );
 }

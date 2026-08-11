@@ -1,9 +1,10 @@
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { InteractionManager, View } from "react-native";
+import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FloatingNewTaskButton } from "@/features/tasks/components/FloatingNewTaskButton";
 import { FloatingTasksHeader } from "@/features/tasks/components/FloatingTasksHeader";
+import { PinnedTasksRail } from "@/features/tasks/components/PinnedTasksRail";
 import {
   TaskFilterMenu,
   useTaskFilterMenu,
@@ -25,25 +26,10 @@ export default function TasksScreen() {
     [tasks, archivedTasks],
   );
 
-  // Block navigation while a modal dismiss animation is in progress.
-  // When the screen loses focus (modal opens), readyRef is false.
-  // When focus returns (modal dismissed), we wait for all native
-  // animations to finish before allowing the next push.
-  useFocusEffect(
-    useCallback(() => {
-      const handle = InteractionManager.runAfterInteractions(() => {
-        readyRef.current = true;
-      });
-      return () => {
-        readyRef.current = false;
-        handle.cancel();
-      };
-    }, []),
-  );
-
-  // Re-arm on a timer as well as on refocus: if a modal's dismissal fails to
-  // deliver the focus event (seen with interactive sheet dismissal), the gate
-  // must not leave the whole screen permanently tap-dead.
+  // Pure tap-debounce against double-pushing the same route. The previous
+  // focus-effect gate (false on blur, re-armed on refocus) went permanently
+  // tap-dead whenever a modal dismissal failed to deliver the focus event —
+  // seen on iPad — so the gate must never depend on navigation events.
   const armAfterNavigation = useCallback(() => {
     readyRef.current = false;
     setTimeout(() => {
@@ -77,6 +63,7 @@ export default function TasksScreen() {
         onCreateTask={handleCreateTask}
         contentInsetTop={headerHeight}
         onSelectionModeChange={setSelectionActive}
+        listHeader={<PinnedTasksRail onTaskPress={handleTaskPress} />}
       />
 
       <FloatingTasksHeader

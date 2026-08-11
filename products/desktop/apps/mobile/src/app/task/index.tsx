@@ -281,6 +281,29 @@ export default function NewTaskScreen() {
   const repositoryLoadBlocked =
     !!repositoryWarning && repositoryOptions.length === 0;
 
+  // Diagnostic breadcrumb for the blank-new-task-screen report: captures the
+  // states that can each blank the composer area.
+  useEffect(() => {
+    log.debug("new-task screen state", {
+      integrationsLoading: isLoading,
+      integrationsError: !!error,
+      repositoryLoadBlocked,
+      hasGithubIntegration,
+      isConfigReady,
+      repositoryOptions: repositoryOptions.length,
+      keyboardHeight: keyboard.height.value,
+      keyboardProgress: keyboard.progress.value,
+      restingBottom,
+    });
+  }, [
+    isLoading,
+    error,
+    repositoryLoadBlocked,
+    hasGithubIntegration,
+    isConfigReady,
+    repositoryOptions.length,
+  ]);
+
   const handleCreateTask = useCallback(async () => {
     const hasContent = !!prompt.trim() || attachments.length > 0;
     if (!hasContent || !isRepositorySelectionComplete(selection) || creating) {
