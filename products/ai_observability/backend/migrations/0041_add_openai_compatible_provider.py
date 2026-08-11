@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0031_llmprompt_config"),
+        ("ai_observability", "0040_validate_dataset_item_version_ownership"),
     ]
 
     operations = [
