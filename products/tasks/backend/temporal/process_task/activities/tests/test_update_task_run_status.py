@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
 from products.tasks.backend.models import Loop, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
@@ -87,7 +88,9 @@ class TestUpdateTaskRunStatusActivity:
         assert test_task_run.state.get("existing_key") == "kept"
 
     @pytest.mark.django_db(transaction=True)
-    def test_timed_out_unclaimed_prewarm_soft_deletes_task(self, activity_environment, test_task_run):
+    def test_timed_out_unclaimed_prewarm_soft_deletes_task(
+        self, activity_environment: ActivityEnvironment, test_task_run: TaskRun
+    ) -> None:
         test_task_run.task.title = ""
         test_task_run.task.description = ""
         test_task_run.task.save(update_fields=["title", "description", "updated_at"])
