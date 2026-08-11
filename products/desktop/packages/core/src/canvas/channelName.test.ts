@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { normalizeChannelName, validateChannelName } from "./channelName";
+import {
+  normalizeChannelName,
+  normalizeChannelNameInput,
+  validateChannelName,
+} from "./channelName";
 
 describe("normalizeChannelName", () => {
   it.each([
@@ -10,6 +14,15 @@ describe("normalizeChannelName", () => {
     ["café 🚀", "caf"],
   ])("normalizes %j to %j", (name, expected) => {
     expect(normalizeChannelName(name)).toBe(expected);
+  });
+
+  it("preserves separators while a multi-word name is typed", () => {
+    const normalized = [..."My New Space"].reduce(
+      (name, character) => normalizeChannelNameInput(name + character),
+      "",
+    );
+
+    expect(normalized).toBe("my-new-space");
   });
 });
 

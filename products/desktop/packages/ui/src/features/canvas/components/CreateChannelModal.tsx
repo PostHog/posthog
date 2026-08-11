@@ -1,5 +1,6 @@
 import {
   normalizeChannelName,
+  normalizeChannelNameInput,
   validateChannelName,
 } from "@posthog/core/canvas/channelName";
 import {
@@ -167,7 +168,7 @@ export function CreateChannelModal({
     }
   }
 
-  const trimmedName = name.trim();
+  const trimmedName = normalizeChannelName(name);
   const trimmedDescription = description.trim();
   const remaining = MAX_CONTEXT_NAME_LENGTH - name.length;
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
@@ -394,8 +395,9 @@ export function CreateChannelModal({
                   maxLength={MAX_CONTEXT_NAME_LENGTH}
                   disabled={busy}
                   onChange={(e) =>
-                    setName(normalizeChannelName(e.target.value))
+                    setName(normalizeChannelNameInput(e.target.value))
                   }
+                  onBlur={() => setName(normalizeChannelName(name))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
