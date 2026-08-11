@@ -12,13 +12,13 @@ import {
   CollapsibleTrigger,
   ThreadItem,
   ThreadItemAction,
-  ThreadItemActions,
   ThreadItemAuthor,
   ThreadItemBody,
   ThreadItemContent,
   ThreadItemGroup,
   ThreadItemGutter,
   ThreadItemHeader,
+  TooltipProvider,
 } from "@posthog/quill";
 import type {
   Task,
@@ -94,7 +94,7 @@ function UserMessageRow({
   );
   const displayContent = customInstructions?.stripped ?? afterChannelContext;
   return (
-    <ThreadItem className="rounded-none">
+    <ThreadItem className="group/timeline-message rounded-none">
       {/* Decorative: the author's name is written beside it, so keep the avatar's
           initials out of the row's accessible name. */}
       <ThreadItemGutter className="justify-center" aria-hidden>
@@ -104,6 +104,19 @@ function UserMessageRow({
         <ThreadItemHeader>
           <ThreadItemAuthor className="text-[13px]">{name}</ThreadItemAuthor>
           <ThreadTimestamp dateTime={timestamp} />
+          {onSelect && (
+            <TooltipProvider>
+              <ThreadItemAction
+                label="View in chat"
+                variant="link-muted"
+                size="icon-xs"
+                className="ml-auto self-center opacity-0 transition-opacity group-focus-within/timeline-message:opacity-100 group-hover/timeline-message:opacity-100"
+                onClick={onSelect}
+              >
+                <ArrowRightIcon size={12} />
+              </ThreadItemAction>
+            </TooltipProvider>
+          )}
         </ThreadItemHeader>
         <ThreadItemBody className="mt-1.5 whitespace-pre-wrap break-words text-[13px]">
           <MentionText
@@ -132,13 +145,6 @@ function UserMessageRow({
           )}
         </ThreadItemBody>
       </ThreadItemContent>
-      {onSelect && (
-        <ThreadItemActions aria-label="Timeline actions">
-          <ThreadItemAction label="View in chat" onClick={onSelect}>
-            <ArrowRightIcon size={14} />
-          </ThreadItemAction>
-        </ThreadItemActions>
-      )}
     </ThreadItem>
   );
 }

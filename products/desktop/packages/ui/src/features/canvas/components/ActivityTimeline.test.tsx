@@ -60,9 +60,12 @@ describe("ActivityTimeline", () => {
 
     expect(screen.getByText(/first thing/)).toBeInTheDocument();
     expect(screen.getByText(/second thing/)).toBeInTheDocument();
-    expect(
-      screen.getAllByRole("button", { name: "View in chat" }),
-    ).toHaveLength(2);
+    const actions = screen.getAllByRole("button", { name: "View in chat" });
+    expect(actions).toHaveLength(2);
+    for (const action of actions) {
+      expect(action).toHaveAttribute("data-size", "icon-xs");
+      expect(action.closest('[role="toolbar"]')).toBeNull();
+    }
   });
 
   it("truncates long message previews to 100 characters", () => {
