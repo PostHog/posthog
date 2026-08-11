@@ -7,6 +7,7 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.close import CloseResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.source import CloseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.close import CloseSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -103,6 +104,17 @@ class TestCloseSource:
     )
     def test_non_retryable_errors(self, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "500 Server Error: Internal Server Error for url: https://api.close.com/api/v1/data/search/",
+            "503 Server Error: Service Unavailable for url: https://api.close.com/api/v1/data/search/",
+            "429 Client Error: Too Many Requests for url: https://api.close.com/api/v1/data/search/",
+        ],
+    )
+    def test_retryable_errors_match_exhausted_search_retries(self, error_msg: str) -> None:
+        assert error_message_matches(error_msg, self.source.get_retryable_errors())
 
     def test_get_resumable_source_manager_binds_data_class(self) -> None:
         inputs = MagicMock()

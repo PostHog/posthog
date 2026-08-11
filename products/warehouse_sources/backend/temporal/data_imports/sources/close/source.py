@@ -45,6 +45,14 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
             "403 Client Error: Forbidden for url": "Your Close API key does not have access to this resource. Please check the key's permissions.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # Leads/Contacts go through the Advanced Filtering search session (see search.py), whose
+        # `CLOSE_RETRY` already retries 429/5xx at the urllib3 layer before `raise_for_status` can
+        # even raise. A response that still exhausts that budget is a transient Close-side blip, not
+        # a bug, and Temporal's activity retry recovers once it clears. `raise_for_status` derives
+        # these prefixes from the status code alone, not Close's reason text, so they're stable.
+        return {"Server Error", "429 Client Error"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.close.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,
