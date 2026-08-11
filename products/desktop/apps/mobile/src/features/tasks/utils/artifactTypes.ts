@@ -1,10 +1,10 @@
 import type { ArtifactType, TaskRunArtifact } from "@posthog/shared";
 
 /**
- * Artifact types the task detail "Files" section surfaces: everything the agent
- * produced as a deliverable. `skill_bundle` is a machine payload the sandbox
- * consumes, and `user_attachment` is the user's own upload which already shows
- * in the conversation — neither belongs in the deliverables list.
+ * Artifact types the task detail "Files" section surfaces, in render order:
+ * the agent's deliverables first, then files the user attached to the run.
+ * `skill_bundle` stays out — it is a machine payload the sandbox consumes,
+ * never something to open or share.
  */
 export const DELIVERABLE_ARTIFACT_TYPES = [
   "plan",
@@ -12,6 +12,7 @@ export const DELIVERABLE_ARTIFACT_TYPES = [
   "reference",
   "output",
   "artifact",
+  "user_attachment",
 ] as const satisfies readonly ArtifactType[];
 
 export type DeliverableArtifactType =
@@ -23,6 +24,7 @@ const DELIVERABLE_LABELS: Record<DeliverableArtifactType, string> = {
   reference: "Reference",
   output: "Output",
   artifact: "Artifact",
+  user_attachment: "Attachment",
 };
 
 function isDeliverableType(

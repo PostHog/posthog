@@ -1,9 +1,11 @@
+import type { TaskArtifactUploadRequest } from "@posthog/api-client/posthog-client";
 import type {
   Adapter,
   ExecutionMode,
   StoredLogEntry,
   Task,
   TaskRun,
+  TaskRunArtifact,
 } from "@posthog/shared";
 import { fetch } from "expo/fetch";
 import {
@@ -173,6 +175,57 @@ export async function presignTaskRunArtifact(
 
   const data = (await response.json()) as { url: string };
   return data.url;
+}
+
+/**
+ * Uploads one local file into a run's artifact manifest via the three-step
+ * flow the backend requires: reserve an S3 key, POST the bytes straight to S3
+ * with the presigned form, then register the object on the run.
+ *
+ * The bytes go up as a React Native file part (`{ uri, name, type }`) so the
+ * platform streams them from disk — reading a 30MB attachment into a base64
+ * string first would risk the memory ceiling on older devices.
+ */
+export async function uploadTaskRunArtifact(
+  taskId: string,
+  runId: string,
+  file: { uri: string; upload: TaskArtifactUploadRequest },
+): Promise<TaskRunArtifact[]> {
+  const client = getPostHogApiClient();
+
+  const [prepared] = await client.prepareTaskRunArtifactUploads(taskId, runId, [
+    file.upload,
+  ]);
+  if (!prepared) {
+    throw new Error("Upload was not prepared");
+  }
+
+  const form = new FormData();
+  for (const [key, value] of Object.entries(prepared.presigned_post.fields)) {
+    form.append(key, value);
+  }
+  form.append("file", {
+    uri: file.uri,
+    name: prepared.name,
+    type: file.upload.content_type ?? "application/octet-stream",
+  } as unknown as Blob);
+
+  const upload = await globalThis.fetch(prepared.presigned_post.url, {
+    method: "POST",
+    body: form,
+  });
+  if (!upload.ok) {
+    throw new HttpError(
+      upload.status,
+      upload.statusText,
+      `Failed to upload ${prepared.name}`,
+    );
+  }
+
+  const finalized = await client.finalizeTaskRunArtifactUploads(taskId, runId, [
+    prepared,
+  ]);
+  return finalized as TaskRunArtifact[];
 }
 
 export async function cancelRun(

@@ -13,8 +13,8 @@ describe("isDeliverableArtifact", () => {
     ["plan", true],
     ["context", true],
     ["reference", true],
+    ["user_attachment", true],
     ["skill_bundle", false],
-    ["user_attachment", false],
     [undefined, false],
   ])("treats %s as deliverable: %s", (type, expected) => {
     expect(isDeliverableArtifact({ type: type as ArtifactType })).toBe(
@@ -30,8 +30,8 @@ describe("artifactTypeLabel", () => {
     ["plan", "Plan"],
     ["context", "Context"],
     ["reference", "Reference"],
+    ["user_attachment", "Attachment"],
     ["skill_bundle", null],
-    ["user_attachment", null],
     ["tree_snapshot", null],
     [undefined, null],
   ])("labels %s as %s", (type, expected) => {
@@ -42,20 +42,24 @@ describe("artifactTypeLabel", () => {
 describe("selectDeliverableArtifacts", () => {
   const artifact = (name: string, type: ArtifactType) => ({ name, type });
 
-  it("drops skill bundles and user attachments", () => {
+  it("drops skill bundles but keeps files the user attached", () => {
     const selected = selectDeliverableArtifacts([
       artifact("report.md", "output"),
       artifact("skill.zip", "skill_bundle"),
       artifact("screenshot.png", "user_attachment"),
     ]);
 
-    expect(selected.map((entry) => entry.name)).toEqual(["report.md"]);
+    expect(selected.map((entry) => entry.name)).toEqual([
+      "report.md",
+      "screenshot.png",
+    ]);
   });
 
   it("groups by type in declaration order, stable within a group", () => {
     const selected = selectDeliverableArtifacts([
       artifact("second-output.txt", "output"),
       artifact("notes.md", "context"),
+      artifact("upload.pdf", "user_attachment"),
       artifact("first-output.txt", "output"),
       artifact("plan.md", "plan"),
       artifact("links.md", "reference"),
@@ -69,6 +73,7 @@ describe("selectDeliverableArtifacts", () => {
       "second-output.txt",
       "first-output.txt",
       "chart.png",
+      "upload.pdf",
     ]);
   });
 
