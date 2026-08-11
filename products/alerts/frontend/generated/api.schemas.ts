@@ -263,6 +263,8 @@ export type AlertConfigUnionApi =
     | MetricsAlertConfigApi
 
 export interface PreprocessingConfigApi {
+    /** Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false) */
+    deseasonalize?: boolean | null
     /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
     diffs_n?: number | null
     /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */

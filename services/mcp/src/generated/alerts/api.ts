@@ -210,6 +210,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -251,6 +257,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -298,6 +310,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -337,6 +355,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -372,6 +396,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -413,6 +443,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -458,6 +494,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -509,6 +551,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -554,6 +602,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -599,6 +653,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -650,6 +710,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -693,6 +759,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -742,6 +814,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -781,6 +859,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -824,6 +908,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -861,6 +951,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -894,6 +990,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -933,6 +1035,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -976,6 +1084,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -1023,6 +1137,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -1066,6 +1186,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -1109,6 +1235,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -1156,6 +1288,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -1195,6 +1333,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -1519,6 +1663,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1562,6 +1712,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1611,6 +1767,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1652,6 +1814,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1689,6 +1857,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1732,6 +1906,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1779,6 +1959,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1832,6 +2018,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1879,6 +2071,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1926,6 +2124,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -1977,6 +2181,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -2020,6 +2230,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         preprocessing: zod
                                             .union([
                                                 zod.object({
+                                                    deseasonalize: zod
+                                                        .union([zod.boolean(), zod.null()])
+                                                        .optional()
+                                                        .describe(
+                                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                        ),
                                                     diffs_n: zod
                                                         .union([zod.number(), zod.null()])
                                                         .optional()
@@ -2069,6 +2285,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2108,6 +2330,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2151,6 +2379,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2188,6 +2422,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2221,6 +2461,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2260,6 +2506,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2303,6 +2555,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2352,6 +2610,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2395,6 +2659,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2438,6 +2708,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2485,6 +2761,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2524,6 +2806,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         preprocessing: zod
                             .union([
                                 zod.object({
+                                    deseasonalize: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                        ),
                                     diffs_n: zod
                                         .union([zod.number(), zod.null()])
                                         .optional()
@@ -2695,6 +2983,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -2736,6 +3030,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -2783,6 +3083,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -2822,6 +3128,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -2857,6 +3169,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -2898,6 +3216,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -2943,6 +3267,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -2992,6 +3322,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -3037,6 +3373,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -3082,6 +3424,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -3133,6 +3481,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -3176,6 +3530,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                                 preprocessing: zod
                                     .union([
                                         zod.object({
+                                            deseasonalize: zod
+                                                .union([zod.boolean(), zod.null()])
+                                                .optional()
+                                                .describe(
+                                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                                ),
                                             diffs_n: zod
                                                 .union([zod.number(), zod.null()])
                                                 .optional()
@@ -3225,6 +3585,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3262,6 +3628,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3303,6 +3675,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3338,6 +3716,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3369,6 +3753,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3406,6 +3796,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3447,6 +3843,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3492,6 +3894,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3533,6 +3941,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3574,6 +3988,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3616,6 +4036,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
@@ -3653,6 +4079,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 preprocessing: zod
                     .union([
                         zod.object({
+                            deseasonalize: zod
+                                .union([zod.boolean(), zod.null()])
+                                .optional()
+                                .describe(
+                                    'Subtract a day-of-week and hour-of-day baseline before detection, so a normal weekly cycle is not read as a level shift (default: false)'
+                                ),
                             diffs_n: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
