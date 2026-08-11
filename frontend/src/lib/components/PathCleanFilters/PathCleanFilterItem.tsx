@@ -6,10 +6,9 @@ import { useState } from 'react'
 import { IconArrowCircleRight } from '@posthog/icons'
 import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
 
-import { isValidRegexp } from 'lib/utils/regexp'
-
 import { PathCleaningFilter } from '~/types'
 
+import { isValidPathCleaningRegex } from './pathCleaningUtils'
 import { PathRegexModal } from './PathRegexModal'
 
 interface PathCleanFilterItem {
@@ -23,7 +22,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: String(filter.alias) })
 
     const regex = filter.regex ?? ''
-    const isInvalidRegex = !isValidRegexp(regex)
+    const isInvalidRegex = !isValidPathCleaningRegex(regex)
 
     return (
         <>

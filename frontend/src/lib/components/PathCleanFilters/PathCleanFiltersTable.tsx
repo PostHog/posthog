@@ -19,13 +19,12 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TeamMembershipLevel } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { isValidRegexp } from 'lib/utils/regexp'
 
 import { PathCleaningFilter } from '~/types'
 
 import { RestrictionScope, useRestrictedArea } from '../RestrictedArea'
 import { parseAliasToReadable } from './PathCleanFilterItem'
-import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
+import { ensureFilterOrder, isValidPathCleaningRegex, updateFilterOrder } from './pathCleaningUtils'
 import { PathRegexModal } from './PathRegexModal'
 
 export interface PathCleanFiltersTableProps {
@@ -48,7 +47,7 @@ function SortableRow({ filter, index, onEdit, onRemove, disabledReason }: Sortab
     })
 
     const regex = filter.regex ?? ''
-    const isInvalidRegex = !isValidRegexp(regex)
+    const isInvalidRegex = !isValidPathCleaningRegex(regex)
 
     const style = {
         transform: CSS.Transform.toString(transform),

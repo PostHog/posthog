@@ -1,12 +1,10 @@
 import { IconChevronRight } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
-import { isValidRegexp } from 'lib/utils/regexp'
-
 import { PathCleaningFilter } from '~/types'
 
 import { parseAliasToReadable } from './PathCleanFilterItem'
-import { applyPathCleaningRule } from './pathCleaningUtils'
+import { applyPathCleaningRule, canPreviewPathCleaningRegex, isValidPathCleaningRegex } from './pathCleaningUtils'
 
 interface ProcessingStep {
     stepNumber: number
@@ -15,6 +13,8 @@ interface ProcessingStep {
     outputPath: string
     wasModified: boolean
     isValidRegex: boolean
+    /** False when `outputPath` is a passthrough because the preview couldn't run the regex. */
+    canPreview: boolean
 }
 
 export interface PathCleaningRulesDebuggerProps {
@@ -28,7 +28,7 @@ const cleanPathWithDebugSteps = (path: string, filters: PathCleaningFilter[]): P
     let currentPath = path
 
     filters.forEach((filter, index) => {
-        const isValidRegex = isValidRegexp(filter.regex ?? '')
+        const regex = filter.regex ?? ''
         const outputPath = applyPathCleaningRule(currentPath, filter)
 
         steps.push({
@@ -37,7 +37,8 @@ const cleanPathWithDebugSteps = (path: string, filters: PathCleaningFilter[]): P
             inputPath: currentPath,
             outputPath,
             wasModified: currentPath !== outputPath,
-            isValidRegex,
+            isValidRegex: isValidPathCleaningRegex(regex),
+            canPreview: canPreviewPathCleaningRegex(regex),
         })
 
         currentPath = outputPath
@@ -120,7 +121,12 @@ export function PathCleaningRulesDebugger({
                                             </span>
                                         </div>
                                         <div className="w-6 flex-shrink-0 flex justify-center">
-                                            {step.wasModified ? (
+                                            {step.isValidRegex && !step.canPreview ? (
+                                                <div
+                                                    className="w-2 h-2 rounded-full bg-warning"
+                                                    title="Can't be previewed here. This rule is valid and the query still applies it, but its regex uses syntax the preview can't run."
+                                                />
+                                            ) : step.wasModified ? (
                                                 <div
                                                     className="w-2 h-2 rounded-full bg-success"
                                                     title="Matched and modified"

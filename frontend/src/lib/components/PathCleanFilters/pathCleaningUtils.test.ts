@@ -1,4 +1,11 @@
-import { applyPathCleaning, applyPathCleaningRule, expandAlias } from './pathCleaningUtils'
+import {
+    applyPathCleaning,
+    applyPathCleaningRule,
+    canPreviewPathCleaningRegex,
+    expandAlias,
+    isValidPathCleaningRegex,
+    pathCleaningRegexError,
+} from './pathCleaningUtils'
 
 // [name, alias, groups (index 0 is the whole match), expected]
 const EXPAND_CASES: [string, string, (string | undefined)[], string][] = [
@@ -50,6 +57,35 @@ describe('pathCleaningUtils', () => {
         expect(applyPathCleaningRule('/x', { regex: '(', alias: '/y' })).toBe('/x')
         expect(applyPathCleaningRule('/x', { regex: '', alias: '/y' })).toBe('/x')
         expect(applyPathCleaningRule('/x', { regex: '(?i)', alias: '/y' })).toBe('/x')
+    })
+
+    it.each([
+        // `(?i)` is how re2 asks for case-insensitive matching, and JavaScript rejects it outright, so
+        // validating with JavaScript would call a documented, working rule invalid.
+        ['an inline (?i) flag group is valid', '(?i)/Users/(\\d+)', true],
+        ['a plain pattern is valid', '/users/(\\d+)', true],
+        // The reverse direction: JavaScript accepts lookahead and re2 has no support for it, so
+        // validating with JavaScript would enable Save and leave the backend to reject the rule.
+        ['a lookahead is rejected', '/api(?!/internal)/', false],
+        ['an unclosed group is rejected', '(', false],
+        // ClickHouse `replaceRegexpAll` matches an empty pattern at every position, so the backend
+        // refuses a rule without a regex too.
+        ['an empty regex is rejected', '', false],
+    ])('isValidPathCleaningRegex: %s', (_name, regex, expected) => {
+        expect(isValidPathCleaningRegex(regex)).toBe(expected)
+    })
+
+    it('sends a capture-group reference in the regex to the alias', () => {
+        expect(pathCleaningRegexError('/user/(\\d+)/\\1')).toContain('alias')
+    })
+
+    it('separates a regex the query can run from one the preview can run', () => {
+        // re2 spells a named group `(?P<id>...)`, which JavaScript has no equivalent for. The rule
+        // cleans paths in the query, so the preview has to report that it can't show it rather than
+        // report that the rule didn't match.
+        expect(isValidPathCleaningRegex('(?P<id>\\d+)')).toBe(true)
+        expect(canPreviewPathCleaningRegex('(?P<id>\\d+)')).toBe(false)
+        expect(canPreviewPathCleaningRegex('/users/(\\d+)')).toBe(true)
     })
 
     it('chains rules in order, each feeding the next', () => {

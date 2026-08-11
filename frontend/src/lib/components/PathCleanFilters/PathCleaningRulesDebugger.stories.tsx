@@ -17,6 +17,8 @@ export const Default: StoryObj<PathCleaningRulesDebuggerProps> = {
             { alias: 'recordings', regex: '/replay/\\w+', order: 2 },
             { alias: '', regex: '/api/v1/.*', order: 3 }, // Empty alias
             { alias: 'invalid', regex: '[invalid(regex', order: 4 }, // Invalid regex
+            { alias: '/users/\\1', regex: '(?i)/Users/(\\d+)', order: 5 }, // Inline re2 flag group and a capture group
+            { alias: '/orders/\\1', regex: '/orders/(?P<id>\\d+)', order: 6 }, // Valid re2 the preview can't run
         ],
         finalResult: 'dashboard',
     },

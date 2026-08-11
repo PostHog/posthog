@@ -1,3 +1,7 @@
+import { RE2JS } from 're2js'
+
+import { formatRE2Error } from 'lib/utils/regexp'
+
 import { PathCleaningFilter } from '~/types'
 
 /**
@@ -62,9 +66,47 @@ function compileForPreview(regex: string): RegExp | null {
     }
 }
 
-/** Whether the preview can run this regex, so the editor refuses what it would not be able to show. */
+/**
+ * Why a path-cleaning regex can't be used, phrased for the person editing it, or null when it's fine.
+ *
+ * Judged by re2, because that is the engine ClickHouse `replaceRegexpAll` and the save-time backend
+ * check both run. JavaScript's own engine disagrees with re2 in both directions, so using it here
+ * would either block a working rule or wave through one the backend then rejects: JS accepts a
+ * lookahead like `/api(?!/internal)/` that re2 has no support for, and rejects the inline `(?i)` flag
+ * group that is how re2 asks for case-insensitive matching.
+ */
+export function pathCleaningRegexError(regex: string): string | null {
+    if (!regex) {
+        return 'Regex is required'
+    }
+    try {
+        RE2JS.compile(regex)
+    } catch (error) {
+        if (!(error instanceof Error)) {
+            return 'Invalid regex'
+        }
+        // Now that the alias documents `\1` for reusing a captured value, putting it in the regex by
+        // mistake is the re2 rejection to expect, so name the field that does take it.
+        if (error.message.includes('invalid escape sequence') && /\\[1-9]/.test(regex)) {
+            return "A regex can't reference its own capture groups. To reuse a captured value in the cleaned path, put \\1 in the alias instead."
+        }
+        return formatRE2Error(error, regex)
+    }
+    return null
+}
+
+/** Whether a rule's regex is one the query can run, so the editor and the debugger agree with it. */
 export function isValidPathCleaningRegex(regex: string): boolean {
-    return compileForPreview(regex) !== null
+    return pathCleaningRegexError(regex) === null
+}
+
+/**
+ * Whether the in-app preview can run this regex. Valid re2 with no JavaScript equivalent, such as a
+ * `(?P<id>...)` named group, still cleans paths in the real query, but the preview passes the path
+ * through untouched. Anything showing a preview has to say so rather than imply the rule didn't match.
+ */
+export function canPreviewPathCleaningRegex(regex: string): boolean {
+    return !!regex && compileForPreview(regex) !== null
 }
 
 /**

@@ -7,7 +7,7 @@ import { AiRegexHelper } from 'scenes/session-recordings/components/AiRegexHelpe
 
 import { PathCleaningFilter } from '~/types'
 
-import { isValidPathCleaningRegex } from './pathCleaningUtils'
+import { pathCleaningRegexError } from './pathCleaningUtils'
 
 export interface PathRegexModalProps {
     isOpen: boolean
@@ -21,13 +21,8 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
     const [regex, setRegex] = useState(filter?.regex ?? '')
 
     const isNew = !filter
-    const disabledReason = !alias
-        ? 'Alias is required'
-        : !regex
-          ? 'Regex is required'
-          : !isValidPathCleaningRegex(regex)
-            ? 'Malformed regex'
-            : null
+    const regexError = pathCleaningRegexError(regex)
+    const disabledReason = !alias ? 'Alias is required' : regexError
 
     // Reset state when reopening the modal with a different filter (or none)
     useEffect(() => {
@@ -53,6 +48,7 @@ export function PathRegexModal({ filter, isOpen, onSave, onClose }: PathRegexMod
                                 onChange={(regex) => setRegex(regex)}
                                 onPressEnter={() => false}
                             />
+                            {regex && regexError ? <p className="text-danger">{regexError}</p> : null}
                             <p className="text-muted">
                                 <span>
                                     Example:{' '}
