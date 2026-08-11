@@ -524,6 +524,41 @@ function RealNotebookNodeViewSelect({
     )
 }
 
+function RealNotebookNodeAttributeField({
+    node,
+    updateProps,
+    notebookNodeType,
+    attributeKey,
+    value,
+    autoFocus,
+}: Pick<NotebookComponentRenderProps, 'node' | 'updateProps'> & {
+    notebookNodeType: NotebookNodeType
+    attributeKey: string
+    value: NotebookPropValue | undefined
+    autoFocus: boolean
+}): JSX.Element {
+    const label = getMarkdownNodeAttributeLabel(notebookNodeType, attributeKey)
+
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-secondary">{label}</span>
+            <MarkdownNotebookNodeAttributeInput
+                attributeKey={attributeKey}
+                label={label}
+                tagName={node.tagName}
+                value={getPrimitiveNotebookPropInputValue(value)}
+                onTextChange={(nextValue) =>
+                    updateProps({
+                        [attributeKey]: getSerializableAttributeInputValue(notebookNodeType, attributeKey, nextValue),
+                    })
+                }
+                onEntitySelect={(nextValue) => updateProps({ [attributeKey]: nextValue })}
+                autoFocus={autoFocus}
+            />
+        </label>
+    )
+}
+
 export function RealNotebookNodeAttributeEdit({
     node,
     updateProps,
@@ -535,6 +570,9 @@ export function RealNotebookNodeAttributeEdit({
 }): JSX.Element {
     const attributes = getNodeAttributes(node.props, node.id, options, notebookNodeType, true)
     const attributeKeys = getEditableNodeAttributeKeys(options, attributes)
+    const idAttributeKey = attributeKeys.find((key) => key === 'id')
+    const remainingAttributeKeys = attributeKeys.filter((key) => key !== idAttributeKey)
+    const shouldAutoFocus = wasNotebookNodeJustInserted(node.id)
 
     if (!attributeKeys.length && !options.views) {
         return (
@@ -546,30 +584,30 @@ export function RealNotebookNodeAttributeEdit({
 
     return (
         <div className="MarkdownNotebook__component-form">
+            {idAttributeKey ? (
+                <RealNotebookNodeAttributeField
+                    node={node}
+                    updateProps={updateProps}
+                    notebookNodeType={notebookNodeType}
+                    attributeKey={idAttributeKey}
+                    value={attributes[idAttributeKey]}
+                    autoFocus={shouldAutoFocus}
+                />
+            ) : null}
             {options.views ? (
                 <RealNotebookNodeViewSelect node={node} updateProps={updateProps} options={options} />
             ) : null}
-            {attributeKeys.map((key, index) => {
-                const label = getMarkdownNodeAttributeLabel(notebookNodeType, key)
-                return (
-                    <label key={key} className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold text-secondary">{label}</span>
-                        <MarkdownNotebookNodeAttributeInput
-                            attributeKey={key}
-                            label={label}
-                            tagName={node.tagName}
-                            value={getPrimitiveNotebookPropInputValue(attributes[key])}
-                            onTextChange={(value) =>
-                                updateProps({
-                                    [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
-                                })
-                            }
-                            onEntitySelect={(value) => updateProps({ [key]: value })}
-                            autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
-                        />
-                    </label>
-                )
-            })}
+            {remainingAttributeKeys.map((key, index) => (
+                <RealNotebookNodeAttributeField
+                    key={key}
+                    node={node}
+                    updateProps={updateProps}
+                    notebookNodeType={notebookNodeType}
+                    attributeKey={key}
+                    value={attributes[key]}
+                    autoFocus={!idAttributeKey && index === 0 && shouldAutoFocus}
+                />
+            ))}
         </div>
     )
 }

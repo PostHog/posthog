@@ -187,11 +187,16 @@ describe('markdownNotebookRegistry', () => {
                 />
             )
             const editor = within(container)
+            const fields = Array.from(container.querySelectorAll('.MarkdownNotebook__component-form > label'))
+            const idInput = editor.getByLabelText(idLabel) as HTMLInputElement
+            const viewInput = editor.getByLabelText('View')
 
-            expect((editor.getByLabelText(idLabel) as HTMLInputElement).value).toEqual(String(id))
-            expect(editor.getByLabelText('View').textContent).toContain('Detail')
+            expect(fields[0].contains(idInput)).toBe(true)
+            expect(fields[1].contains(viewInput)).toBe(true)
+            expect(idInput.value).toEqual(String(id))
+            expect(viewInput.textContent).toContain('Detail')
 
-            fireEvent.click(editor.getByLabelText('View'))
+            fireEvent.click(viewInput)
             expect(screen.getByLabelText(viewDescription).textContent).toContain(viewLabel)
             fireEvent.click(screen.getByLabelText(viewDescription))
 
