@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import {
     FunnelChart,
@@ -30,6 +30,10 @@ const EXPOSURE_STEP_LABEL = 'Experiment exposure'
 
 /** Floor for the plot region so a tall step footer can't squeeze the bars out of the chart. */
 const MIN_PLOT_HEIGHT = 200
+
+/** Target width of one step's bars. Steps cluster at this width instead of stretching to fill the
+ *  container, and shrink below it once the funnel is too wide to fit. */
+const STEP_BAND_WIDTH = 192
 
 export interface ExperimentFunnelChartProps {
     result: NewExperimentQueryResponse
@@ -95,28 +99,14 @@ export function ExperimentFunnelChart({
         })
     }, [variants, experiment, numMetricSteps])
 
-    // The chart owns an interactive legend that hides toggled-off variants from the bars, axes, and
-    // tooltip. Control that state here so the per-step footer totals below only sum the variants
-    // currently drawn, instead of drifting to a stale all-variants aggregate.
-    const [hiddenKeys, setHiddenKeys] = useState<string[]>([])
-    const onToggleSeries = useCallback((key: string, hidden: boolean): void => {
-        setHiddenKeys((prev) => (hidden ? [...prev, key] : prev.filter((k) => k !== key)))
-    }, [])
-
     const stepTotals = useMemo(
-        () =>
-            steps.map((_, stepIndex) =>
-                series.reduce((sum, s) => sum + (hiddenKeys.includes(s.key) ? 0 : (s.meta?.counts[stepIndex] ?? 0)), 0)
-            ),
-        [steps, series, hiddenKeys]
+        () => steps.map((_, stepIndex) => series.reduce((sum, s) => sum + (s.meta?.counts[stepIndex] ?? 0), 0)),
+        [steps, series]
     )
 
     const config = useMemo(
-        () => ({
-            legend: { show: series.length > 1, hiddenKeys, onToggleSeries },
-            chartMinHeight: MIN_PLOT_HEIGHT,
-        }),
-        [series.length, hiddenKeys, onToggleSeries]
+        () => ({ chartMinHeight: MIN_PLOT_HEIGHT, maxBandRange: steps.length * STEP_BAND_WIDTH }),
+        [steps.length]
     )
 
     const handleStepClick = ({
