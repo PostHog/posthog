@@ -50,6 +50,7 @@ interface SwipeableTaskItemProps {
   selectionMode?: boolean;
   selected?: boolean;
   pinned?: boolean;
+  awaitingInput?: boolean;
   onSwipeStart?: () => void;
   onSwipeEnd?: () => void;
 }
@@ -64,6 +65,7 @@ export function SwipeableTaskItem({
   selectionMode = false,
   selected = false,
   pinned = false,
+  awaitingInput = false,
   onSwipeStart,
   onSwipeEnd,
 }: SwipeableTaskItemProps) {
@@ -196,6 +198,7 @@ export function SwipeableTaskItem({
           selectionMode={selectionMode}
           selected={selected}
           pinned={pinned}
+          awaitingInput={awaitingInput}
         />
       </Animated.View>
     </View>

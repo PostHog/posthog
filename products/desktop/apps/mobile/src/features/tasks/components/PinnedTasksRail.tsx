@@ -4,6 +4,7 @@ import { PushPin } from "phosphor-react-native";
 import { useMemo } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import { useThemeColors } from "@/lib/theme";
+import { useAwaitingInputTaskIds } from "../hooks/useAwaitingInputTasks";
 import { usePinnedTasks } from "../hooks/usePinnedTasks";
 import { useTasks } from "../hooks/useTasks";
 import { TaskStatusIcon } from "./TaskStatusIcon";
@@ -22,6 +23,7 @@ export function PinnedTasksRail({ onTaskPress }: PinnedTasksRailProps) {
   const themeColors = useThemeColors();
   const { pinnedTaskIds, togglePin } = usePinnedTasks();
   const { allTasks } = useTasks();
+  const awaitingInputTaskIds = useAwaitingInputTaskIds();
 
   const pinnedTasks = useMemo(() => {
     const byId = new Map(allTasks.map((task) => [task.id, task]));
@@ -48,29 +50,39 @@ export function PinnedTasksRail({ onTaskPress }: PinnedTasksRailProps) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 12, gap: 8 }}
       >
-        {pinnedTasks.map((task) => (
-          <Pressable
-            key={task.id}
-            onPress={() => onTaskPress(task.id)}
-            onLongPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              togglePin(task.id);
-            }}
-            accessibilityLabel={`Open pinned task: ${task.title}`}
-            accessibilityHint="Long press to unpin"
-            className="flex-row items-center gap-2 rounded-full border border-gray-6 bg-gray-2 py-2 pr-3.5 pl-2.5 active:bg-gray-3"
-            style={{ maxWidth: 220 }}
-          >
-            <TaskStatusIcon task={task} size={14} />
-            <Text
-              className="text-[13px] text-gray-12"
-              numberOfLines={1}
-              ellipsizeMode="tail"
+        {pinnedTasks.map((task) => {
+          const awaitingInput = awaitingInputTaskIds.has(task.id);
+          return (
+            <Pressable
+              key={task.id}
+              onPress={() => onTaskPress(task.id)}
+              onLongPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                togglePin(task.id);
+              }}
+              accessibilityLabel={`Open pinned task: ${task.title}`}
+              accessibilityHint="Long press to unpin"
+              className="flex-row items-center gap-2 rounded-full border border-gray-6 bg-gray-2 py-2 pr-3.5 pl-2.5 active:bg-gray-3"
+              style={{ maxWidth: 220 }}
             >
-              {task.title}
-            </Text>
-          </Pressable>
-        ))}
+              <TaskStatusIcon task={task} size={14} />
+              <Text
+                className={`text-[13px] text-gray-12 ${awaitingInput ? "font-bold" : ""}`}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {task.title}
+              </Text>
+              {awaitingInput ? (
+                <View
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: themeColors.accent[9] }}
+                  accessibilityLabel="Waiting on you"
+                />
+              ) : null}
+            </Pressable>
+          );
+        })}
       </ScrollView>
     </View>
   );

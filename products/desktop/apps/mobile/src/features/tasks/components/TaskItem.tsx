@@ -31,6 +31,8 @@ interface TaskItemProps {
   selectionMode?: boolean;
   selected?: boolean;
   pinned?: boolean;
+  /** The agent is blocked on this task's user — emphasized in the list. */
+  awaitingInput?: boolean;
 }
 
 function TaskItemComponent({
@@ -40,6 +42,7 @@ function TaskItemComponent({
   selectionMode = false,
   selected = false,
   pinned = false,
+  awaitingInput = false,
 }: TaskItemProps) {
   const themeColors = useThemeColors();
   const createdAt = new Date(task.created_at);
@@ -75,8 +78,15 @@ function TaskItemComponent({
       {/* Content column */}
       <View className="min-w-0 flex-1">
         <View className="flex-row items-center gap-2">
+          {awaitingInput ? (
+            <View
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: themeColors.accent[9] }}
+              accessibilityLabel="Waiting on you"
+            />
+          ) : null}
           <Text
-            className="flex-1 font-medium text-[14px] text-gray-12"
+            className={`flex-1 text-[14px] text-gray-12 ${awaitingInput ? "font-bold" : "font-medium"}`}
             numberOfLines={1}
             ellipsizeMode="tail"
           >

@@ -30,6 +30,7 @@ import {
   View,
 } from "react-native";
 import { useThemeColors } from "@/lib/theme";
+import { useAwaitingInputTaskIds } from "../hooks/useAwaitingInputTasks";
 import { usePinnedTasks } from "../hooks/usePinnedTasks";
 import { useTasks } from "../hooks/useTasks";
 import { useUserIntegrations } from "../hooks/useUserIntegrations";
@@ -180,6 +181,7 @@ export function TaskList({
   const { archivedTasks, archive, archiveMany, unarchive } =
     useArchivedTasksStore();
   const { isPinned, togglePin } = usePinnedTasks();
+  const awaitingInputTaskIds = useAwaitingInputTaskIds();
   const organizeMode = useTaskStore((s) => s.organizeMode);
   const sortMode = useTaskStore((s) => s.sortMode);
   const collapsedGroups = useTaskStore((s) => s.collapsedGroups);
@@ -387,6 +389,7 @@ export function TaskList({
               selectionMode={selectionMode}
               selected={selectedIds.has(item.task.id)}
               pinned={isPinned(item.task.id)}
+              awaitingInput={awaitingInputTaskIds.has(item.task.id)}
               onSwipeStart={() => setScrollEnabled(false)}
               onSwipeEnd={() => setScrollEnabled(true)}
             />

@@ -457,3 +457,119 @@ describe("compaction tracking from the log stream", () => {
     expect(store.getSessionForTask("t1")?.isCompacting).toBe(false);
   });
 });
+
+describe("awaiting-user-input tracking from the log stream", () => {
+  beforeEach(() => {
+    useTaskSessionStore.setState({ sessions: {} });
+  });
+
+  function turnEnd(method: string): StoredLogEntry {
+    return { type: "notification", notification: { method } };
+  }
+
+  function agentOutput(): StoredLogEntry {
+    return {
+      type: "notification",
+      notification: {
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text: "working on it" },
+          },
+        },
+      },
+    };
+  }
+
+  function logsUpdate(entries: StoredLogEntry[]): CloudTaskUpdatePayload {
+    return {
+      kind: "logs",
+      taskId: "t1",
+      runId: "run-1",
+      newEntries: entries,
+      totalEntryCount: entries.length,
+    };
+  }
+
+  function awaiting(): boolean | undefined {
+    return useTaskSessionStore.getState().getSessionForTask("t1")
+      ?.isAwaitingUserInput;
+  }
+
+  it("marks the session awaiting when the agent blocks on the user", () => {
+    seedSession();
+
+    useTaskSessionStore
+      .getState()
+      ._handleCloudUpdate(
+        "run-1",
+        logsUpdate([turnEnd("_posthog/awaiting_user_input")]),
+      );
+
+    expect(awaiting()).toBe(true);
+  });
+
+  it.each([
+    { label: "agent output resumes", entry: agentOutput },
+    {
+      label: "the turn completes",
+      entry: () => turnEnd("_posthog/turn_complete"),
+    },
+    { label: "the turn errors", entry: () => turnEnd("_posthog/error") },
+  ])("clears the flag once $label", ({ entry }) => {
+    seedSession({ isAwaitingUserInput: true });
+
+    useTaskSessionStore
+      .getState()
+      ._handleCloudUpdate("run-1", logsUpdate([entry()]));
+
+    expect(awaiting()).toBe(false);
+  });
+
+  it("takes the last turn boundary in a batch, not any of them", () => {
+    seedSession();
+
+    useTaskSessionStore
+      .getState()
+      ._handleCloudUpdate(
+        "run-1",
+        logsUpdate([
+          turnEnd("_posthog/awaiting_user_input"),
+          agentOutput(),
+          turnEnd("_posthog/awaiting_user_input"),
+        ]),
+      );
+
+    expect(awaiting()).toBe(true);
+  });
+
+  it("leaves the flag alone for a batch that says nothing about the turn", () => {
+    seedSession({ isAwaitingUserInput: true });
+
+    useTaskSessionStore.getState()._handleCloudUpdate(
+      "run-1",
+      logsUpdate([
+        {
+          type: "notification",
+          notification: { method: "_posthog/compact_boundary" },
+        },
+      ]),
+    );
+
+    expect(awaiting()).toBe(true);
+  });
+
+  it("clears the flag when the run reaches a terminal status", () => {
+    seedSession({ isAwaitingUserInput: true });
+
+    useTaskSessionStore.getState()._handleCloudUpdate("run-1", {
+      kind: "status",
+      taskId: "t1",
+      runId: "run-1",
+      status: "completed",
+    });
+
+    expect(awaiting()).toBe(false);
+  });
+});
