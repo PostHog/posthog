@@ -51,6 +51,7 @@ const STALE_PARAMS = new Set(['event', 'timestamp', 'msg'])
 
 export type AIObservabilityTabId =
     | 'dashboard'
+    | 'self-driving'
     | 'generations'
     | 'reviews'
     | 'traces'
@@ -357,7 +358,9 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
         activeTab: [
             (s) => [s.sceneKey],
             (sceneKey: string | null): AIObservabilityTabId => {
-                if (sceneKey === 'aiObservabilityGenerations') {
+                if (sceneKey === 'aiObservabilitySelfDriving') {
+                    return 'self-driving'
+                } else if (sceneKey === 'aiObservabilityGenerations') {
                     return 'generations'
                 } else if (sceneKey === 'aiObservabilityReviews') {
                     return 'reviews'
@@ -474,6 +477,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
                 applySearchParams(searchParams)
                 startDashboardTimer()
             },
+            [urls.aiObservabilitySelfDriving()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityGenerations()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityReviews()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityTraces()]: (_, searchParams) => applyNonDashboard(searchParams),

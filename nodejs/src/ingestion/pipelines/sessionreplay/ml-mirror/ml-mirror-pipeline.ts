@@ -34,15 +34,29 @@ export interface MlMirrorPipelineOptions {
 /** Enables the image-collection lane: inlined images become refs, originals go to the scrub topic. */
 export interface MlMirrorImageScrubProducer {
     outputs: IngestionOutputs<MlImageScrubOutput>
+    producedRefCacheMax: number
+}
+
+/**
+ * Which collection lanes the anonymizer runs, and the key they derive their per-team ref prefix
+ * from.
+ *
+ * Separate from {@link MlMirrorImageScrubProducer} because collecting and producing are separate
+ * decisions. The URL lane collects and measures before any topic exists. A requirement to turn the
+ * scrub producer on first would make that measurement impossible to take on its own.
+ */
+export interface MlMirrorCollection {
     /** The ML pseudonym HMAC key (also used by the block-metadata sink), for the per-team ref prefix. */
     pseudonymSecret: string | Buffer
-    producedRefCacheMax: number
+    collectImages: boolean
+    collectUrls: boolean
 }
 
 export function createMlMirrorReplayPipeline(
     config: SessionReplayPipelineConfig,
     mlOptions: MlMirrorPipelineOptions,
-    imageScrub?: MlMirrorImageScrubProducer
+    imageScrub?: MlMirrorImageScrubProducer,
+    collection?: MlMirrorCollection
 ): SessionReplayPipeline {
     const {
         outputs,
@@ -141,9 +155,9 @@ export function createMlMirrorReplayPipeline(
                                                     const parsed = b.pipe(
                                                         topHogWrapper(
                                                             createParseAndAnonymizeMessageStep(
-                                                                imageScrub && {
-                                                                    pseudonymSecret: imageScrub.pseudonymSecret,
-                                                                }
+                                                                collection?.collectImages || collection?.collectUrls
+                                                                    ? collection
+                                                                    : undefined
                                                             ),
                                                             [
                                                                 timer('parse_time_ms_by_session_id', (input) => ({
