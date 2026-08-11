@@ -15,7 +15,6 @@ import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCom
 import {
   AgentStatusLine,
   ThreadLoadingState,
-  ThreadReplyComposer,
 } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useTaskCommentActivity } from "@posthog/ui/features/canvas/hooks/useTaskCommentActivity";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
@@ -139,17 +138,7 @@ function ActivityConversation({
     events,
     isPromptPending,
     hasLoadedThread,
-    members,
     currentUser,
-    isTaskAuthor,
-    canForward,
-    draft,
-    setDraft,
-    isSubmitDisabled,
-    submit,
-    sendMessageToAgent,
-    deleteMessage,
-    onMentionInsert,
   } = useThreadConversation(task, { surface: "activity_panel" });
 
   const [tab, setTab] = useState<ActivityTab>("timeline");
@@ -265,8 +254,6 @@ function ActivityConversation({
     setHasNewerBelow(true);
   }, [timeline, events.length, agentStatus?.phase, tab]);
 
-  const showComposer = tab === "timeline";
-
   const body = () => {
     if (tab === "comments") {
       return <TaskCommentsList task={task} timeline={timeline} />;
@@ -290,13 +277,7 @@ function ActivityConversation({
         commentsEnabled={commentsEnabled}
         runCount={runs.length}
         currentUserId={currentUser?.id}
-        currentUserUuid={currentUser?.uuid}
-        currentUserEmail={currentUser?.email}
-        isTaskAuthor={isTaskAuthor}
-        canForward={canForward}
         canOpenInPlace={canOpenInPlace}
-        onSendToAgent={sendMessageToAgent}
-        onDelete={deleteMessage}
       />
     );
   };
@@ -339,18 +320,8 @@ function ActivityConversation({
         )}
       </div>
 
-      {showComposer && agentStatus && <AgentStatusLine status={agentStatus} />}
-
-      {showComposer && (
-        <ThreadReplyComposer
-          draft={draft}
-          onDraftChange={setDraft}
-          onSubmit={submit}
-          members={members}
-          allowAgentMention={isTaskAuthor && canForward}
-          onMentionInsert={onMentionInsert}
-          disabled={isSubmitDisabled}
-        />
+      {tab === "timeline" && agentStatus && (
+        <AgentStatusLine status={agentStatus} />
       )}
     </div>
   );

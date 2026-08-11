@@ -61,7 +61,7 @@ export function TimelineRow({
   const [open, setOpen] = useState(defaultOpen);
   const hasDetail = detail !== undefined && detail !== null;
   const header = (
-    <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] leading-[22px]">
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] leading-[22px]">
       <span className="min-w-0 truncate">{children}</span>
       <ThreadTimestamp dateTime={timestamp} />
       {hasDetail && (
@@ -90,7 +90,9 @@ export function TimelineRow({
           on a single-line row the bead fills the content box and a flex child gets no
           height at all. */}
       <div className="relative flex w-10 shrink-0 justify-center self-stretch">
-        {gutter}
+        {/* h-[22px] is the copy's line height, so the bead centres on the first line
+            whatever the row grows to. */}
+        <div className="flex h-[22px] items-center">{gutter}</div>
         {connected && (
           <span
             aria-hidden
@@ -101,11 +103,13 @@ export function TimelineRow({
       <div className="min-w-0 flex-1">
         {hasDetail ? (
           <>
+            {/* flex, not block: an inline-level button contributes its own inherited
+                line-height as a strut, which pushed the copy 3px below the bead. */}
             <button
               type="button"
               aria-expanded={open}
               aria-label={ariaLabel}
-              className="w-full text-left focus-visible:outline-none"
+              className="flex w-full text-left focus-visible:outline-none"
               onClick={() => setOpen((current) => !current)}
             >
               {header}
@@ -509,5 +513,47 @@ export function ActivityLoadingState() {
         ))}
       </div>
     </output>
+  );
+}
+
+/** A human reply in the task's thread — the surface comments replaced. Collapsed like
+ *  everything else: author and first line on the row, the message when opened. */
+export function ThreadReplyRow({
+  author,
+  content,
+  timestamp,
+  connected = true,
+}: {
+  author?: UserBasic | null;
+  content: string;
+  timestamp: string;
+  connected?: boolean;
+}) {
+  const firstLine = content.trim().split("\n", 1)[0] ?? "";
+  return (
+    <TimelineRow
+      connected={connected}
+      gutter={
+        <div
+          aria-hidden
+          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7 ring-4 ring-gray-1"
+        >
+          <UserAvatar user={author} size="sm" className="size-5" />
+        </div>
+      }
+      timestamp={timestamp}
+      detail={
+        <DetailBlock>
+          <div className="whitespace-pre-wrap break-words">
+            <MentionText content={content} />
+          </div>
+        </DetailBlock>
+      }
+    >
+      <span className="font-medium">{userDisplayName(author)}</span>{" "}
+      <span className="text-muted-foreground">
+        <MentionText content={firstLine} />
+      </span>
+    </TimelineRow>
   );
 }

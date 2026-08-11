@@ -43,21 +43,13 @@ function renderTimeline(canOpenInPlace?: boolean, items = conversationItems) {
       timeline={[]}
       // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
       conversationItems={items as any}
-      isTaskAuthor
-      canForward={false}
       canOpenInPlace={canOpenInPlace}
-      onSendToAgent={() => {}}
-      onDelete={() => {}}
     />,
   );
 }
 
 beforeEach(() => {
-  // A transcript registers itself when mounted; the jump is only offered when one has.
-  useThreadNavigationStore.setState({
-    scrollRequests: {},
-    listeners: { "task-1": 1 },
-  });
+  useThreadNavigationStore.setState({ scrollRequests: {}, listeners: {} });
 });
 
 describe("ActivityTimeline", () => {
@@ -78,29 +70,12 @@ describe("ActivityTimeline", () => {
     expect(screen.queryByRole("button", { name: /SA/ })).toBeNull();
   });
 
-  it("asks the transcript to scroll to the message, once its row is open", () => {
-    renderTimeline(true);
-
-    // The row opens; jumping to the transcript is the button inside it.
-    fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Show in transcript" }));
-
-    expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
-      "turn-2-2-user",
-    );
-  });
-
-  it("offers no transcript jump when no transcript is listening", () => {
-    // Without this the button rendered in panes with no transcript and did nothing.
-    useThreadNavigationStore.setState({ listeners: {} });
+  it("opens a message to its full text", () => {
     renderTimeline(true);
 
     fireEvent.click(screen.getByRole("button", { name: /first thing/ }));
 
     expect(screen.getByText(/and more detail/)).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Show in transcript" }),
-    ).toBeNull();
   });
 
   it("renders structured references natively in conversation previews", () => {
@@ -222,10 +197,6 @@ describe("ActivityTimeline events and comments", () => {
         task={task}
         timeline={[]}
         conversationItems={[]}
-        isTaskAuthor
-        canForward={false}
-        onSendToAgent={() => {}}
-        onDelete={() => {}}
         // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the rows under test
         {...(props as any)}
       />,
@@ -350,5 +321,41 @@ describe("ActivityTimeline connectors", () => {
     fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
 
     expect(screen.getAllByText(/second thing/).length).toBeGreaterThan(1);
+  });
+});
+
+describe("ActivityTimeline thread replies", () => {
+  const reply = {
+    kind: "human" as const,
+    timestamp: Date.parse("2026-07-17T09:30:00Z"),
+    message: {
+      id: "reply-1",
+      task: "task-1",
+      author: { id: 7, uuid: "u2", first_name: "Ben", last_name: "White" },
+      author_kind: "human" as const,
+      content: "@[Shy Alter](shy@example.com) you seeing this?\nsecond line",
+      created_at: "2026-07-17T09:30:00Z",
+    },
+  };
+
+  it("collapses a legacy thread reply like every other row", () => {
+    // These predate comments and used to render as full message blocks, which is what made
+    // the panel read as a chat log rather than a timeline.
+    render(
+      <ActivityTimeline
+        task={task}
+        // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the row under test
+        timeline={[reply] as any}
+        conversationItems={[]}
+      />,
+    );
+
+    expect(screen.queryByText(/second line/)).toBeNull();
+    // The mention renders as a chip in the preview, not as its markup.
+    expect(screen.queryByText(/@\[/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /you seeing this/ }));
+
+    expect(screen.getByText(/second line/)).toBeInTheDocument();
   });
 });

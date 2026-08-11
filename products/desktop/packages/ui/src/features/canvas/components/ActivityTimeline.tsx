@@ -22,25 +22,18 @@ import {
   ActivityEventRow,
   CommentRow,
   CommentStateRow,
-  DetailAction,
   DetailBlock,
   RunStatusRow,
+  ThreadReplyRow,
   TimelineRow,
 } from "@posthog/ui/features/canvas/components/activityRows";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
-import {
-  ThreadArtifactCard,
-  ThreadMessageRow,
-} from "@posthog/ui/features/canvas/components/ThreadPanel";
+import { ThreadArtifactCard } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
-import {
-  useHasTranscriptListener,
-  useThreadNavigationStore,
-} from "@posthog/ui/features/sessions/threadNavigationStore";
 import { Fragment, useMemo } from "react";
 
 type ConversationItem = ReturnType<
@@ -54,14 +47,11 @@ function UserMessageRow({
   content,
   timestamp,
   connected,
-  onSelect,
 }: {
   author?: UserBasic | null;
   content: string;
   timestamp: string;
   connected: boolean;
-  /** Jumps the transcript to this message. Absent once the run is unavailable. */
-  onSelect?: () => void;
 }) {
   const name = author ? userDisplayName(author) : "You";
   const channelContext = useMemo(
@@ -113,9 +103,6 @@ function UserMessageRow({
               </CollapsibleContent>
             </Collapsible>
           )}
-          {onSelect && (
-            <DetailAction onClick={onSelect}>Show in transcript</DetailAction>
-          )}
         </div>
       }
     >
@@ -140,14 +127,8 @@ export function ActivityTimeline({
   commentThreads = NO_COMMENT_THREADS,
   commentsEnabled = false,
   currentUserId,
-  currentUserUuid,
-  currentUserEmail,
-  isTaskAuthor,
-  canForward,
   canOpenInPlace,
   runCount = 1,
-  onSendToAgent,
-  onDelete,
 }: {
   task: Task;
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
@@ -157,25 +138,13 @@ export function ActivityTimeline({
   commentsEnabled?: boolean;
   /** Needed to tell a mention of you from a mention of someone else. */
   currentUserId?: number;
-  currentUserUuid?: string;
-  currentUserEmail?: string | null;
-  isTaskAuthor: boolean;
-  canForward: boolean;
   /** True when the task's transcript and review pane are mounted beside this
    *  pane. False in the channel-home sidebar, where there is nothing to drive —
    *  rows there stay inert and PRs open externally instead of dead-clicking. */
   canOpenInPlace?: boolean;
   /** How many runs the task has; a single-run task shouldn't label its run. */
   runCount?: number;
-  onSendToAgent: (messageId: string) => void;
-  onDelete: (messageId: string) => void;
 }) {
-  const requestScrollToMessage = useThreadNavigationStore(
-    (state) => state.requestScrollToMessage,
-  );
-  // The jump only lands if a transcript is mounted for this task. Without this the button
-  // renders in panes that have no transcript beside them and does nothing when clicked.
-  const hasTranscript = useHasTranscriptListener(task.id);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
   );
@@ -287,26 +256,15 @@ export function ActivityTimeline({
             author={task.created_by}
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
-            onSelect={
-              canOpenInPlace && hasTranscript
-                ? () => requestScrollToMessage(task.id, row.item.id)
-                : undefined
-            }
           />
         );
       case "human_message":
         return (
-          <ThreadMessageRow
-            message={row.message}
-            isTaskAuthor={isTaskAuthor}
-            isOwnMessage={
-              !!currentUserUuid && currentUserUuid === row.message.author?.uuid
-            }
-            currentUserEmail={currentUserEmail}
-            canForward={canForward}
-            preview
-            onSendToAgent={() => onSendToAgent(row.message.id)}
-            onDelete={() => onDelete(row.message.id)}
+          <ThreadReplyRow
+            connected={connected}
+            author={row.message.author}
+            content={row.message.content}
+            timestamp={row.message.created_at}
           />
         );
       case "event": {
