@@ -43,6 +43,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { FloatingBackButton } from "@/components/FloatingBackButton";
 import { useAuthStore, useUserQuery } from "@/features/auth";
 import { MarkdownText } from "@/features/chat/components/MarkdownText";
 import { getReportRepository } from "@/features/inbox/api";
@@ -410,6 +411,7 @@ export default function ReportDetailScreen() {
   if (isLoading || !report) {
     return (
       <View className="flex-1 items-center justify-center bg-background">
+        <FloatingBackButton />
         <ActivityIndicator size="large" color={themeColors.accent[9]} />
       </View>
     );
@@ -443,7 +445,9 @@ export default function ReportDetailScreen() {
         className="flex-1 bg-background"
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingTop: 16,
+          // Full-screen modals (iPad) extend under the status bar and have no
+          // swipe-down dismissal, so leave room for the floating back button.
+          paddingTop: modalTopOffset(insets.top) + 56,
           paddingBottom: insets.bottom + 100,
         }}
         onScroll={handleScroll}
@@ -581,6 +585,7 @@ export default function ReportDetailScreen() {
         {/* Usefulness feedback */}
         <ReportFeedbackFooter report={report} />
       </ScrollView>
+      <FloatingBackButton />
 
       <View
         className="absolute inset-x-0 flex-row flex-wrap items-center justify-center gap-3 px-4"
