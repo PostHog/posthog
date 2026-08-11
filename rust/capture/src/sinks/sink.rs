@@ -34,6 +34,14 @@ pub enum Outcome {
 }
 
 /// Per-event publish result, correlated to the input by uuid.
+///
+/// The sink treats the uuid as pass-through: results align with the input
+/// payloads by position, and nothing in the sink assumes uuids are unique
+/// within a batch (v0 accepts client-supplied uuids unchecked). It is
+/// carried anyway so a result is attributable to its event without the
+/// caller holding the input list, which makes the per-event response model
+/// a caller-side change instead of a trait change. Until that model lands,
+/// `fold_results` is the only consumer and ignores it.
 #[derive(Debug)]
 pub struct SinkResult {
     pub uuid: Uuid,
