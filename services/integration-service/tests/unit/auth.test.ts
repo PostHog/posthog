@@ -26,7 +26,7 @@ function verifier(keys: SigningKeys = KEYS): JwtVerifier {
 
 async function mint(opts: {
     key: string
-    product?: string
+    caller?: string
     keys?: string[]
     audience?: string
     expiresIn?: string
@@ -34,7 +34,7 @@ async function mint(opts: {
     omitExpiry?: boolean
 }): Promise<string> {
     const builder = new SignJWT({
-        caller: opts.product ?? 'warehouse-sources',
+        caller: opts.caller ?? 'warehouse-sources',
         keys: opts.keys ?? ['GOOGLE_ADS_APP_CLIENT_SECRET'],
     })
         .setProtectedHeader({ alg: 'HS256' })
@@ -103,52 +103,21 @@ describe('jwt verification', () => {
         expect(await reasonFor(verifier().verify('not-a-jwt'))).toBe('malformed')
     })
 
-    describe('the product claim', () => {
-        // Django holds one key and hosts many products, so the product name cannot be
-        // authenticated. It is kept for metrics and audit and grants nothing.
-        it('is carried through when we recognise it', async () => {
-            const identity = await verifier().verify(await mint({ key: DJANGO_KEY, product: 'cdp' }))
-            expect(identity.product).toBe('cdp')
-        })
+    // Untrusted after the registry went away: Django holds one key and hosts many
+    // products, so the claim is carried to the audit log and is never a metric label.
+    it.each([
+        ['a name we would once have recognised', 'cdp'],
+        ['a name nobody has ever used', 'something-invented'],
+    ])('carries %s through as the caller without touching the deployment', async (_label, caller) => {
+        const identity = await verifier().verify(await mint({ key: DW_KEY_NEW, caller }))
 
-        // Otherwise it is a caller-supplied string, and a caller-supplied string must
-        // never become a metric label.
-        it.each([
-            ['an unrecognised product', 'something-invented'],
-            ['an empty product', ''],
-        ])('collapses %s to a constant', async (_label, product) => {
-            const identity = await verifier().verify(await mint({ key: DJANGO_KEY, product }))
-            expect(identity.product).toBe('unknown')
-        })
-
-        it('never changes the authenticated deployment', async () => {
-            const identity = await verifier().verify(await mint({ key: DW_KEY_NEW, product: 'cdp' }))
-            expect(identity.deployment).toBe(DW)
-        })
+        expect(identity.caller).toBe(caller)
+        expect(identity.deployment).toBe(DW)
     })
 
-    // Every distinct key name a caller sends becomes a Redis field, and it is never
-    // reclaimed. Revoking a deployment's key bounds what a compromised caller can read;
-    // these bound what it can cost before anyone notices.
-    describe('claim size limits', () => {
-        it.each([
-            ['more keys than any real request needs', Array.from({ length: 51 }, (_, i) => `KEY_${i}`)],
-            ['an absurdly long key name', ['A'.repeat(129)]],
-        ])('rejects %s', async (_label, keys) => {
-            expect(await reasonFor(verifier().verify(await mint({ key: DW_KEY_NEW, keys })))).toBe(
-                'oversized_keys_claim'
-            )
-        })
-
-        it('accepts a request at the limit', async () => {
-            const keys = Array.from({ length: 50 }, (_, i) => `KEY_${i}`)
-            await expect(verifier().verify(await mint({ key: DW_KEY_NEW, keys }))).resolves.toBeDefined()
-        })
-
-        it('deduplicates a repeated key rather than resolving it twice', async () => {
-            const token = await mint({ key: DW_KEY_NEW, keys: ['A_KEY', 'A_KEY'] })
-            expect((await verifier().verify(token)).requestedKeys).toEqual(['A_KEY'])
-        })
+    it('deduplicates a repeated key rather than resolving it twice', async () => {
+        const token = await mint({ key: DW_KEY_NEW, keys: ['A_KEY', 'A_KEY'] })
+        expect((await verifier().verify(token)).requestedKeys).toEqual(['A_KEY'])
     })
 })
 
@@ -167,11 +136,11 @@ describe('signing key registry', () => {
         return dir
     }
 
-    it('derives one deployment per CALLER_KEY_ entry and ignores everything else', async () => {
+    it('derives one deployment per __CALLER_KEY_ entry and ignores everything else', async () => {
         const keys = new SigningKeyLoader(
             await mount({
-                CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
-                CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW}, ${DW_KEY_OLD}`,
+                __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
+                __CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW}, ${DW_KEY_OLD}`,
                 STRIPE_APP_SECRET_KEY: 'not-a-signing-key',
             })
         )
@@ -182,7 +151,7 @@ describe('signing key registry', () => {
 
     it('refuses to boot when the mount carries no caller keys at all', async () => {
         const keys = new SigningKeyLoader(await mount({ STRIPE_APP_SECRET_KEY: 'sec' }))
-        await expect(keys.load()).rejects.toThrow(/no CALLER_KEY_\* entries/)
+        await expect(keys.load()).rejects.toThrow(/no __CALLER_KEY_\* entries/)
         expect(keys.isLoaded).toBe(false)
     })
 
@@ -193,8 +162,8 @@ describe('signing key registry', () => {
     it('refuses to load when two deployments are given the same signing key', async () => {
         const keys = new SigningKeyLoader(
             await mount({
-                CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
-                CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW},${DJANGO_KEY}`,
+                __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY,
+                __CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE: `${DW_KEY_NEW},${DJANGO_KEY}`,
             })
         )
 
@@ -206,7 +175,7 @@ describe('signing key registry', () => {
     // keys. That makes it the one path a revocation travels and it fails open — see the
     // last-loaded gauge and the failure counter in metrics.ts.
     it('keeps the previous keys when a reload fails', async () => {
-        const dir = await mount({ CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY })
+        const dir = await mount({ __CALLER_KEY_POSTHOG_DJANGO: DJANGO_KEY })
         const keys = new SigningKeyLoader(dir)
         await keys.load()
 

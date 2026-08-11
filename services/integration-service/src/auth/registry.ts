@@ -4,9 +4,9 @@
 // what the PostHog/secrets CLI and UI can manage:
 //
 //   integration-service-secrets
-//     STRIPE_APP_SECRET_KEY                      = "<credential>"
-//     CALLER_KEY_POSTHOG_DJANGO                  = "<new>,<old>"
-//     CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE  = "<new>,<old>"
+//     STRIPE_APP_SECRET_KEY                        = "<credential>"
+//     __CALLER_KEY_POSTHOG_DJANGO                  = "<new>,<old>"
+//     __CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE  = "<new>,<old>"
 //
 // The same value goes into that deployment's own secret as INTEGRATION_SERVICE_JWT_SECRET.
 //
@@ -14,15 +14,14 @@
 // onboarding a caller or revoking a compromised one is a secrets edit with no deploy.
 // Revoking one deployment's key leaves every other deployment working, which is the
 // containment this design relies on.
-//
-// Held in process memory only. These are the keys that authenticate callers.
 
 import { logger } from '../lib/logging'
 import { signingKeyReloadFailuresTotal, signingKeysLastLoadedTimestamp } from '../metrics'
-import { readSigningKeys } from '../store/fileStore'
+import { RESERVED_PREFIX, readMount } from '../mount'
 import type { SigningKeys } from './types'
 
-export const CALLER_KEY_PREFIX = 'CALLER_KEY_'
+/** Reserved-prefixed, so the mount never serves a signing key as a credential. */
+export const CALLER_KEY_PREFIX = `${RESERVED_PREFIX}CALLER_KEY_`
 
 /**
  * Reject a key value listed under more than one deployment.
@@ -45,6 +44,25 @@ export function assertNoSharedKeys(keys: SigningKeys): void {
     }
 }
 
+/** Every signing key on the mount, keyed by deployment. */
+export async function readSigningKeys(dir: string): Promise<SigningKeys> {
+    const values = (await readMount(dir)) ?? {}
+    const keys: SigningKeys = {}
+    for (const [entry, value] of Object.entries(values)) {
+        if (!entry.startsWith(CALLER_KEY_PREFIX)) {
+            continue
+        }
+        const listed = value
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+        if (listed.length > 0) {
+            keys[entry.slice(CALLER_KEY_PREFIX.length).toLowerCase().replaceAll('_', '-')] = listed
+        }
+    }
+    return keys
+}
+
 export class SigningKeyLoader {
     private keys: SigningKeys = {}
     private loaded = false
@@ -53,7 +71,7 @@ export class SigningKeyLoader {
 
     /** Replace the in-memory key set. Throws on the first load so boot fails closed. */
     async load(): Promise<void> {
-        const keys = await readSigningKeys(this.dir, CALLER_KEY_PREFIX)
+        const keys = await readSigningKeys(this.dir)
         if (Object.keys(keys).length === 0) {
             throw new Error(`no ${CALLER_KEY_PREFIX}* entries on the secret mount at ${this.dir}`)
         }

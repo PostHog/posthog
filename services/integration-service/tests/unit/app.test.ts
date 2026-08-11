@@ -4,21 +4,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { JwtVerifier } from '@/auth/jwt'
 import type { SigningKeyLoader } from '@/auth/registry'
 import { AUDIENCE, type SigningKeys } from '@/auth/types'
-import { createApp, RESOLVE_PATH, type Lifecycle } from '@/http/app'
+import { createApp } from '@/http/app'
 import { httpRequestsTotal, register } from '@/metrics'
-import type { SecretsSnapshot } from '@/types'
+import type { Lifecycle, MountedCredentials } from '@/types'
 import type { UsageRecorder } from '@/usage/recorder'
+
+const RESOLVE_PATH = '/v1/secrets/resolve'
 
 const DEPLOYMENT = 'temporal-worker-data-warehouse'
 const SIGNING_KEY = 'a-signing-key'
 const KEYS: SigningKeys = { [DEPLOYMENT]: [SIGNING_KEY] }
 const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 
-const SNAPSHOT: SecretsSnapshot = {
+const MOUNTED: MountedCredentials = {
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v1',
     changedAt: '2026-08-01T00:00:00.000Z',
-    secrets: { [KEY]: { state: 'steady', value: 'hunter2-zx9q', versionId: 'v1', fetchedAt: 'now' } },
+    credentials: { [KEY]: { state: 'steady', value: 'hunter2-zx9q', versionId: 'v1', fetchedAt: 'now' } },
 }
 
 async function mint(
@@ -36,17 +38,15 @@ function build(
     overrides: {
         lifecycle?: Partial<Lifecycle>
         metricsToken?: string
-        loadSecrets?: () => Promise<SecretsSnapshot | null>
+        credentials?: () => MountedCredentials | null
     } = {}
 ): { app: ReturnType<typeof createApp>; lifecycle: Lifecycle } {
     const lifecycle: Lifecycle = { shuttingDown: false, ready: true, ...overrides.lifecycle }
     const app = createApp({
         verifier: new JwtVerifier({ entries: () => Object.entries(KEYS) } as SigningKeyLoader),
         lifecycle,
-        resolveDeps: {
-            loadSecrets: overrides.loadSecrets ?? (() => Promise.resolve(SNAPSHOT)),
-            recorder: { record: vi.fn() } as unknown as UsageRecorder,
-        },
+        credentials: overrides.credentials ?? ((): MountedCredentials | null => MOUNTED),
+        recorder: { record: vi.fn() } as unknown as UsageRecorder,
         metricsToken: overrides.metricsToken ?? '',
     })
     return { app, lifecycle }
@@ -98,18 +98,11 @@ describe('http surface', () => {
             await expect(res.json()).resolves.toEqual({ error: 'Unauthorized' })
         })
 
-        // A pod that has never held a snapshot must not answer all-missing: callers treat
-        // a missing key as terminal, so an empty answer would look like a deleted
-        // credential rather than an unavailable service.
-        it('answers 503 rather than all-missing when there is no snapshot', async () => {
-            const { app } = build({ loadSecrets: () => Promise.resolve(null) })
-            const res = await app.request(await authed(await mint()))
-
-            expect(res.status).toBe(503)
-        })
-
-        it('answers 503 when the store throws', async () => {
-            const { app } = build({ loadSecrets: () => Promise.reject(new Error('mount gone')) })
+        // A pod that holds no credentials must not answer all-missing: callers treat a
+        // missing key as terminal, so an empty answer would look like a deleted credential
+        // rather than an unavailable service.
+        it('answers 503 rather than all-missing when it holds no credentials', async () => {
+            const { app } = build({ credentials: () => null })
             const res = await app.request(await authed(await mint()))
 
             expect(res.status).toBe(503)

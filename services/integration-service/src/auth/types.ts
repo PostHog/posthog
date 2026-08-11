@@ -1,10 +1,3 @@
-// Auth seam. Today an HS256 JWT signed with a deployment's key; the interface exists so a
-// Kubernetes projected-ServiceAccount-token verifier (TokenReview) can drop in later without
-// touching the routes or the policy layer, removing the last long-lived secret from caller
-// pods.
-
-import type { CallerIdentity } from '../types'
-
 export const AUDIENCE = 'posthog:integration_service'
 
 /** Why a token was rejected. A metric label, so keep the set small and stable. */
@@ -16,7 +9,6 @@ export type AuthFailureReason =
     | 'no_expiry'
     | 'bad_audience'
     | 'no_keys_claim'
-    | 'oversized_keys_claim'
 
 export class AuthError extends Error {
     constructor(
@@ -26,11 +18,6 @@ export class AuthError extends Error {
         super(message)
         this.name = 'AuthError'
     }
-}
-
-export interface Verifier {
-    /** Resolve the bearer token to a verified identity, or throw AuthError. */
-    verify(token: string): Promise<CallerIdentity>
 }
 
 /**

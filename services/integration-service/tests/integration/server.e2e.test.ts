@@ -18,14 +18,13 @@ const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 const CALLER_SIGNING_KEY = 'e2e-caller-signing-key'
 const OTHER_SIGNING_KEY = 'e2e-other-signing-key'
 
-function config(secretsDir: string): Config {
+function config(mountDir: string): Config {
     return {
         port: 0,
         host: '127.0.0.1',
-        shutdownGraceMs: 2000,
         shutdownPrestopDelayMs: 0,
         env: 'test',
-        secretsDir,
+        mountDir,
         databaseUrl: undefined,
         reloadSeconds: 3600,
         usageFlushMs: 3_600_000,
@@ -54,8 +53,8 @@ describe('integration server end to end', () => {
     it('serves a credential, rotates it on reload, and revokes a caller on reload', async () => {
         const dir = await mkdtemp(join(tmpdir(), 'integration-e2e-'))
         await writeFile(join(dir, KEY), 'current-value-1')
-        await writeFile(join(dir, 'CALLER_KEY_TEST_DEPLOYMENT'), CALLER_SIGNING_KEY)
-        await writeFile(join(dir, 'CALLER_KEY_OTHER_DEPLOYMENT'), OTHER_SIGNING_KEY)
+        await writeFile(join(dir, '__CALLER_KEY_TEST_DEPLOYMENT'), CALLER_SIGNING_KEY)
+        await writeFile(join(dir, '__CALLER_KEY_OTHER_DEPLOYMENT'), OTHER_SIGNING_KEY)
 
         let exitCode: number | undefined
         let resolvePort!: (port: number) => void
@@ -95,7 +94,7 @@ describe('integration server end to end', () => {
             })
 
             // Revoke the caller: the same token must stop working, other callers must not.
-            await unlink(join(dir, 'CALLER_KEY_TEST_DEPLOYMENT'))
+            await unlink(join(dir, '__CALLER_KEY_TEST_DEPLOYMENT'))
             await server.reload()
             expect((await resolve(port, token)).status).toBe(401)
             expect((await resolve(port, await mint(OTHER_SIGNING_KEY))).status).toBe(200)

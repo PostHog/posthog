@@ -1,19 +1,17 @@
 // Configuration, read from the environment once at boot. Anything missing or malformed
 // that the service cannot safely run without fails the boot rather than a request later.
 
-import { logger } from './logging'
-
 export interface Config {
     port: number
     host: string
-    shutdownGraceMs: number
+    /** Wait before draining, so Kubernetes has removed the pod from its endpoints first. */
     shutdownPrestopDelayMs: number
 
     /** Logical environment (dev | prod-us | prod-eu). Recorded on the usage rollup. */
     env: string
 
     /** Directory the Kubernetes Secret is mounted at. */
-    secretsDir: string
+    mountDir: string
     /** From the chart's `psql:` harness. Unset disables usage recording (local dev). */
     databaseUrl: string | undefined
 
@@ -43,12 +41,11 @@ export function loadConfig(): Config {
     const config: Config = {
         port: intFromEnv('PORT', 8004),
         host: process.env.HOST ?? '0.0.0.0',
-        shutdownGraceMs: intFromEnv('SHUTDOWN_GRACE_MS', 15000),
         shutdownPrestopDelayMs: intFromEnv('SHUTDOWN_PRESTOP_DELAY_MS', 5000),
 
         env: process.env.INTEGRATION_SERVICE_ENV ?? 'dev',
 
-        secretsDir: process.env.INTEGRATION_SERVICE_SECRETS_DIR ?? '/etc/integration-secrets',
+        mountDir: process.env.INTEGRATION_SERVICE_SECRETS_DIR ?? '/etc/integration-secrets',
         databaseUrl: process.env.INTEGRATION_SERVICE_DATABASE_URL,
 
         // Shorter than kubelet's own sync so a rotation is visible within about a minute
@@ -76,8 +73,7 @@ export function loadConfig(): Config {
             missing.push('INTEGRATION_SERVICE_METRICS_TOKEN')
         }
         if (missing.length > 0) {
-            logger.error('config:missing_required', { missing })
-            process.exit(1)
+            throw new Error(`missing required configuration: ${missing.join(', ')}`)
         }
     }
 

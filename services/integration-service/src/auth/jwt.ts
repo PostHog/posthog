@@ -1,54 +1,52 @@
 // HS256 JWT verification, following the recording-api scheme (PostHog/posthog#67476).
 //
 // The deployment is established by WHICH KEY VERIFIES the token, never by a claim, so there
-// is nothing in the token an attacker could edit to become a different deployment. Trying
-// each deployment's keys in turn is a handful of HMAC verifies.
-//
-// The `caller` claim names the product that wanted the credential. It is not verified,
-// because Django holds one key and hosts many products, so it is recorded for metrics and
-// audit and grants nothing.
+// is nothing in the token an attacker could edit to become a different deployment.
 //
 // The requested key set travels in the `keys` claim and there is no request body, so a
 // token lifted from a log unlocks the fields of one call rather than every credential.
 
-import { decodeJwt, jwtVerify } from 'jose'
+import { jwtVerify } from 'jose'
 
-import { productLabel } from '../products'
 import type { CallerIdentity } from '../types'
 import type { SigningKeyLoader } from './registry'
-import { AUDIENCE, AuthError, type Verifier } from './types'
+import { AUDIENCE, AuthError, type AuthFailureReason } from './types'
 
-// Caps on the `keys` claim. Without them a holder of a valid signing key could grow this
-// process's memory without bound, since every distinct key name becomes an entry in the
-// in-memory usage batch and then a Postgres row. Revoking a key bounds what a compromised
-// caller can read; these bound what it can cost. The provider manifest holds well under 50
-// fields, so no legitimate request comes close.
-const MAX_REQUESTED_KEYS = 50
-const MAX_KEY_LENGTH = 128
+/**
+ * Map a jose failure to a rejection reason, or null when it only means "not this key".
+ *
+ * Only the key that verifies the signature gets as far as the claim checks, so at most one
+ * candidate ever produces a non-null reason.
+ */
+function rejectionReason(err: unknown): AuthFailureReason | null {
+    const code = (err as { code?: string }).code
+    switch (code) {
+        case 'ERR_JWS_INVALID':
+        case 'ERR_JWT_INVALID':
+            return 'malformed'
+        case 'ERR_JWT_EXPIRED':
+            return 'expired'
+        case 'ERR_JWT_CLAIM_VALIDATION_FAILED':
+            return (err as { claim?: string }).claim === 'exp' ? 'no_expiry' : 'bad_audience'
+        default:
+            return null
+    }
+}
 
-function stringArray(value: unknown): string[] | null {
+function stringArray(value: unknown): string[] {
     if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-        return null
+        return []
     }
     return value as string[]
 }
 
-export class JwtVerifier implements Verifier {
+export class JwtVerifier {
     constructor(private readonly keys: SigningKeyLoader) {}
 
     async verify(token: string): Promise<CallerIdentity> {
-        // Decoded only to fail fast on garbage; nothing read here is trusted or used.
-        try {
-            decodeJwt(token)
-        } catch {
-            throw new AuthError('malformed', 'token could not be decoded')
-        }
-
-        let payload: Record<string, unknown> | null = null
+        let payload: Record<string, unknown> | undefined
         let deployment = ''
-        let sawExpired = false
-        let sawBadAudience = false
-        let sawMissingExpiry = false
+        let reason: AuthFailureReason = 'bad_signature'
 
         outer: for (const [candidate, candidateKeys] of this.keys.entries()) {
             for (const key of candidateKeys) {
@@ -57,64 +55,40 @@ export class JwtVerifier implements Verifier {
                         algorithms: ['HS256'],
                         audience: AUDIENCE,
                         // jose only checks `exp` when the claim is present, so without this
-                        // a token minted without one verifies and never expires. The
-                        // lifetime itself is set by the minting client; this is what makes
-                        // a bound exist at the boundary for every minting path.
+                        // a token minted without one verifies and never expires.
                         requiredClaims: ['exp'],
                     })
                     payload = result.payload as Record<string, unknown>
                     deployment = candidate
                     break outer
                 } catch (err) {
-                    const code = (err as { code?: string }).code
-                    if (code === 'ERR_JWT_EXPIRED') {
-                        sawExpired = true
-                    } else if (code === 'ERR_JWT_CLAIM_VALIDATION_FAILED') {
-                        if ((err as { claim?: string }).claim === 'exp') {
-                            sawMissingExpiry = true
-                        } else {
-                            sawBadAudience = true
-                        }
-                    }
+                    reason = rejectionReason(err) ?? reason
                 }
             }
         }
 
         if (!payload) {
-            if (sawExpired) {
-                throw new AuthError('expired', 'token has expired')
-            }
-            if (sawMissingExpiry) {
-                throw new AuthError('no_expiry', 'token carries no exp claim')
-            }
-            if (sawBadAudience) {
-                throw new AuthError('bad_audience', 'token audience does not match')
-            }
-            throw new AuthError('bad_signature', 'token did not verify against any deployment key')
+            throw new AuthError(reason, 'token was not accepted')
         }
 
-        const claimedKeys = stringArray(payload['keys'])
-        if (!claimedKeys || claimedKeys.length === 0) {
+        const requested = stringArray(payload['keys'])
+        if (requested.length === 0) {
             throw new AuthError('no_keys_claim', 'token carries no keys claim — the request scope is the token')
         }
-        if (claimedKeys.length > MAX_REQUESTED_KEYS || claimedKeys.some((key) => key.length > MAX_KEY_LENGTH)) {
-            throw new AuthError('oversized_keys_claim', 'keys claim exceeds the per-request limits')
-        }
 
-        const claimedProduct = payload['caller']
         return {
             deployment,
-            product: productLabel(typeof claimedProduct === 'string' ? claimedProduct : ''),
+            caller: typeof payload['caller'] === 'string' ? payload['caller'] : '',
             // A repeated key would otherwise be resolved, counted and logged once per
             // occurrence.
-            requestedKeys: [...new Set(claimedKeys)],
+            requestedKeys: [...new Set(requested)],
         }
     }
 }
 
 /** Pull the bearer token out of an Authorization header. */
 export function bearerToken(header: string | undefined): string {
-    if (!header || !header.startsWith('Bearer ')) {
+    if (!header?.startsWith('Bearer ')) {
         throw new AuthError('missing_token', 'no bearer token')
     }
     const token = header.slice('Bearer '.length).trim()

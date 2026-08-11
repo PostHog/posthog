@@ -5,8 +5,7 @@
 // The rollup carries no credential values — caller names, key names, counts, timestamps
 // and rotation state only.
 
-import { providerForKey } from '../providers'
-import type { SecretsSnapshot, SecretState } from '../types'
+import type { MountedCredentials, SecretState } from '../types'
 
 export interface UsageCallerEntry {
     /** The calling deployment, as authenticated by its signing key. */
@@ -19,7 +18,6 @@ export interface UsageCallerEntry {
 }
 
 export interface UsageKeyEntry {
-    provider: string
     state: SecretState
     currentVersionId: string
     currentActivatedAt: string | null
@@ -55,15 +53,15 @@ export function buildUsageMap(opts: {
     env: string
     generatedAt: string
     quietWindowHours: number
-    snapshot: SecretsSnapshot | null
+    mounted: MountedCredentials | null
     reads: ReadonlyMap<string, number>
     lastSeen: ReadonlyMap<string, number>
 }): UsageMap {
     const keys: Record<string, UsageKeyEntry> = {}
-    const snapshot = opts.snapshot
+    const mounted = opts.mounted
 
-    if (snapshot) {
-        for (const [key, resolved] of Object.entries(snapshot.secrets)) {
+    if (mounted) {
+        for (const [key, credential] of Object.entries(mounted.credentials)) {
             const callers = new Map<string, UsageCallerEntry>()
 
             const ensure = (caller: string): UsageCallerEntry => {
@@ -82,7 +80,7 @@ export function buildUsageMap(opts: {
                 }
             }
 
-            const activatedAt = snapshot.changedAt ? Date.parse(snapshot.changedAt) : null
+            const activatedAt = mounted.changedAt ? Date.parse(mounted.changedAt) : null
             for (const [field, at] of opts.lastSeen) {
                 const [fieldKey, caller] = field.split('|')
                 // Deliberately not gated on a read inside the rolling window: last-seen is
@@ -102,13 +100,12 @@ export function buildUsageMap(opts: {
             const entries = [...callers.values()].sort((a, b) => a.caller.localeCompare(b.caller))
 
             keys[key] = {
-                provider: providerForKey(key) ?? 'unknown',
-                state: resolved.state,
-                currentVersionId: resolved.versionId,
-                currentActivatedAt: snapshot.changedAt,
+                state: credential.state,
+                currentVersionId: credential.versionId,
+                currentActivatedAt: mounted.changedAt,
                 callers: entries,
                 safeToRetirePrevious:
-                    resolved.state === 'rotating' &&
+                    credential.state === 'rotating' &&
                     entries.length > 0 &&
                     entries.every((entry) => entry.onCurrentValue),
             }

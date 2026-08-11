@@ -3,11 +3,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Pool } from 'pg'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AUDIENCE } from '@/auth/types'
 import type { Config } from '@/lib/config'
-import { IntegrationServer } from '@/server'
+import { everyJittered, IntegrationServer } from '@/server'
 
 const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 const SIGNING_KEY = 'server-test-signing-key'
@@ -22,18 +22,17 @@ async function secretsDir(): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), 'integration-server-'))
     dirs.push(dir)
     await writeFile(join(dir, KEY), 'hunter2-zx9q')
-    await writeFile(join(dir, 'CALLER_KEY_TEST_DEPLOYMENT'), SIGNING_KEY)
+    await writeFile(join(dir, '__CALLER_KEY_TEST_DEPLOYMENT'), SIGNING_KEY)
     return dir
 }
 
-function config(secrets: string, prestopDelayMs: number): Config {
+function config(mountDir: string, prestopDelayMs: number): Config {
     return {
         port: 0,
         host: '127.0.0.1',
-        shutdownGraceMs: 2000,
         shutdownPrestopDelayMs: prestopDelayMs,
         env: 'test',
-        secretsDir: secrets,
+        mountDir,
         databaseUrl: undefined,
         reloadSeconds: 3600,
         usageFlushMs: 3_600_000,
@@ -137,5 +136,64 @@ describe('integration server', () => {
         expect(process.listenerCount('SIGTERM')).toBe(before)
         expect(events.filter((e) => e === 'pool.end')).toHaveLength(1)
         expect(exitCode()).toBe(0)
+    })
+})
+
+// The reload is how a signing-key revocation reaches a running pod, so the cadence must
+// never stretch past the configured interval, and replicas must not all reload at once.
+describe('everyJittered', () => {
+    afterEach(() => {
+        vi.useRealTimers()
+        vi.restoreAllMocks()
+    })
+
+    it('runs first inside the interval, then on exactly that period', async () => {
+        vi.useFakeTimers()
+        // Worst-case initial draw: the first run must still land at the interval, not past it.
+        vi.spyOn(Math, 'random').mockReturnValue(1)
+        const runs: number[] = []
+        const start = Date.now()
+
+        const cancel = everyJittered(10_000, () => {
+            runs.push(Date.now() - start)
+            return Promise.resolve()
+        })
+        await vi.advanceTimersByTimeAsync(30_000)
+        cancel()
+
+        expect(runs).toEqual([10_000, 20_000, 30_000])
+    })
+
+    it('draws a different initial delay per replica', async () => {
+        vi.useFakeTimers()
+        vi.spyOn(Math, 'random').mockReturnValueOnce(0.1).mockReturnValueOnce(0.9)
+        const firstRunAt: number[] = []
+        const start = Date.now()
+        const task = (): Promise<void> => {
+            firstRunAt.push(Date.now() - start)
+            return Promise.resolve()
+        }
+
+        const cancelA = everyJittered(10_000, task)
+        const cancelB = everyJittered(10_000, task)
+        await vi.advanceTimersByTimeAsync(9_500)
+        cancelA()
+        cancelB()
+
+        expect(firstRunAt).toEqual([1_000, 9_000])
+    })
+
+    it('stops running once cancelled', async () => {
+        vi.useFakeTimers()
+        vi.spyOn(Math, 'random').mockReturnValue(0)
+        const task = vi.fn().mockResolvedValue(undefined)
+
+        const cancel = everyJittered(10_000, task)
+        await vi.advanceTimersByTimeAsync(10_000)
+        expect(task).toHaveBeenCalledTimes(2)
+
+        cancel()
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(task).toHaveBeenCalledTimes(2)
     })
 })

@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import type { SecretsSnapshot } from '@/types'
+import type { MountedCredentials } from '@/types'
 import { buildUsageMap, type UsageMap } from '@/usage/verdict'
 
 const ACTIVATED_AT = '2026-08-01T00:00:00.000Z'
 const BEFORE = Date.parse('2026-07-30T00:00:00.000Z')
 const AFTER = Date.parse('2026-08-02T00:00:00.000Z')
 
-const ROTATING: SecretsSnapshot = {
+const ROTATING: MountedCredentials = {
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v-new',
     changedAt: ACTIVATED_AT,
-    secrets: {
+    credentials: {
         GOOGLE_ADS_APP_CLIENT_SECRET: {
             state: 'rotating',
             value: 'ga-new-super-secret',
@@ -23,7 +23,7 @@ const ROTATING: SecretsSnapshot = {
 }
 
 function build(opts: {
-    snapshot?: SecretsSnapshot | null
+    mounted?: MountedCredentials | null
     reads?: Record<string, number>
     lastSeen?: Record<string, number>
 }): UsageMap {
@@ -31,7 +31,7 @@ function build(opts: {
         env: 'prod-us',
         generatedAt: '2026-08-06T12:00:00.000Z',
         quietWindowHours: 24,
-        snapshot: opts.snapshot === undefined ? ROTATING : opts.snapshot,
+        mounted: opts.mounted === undefined ? ROTATING : opts.mounted,
         reads: new Map(Object.entries(opts.reads ?? {})),
         lastSeen: new Map(Object.entries(opts.lastSeen ?? {})),
     })
@@ -50,7 +50,6 @@ describe('usage map', () => {
     it('carries the rotation state and current version through', () => {
         const usage = build({ reads: { [`${KEY}|${WORKER}`]: 1 } })
         expect(usage.keys[KEY]).toMatchObject({
-            provider: 'google-ads',
             state: 'rotating',
             currentVersionId: 'v-new',
             currentActivatedAt: ACTIVATED_AT,
@@ -117,12 +116,12 @@ describe('usage map', () => {
         })
 
         it('is false for a key that is not mid-rotation, since there is nothing to retire', () => {
-            const steady: SecretsSnapshot = {
+            const steady: MountedCredentials = {
                 ...ROTATING,
-                secrets: { [KEY]: { state: 'steady', value: 'only', versionId: 'v-new', fetchedAt: 'now' } },
+                credentials: { [KEY]: { state: 'steady', value: 'only', versionId: 'v-new', fetchedAt: 'now' } },
             }
             const usage = build({
-                snapshot: steady,
+                mounted: steady,
                 reads: { [`${KEY}|${WORKER}`]: 100 },
                 lastSeen: { [`${KEY}|${WORKER}`]: AFTER },
             })
@@ -130,9 +129,9 @@ describe('usage map', () => {
         })
 
         it('is false when the current version has no activation time to compare against', () => {
-            const undated: SecretsSnapshot = { ...ROTATING, changedAt: null }
+            const undated: MountedCredentials = { ...ROTATING, changedAt: null }
             const usage = build({
-                snapshot: undated,
+                mounted: undated,
                 reads: { [`${KEY}|${WORKER}`]: 100 },
                 lastSeen: { [`${KEY}|${WORKER}`]: AFTER },
             })

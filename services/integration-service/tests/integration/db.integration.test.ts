@@ -7,7 +7,7 @@ import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { applySchema } from '@/db/client'
-import type { SecretsSnapshot } from '@/types'
+import type { MountedCredentials } from '@/types'
 import { UsageRecorder } from '@/usage/recorder'
 import { buildUsageMap } from '@/usage/verdict'
 
@@ -19,11 +19,11 @@ const CHANGED_AT = '2026-08-01T00:00:00.000Z'
 const BEFORE = Date.parse('2026-07-30T00:00:00.000Z')
 const AFTER = Date.parse('2026-08-02T00:00:00.000Z')
 
-const ROTATING: SecretsSnapshot = {
+const ROTATING: MountedCredentials = {
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v-new',
     changedAt: CHANGED_AT,
-    secrets: {
+    credentials: {
         [KEY]: {
             state: 'rotating',
             value: 'new-value',
@@ -58,7 +58,7 @@ async function verdict(recorder: UsageRecorder): Promise<boolean | undefined> {
         env: 'test',
         generatedAt: new Date().toISOString(),
         quietWindowHours: 24,
-        snapshot: ROTATING,
+        mounted: ROTATING,
         reads,
         lastSeen,
     })

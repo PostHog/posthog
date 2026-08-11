@@ -1,45 +1,38 @@
 // Prometheus metrics.
 //
-// Every label value comes from fixed configuration in code, never from a request: an
-// unknown key and an unrecognised product both collapse to a constant (policy/resolve.ts,
-// products.ts). Never add a per-team or per-request label.
+// No label value ever comes from a request. A key name only becomes a label once the mount
+// is known to carry it; anything else collapses to a constant, and the untrusted `caller`
+// claim is not a label at all. prom-client keeps every series in process memory for the
+// pod's lifetime, so an unbounded label set is a memory leak a caller could drive.
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { CallerIdentity, ResolveOutcome } from './types'
+import type { ResolveOutcome } from './types'
 
 export const register = new Registry()
 
 collectDefaultMetrics({ register, prefix: 'integration_service_' })
 
-// ---------------------------------------------------------------------------
-// Resolve / audit
-// ---------------------------------------------------------------------------
-
 export const resolveTotal = new Counter({
     name: 'integration_secret_resolve_total',
-    help: 'Credential field resolutions, by deployment, product and outcome',
-    labelNames: ['deployment', 'product', 'provider', 'key', 'result'],
+    help: 'Credential resolutions, by deployment, key and outcome',
+    labelNames: ['deployment', 'key', 'result'],
     registers: [register],
 })
 
 export const lastResolvedTimestamp = new Gauge({
     name: 'integration_secret_last_resolved_timestamp',
-    help: 'Unix timestamp of the last successful resolution of a credential field',
-    labelNames: ['provider', 'key'],
+    help: 'Unix timestamp of the last successful resolution of a credential',
+    labelNames: ['key'],
     registers: [register],
 })
 
-// ---------------------------------------------------------------------------
-// Rotation
-// ---------------------------------------------------------------------------
-
-// How much traffic is reading a field that is mid-rotation. Says nothing about whether
+// How much traffic is reading a credential that is mid-rotation. Says nothing about whether
 // anyone needed the previous value.
 export const previousVersionServedTotal = new Counter({
     name: 'integration_secret_previous_version_served_total',
     help: 'Responses in which a previous (<KEY>_FALLBACKS) value was included alongside the current one',
-    labelNames: ['provider', 'key'],
+    labelNames: ['key'],
     registers: [register],
 })
 
@@ -49,27 +42,19 @@ export const secretAgeSeconds = new Gauge({
     registers: [register],
 })
 
-// ---------------------------------------------------------------------------
-// Mount health
-// ---------------------------------------------------------------------------
-
-// An unreadable mount keeps the last snapshot rather than failing every read, so this
-// gauge is the only sign of that degradation. Alert on it.
+// An unreadable mount keeps the credentials already held rather than failing every read, so
+// this gauge is the only sign of that degradation. Alert on it.
 export const servingStaleSeconds = new Gauge({
     name: 'integration_secret_serving_stale_seconds',
-    help: 'Age of the snapshot still being served because the mount could not be re-read (0 when healthy)',
+    help: 'Age of the credentials still being served because the mount could not be re-read (0 when healthy)',
     registers: [register],
 })
 
-export const storeErrorsTotal = new Counter({
+export const mountErrorsTotal = new Counter({
     name: 'integration_secret_store_errors_total',
     help: 'Reads of the secret mount that returned nothing',
     registers: [register],
 })
-
-// ---------------------------------------------------------------------------
-// HTTP
-// ---------------------------------------------------------------------------
 
 export const httpRequestsTotal = new Counter({
     name: 'integration_service_http_requests_total',
@@ -114,18 +99,9 @@ export const shuttingDown = new Gauge({
     registers: [register],
 })
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-export function observeResolve(
-    identity: Pick<CallerIdentity, 'deployment' | 'product'>,
-    provider: string,
-    key: string,
-    result: ResolveOutcome
-): void {
-    resolveTotal.labels({ deployment: identity.deployment, product: identity.product, provider, key, result }).inc()
+export function observeResolve(deployment: string, key: string, result: ResolveOutcome): void {
+    resolveTotal.labels({ deployment, key, result }).inc()
     if (result === 'ok') {
-        lastResolvedTimestamp.labels({ provider, key }).set(Date.now() / 1000)
+        lastResolvedTimestamp.labels({ key }).set(Date.now() / 1000)
     }
 }

@@ -9,16 +9,11 @@ import { bearerToken, type JwtVerifier } from '../auth/jwt'
 import { AuthError } from '../auth/types'
 import { logger } from '../lib/logging'
 import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal, register, shuttingDown } from '../metrics'
-import { resolveKeys, type ResolveDeps } from '../policy/resolve'
+import { resolveKeys } from '../resolve'
+import type { Lifecycle, MountedCredentials } from '../types'
+import type { UsageRecorder } from '../usage/recorder'
 
-export const RESOLVE_PATH = '/v1/secrets/resolve'
-
-export interface Lifecycle {
-    shuttingDown: boolean
-    ready: boolean
-}
-
-const PROBE_PATHS = new Set(['/_liveness', '/_readiness', '/metrics'])
+const KNOWN_PATHS = new Set(['/_liveness', '/_readiness', '/metrics', '/v1/secrets/resolve'])
 
 // Hash both sides so timingSafeEqual gets equal-length buffers without leaking the
 // configured token's length through an early mismatch return.
@@ -29,15 +24,11 @@ function tokensMatch(provided: string, expected: string): boolean {
     )
 }
 
-// Keeps an unmatched request from creating an unbounded metric label value.
-function routeLabel(pathname: string): string {
-    return PROBE_PATHS.has(pathname) || pathname === RESOLVE_PATH ? pathname : 'other'
-}
-
 export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
-    resolveDeps: ResolveDeps
+    credentials: () => MountedCredentials | null
+    recorder: UsageRecorder
     metricsToken: string
 }
 
@@ -45,7 +36,9 @@ export function createApp(opts: AppOptions): Hono {
     const app = new Hono()
 
     app.use('*', async (c, next) => {
-        const route = routeLabel(new URL(c.req.url).pathname)
+        const pathname = new URL(c.req.url).pathname
+        // An unmatched path must not become a label value, or anyone can grow the series set.
+        const route = KNOWN_PATHS.has(pathname) ? pathname : 'other'
         const start = performance.now()
         try {
             await next()
@@ -58,8 +51,8 @@ export function createApp(opts: AppOptions): Hono {
 
     app.get('/_liveness', (c) => c.json({ status: 'ok' }))
 
-    // Not ready until the pod holds a credential snapshot: one that does not would answer
-    // every resolve all-missing, which callers treat as terminal rather than retryable.
+    // Not ready until the pod holds credentials: one that does not would answer every
+    // resolve all-missing, which callers treat as terminal rather than retryable.
     app.get('/_readiness', (c) => {
         if (opts.lifecycle.shuttingDown) {
             return c.json({ status: 'shutting_down' }, 503)
@@ -72,7 +65,8 @@ export function createApp(opts: AppOptions): Hono {
 
     app.get('/metrics', async (c) => {
         if (opts.metricsToken) {
-            const provided = bearerOrEmpty(c.req.header('Authorization'))
+            const header = c.req.header('Authorization')
+            const provided = header?.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : ''
             if (!provided || !tokensMatch(provided, opts.metricsToken)) {
                 return c.json({ error: 'Unauthorized' }, 401)
             }
@@ -81,10 +75,10 @@ export function createApp(opts: AppOptions): Hono {
         return c.text(await register.metrics(), 200, { 'Content-Type': register.contentType })
     })
 
-    app.post(RESOLVE_PATH, async (c) => {
-        let verified
+    app.post('/v1/secrets/resolve', async (c) => {
+        let identity
         try {
-            verified = await opts.verifier.verify(bearerToken(c.req.header('Authorization')))
+            identity = await opts.verifier.verify(bearerToken(c.req.header('Authorization')))
         } catch (err) {
             if (err instanceof AuthError) {
                 authFailuresTotal.labels({ reason: err.reason }).inc()
@@ -94,23 +88,18 @@ export function createApp(opts: AppOptions): Hono {
             throw err
         }
 
-        try {
-            const response = await resolveKeys(verified, opts.resolveDeps)
-            return c.json(response)
-        } catch (err) {
-            // Reaching here means the pod has never held a snapshot; a failed re-read
-            // keeps the previous one and never lands here.
-            logger.error('secrets:resolve_failed', {
-                deployment: verified.deployment,
-                error: err instanceof Error ? err.message : String(err),
-            })
+        // Never answered as an all-`missing` response: a caller treats a missing key as
+        // terminal, so answering that way during a cold start would turn an unavailable
+        // service into what looks like a deleted credential. A failed re-read keeps the
+        // credentials already held and never lands here.
+        const mounted = opts.credentials()
+        if (!mounted) {
+            logger.error('secrets:no_credentials_held', { deployment: identity.deployment })
             return c.json({ error: 'Secret store unavailable' }, 503)
         }
+
+        return c.json(resolveKeys(identity, mounted, opts.recorder))
     })
 
     return app
-}
-
-function bearerOrEmpty(header: string | undefined): string {
-    return header?.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : ''
 }

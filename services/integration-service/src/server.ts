@@ -13,13 +13,17 @@ import type { Pool } from 'pg'
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
 import { createPool, observeVersion } from './db/client'
-import { createApp, type Lifecycle } from './http/app'
+import { createApp } from './http/app'
 import type { Config } from './lib/config'
 import { logger } from './lib/logging'
-import { scheduleJittered } from './lib/schedule'
-import { SnapshotManager } from './snapshot'
-import { createFileStore } from './store/fileStore'
+import { SecretMount } from './mount'
+import type { Lifecycle } from './types'
 import { UsageRecorder } from './usage/recorder'
+
+/** How long a drain may take once the prestop window has passed. */
+const DRAIN_TIMEOUT_MS = 10_000
+
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -39,12 +43,32 @@ export interface IntegrationServerOverrides {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+/**
+ * Run `task` every `intervalMs`, starting after a delay drawn from [0, intervalMs) so
+ * replicas do not reload in lockstep. The steady period is exactly `intervalMs` and the
+ * first run lands inside it, because the reload is how a signing-key revocation reaches
+ * this pod. Timers are unref'd so a pending one never holds the process open.
+ */
+export function everyJittered(intervalMs: number, task: () => Promise<void>): () => void {
+    let repeat: NodeJS.Timeout | undefined
+    const first = setTimeout(() => {
+        void task()
+        repeat = setInterval(() => void task(), intervalMs)
+        repeat.unref()
+    }, Math.random() * intervalMs)
+    first.unref()
+    return () => {
+        clearTimeout(first)
+        clearInterval(repeat)
+    }
+}
+
 export class IntegrationServer {
     private readonly lifecycle: Lifecycle = { shuttingDown: false, ready: false }
     private pool: Pool | undefined
     private server: DrainableServer | undefined
     private recorder: UsageRecorder | undefined
-    private snapshots: SnapshotManager | undefined
+    private mount: SecretMount | undefined
     private signingKeys: SigningKeyLoader | undefined
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
@@ -60,9 +84,9 @@ export class IntegrationServer {
         return this.lifecycle
     }
 
-    /** Re-read the secret mount and the signing keys now, without waiting for the timer. */
+    /** Re-read the mount and the signing keys now, without waiting for the timer. */
     async reload(): Promise<void> {
-        await this.snapshots?.reload()
+        await this.mount?.reload()
         await this.signingKeys?.reload()
     }
 
@@ -72,13 +96,8 @@ export class IntegrationServer {
         if (this.overrides.pool) {
             this.pool = this.overrides.pool
         } else if (config.databaseUrl) {
-            try {
-                this.pool = await createPool(config.databaseUrl)
-                logger.info('db:connected', {})
-            } catch (err) {
-                logger.error('db:connect_failed', { error: err instanceof Error ? err.message : String(err) })
-                throw err
-            }
+            this.pool = await createPool(config.databaseUrl)
+            logger.info('db:connected', {})
         } else {
             // Guarded in loadConfig for production. Locally the service runs without usage
             // recording, which costs the rollup and nothing else.
@@ -86,40 +105,32 @@ export class IntegrationServer {
         }
         const pool = this.pool
 
-        const signingKeys = new SigningKeyLoader(config.secretsDir)
+        const signingKeys = new SigningKeyLoader(config.mountDir)
         this.signingKeys = signingKeys
-        try {
-            await signingKeys.load()
-        } catch (err) {
-            logger.error('startup:signing_keys_load_failed', {
-                dir: config.secretsDir,
-                error: err instanceof Error ? err.message : String(err),
-            })
-            throw err
-        }
+        await signingKeys.load()
 
-        const store = createFileStore({
-            dir: config.secretsDir,
+        const recorder = new UsageRecorder({ pool })
+        this.recorder = recorder
+        const mount = new SecretMount({
+            dir: config.mountDir,
+            lifecycle: this.lifecycle,
             // Without Postgres there is no shared record of when content first appeared, so
             // the retirement verdict simply stays false rather than guessing.
             observeVersion: (hash) => (pool ? observeVersion(pool, hash) : Promise.resolve(null)),
         })
-
-        const recorder = new UsageRecorder({ pool })
-        this.recorder = recorder
-        const snapshots = new SnapshotManager({ store, lifecycle: this.lifecycle, dir: config.secretsDir })
-        this.snapshots = snapshots
+        this.mount = mount
 
         const app = createApp({
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
-            resolveDeps: { loadSecrets: () => Promise.resolve(snapshots.current()), recorder },
+            credentials: () => mount.current(),
+            recorder,
             metricsToken: config.metricsToken,
         })
 
-        await snapshots.reload()
+        await mount.reload()
         if (!this.lifecycle.ready) {
-            logger.error('startup:no_credentials_on_mount', { dir: config.secretsDir })
+            logger.error('startup:no_credentials_on_mount', { dir: config.mountDir })
         }
 
         const serveFn = this.overrides.serve ?? serve
@@ -128,9 +139,9 @@ export class IntegrationServer {
         })
 
         this.cancelTimers.push(
-            scheduleJittered(config.reloadSeconds * 1000, () => this.reload()),
-            scheduleJittered(config.usageFlushMs, () => recorder.flush()),
-            scheduleJittered(24 * 60 * 60 * 1000, () => recorder.prune(config.retentionDays))
+            everyJittered(config.reloadSeconds * 1000, () => this.reload()),
+            everyJittered(config.usageFlushMs, () => recorder.flush()),
+            everyJittered(PRUNE_INTERVAL_MS, () => recorder.prune(config.retentionDays))
         )
 
         this.setupProcessListeners()
@@ -153,14 +164,10 @@ export class IntegrationServer {
             cancel()
         }
 
-        const startedAt = Date.now()
-        if (this.config.shutdownPrestopDelayMs > 0) {
-            await sleep(this.config.shutdownPrestopDelayMs)
-        }
-        const drainBudget = Math.max(this.config.shutdownGraceMs - (Date.now() - startedAt), 1000)
+        await sleep(this.config.shutdownPrestopDelayMs)
         const server = this.server
         if (server) {
-            await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(drainBudget)])
+            await Promise.race([new Promise<void>((resolve) => server.close(() => resolve())), sleep(DRAIN_TIMEOUT_MS)])
         }
 
         // Write what accumulated since the last flush, so a rolling restart does not lose
@@ -168,9 +175,7 @@ export class IntegrationServer {
         await this.recorder?.flush()
         if (this.pool) {
             await this.pool.end().catch((err: unknown) => {
-                logger.error('shutdown:db_close_failed', {
-                    error: err instanceof Error ? err.message : String(err),
-                })
+                logger.error('shutdown:db_close_failed', { error: err instanceof Error ? err.message : String(err) })
             })
         }
         logger.info('shutdown:complete', {})
