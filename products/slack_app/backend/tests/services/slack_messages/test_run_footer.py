@@ -19,9 +19,9 @@ class TestRunFooter(SimpleTestCase):
             (
                 "everything",
                 RunFooter(TASK_URL, DESKTOP_URL, "claude-opus-5", "high"),
-                "https://slack.com/app_redirect?app=A1&team=T1&tab=home",
+                "slack://app?team=T1&id=A1&tab=home",
                 f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>"
-                " · *Claude Opus 5* · Reasoning: *High* · <https://slack.com/app_redirect?app=A1&team=T1&tab=home|Configure>",
+                " · *Claude Opus 5* · Reasoning: *High* · <slack://app?team=T1&id=A1&tab=home|Configure>",
             ),
             (
                 "links_only",
@@ -33,8 +33,8 @@ class TestRunFooter(SimpleTestCase):
             (
                 "configure_only",
                 RunFooter(),
-                "https://slack.com/app_redirect?app=A1&team=T1&tab=home",
-                "<https://slack.com/app_redirect?app=A1&team=T1&tab=home|Configure>",
+                "slack://app?team=T1&id=A1&tab=home",
+                "<slack://app?team=T1&id=A1&tab=home|Configure>",
             ),
         ]
     )

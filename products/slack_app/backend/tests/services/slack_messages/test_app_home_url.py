@@ -10,7 +10,7 @@ from products.slack_app.backend.services.slack_messages import app_home_url
 class TestSlackLinks(SimpleTestCase):
     @parameterized.expand(
         [
-            ("resolves", {"app_id": "A1"}, "T1", "https://slack.com/app_redirect?app=A1&team=T1&tab=home"),
+            ("resolves", {"app_id": "A1"}, "T1", "slack://app?team=T1&id=A1&tab=home"),
             ("no_app_id", {}, "T1", None),
             ("no_workspace", {"app_id": "A1"}, "", None),
         ]

@@ -455,13 +455,15 @@ def context_block(text: str) -> dict[str, Any]:
 def app_home_url(integration: Integration) -> str | None:
     """Deep link to this install's Home tab, where the model picker lives.
 
-    The `app_redirect` form is https, so it survives as a link in any client and in a
-    browser; `slack://app` only resolves natively. Both need the app id (`A…`), which the
-    OAuth exchange already persisted on the integration — so this stays correct even
-    where more than one Slack app is in play. A row installed by some other path may not
-    carry it, which simply means no link.
+    The native `slack://` form rather than the https `app_redirect` one: the reader is
+    already in Slack, so this opens the tab in place instead of bouncing them through a
+    browser — and Slack doesn't unfurl a non-http scheme, so it costs no preview card.
+
+    Needs the app id (`A…`), which the OAuth exchange already persisted on the
+    integration, so this stays correct even where more than one Slack app is in play. A
+    row installed by some other path may not carry it, which simply means no link.
     """
     app_id = (integration.config or {}).get("app_id")
     if not app_id or not integration.integration_id:
         return None
-    return f"https://slack.com/app_redirect?app={app_id}&team={integration.integration_id}&tab=home"
+    return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
