@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
@@ -75,17 +76,21 @@ class Channel(TeamScopedRootMixin):
     PERSONAL_CHANNEL_NAME = "me"
 
     @classmethod
-    def visible_to_q(cls, user_id: int | None, *, relation: str = "") -> models.Q:
+    def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:
         """The channel-visibility rule as a queryset filter: a personal channel is
         visible only to its creator. ``relation`` names the join to ``Channel`` when
         filtering another model's queryset (e.g. ``"channel"``); empty filters
         ``Channel`` rows directly."""
-        prefix = f"{relation}__" if relation else ""
-        if user_id is None:
-            return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL})
-        return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL}) | models.Q(
-            **{f"{prefix}created_by_id": user_id}
-        )
+        prefix = {"": "", "channel": "channel__", "task__channel": "task__channel__"}[relation]
+        visible_q = models.Q(**{f"{prefix}channel_type": cls.ChannelType.PUBLIC})
+        if user_id is not None:
+            visible_q |= models.Q(
+                **{
+                    f"{prefix}channel_type": cls.ChannelType.PERSONAL,
+                    f"{prefix}created_by_id": user_id,
+                }
+            )
+        return models.Q(**{f"{prefix}deleted": False}) & visible_q
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -798,6 +803,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,
         repository: str | None = None,
+        channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         branch: str | None = None,
@@ -824,6 +830,7 @@ class Task(DeletedMetaFields, models.Model):
             origin_product=origin_product,
             user_id=user_id,
             repository=repository,
+            channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
@@ -2540,6 +2547,41 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self):
         return f"{self.name} ({self.artifact_type})"
+
+
+class TaskSearchDocument(TeamScopedRootMixin, UUIDModel):
+    """Small, rebuildable search projection for Desktop's global command menu."""
+
+    class Kind(models.TextChoices):
+        TASK = "task", "Task"
+        PULL_REQUEST = "pull_request", "Pull request"
+        ARTIFACT = "artifact", "Artifact"
+        CHANNEL = "channel", "Channel"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    channel = models.ForeignKey(Channel, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
+    kind = models.CharField(max_length=32, choices=Kind)
+    source_key = models.CharField(max_length=512)
+    title = models.CharField(max_length=512)
+    subtitle = models.CharField(max_length=512, blank=True, default="")
+    search_text = models.TextField()
+    exact_identifiers = ArrayField(models.CharField(max_length=512), default=list, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_search_document"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "kind", "source_key"], name="task_search_doc_source_unique")
+        ]
+        indexes = [
+            models.Index(fields=["team", "kind"], name="task_search_doc_team_kind_idx"),
+            GinIndex(fields=["exact_identifiers"], name="task_search_doc_exact_gin"),
+            GinIndex(fields=["search_text"], name="task_search_doc_text_trgm", opclasses=["gin_trgm_ops"]),
+        ]
 
 
 class SandboxSession(TeamScopedRootMixin, UUIDModel):

@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 
@@ -19,7 +19,7 @@ class TestCanvasOAuthAccess(APIBaseTest):
     grandfathered `*` grant; `canvas:read` covers tokens narrowed to an app's
     scope ceiling at grant time (which must include the canvas scope)."""
 
-    def _bearer(self, scope: str, client_id: str | None = None) -> str:
+    def _bearer(self, scope: str, client_id: str | None = None, sandbox_task_id: UUID | None = None) -> str:
         app = OAuthApplication.objects.create(
             name="desktop",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
@@ -39,6 +39,7 @@ class TestCanvasOAuthAccess(APIBaseTest):
             expires=timezone.now() + timedelta(hours=1),
             scoped_teams=[],
             scoped_organizations=[],
+            sandbox_task_id=sandbox_task_id,
         )
         return token.token
 
@@ -66,10 +67,23 @@ class TestCanvasOAuthAccess(APIBaseTest):
         # bump exists to re-auth these.
         assert self._list_canvases("task:read task:write dashboard:read") == 403
 
-    def _create_canvas(self, *, client_id: str | None, task_header: str | None) -> dict:
+    def _create_canvas(
+        self,
+        *,
+        client_id: str | None,
+        task_header: str | None,
+        sandbox_task: Task | None = None,
+    ) -> dict:
         with team_scope(self.team.id):
             channel = Channel.objects.create(team=self.team, name="general")
-        token = self._bearer("*", client_id=client_id)
+        if sandbox_task is not None:
+            sandbox_task.channel = channel
+            sandbox_task.save(update_fields=["channel"])
+        token = self._bearer(
+            "*",
+            client_id=client_id,
+            sandbox_task_id=sandbox_task.id if sandbox_task is not None else None,
+        )
         self.client.logout()
         extra: dict[str, Any] = {"HTTP_X_POSTHOG_TASK_ID": task_header} if task_header else {}
         res = self.client.post(
@@ -87,7 +101,11 @@ class TestCanvasOAuthAccess(APIBaseTest):
         # sandbox's stamped task header is what records which run produced the
         # canvas — that link powers the task nesting and generating state.
         task = Task.objects.create(team=self.team, created_by=self.user, title="Generate canvas")
-        body = self._create_canvas(client_id=ARRAY_APP_CLIENT_ID_DEV, task_header=str(task.id))
+        body = self._create_canvas(
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            task_header=str(task.id),
+            sandbox_task=task,
+        )
         assert body["generation_task_id"] == str(task.id)
 
     def test_non_sandbox_create_ignores_the_task_header(self):
@@ -96,6 +114,18 @@ class TestCanvasOAuthAccess(APIBaseTest):
         body = self._create_canvas(client_id=None, task_header=str(task.id))
         assert body["generation_task_id"] is None
 
-    def test_sandbox_create_ignores_a_task_outside_the_team(self):
-        body = self._create_canvas(client_id=ARRAY_APP_CLIENT_ID_DEV, task_header=str(uuid4()))
-        assert body["generation_task_id"] is None
+    def test_sandbox_create_rejects_a_task_outside_the_team(self):
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(team=self.team, name="general")
+        token = self._bearer("*", client_id=ARRAY_APP_CLIENT_ID_DEV, sandbox_task_id=uuid4())
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/canvases/",
+            {"channel_id": str(channel.id), "name": "Signups"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            HTTP_X_POSTHOG_TASK_ID=str(uuid4()),
+        )
+
+        assert response.status_code == 403
