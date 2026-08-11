@@ -199,3 +199,9 @@ Agent steps:
 - `query-session-recordings-list`: Core tool for retrieving session recordings with filters
 - `experiment-get`: Get experiment metadata; `experiment-results-get` for statistical results
 - `execute-sql`: Query experiments table for details via HogQL
+
+## Related skills
+
+- **`diagnosing-experiment-results`** — the quantitative side: bias checks and significance on the same experiment
+- **`investigating-replay`** — deep-dive a single session from either variant
+- **`finding-sessions-to-watch`** — general session shortlisting outside the experiment context
