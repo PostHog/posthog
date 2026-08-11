@@ -44,11 +44,24 @@ class TestPostMaterializationChecks:
         _mock_workflow_should_fail.clear()
 
     async def _run_dag(
-        self, team_id: int, node_ids: list[str], *, register_suite: bool = True, checks_needed: bool = True
+        self,
+        team_id: int,
+        node_ids: list[str],
+        *,
+        ephemeral_node_ids: list[str] | None = None,
+        register_suite: bool = True,
+        checks_needed: bool = True,
     ) -> ExecuteDAGResult:
+        executable = node_ids + (ephemeral_node_ids or [])
+
         @temporal_activity.defn(name="get_dag_structure_activity")
         async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
-            return DAGPlan(nodes=node_ids, executable_nodes=node_ids, edges=[])
+            return DAGPlan(
+                nodes=executable,
+                executable_nodes=executable,
+                edges=[],
+                ephemeral_nodes=ephemeral_node_ids or [],
+            )
 
         @temporal_activity.defn(name=MATERIALIZATION_GATE_ACTIVITY_NAME)
         async def stub_materialization_gate(_: dict) -> bool:
@@ -74,15 +87,17 @@ class TestPostMaterializationChecks:
                     execution_timeout=dt.timedelta(seconds=30),
                 )
 
-    async def test_only_the_nodes_that_materialized_are_handed_to_the_check_suite(self, ateam) -> None:
-        materialized, failing = str(uuid.uuid4()), str(uuid.uuid4())
+    async def test_every_node_the_run_brought_up_to_date_is_handed_to_the_check_suite(self, ateam) -> None:
+        # An ephemeral node materializes nothing, so it carries no row count, but it is still a view
+        # a check can query and the DAG run is its only cadence. A failed node has nothing to check.
+        materialized, failing, ephemeral = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
         _mock_workflow_should_fail.add(failing)
 
-        result = await self._run_dag(ateam.pk, [materialized, failing])
+        result = await self._run_dag(ateam.pk, [materialized, failing], ephemeral_node_ids=[ephemeral])
 
-        assert result.successful_nodes == 1
+        assert result.successful_nodes == 2
         assert len(_suite_runs_started) == 1
-        assert _suite_runs_started[0]["node_ids"] == [materialized]
+        assert sorted(_suite_runs_started[0]["node_ids"]) == sorted([materialized, ephemeral])
         assert _suite_runs_started[0]["trigger"] == "materialization"
         assert _suite_runs_started[0]["team_id"] == ateam.pk
 

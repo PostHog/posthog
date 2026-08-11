@@ -39,10 +39,6 @@ from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
-# Guards the post-materialization check-suite command so in-flight DAG runs, whose histories predate
-# it, replay without a non-determinism error.
-DATA_QUALITY_PATCH_ID = "data-quality-post-materialization-2026-08"
-
 
 class EmptyDAGOrCycleError(Exception):
     """Raised when the DAG is empty or contains a cycle according to _dag_execution_levels."""
@@ -466,8 +462,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         get_dag_node_count_metric("failed").record(failed_nodes)
         get_dag_node_count_metric("skipped").record(skipped_nodes)
 
-        if temporalio.workflow.patched(DATA_QUALITY_PATCH_ID):
-            await self._run_data_quality_checks(inputs, node_results)
+        # Safe to add without a workflow patch, for the same reason as the skipped-jobs activity
+        # above: nothing follows it, so a replayed history cannot have passed it.
+        await self._run_data_quality_checks(inputs, node_results)
 
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,
@@ -480,7 +477,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         )
 
     async def _run_data_quality_checks(self, inputs: ExecuteDAGInputs, node_results: list[NodeResult]) -> None:
-        """Fire the check suite for the models this run actually materialized.
+        """Fire the check suite for the models this run brought up to date.
 
         Best-effort and fully isolated: started by registered name so data_modeling never imports
         the catalog product, and ABANDON so a check suite can neither delay nor fail the DAG. The
@@ -490,19 +487,20 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         of which need the database. Asking first keeps a team with no checks, or an org that never
         opted in, from paying for a child workflow and a suite row on every materialization.
         """
-        materialized_node_ids = [
+        checkable_node_ids = [
             result.node_id
             for result in node_results
-            # rows_materialized is None for ephemeral nodes, which have no table to check.
-            if result.success and not result.skipped and result.rows_materialized is not None
+            # An ephemeral node materializes nothing, but it is still a view a check can query, and
+            # its DAG run is the only cadence it has.
+            if result.success and not result.skipped
         ]
-        if not materialized_node_ids:
+        if not checkable_node_ids:
             return
 
         try:
             checks_needed = await temporalio.workflow.execute_activity(
                 MATERIALIZATION_GATE_ACTIVITY_NAME,
-                {"team_id": inputs.team_id, "node_ids": materialized_node_ids},
+                {"team_id": inputs.team_id, "node_ids": checkable_node_ids},
                 start_to_close_timeout=dt.timedelta(minutes=1),
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
             )
@@ -517,7 +515,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 {
                     "team_id": inputs.team_id,
                     "trigger": SuiteRunTrigger.MATERIALIZATION.value,
-                    "node_ids": materialized_node_ids,
+                    "node_ids": checkable_node_ids,
                 },
                 id=f"data-quality-run-suite-{inputs.dag_id}-{temporalio.workflow.info().run_id}",
                 parent_close_policy=ParentClosePolicy.ABANDON,
