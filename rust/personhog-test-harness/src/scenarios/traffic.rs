@@ -302,9 +302,21 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
 /// (and namespace) name, and `component=app` excludes the pgbouncer
 /// sidecars sharing the namespace.
 /// The lease TTL bounding both sides of the chaos election: a dead
-/// holder's claim expires within this window, and a live holder that
-/// cannot confirm its lease for this long stops running chaos.
+/// holder's claim expires within this window, and a live holder demotes
+/// on its first unconfirmed keepalive, well inside it.
 const CHAOS_LEASE_TTL: Duration = Duration::from_secs(30);
+const CHAOS_KEEPALIVE_TICK: Duration = Duration::from_secs(10);
+const CHAOS_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(5);
+// The demotion bound. Anchor at S, the send instant of the last
+// confirmed keepalive: etcd expires the key no earlier than S + TTL,
+// while the holder's next round starts within timeout + tick of S and
+// concludes (send and read each bounded by the timeout) within another
+// 2 * timeout. So the holder is demoted before the key can expire and
+// admit a successor, and two concurrent chaos runners are impossible.
+const _: () = assert!(
+    CHAOS_KEEPALIVE_TICK.as_secs() + 3 * CHAOS_KEEPALIVE_TIMEOUT.as_secs()
+        < CHAOS_LEASE_TTL.as_secs()
+);
 
 /// Lease-backed chaos election on the coordination etcd. The winner
 /// claims `{prefix}chaos_leader` under a lease it keeps alive; losers
@@ -360,17 +372,14 @@ async fn campaign(args: &TrafficArgs, endpoints: &str, shutdown: &Arc<AtomicBool
     result
 }
 
-/// Runs chaos while keepalives confirm the lease, demoting only on
-/// lease loss, never on a stream blip: chaos itself bounces etcd
-/// members, so the holder's keepalive stream breaking is expected and
-/// is answered by rebuilding the stream on the same lease. Two facts
-/// end the hold early. A keepalive answered with TTL 0 means etcd
-/// expired the lease, and the key with it: a successor may already
-/// hold the claim, so chaos must stop now. No confirmed keepalive for
-/// a full TTL (on this pod's clock, counted from the last
-/// confirmation) means the lease may have expired unobserved; the
-/// local deadline fires no later than etcd's, so the hold ends before
-/// a successor can start.
+/// Runs chaos while keepalives confirm the lease, demoting on the
+/// first doubt: a send or read failure, a timeout, or a keepalive
+/// answered with TTL 0 (etcd already expired the lease). Doubt is
+/// cheap because the failure direction is one-sided — the key outlives
+/// the hold until revoke or expiry, so a spurious demotion costs a
+/// short chaos gap, never a second runner. Chaos's own etcd bounce
+/// lands here too: the holder demotes and re-campaigns once the
+/// cluster settles.
 async fn hold_and_run(
     args: &TrafficArgs,
     store: &EtcdStore,
@@ -380,32 +389,27 @@ async fn hold_and_run(
     let chaos = chaos::run(chaos_config(args), shutdown.clone());
     tokio::pin!(chaos);
     let (mut keeper, mut stream) = store.keep_alive(lease_id).await?;
-    let mut last_confirmed = Instant::now();
-    let mut tick = tokio::time::interval(CHAOS_LEASE_TTL / 3);
+    let mut tick = tokio::time::interval(CHAOS_KEEPALIVE_TICK);
     tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             _ = &mut chaos => return Ok(()),
             _ = tick.tick() => {
-                if last_confirmed.elapsed() >= CHAOS_LEASE_TTL {
-                    tracing::warn!("chaos lease unconfirmed past TTL; demoting");
+                let confirmed = async {
+                    tokio::time::timeout(CHAOS_KEEPALIVE_TIMEOUT, keeper.keep_alive())
+                        .await
+                        .ok()?
+                        .ok()?;
+                    let resp = tokio::time::timeout(CHAOS_KEEPALIVE_TIMEOUT, stream.message())
+                        .await
+                        .ok()?
+                        .ok()??;
+                    (resp.ttl() > 0).then_some(())
+                }
+                .await;
+                if confirmed.is_none() {
+                    tracing::warn!("chaos lease unconfirmed; demoting");
                     return Ok(());
-                }
-                if keeper.keep_alive().await.is_err() {
-                    if let Ok(rebuilt) = store.keep_alive(lease_id).await {
-                        (keeper, stream) = rebuilt;
-                    }
-                    continue;
-                }
-                match tokio::time::timeout(Duration::from_secs(5), stream.message()).await {
-                    Ok(Ok(Some(resp))) if resp.ttl() > 0 => last_confirmed = Instant::now(),
-                    Ok(Ok(Some(_))) => {
-                        tracing::warn!("chaos lease expired; demoting");
-                        return Ok(());
-                    }
-                    // Stream end, error, or timeout: not loss; the
-                    // deadline above governs.
-                    _ => {}
                 }
             }
         }

@@ -117,9 +117,9 @@ pub async fn seed_persons_via_identity(
     Ok(ids)
 }
 
-/// Delete all of `team_id`'s rows from `table`, plus the distinct id and
-/// personless rows the identity-service create path writes. The harness
-/// owns its team ids outright, so team-wide deletes are the whole cleanup.
+/// Delete all of `team_id`'s rows from `table`, plus the distinct id
+/// mappings the identity-service create path writes. The harness owns
+/// its team ids outright, so team-wide deletes are the whole cleanup.
 /// Distinct id rows go first: their FK references the person rows.
 pub async fn cleanup_team(pool: &PgPool, table: &str, team_id: i64) -> Result<u64> {
     validate_table_name(table)?;
@@ -132,11 +132,6 @@ pub async fn cleanup_team(pool: &PgPool, table: &str, team_id: i64) -> Result<u6
             .await
             .with_context(|| format!("deleting distinct ids from {pdi_table}"))?;
     }
-    sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
-        .bind(team)
-        .execute(pool)
-        .await
-        .context("deleting personless distinct ids")?;
 
     let deleted = sqlx::query(&format!("DELETE FROM {table} WHERE team_id = $1"))
         .bind(team)
@@ -177,11 +172,10 @@ pub async fn refresh_created_at(
 /// Reap a team's person rows older than `older_than` — the startup
 /// janitor for leftovers from crashed or killed instances. The age guard
 /// keeps it off a live sibling pod's fresh pool during a rolling-restart
-/// overlap, while dead instances' rows age into eligibility. The
-/// distinct-id tables are swept team-wide and unguarded: the traffic
-/// path never writes them, so any row there is a leftover from a gate
-/// run against this team. They go first — their FK references the person
-/// rows.
+/// overlap, while dead instances' rows age into eligibility. Every
+/// delete is scoped to rows the harness's own write path produces:
+/// tables it never writes (the personless table) are never touched,
+/// however stray their contents look.
 pub async fn reap_stale_team_rows(
     pool: &PgPool,
     table: &str,
@@ -209,11 +203,6 @@ pub async fn reap_stale_team_rows(
         .await
         .with_context(|| format!("deleting distinct ids from {pdi_table}"))?;
     }
-    sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
-        .bind(team)
-        .execute(pool)
-        .await
-        .context("deleting personless distinct ids")?;
 
     // Age-guarded and deliberately blind to is_deleted: it purges both
     // crashed-run leftovers and the tombstones lifecycle deletes leave
