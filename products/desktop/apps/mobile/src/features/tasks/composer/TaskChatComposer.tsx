@@ -330,7 +330,10 @@ export function TaskChatComposer({
     <>
       <View className="px-4">
         <View style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}>
-          <View className="overflow-hidden rounded-lg border border-gray-6 bg-card">
+          <View
+            className="overflow-hidden rounded-lg border border-gray-6 bg-card"
+            style={disabled ? { opacity: 0.5 } : undefined}
+          >
             {editing ? (
               <View className="flex-row items-center gap-2 border-gray-6 border-b bg-accent-2 px-3 py-2">
                 <PencilIcon size={14} color={themeColors.accent[11]} />

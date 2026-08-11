@@ -66,3 +66,31 @@ export function getLocalRunBannerState(
       };
   }
 }
+
+export interface ComposerLock {
+  /** Stands in for the composer placeholder while input is refused. */
+  hint: string;
+}
+
+/**
+ * Whether the composer accepts input, from the same placement the banner reads.
+ *
+ * A desktop-owned run has no cloud session behind it, so a send would fail with
+ * "No active session" only after the user typed a whole message. Refuse the
+ * input up front and point at the way forward instead. Cloud tasks return null:
+ * the composer is open and the caller keeps its own placeholder.
+ */
+export function getComposerLock(
+  placement: TaskRunPlacement,
+): ComposerLock | null {
+  switch (placement) {
+    case "cloud":
+      return null;
+    case "local-active":
+      // "Continue in cloud" isn't available yet -- the banner's action is
+      // disabled until the desktop run ends -- so don't suggest it.
+      return { hint: "Wait for the desktop run to finish" };
+    case "local-terminal":
+      return { hint: "Continue in cloud to keep working from here" };
+  }
+}

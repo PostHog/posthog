@@ -2,6 +2,7 @@ import type { TaskRunEnvironment, TaskRunStatus } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 import {
   classifyTaskRunPlacement,
+  getComposerLock,
   getLocalRunBannerState,
   isLocalRunTask,
   type TaskRunPlacement,
@@ -64,5 +65,36 @@ describe("getLocalRunBannerState", () => {
       actionLabel: "Running on desktop",
       canContinue: false,
     });
+  });
+});
+
+describe("getComposerLock", () => {
+  it("leaves the composer open on cloud tasks", () => {
+    expect(getComposerLock("cloud")).toBeNull();
+  });
+
+  it("points a finished desktop run at continuing in cloud", () => {
+    expect(getComposerLock("local-terminal")).toEqual({
+      hint: "Continue in cloud to keep working from here",
+    });
+  });
+
+  it("does not offer to continue while the desktop run is still going", () => {
+    expect(getComposerLock("local-active")).toEqual({
+      hint: "Wait for the desktop run to finish",
+    });
+  });
+
+  it("locks the composer exactly when the banner shows", () => {
+    const placements: TaskRunPlacement[] = [
+      "cloud",
+      "local-active",
+      "local-terminal",
+    ];
+    for (const placement of placements) {
+      expect(getComposerLock(placement) === null).toBe(
+        getLocalRunBannerState(placement) === null,
+      );
+    }
   });
 });

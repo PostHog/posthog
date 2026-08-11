@@ -78,7 +78,10 @@ import {
 import { confirmStopRun } from "@/features/tasks/utils/archiveGuard";
 import { buildCloudTaskRunConfig } from "@/features/tasks/utils/cloudTaskRunConfig";
 import { classifyTaskLoadError } from "@/features/tasks/utils/taskLoadError";
-import { classifyTaskRunPlacement } from "@/features/tasks/utils/taskRunPlacement";
+import {
+  classifyTaskRunPlacement,
+  getComposerLock,
+} from "@/features/tasks/utils/taskRunPlacement";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import {
   ANALYTICS_EVENTS,
@@ -859,6 +862,9 @@ export default function TaskDetailScreen() {
   // exactly what the retry/resume path already does.
   const runPlacement = classifyTaskRunPlacement(task);
   const showLocalRunBanner = !loading && runPlacement !== "cloud";
+  // Same placement drives the banner and the composer, so they can't disagree
+  // about whether this task is still desktop-owned.
+  const composerLock = loading ? null : getComposerLock(runPlacement);
   const showAutomationContext =
     fromAutomation === "1" || task?.origin_product === "automation";
   const automationContextLabel =
@@ -1053,8 +1059,12 @@ export default function TaskDetailScreen() {
             onCancelEdit={handleCancelEdit}
             onStop={handleStop}
             isUserTurn={!(session?.isPromptPending ?? true)}
+            disabled={!!composerLock}
             placeholder={
-              session?.terminalStatus ? "Resume this task..." : "Ask a question"
+              composerLock?.hint ??
+              (session?.terminalStatus
+                ? "Resume this task..."
+                : "Ask a question")
             }
             initialMessage={initialComposerMessage}
             mode={composerMode}
