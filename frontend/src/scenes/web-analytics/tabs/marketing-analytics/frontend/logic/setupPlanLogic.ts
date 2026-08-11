@@ -18,7 +18,9 @@ export type SuggestionSeverity = 'error' | 'warning' | 'info'
 export type SuggestionSource = 'deterministic' | 'ai'
 export type ReadinessStatus = 'unlocked' | 'partial' | 'blocked'
 
-export type Capability = 'cost' | 'attribution' | 'roas' | 'cac' | 'retention_by_channel' | 'ltv_by_channel'
+/** Retention and LTV by channel are deliberately absent: both need Customer analytics'
+ * `activity_event` and friends, so their setup belongs with that product. */
+export type Capability = 'cost' | 'attribution' | 'roas' | 'cac'
 
 /** Recorded server-side against the change, so it must describe the real origin. */
 export type ApplySource = 'setup_tab' | 'apply_all_safe'

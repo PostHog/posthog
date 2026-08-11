@@ -16,8 +16,6 @@ export const CAPABILITY_COPY: Record<Capability, { label: string; what: string }
     attribution: { label: 'Attribution', what: 'Which channel a visit or conversion came from.' },
     roas: { label: 'ROAS', what: 'Return on ad spend — revenue divided by cost.' },
     cac: { label: 'Cost per customer', what: 'Ad spend divided by new customers acquired.' },
-    retention_by_channel: { label: 'Retention by channel', what: "How well each channel's users stick around." },
-    ltv_by_channel: { label: 'LTV by channel', what: 'Lifetime value of the users each channel brings.' },
 }
 
 const STATUS_COPY: Record<CapabilityReadiness['status'], string> = {
