@@ -6,8 +6,6 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -65,7 +63,6 @@ function renderAddWidgetModal(props: Partial<AddWidgetModalProps> = {}): ReturnT
 describe('AddWidgetModal', () => {
     beforeEach(() => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: false })
-        featureFlagLogic.mount()
     })
 
     afterEach(() => {
@@ -81,38 +78,6 @@ describe('AddWidgetModal', () => {
         expect(screen.getByText('Error tracking')).toBeInTheDocument()
         expect(screen.getByLabelText('Top issues')).toBeInTheDocument()
         expect(screen.getByText(/Ranked list of the most impactful error tracking issues/i)).toBeInTheDocument()
-    })
-
-    it('hides widget types when their creation flag is disabled', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        renderAddWidgetModal()
-
-        expect(screen.queryByLabelText('Recent tickets')).not.toBeInTheDocument()
-        expect(screen.queryByText('Support')).not.toBeInTheDocument()
-    })
-
-    it('shows widget types when their creation flag is enabled', () => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CONVERSATIONS_DASHBOARD_WIDGET], {
-            [FEATURE_FLAGS.CONVERSATIONS_DASHBOARD_WIDGET]: true,
-        })
-        renderAddWidgetModal()
-
-        expect(screen.getByLabelText('Recent tickets')).toBeInTheDocument()
-    })
-
-    it('does not submit a selected widget after its creation flag is disabled', async () => {
-        const onAdd = jest.fn().mockResolvedValue(undefined)
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CONVERSATIONS_DASHBOARD_WIDGET], {
-            [FEATURE_FLAGS.CONVERSATIONS_DASHBOARD_WIDGET]: true,
-        })
-        const logic = renderAddWidgetModal({ onAdd })
-        await userEvent.click(screen.getByLabelText('Recent tickets'))
-
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        await userEvent.click(screen.getByTestId('add-widget-submit'))
-
-        expect(logic.values.addWidgetSelectedTypes).toContain('conversations_recent_tickets')
-        expect(onAdd).not.toHaveBeenCalled()
     })
 
     it('allows multi-select checkbox behavior within grouped layout', async () => {

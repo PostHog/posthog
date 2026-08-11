@@ -1,8 +1,6 @@
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isReadOnly } from 'lib/readOnlyGuard'
 
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
-import { isDashboardWidgetTypeCreatable } from './live/liveWidgetTypes'
 
 export type AddWidgetPayload = {
     widgetType: string
@@ -29,18 +27,12 @@ export function getAddWidgetDisabledReason(loading: boolean | undefined, selecte
     return undefined
 }
 
-export function buildAddWidgetPayloads(
-    selectedTypes: Iterable<string>,
-    featureFlags: FeatureFlagsSet
-): AddWidgetPayload[] {
+export function buildAddWidgetPayloads(selectedTypes: Iterable<string>): AddWidgetPayload[] {
     const payloads: AddWidgetPayload[] = []
 
     for (const widgetType of selectedTypes) {
         const catalogEntry = DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey]
         if (!catalogEntry) {
-            continue
-        }
-        if (!isDashboardWidgetTypeCreatable(widgetType, featureFlags)) {
             continue
         }
         payloads.push({ widgetType, config: catalogEntry.defaultConfig })
@@ -51,7 +43,6 @@ export function buildAddWidgetPayloads(
 
 export async function submitAddWidgetPayloads(
     selectedTypes: Set<string>,
-    featureFlags: FeatureFlagsSet,
     onAdd: (payloads: AddWidgetPayload[]) => Promise<void>,
     onClose: () => void
 ): Promise<void> {
@@ -59,7 +50,7 @@ export async function submitAddWidgetPayloads(
         return
     }
 
-    const payloads = buildAddWidgetPayloads(selectedTypes, featureFlags)
+    const payloads = buildAddWidgetPayloads(selectedTypes)
     if (payloads.length === 0) {
         return
     }

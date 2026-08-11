@@ -246,7 +246,6 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("conversations_enabled",),
             form_fields=("limit",),
             filter_fields=("status", "priorities", "channel", "assignees", "search"),
-            creation_flag="conversations-dashboard-widget",
         ),
     }
 
