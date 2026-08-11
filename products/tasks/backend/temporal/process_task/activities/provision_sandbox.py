@@ -1,5 +1,7 @@
 import shlex
+import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,7 +32,13 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    ExecutionResult,
+    Sandbox,
+    SandboxConfig,
+    SandboxTemplate,
+    get_sandbox_class,
+)
 from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
@@ -62,6 +70,8 @@ from products.tasks.backend.temporal.process_task.utils import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = logging.getLogger(__name__)
+SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
+SANDBOX_CREATION_HEARTBEAT_SECONDS = 1
 
 NETWORK_RESTRICTED_AGENT_ENV = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -92,6 +102,8 @@ class PrepareSandboxForRepositoryOutput:
     snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
+    sandbox_creation_timeout_seconds: int = 300
+    sandbox_creation_cancellable: bool = False
 
 
 @dataclass
@@ -538,6 +550,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
         )
 
+        sandbox_class = get_sandbox_class()
         return PrepareSandboxForRepositoryOutput(
             sandbox_name=get_sandbox_name_for_task(ctx.task_id),
             repository=repository,
@@ -554,12 +567,13 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
+            sandbox_creation_timeout_seconds=sandbox_class.creation_timeout_seconds,
+            sandbox_creation_cancellable=sandbox_class.supports_creation_cancellation,
         )
 
 
-@activity.defn
 @asyncify
-def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
+def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
     ctx = input.context
     prepared = input.prepared
 
@@ -706,6 +720,62 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             used_snapshot=actual_used_snapshot,
             create_ms=create_ms,
         )
+
+
+@activity.defn
+async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> CreateSandboxForRepositoryOutput:
+    sandbox_class = get_sandbox_class()
+    if not sandbox_class.supports_creation_cancellation:
+        return await _create_sandbox_for_repository(input)
+
+    cancel_event = threading.Event()
+    creation_after_cancellation: CreateSandboxForRepositoryOutput | None = None
+    cancellation: asyncio.CancelledError | None = None
+
+    with sandbox_class.creation_cancellation_scope(cancel_event):
+        creation_task = asyncio.create_task(_create_sandbox_for_repository(input))
+        try:
+            while True:
+                activity.heartbeat()
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(creation_task), timeout=SANDBOX_CREATION_HEARTBEAT_SECONDS
+                    )
+                except TimeoutError:
+                    continue
+        except asyncio.CancelledError as error:
+            cancellation = error
+            cancel_event.set()
+            # sync_to_async cannot stop its worker thread, so wait for the provider operation
+            # to exit before Temporal can retry this activity against the same sandbox name.
+            try:
+                creation_after_cancellation = await asyncio.wait_for(
+                    asyncio.shield(creation_task), timeout=SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS
+                )
+            except TimeoutError:
+                logger.exception(
+                    "sandbox_creation_cancellation_wait_timed_out",
+                    extra={"run_id": input.context.run_id},
+                )
+            except Exception as error:
+                logger.debug(
+                    "sandbox_creation_stopped_after_cancellation",
+                    extra={"run_id": input.context.run_id, "error_type": type(error).__name__},
+                )
+
+    if creation_after_cancellation is not None:
+        sandbox = await asyncio.to_thread(Sandbox.get_by_id, creation_after_cancellation.sandbox_id)
+        try:
+            await asyncio.to_thread(sandbox.destroy)
+        finally:
+            await asyncio.to_thread(
+                TaskRun.clear_sandbox_connection_state_atomic,
+                input.context.run_id,
+                creation_after_cancellation.sandbox_id,
+            )
+
+    assert cancellation is not None
+    raise cancellation
 
 
 @activity.defn

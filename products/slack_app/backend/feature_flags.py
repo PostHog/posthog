@@ -115,6 +115,10 @@ def is_slack_app_model_classifier_enabled(integration: Integration) -> bool:
     so this is the flag alone. Keyed on the Slack workspace + PostHog org, matching
     the other Slack-app gates.
 
+    Also gates the provenance footer under a finished reply: naming a model in a mention
+    and being told which model ran are two halves of the same feature, and splitting them
+    across two flags would let a workspace pick a model and then not be shown it.
+
     Independent of ``slack-app-home``: an override applies whether or not the
     workspace has opted into the settings tab."""
     try:

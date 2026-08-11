@@ -3129,6 +3129,7 @@ export namespace Schemas {
       /** Goal Lines */
       goalLines?: GoalLine[] | null;
       hiddenLegendIndexes?: number[] | null;
+      /** Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days from the query instead of only hiding their buckets. Still accepted so existing API clients keep working. */
       hideWeekends?: boolean | null;
       /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
       legendPosition?: LegendPosition | null;
@@ -3686,6 +3687,7 @@ export namespace Schemas {
     } as const;
 
     export interface PathCleaningFilter {
+      /** The replacement for the matched path. Use angle-bracket placeholders (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\1` to `\9` for a group and `\0` for the whole match. */
       alias?: string | null;
       order?: number | null;
       regex?: string | null;
@@ -14250,6 +14252,23 @@ export namespace Schemas {
     }
 
     /**
+     * How a draft's declared capabilities grow the current head's. A head that
+     * predates the capabilities snapshot reports every declaration as an addition.
+     */
+    export interface CanvasCapabilityWidening {
+      /** True when the draft declares any capability the current head does not. */
+      widens: boolean;
+      /** Insight short ids the draft newly declares access to. */
+      insights_added: string[];
+      /** Event names the draft newly declares it may capture. */
+      capture_events_added: string[];
+      /** True when the draft enables inline queries and the current head does not. */
+      inline_queries_enabled: boolean;
+      /** Network origins the draft newly declares it may reach. */
+      network_origins_added: string[];
+    }
+
+    /**
      * Payload for creating a new, empty canvas in a channel.
      */
     export interface CanvasCreate {
@@ -14265,6 +14284,49 @@ export namespace Schemas {
          * @maxLength 64
          */
       template_id?: string;
+    }
+
+    /**
+     * A staged draft version and the status of its latest build. Preview a
+     * draft's files with `source?version_id=`, then make it live with `promote`.
+     */
+    export interface CanvasDraft {
+      /** Id of the draft source version. */
+      version_id: string;
+      /**
+         * Short description recorded when the draft was staged.
+         * @nullable
+         */
+      prompt: string | null;
+      /** Who staged the draft. */
+      readonly created_by: UserBasic | null;
+      /** When the draft was staged. */
+      created_at: string;
+      /** Status of the draft's latest build; null when no build has been recorded yet.
+       *
+       * * `queued` - queued
+       * * `building` - building
+       * * `ready` - ready
+       * * `failed` - failed */
+      build_status: BuildStatusEnum | null;
+      /**
+         * Id of the draft's latest build, when one exists.
+         * @nullable
+         */
+      build_id: string | null;
+    }
+
+    /**
+     * Payload for promoting a draft version to the canvas's live head.
+     */
+    export interface CanvasPromote {
+      /** Id of the draft source version to make live. */
+      version_id: string;
+      /**
+         * Current source version observed before requesting the promote (null when the canvas has never been published). A moved head is rejected with 409 version_conflict.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
     }
 
     /**
@@ -14342,6 +14404,65 @@ export namespace Schemas {
     }
 
     /**
+     * Project files keyed by relative path (forward slashes, no '..').
+     */
+    export type CanvasSourceProjectFiles = {[key: string]: string};
+
+    /**
+     * Optional base64-encoded binary assets keyed by safe project-relative paths.
+     */
+    export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
+
+    /**
+     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
+     */
+    export type CanvasSourceProjectDependencies = {[key: string]: string};
+
+    /**
+     * A canvas's multi-file source project — the canonical write format for canvas source.
+     */
+    export interface CanvasSourceProject {
+      /** Source-project schema version. Currently always 1. */
+      schemaVersion: number;
+      /** Project files keyed by relative path (forward slashes, no '..'). */
+      files: CanvasSourceProjectFiles;
+      /** Optional base64-encoded binary assets keyed by safe project-relative paths. */
+      assets?: CanvasSourceProjectAssets;
+      /** The project's entry HTML file. Currently always "index.html". */
+      entryHtml: string;
+      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
+      dependencies?: CanvasSourceProjectDependencies;
+      /** Version of the host-injected `ph` canvas SDK the project targets. */
+      canvasSdkVersion?: string;
+      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
+      capabilities?: CanvasCapabilities;
+    }
+
+    /**
+     * Payload for staging a complete source project as a draft build.
+     */
+    export interface CanvasSourceDraft {
+      /** The complete source project to stage as a draft. */
+      project: CanvasSourceProject;
+      /** Short description of the change, stored on the draft's version history entry. */
+      prompt?: string;
+    }
+
+    /**
+     * Result of staging a draft build.
+     */
+    export interface CanvasSourceDraftResponse {
+      /** Id of the draft source version this request created. */
+      version_id: string;
+      /** The queued draft build; poll `builds` until it is terminal. */
+      build: CanvasBuild;
+      /** Advisory (warning-severity) diagnostics recorded for the drafted project. */
+      diagnostics: CanvasDiagnostic[];
+      /** What the draft's declared capabilities grant beyond the current head's. Review before promoting. */
+      capability_widening: CanvasCapabilityWidening;
+    }
+
+    /**
      * One per-file edit: set a file's content, or delete it.
      */
     export interface CanvasSourceEditOperation {
@@ -14384,41 +14505,6 @@ export namespace Schemas {
       code: string;
       /** The validation diagnostics, including at least one error. */
       diagnostics: CanvasDiagnostic[];
-    }
-
-    /**
-     * Project files keyed by relative path (forward slashes, no '..').
-     */
-    export type CanvasSourceProjectFiles = {[key: string]: string};
-
-    /**
-     * Optional base64-encoded binary assets keyed by safe project-relative paths.
-     */
-    export type CanvasSourceProjectAssets = {[key: string]: CanvasSourceAsset};
-
-    /**
-     * Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions.
-     */
-    export type CanvasSourceProjectDependencies = {[key: string]: string};
-
-    /**
-     * A canvas's multi-file source project — the canonical write format for canvas source.
-     */
-    export interface CanvasSourceProject {
-      /** Source-project schema version. Currently always 1. */
-      schemaVersion: number;
-      /** Project files keyed by relative path (forward slashes, no '..'). */
-      files: CanvasSourceProjectFiles;
-      /** Optional base64-encoded binary assets keyed by safe project-relative paths. */
-      assets?: CanvasSourceProjectAssets;
-      /** The project's entry HTML file. Currently always "index.html". */
-      entryHtml: string;
-      /** Exact-version dependencies, restricted to the platform-supported set (react, react-dom, @posthog/quill, recharts, lucide-react, dayjs) at their pinned versions. */
-      dependencies?: CanvasSourceProjectDependencies;
-      /** Version of the host-injected `ph` canvas SDK the project targets. */
-      canvasSdkVersion?: string;
-      /** Bounded capabilities frozen into the built artifact. Declare every insight short id the canvas loads, every event it captures, and inlineQueries when it runs ad-hoc HogQL — the host enforces these at runtime and validation rejects undeclared `ph` calls. */
-      capabilities?: CanvasCapabilities;
     }
 
     /**
@@ -14532,9 +14618,22 @@ export namespace Schemas {
          * @nullable
          */
       task_id: string | null;
+      /** True for a staged draft version that has never been the canvas head; promote it to make it live. */
+      draft: boolean;
       readonly created_by: UserBasic | null;
       /** When the version was published. */
       created_at: string;
+    }
+
+    export interface CapabilityReadiness {
+      /** cost/attribution/roas/cac/retention_by_channel/ltv_by_channel */
+      capability: string;
+      /** unlocked/partial/blocked */
+      status: string;
+      /** Why it's in that state, in plain English */
+      explanation: string;
+      /** Suggestion ids that unblock this capability — the link from a blocked metric to its fixes */
+      blocked_by: string[];
     }
 
     /**
@@ -16202,6 +16301,22 @@ export namespace Schemas {
       ticket_number: number;
     }
 
+    export interface ComputeRateCard {
+      /** Stable identifier for this rate card. */
+      version: string;
+      /** Time when this rate card became effective. */
+      effective_at: string;
+      /**
+         * Time when this rate card stopped applying, or null while it remains current.
+         * @nullable
+         */
+      expires_at: string | null;
+      /** USD charged per CPU core-second as an exact decimal string. */
+      cpu_core_second_usd: string;
+      /** USD charged per GiB-second of memory as an exact decimal string. */
+      memory_gib_second_usd: string;
+    }
+
     /**
      * * `won` - won
      * * `lost` - lost
@@ -17742,6 +17857,16 @@ export namespace Schemas {
       readonly next_sync_at: string | null;
       /** Person and group sources only: the most recent sync/backfill run, or null if none yet. */
       readonly latest_run: CustomPropertySyncRun | null;
+      /**
+         * Person and group sources only: UUID of the warehouse source owning the schema, so the UI can link to the table. Null for account sources or when unavailable.
+         * @nullable
+         */
+      readonly external_data_source: string | null;
+      /**
+         * Person and group sources only: the bound warehouse table as it is named in HogQL. Null for account sources or when unavailable.
+         * @nullable
+         */
+      readonly table_name: string | null;
     }
 
     /**
@@ -27649,12 +27774,24 @@ export namespace Schemas {
       includeSparkline?: boolean;
     }
 
+    export type ErrorTrackingIssueSeverity = typeof ErrorTrackingIssueSeverity[keyof typeof ErrorTrackingIssueSeverity];
+
+
+    export const ErrorTrackingIssueSeverity = {
+      Low: 'low',
+      Medium: 'medium',
+      High: 'high',
+      Critical: 'critical',
+    } as const;
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
     export interface ErrorTrackingIssueRead {
       id: string;
       status: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name: string | null;
       /** @nullable */
@@ -27728,6 +27865,8 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
       status?: ErrorTrackingIssueWriteStatusEnum;
+      /** Issue severity to set, or null to remove the assigned severity. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * Optional issue display name.
          * @nullable
@@ -28341,7 +28480,7 @@ export namespace Schemas {
          */
       source: string;
     } | {
-      /** Classify sentiment from user messages in the generation input. */
+      /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
       source?: 'user_messages';
     };
 
@@ -28548,7 +28687,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_reason_detail: string | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
        *
        * * `llm_judge` - LLM as a judge
        * * `hog` - Hog
@@ -34589,7 +34728,11 @@ export namespace Schemas {
       readonly can_edit: boolean;
       tags?: unknown[];
       evaluation_contexts?: unknown[];
-      readonly usage_dashboard: number;
+      /**
+         * Dashboard of saved usage insights for this flag, or null if it has none. Flags do not get one on creation; create it with POST /api/projects/{project_id}/feature_flags/{id}/dashboard/.
+         * @nullable
+         */
+      readonly usage_dashboard: number | null;
       analytics_dashboards?: number[];
       /** @nullable */
       has_enriched_analytics?: boolean | null;
@@ -34629,7 +34772,6 @@ export namespace Schemas {
          */
       last_called_at?: string | null;
       _create_in_folder?: string;
-      _should_create_usage_dashboard?: boolean;
       /** Check if this feature flag is used in any team's session recording linked flag setting. */
       readonly is_used_in_replay_settings: boolean;
       /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
@@ -36686,7 +36828,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+     * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
      */
     export type HogFlowActionConfig = { [key: string]: unknown } | {
       /** Property-based wait condition; continues when the person matches. A condition with no property filters is ignored — the wait then relies on 'events' and the max_wait_duration timeout. */
@@ -36703,7 +36845,7 @@ export namespace Schemas {
       /** Optional display name. */
       name?: string;
     })[];
-      /** '<number><unit>' with unit m|h|d, e.g. '30m' (same rules as delay). */
+      /** '<number><unit>' with unit s|m|h|d, e.g. '30m' (same rules as delay). */
       max_wait_duration: string;
     };
 
@@ -36745,7 +36887,7 @@ export namespace Schemas {
        * * `random_cohort_branch` - random_cohort_branch
        * * `exit` - exit */
       type: HogFlowActionTypeEnum;
-      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
+      /** Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assigned_to_user_ids: [<int>], all_roles_unassigned: <bool>. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}. */
       config: HogFlowActionConfig;
       /** Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those. */
       output_variable?: unknown;
@@ -46861,6 +47003,15 @@ export namespace Schemas {
       results: CIMDVerificationToken[];
     }
 
+    export interface PaginatedCanvasDraftList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CanvasDraft[];
+    }
+
     export interface PaginatedCanvasList {
       count: number;
       /** @nullable */
@@ -54302,6 +54453,8 @@ export namespace Schemas {
     export interface PatchedErrorTrackingIssueRead {
       id?: string;
       status?: string;
+      /** Issue severity, or null when no severity is assigned. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /** @nullable */
       name?: string | null;
       /** @nullable */
@@ -54320,6 +54473,8 @@ export namespace Schemas {
        * * `resolved` - resolved
        * * `suppressed` - suppressed */
       status?: ErrorTrackingIssueWriteStatusEnum;
+      /** Issue severity to set, or null to remove the assigned severity. */
+      severity?: ErrorTrackingIssueSeverity | null;
       /**
          * Optional issue display name.
          * @nullable
@@ -54444,7 +54599,7 @@ export namespace Schemas {
          */
       source: string;
     } | {
-      /** Classify sentiment from user messages in the generation input. */
+      /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
       source?: 'user_messages';
     };
 
@@ -54508,7 +54663,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly status_reason_detail?: string | null;
-      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
+      /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment (trained on English, so use 'llm_judge' for multilingual agents).
        *
        * * `llm_judge` - LLM as a judge
        * * `hog` - Hog
@@ -67631,6 +67786,13 @@ export namespace Schemas {
       value?: string;
     }
 
+    export interface SandboxComputePricing {
+      /** Currently effective sandbox compute rate card, or null before pricing is published. */
+      current: ComputeRateCard | null;
+      /** Expired sandbox compute rate cards, newest first. */
+      history: ComputeRateCard[];
+    }
+
     /**
      * Request body for scanning and building a custom sandbox base image.
      */
@@ -68455,6 +68617,65 @@ export namespace Schemas {
       template_id: string;
       /** True lets the team see and call the server; false hides it from members and blocks connections. */
       enabled: boolean;
+    }
+
+    export interface Suggestion {
+      /** Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it. */
+      id: string;
+      /** Suggestion kind, e.g. connect_source / add_source_mapping */
+      kind: string;
+      /** 'deterministic' or 'ai' — how this suggestion was produced */
+      source: string;
+      /** error/warning/info */
+      severity: string;
+      /** 0-1. Never 1.0: these are inferences, not proofs. */
+      confidence: number;
+      /** Short imperative title, e.g. 'Connect Meta Ads' */
+      title: string;
+      /** The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith */
+      evidence: string;
+      /** Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel */
+      unlocks: string[];
+      /** The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one. */
+      apply: unknown;
+      /** Advice shown alongside the action. Mapping suggestions always carry a 'fix_platform_urls' entry, because a mapping is a workaround and correcting the ad platform's tracking template is the real fix. */
+      also_recommended: unknown[];
+      /** True only for high-confidence, reversible operations — what an 'apply all safe' button may include */
+      safe_to_batch: boolean;
+      /** Ranking score; higher first. Unblocking actions dominate. */
+      rank_score: number;
+      /**
+         * Integration this concerns, if any
+         * @nullable
+         */
+      integration: string | null;
+      /**
+         * In-app URL to resolve this manually, if any
+         * @nullable
+         */
+      deep_link: string | null;
+      /**
+         * Documentation link, if any
+         * @nullable
+         */
+      docs_url: string | null;
+      /** Ad spend currently mis- or un-attributed because of this */
+      spend_at_risk: number;
+      /** Events affected in the window */
+      event_volume: number;
+    }
+
+    export interface SetupPlanResponse {
+      /** Ranked suggestions, most important first */
+      suggestions: Suggestion[];
+      /** Per-capability readiness, with the suggestions blocking each */
+      readiness: CapabilityReadiness[];
+      /** Sub-services that failed. Their suggestions are missing, so do NOT present the plan as a complete clean bill of health when this is non-empty. */
+      degraded: string[];
+      /** True when the campaign or UTM queries hit their row caps. Rates and totals are then top-N subtotals — present them as approximate rather than exact. */
+      truncated: boolean;
+      /** One-line summary of the plan */
+      summary: string;
     }
 
     /**
@@ -76029,6 +76250,55 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
     }
 
+    /**
+     * * `task` - task
+     * * `pull_request` - pull_request
+     * * `artifact` - artifact
+     * * `channel` - channel
+     */
+    export type TaskSearchResultKindEnum = typeof TaskSearchResultKindEnum[keyof typeof TaskSearchResultKindEnum];
+
+
+    export const TaskSearchResultKindEnum = {
+      Task: 'task',
+      PullRequest: 'pull_request',
+      Artifact: 'artifact',
+      Channel: 'channel',
+    } as const;
+
+    export interface TaskSearchResult {
+      /** Search document identifier. */
+      id: string;
+      /** Type of matched resource.
+       *
+       * * `task` - task
+       * * `pull_request` - pull_request
+       * * `artifact` - artifact
+       * * `channel` - channel */
+      kind: TaskSearchResultKindEnum;
+      /** Primary result label. */
+      title: string;
+      /** Secondary result context. */
+      subtitle: string;
+      /**
+         * Containing task identifier, when applicable.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Containing task run identifier, when applicable.
+         * @nullable
+         */
+      task_run_id: string | null;
+      /**
+         * Containing space identifier, when applicable.
+         * @nullable
+         */
+      channel_id: string | null;
+      /** Resource-specific navigation metadata. */
+      metadata: unknown;
+    }
+
     export interface TaskSessionResponse {
       /** Task session identifier */
       id: string;
@@ -81304,6 +81574,17 @@ export namespace Schemas {
     version_id?: string;
     };
 
+    export type CanvasesDraftsRetrieveParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CanvasesSourceRetrieveParams = {
     /**
      * Read this historical source version instead of the head (for version browsing).
@@ -86475,6 +86756,18 @@ export namespace Schemas {
     goal_id: string;
     };
 
+    export type MarketingAnalyticsSetupPlanRetrieveParams = {
+    /**
+     * Window for campaign spend and the UTM catalogue, as a relative range (e.g. '-30d'); defaults to -30d
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * Re-run every check instead of serving a recent result. Use right after changing something.
+     */
+    refresh?: boolean;
+    };
+
     export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
     /**
      * Minimum 30d event count to be a candidate
@@ -88713,6 +89006,21 @@ export namespace Schemas {
      * @maximum 30
      */
     window_days?: number;
+    };
+
+    export type TasksSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Text or exact identifier to search for.
+     * @minLength 1
+     * @maxLength 512
+     */
+    q: string;
     };
 
     export type TasksSlackThreadContextRetrieveParams = {

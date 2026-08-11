@@ -2,7 +2,9 @@ import re
 import sys
 import uuid
 import fnmatch
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
@@ -31,6 +33,114 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 type IncrementalFieldValue = str | int | float | None
+
+# Recorded as the job's latest_error, which the syncs UI shows to the customer.
+SYNC_DISABLED_JOB_ERROR = "Sync stopped because syncing was turned off"
+SCHEMA_DELETED_JOB_ERROR = "Sync stopped because the table was deleted"
+AUTO_DISABLED_JOB_ERROR = "Sync stopped because of an error that retrying would not fix"
+
+
+@dataclass(frozen=True, kw_only=True)
+class SyncDisableContext:
+    """Caller-supplied context for a should_sync disable, carried to the teardown task.
+
+    ``error_message`` overrides the default job error (the auto-disable path records
+    its user-facing non-retryable error instead of the generic "turned off" copy).
+    ``exclude_workflow_id`` names a Temporal workflow the teardown must not cancel,
+    for disables issued from inside the workflow's own failure handling.
+    """
+
+    error_message: str | None = None
+    exclude_workflow_id: str | None = None
+
+
+_sync_disable_context: ContextVar[SyncDisableContext | None] = ContextVar("sync_disable_context", default=None)
+
+
+@contextmanager
+def sync_disable_context(
+    *, error_message: str | None = None, exclude_workflow_id: str | None = None
+) -> Generator[None]:
+    token = _sync_disable_context.set(
+        SyncDisableContext(error_message=error_message, exclude_workflow_id=exclude_workflow_id)
+    )
+    try:
+        yield
+    finally:
+        _sync_disable_context.reset(token)
+
+
+def _schedule_sync_teardown(*, schema_id: str, team_id: int, deleted: bool) -> None:
+    """Dispatch the async teardown of a schema's in-flight sync work, post-commit.
+
+    Stopping the scheduler is not enough: the in-flight run keeps its Temporal
+    workflow, its Running job, and its enqueued v3 batches, and a run that still
+    trickles progress falls through both reconcile sweeps. The teardown runs in a
+    Celery task because it may fail tens of thousands of queue rows and talks to
+    Temporal, neither of which may block the write that flipped the flag; cancelling
+    a workflow is irreversible, so the dispatch waits for the commit.
+    """
+    ctx = _sync_disable_context.get()
+    if ctx is not None and ctx.error_message:
+        reason = ctx.error_message
+    elif deleted:
+        reason = SCHEMA_DELETED_JOB_ERROR
+    else:
+        reason = SYNC_DISABLED_JOB_ERROR
+    exclude_workflow_id = ctx.exclude_workflow_id if ctx is not None else None
+
+    def _dispatch() -> None:
+        # Deferred to keep Celery off the import path of this models module.
+        from products.warehouse_sources.backend.tasks import cleanup_disabled_external_data_schema  # noqa: PLC0415
+
+        cleanup_disabled_external_data_schema.delay(
+            team_id=team_id,
+            schema_id=schema_id,
+            reason=reason,
+            exclude_workflow_id=exclude_workflow_id,
+        )
+
+    transaction.on_commit(_dispatch)
+
+
+def _schema_ids_with_running_jobs(schema_ids: list[uuid.UUID]) -> set[uuid.UUID]:
+    # Deferred to break the import cycle with external_data_job.
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob  # noqa: PLC0415
+
+    return set(
+        ExternalDataJob.objects.filter(schema_id__in=schema_ids, status=ExternalDataJob.Status.RUNNING).values_list(
+            "schema_id", flat=True
+        )
+    )
+
+
+class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
+    def update(self, **kwargs: Any) -> int:
+        """Chokepoint for bulk writes that stop a schema from syncing.
+
+        Queryset ``.update()`` bypasses ``Model.save()``, so without this override a
+        bulk disable (e.g. ``disable_cdc``) or bulk soft-delete (source ``destroy``)
+        would strand its in-flight runs. The transition set is read before the write
+        so rows already disabled/deleted are not re-torn-down, and only schemas with
+        a Running job dispatch a task.
+        """
+        disabling = kwargs.get("should_sync") is False
+        deleting = kwargs.get("deleted") is True
+        transitioning: list[tuple[uuid.UUID, int]] = []
+        if disabling or deleting:
+            predicate = models.Q()
+            if disabling:
+                predicate |= models.Q(should_sync=True)
+            if deleting:
+                predicate |= ~models.Q(deleted=True)
+            transitioning = list(self.filter(predicate).values_list("id", "team_id"))
+        updated = super().update(**kwargs)
+        if transitioning:
+            running = _schema_ids_with_running_jobs([schema_id for schema_id, _ in transitioning])
+            for schema_id, team_id in transitioning:
+                if schema_id in running:
+                    _schedule_sync_teardown(schema_id=str(schema_id), team_id=team_id, deleted=deleting)
+        return updated
 
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
@@ -101,10 +211,37 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
     row_filters = models.JSONField(null=True, blank=True, default=None)
 
+    objects = ExternalDataSchemaQuerySet.as_manager()
+
     __repr__ = sane_repr("name")
 
     class Meta:
         db_table = "posthog_externaldataschema"
+
+    def _sync_teardown_kind(self, update_fields: Iterable[str] | None) -> str | None:
+        """Which stop-syncing transition this save performs, read from the DB before writing.
+
+        The DB read (rather than a value cached at load time) is what makes a no-op
+        re-save of ``should_sync=False`` not re-fail anything: only a row that is
+        currently syncing (or not yet deleted) counts as a transition. Saves scoped
+        by ``update_fields`` to other columns skip the read entirely, so the
+        pipeline's frequent bookkeeping saves pay nothing.
+        """
+        if self._state.adding:
+            return None
+        disabling = self.should_sync is False and (update_fields is None or "should_sync" in update_fields)
+        deleting = self.deleted is True and (update_fields is None or "deleted" in update_fields)
+        if not disabling and not deleting:
+            return None
+        prior = ExternalDataSchema.objects.filter(pk=self.pk).values_list("should_sync", "deleted").first()
+        if prior is None:
+            return None
+        prior_should_sync, prior_deleted = prior
+        if deleting and not prior_deleted:
+            return "deleted"
+        if disabling and prior_should_sync:
+            return "disabled"
+        return None
 
     def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         # Populate the S3 folder on first write so the column is always authoritative for new rows.
@@ -115,6 +252,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             update_fields = kwargs.get("update_fields")
             if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
+
+        # Chokepoint for instance writes that stop this schema from syncing; the queryset
+        # `.update()` twin lives on ExternalDataSchemaQuerySet. Detected before the write,
+        # dispatched only after it succeeds.
+        teardown_kind = self._sync_teardown_kind(kwargs.get("update_fields"))
 
         if skip_activity_log:
             # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need
@@ -131,6 +273,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             super(ModelActivityMixin, self).save(*args, **kwargs)
         else:
             super().save(*args, **kwargs)
+
+        if teardown_kind is not None and _schema_ids_with_running_jobs([self.pk]):
+            _schedule_sync_teardown(schema_id=str(self.pk), team_id=self.team_id, deleted=teardown_kind == "deleted")
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
@@ -896,7 +1041,14 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
     )
 
 
-def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
+def update_should_sync(
+    schema_id: str,
+    team_id: int,
+    should_sync: bool,
+    *,
+    disable_error_message: str | None = None,
+    disable_exclude_workflow_id: str | None = None,
+) -> ExternalDataSchema | None:
     # data_load.service imports temporalio at module scope; this is a models module, so a
     # top-level import would put the Temporal client on the django.setup() path
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
@@ -908,7 +1060,8 @@ def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exter
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
     schema.should_sync = should_sync
-    schema.save()
+    with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
+        schema.save()
 
     if not schema.source.supports_scheduled_sync:
         return schema

@@ -2270,7 +2270,15 @@ class PathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    alias: str | None = None
+    alias: str | None = Field(
+        default=None,
+        description=(
+            "The replacement for the matched path. Use angle-bracket placeholders"
+            " (`<id>`, `<uuid>`, `<slug>`) by convention, or reuse a capture group from"
+            " the regex with ClickHouse `replaceRegexpAll` replacement syntax: `\\1` to"
+            " `\\9` for a group and `\\0` for the whole match."
+        ),
+    )
     order: float | None = None
     regex: str | None = None
 
@@ -7955,7 +7963,14 @@ class TrendsFilter(BaseModel):
     formulas: list[str] | None = None
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendIndexes: list[int] | None = None
-    hideWeekends: bool | None = False
+    hideWeekends: bool | None = Field(
+        default=False,
+        description=(
+            "Ignored. Superseded by `dateRange.daysOfWeek`, which excludes the days"
+            " from the query instead of only hiding their buckets. Still accepted so"
+            " existing API clients keep working."
+        ),
+    )
     legendPosition: LegendPosition | None = Field(
         default=LegendPosition.BOTTOM,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
@@ -30357,6 +30372,10 @@ class SourceFieldSelectConfig(BaseModel):
     converter: SourceFieldSelectConfigConverter | None = None
     defaultValue: str
     label: str
+    multiple: bool | None = Field(
+        default=None,
+        description=("Allow selecting multiple values; the field's payload value becomes string[]."),
+    )
     name: str
     options: list[SourceFieldSelectConfigOption]
     required: bool
