@@ -10,14 +10,7 @@ import {
   PuzzlePiece,
   Tray,
 } from "phosphor-react-native";
-import {
-  memo,
-  type ReactNode,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -39,8 +32,8 @@ import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
 
 const log = logger.scope("nav-drawer-view");
 
-const OPEN_DURATION = 280;
-const CLOSE_DURATION = 220;
+const _OPEN_DURATION = 280;
+const _CLOSE_DURATION = 220;
 
 interface DrawerItemProps {
   icon: ReactNode;
