@@ -1,13 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useDeferredValue, useEffect, useMemo } from 'react'
 
 import { IconLogomark } from '@posthog/icons'
-import { LemonCard } from '@posthog/lemon-ui'
+import { LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { ErrorPropertiesLogicProps, errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorEventType } from 'lib/components/Errors/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
+import {
+    TabsPrimitive,
+    TabsPrimitiveContent,
+    TabsPrimitiveList,
+    TabsPrimitiveTrigger,
+} from 'lib/ui/TabsPrimitive/TabsPrimitive'
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { exceptionCardLogic } from './exceptionCardLogic'
@@ -76,6 +81,12 @@ function ExceptionCardContent({
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
+    // The triggers highlight on `currentTab` (updates on click), while the heavy panel below mounts on the deferred
+    // `renderedTab`. This keeps the click's DOM change cheap and lets a rapid second click interrupt the previous
+    // panel mount, instead of both committing together and stalling the switch.
+    const renderedTab = useDeferredValue(currentTab)
+    const switching = renderedTab !== currentTab
+
     return (
         <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab} className="flex flex-col flex-1 min-h-0">
@@ -104,9 +115,25 @@ function ExceptionCardContent({
                         </div>
                     </TabsPrimitiveList>
                 </div>
-                <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
-                <PropertiesTab value="properties" className="flex-1 min-h-0" />
-                <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
+                {renderedTab === 'stack_trace' && (
+                    <StackTraceTab
+                        value="stack_trace"
+                        renderActions={renderStackTraceActions}
+                        className="flex-1 min-h-0"
+                    />
+                )}
+                {renderedTab === 'properties' && <PropertiesTab value="properties" className="flex-1 min-h-0" />}
+                {renderedTab === 'session' && (
+                    <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
+                )}
+                {switching && (
+                    <TabsPrimitiveContent
+                        value={currentTab}
+                        className="flex-1 min-h-0 flex items-center justify-center"
+                    >
+                        <Spinner />
+                    </TabsPrimitiveContent>
+                )}
             </TabsPrimitive>
         </LemonCard>
     )
