@@ -511,6 +511,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             try {
                 await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
                 actions.toggleScannerEnabledDone(id)
+                lemonToast.success(scanner.enabled ? 'Scanner enabled' : 'Scanner disabled')
             } catch (error: any) {
                 const verb = scanner.enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
