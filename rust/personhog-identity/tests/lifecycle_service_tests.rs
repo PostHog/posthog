@@ -1,6 +1,9 @@
+mod common;
+
 use std::sync::Arc;
 use std::time::Duration;
 
+use common::sim_leader::SimLeader;
 use sqlx::postgres::PgPoolOptions;
 use tonic::{Code, Request};
 
@@ -25,7 +28,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
         .connect_lazy("postgres://unused:unused@localhost:1/unused")
         .expect("lazy pool never connects");
     let engine = Arc::new(Engine::new(
-        pool,
+        pool.clone(),
         EngineConfig {
             lease: Duration::from_secs(1),
             execute_timeout: Duration::from_secs(1),
@@ -33,7 +36,7 @@ async fn delete_status(request: DeletePersonsRequest) -> Code {
             attempt_alert_threshold: 5,
         },
     ));
-    let service = PersonHogLifecycleService::new(engine);
+    let service = PersonHogLifecycleService::new(engine, Arc::new(SimLeader::new(pool)));
     service
         .delete_persons(Request::new(request))
         .await
