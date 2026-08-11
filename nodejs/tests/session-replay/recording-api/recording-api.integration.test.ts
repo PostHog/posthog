@@ -572,10 +572,16 @@ describe('Recording API encryption integration', () => {
             })
 
             it('should write a tombstone when deleting a session that has no key', async () => {
-                const result = await keyStore.deleteKey(`never-generated-${Date.now()}`, 999, 'test@example.com')
+                const sessionId = `never-generated-${Date.now()}`
 
+                const result = await keyStore.deleteKey(sessionId, 999, 'test@example.com')
                 expect(result.status).toBe('deleted')
-                expect(result.deletedAt).toBeDefined()
+
+                // Reading it back is the half that catches a tombstone DynamoDB accepted but
+                // getKey cannot parse, which serves a 500 instead of a 410 for a deleted session.
+                const tombstone = await keyStore.getKey(sessionId, 999)
+                expect(tombstone.sessionState).toBe('deleted')
+                expect(tombstone.deletedAt).toBe(result.deletedAt)
             })
 
             it('should isolate keys between teams', async () => {
