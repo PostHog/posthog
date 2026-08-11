@@ -644,7 +644,7 @@ EOF
 )"
 \`\`\`
 
-When creating new branches, prefix them with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`).
+When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
 
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
@@ -2345,6 +2345,7 @@ For git operations while detached:
       gatewayUrl,
       region,
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     );
   }
 
@@ -2356,6 +2357,7 @@ For git operations while detached:
     const gatewayModels = await fetchGatewayModels({
       gatewayUrl,
       authToken: (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      projectId: this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     });
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,
