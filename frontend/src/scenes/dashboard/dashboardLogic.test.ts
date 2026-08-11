@@ -1318,6 +1318,10 @@ describe('dashboardLogic', () => {
         ])('classifies status $status as retryable=$retryable', ({ status, retryable }) => {
             expect(isRetryableDashboardLoadError({ status })).toBe(retryable)
         })
+
+        it('does not retry an aborted request', () => {
+            expect(isRetryableDashboardLoadError({ name: 'AbortError' })).toBe(false)
+        })
     })
 
     describe('tile streaming failure classification', () => {

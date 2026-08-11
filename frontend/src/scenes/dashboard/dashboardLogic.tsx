@@ -199,15 +199,18 @@ export interface PendingInsertion {
 // The classic dashboard load retries a few times before it gives up, so a single dropped fetch or
 // one-off 404 doesn't dead-end on the not-found screen.
 const LOAD_DASHBOARD_MAX_ATTEMPTS = 3
-const LOAD_DASHBOARD_RETRY_DELAY_MS = 500
+const LOAD_DASHBOARD_RETRY_DELAY_MS = IS_TEST_MODE ? 1 : 500
 
 // Worth retrying a dashboard load before we give up on it:
-// - a missing status means the request never reached the server (a dropped or aborted fetch);
+// - a missing status means the request never reached the server (a dropped fetch);
 // - a 5xx is a server-side blip;
 // - a 404 on a dashboard the user just opened is usually a blip too, so we retry to confirm the
 //   dashboard is really gone rather than dead-ending on the not-found screen at the first 404.
 // A 403 (access denied) is never retried.
 export function isRetryableDashboardLoadError(error: any): boolean {
+    if (error?.name === 'AbortError') {
+        return false
+    }
     const status = error?.status
     return status === undefined || status === null || status >= 500 || status === 404
 }

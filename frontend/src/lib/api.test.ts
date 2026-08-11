@@ -62,6 +62,32 @@ describe('API helper', () => {
     })
 
     describe('dashboard tile streaming', () => {
+        it('retries two initial 404 responses before reporting the dashboard missing', async () => {
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+            const onError = jest.fn()
+
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            const streamOptions = fetchEventSourceSpy.mock.calls[0][1]
+            const response = () =>
+                new Response(JSON.stringify({ detail: 'Not found.' }), {
+                    status: 404,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            const error = new ApiError('Not found.', 404)
+
+            await expect(streamOptions.onopen?.(response())).rejects.toMatchObject({ status: 404 })
+            expect(streamOptions.onerror?.(error)).toBe(500)
+            await expect(streamOptions.onopen?.(response())).rejects.toMatchObject({ status: 404 })
+            expect(streamOptions.onerror?.(error)).toBe(1000)
+
+            await streamOptions.onopen?.(response())
+            expect(onError).toHaveBeenCalledTimes(1)
+            expect(onError).toHaveBeenCalledWith(expect.objectContaining({ status: 404 }))
+            fetchEventSourceSpy.mockRestore()
+        })
+
         it.each([
             { status: 401, body: { detail: 'Authentication expired.' }, expectedCode: null },
             {

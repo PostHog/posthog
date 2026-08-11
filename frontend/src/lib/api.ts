@@ -3540,6 +3540,7 @@ const api = {
 
             const abortController = new AbortController()
             let streamFinished = false
+            let initial404Attempts = 0
             const handleConnectionError = (error: any): void => {
                 if (isAbortError(error)) {
                     return
@@ -3557,6 +3558,12 @@ const api = {
 
                     if (!response.ok) {
                         const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
+                        // An initial dashboard 404 can be transient (for example while project context
+                        // catches up). Retry it twice before the dashboard scene renders Not Found.
+                        if (response.status === 404 && initial404Attempts < 2) {
+                            initial404Attempts++
+                            throw error
+                        }
                         onError(error)
                         abortController.abort()
                         return
@@ -3579,6 +3586,9 @@ const api = {
                     }
                 },
                 onerror: (error) => {
+                    if (error?.status === 404 && initial404Attempts > 0 && initial404Attempts < 3) {
+                        return initial404Attempts * 500
+                    }
                     handleConnectionError(error)
                 },
             }).then(() => {

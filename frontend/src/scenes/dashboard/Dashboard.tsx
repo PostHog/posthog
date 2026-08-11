@@ -10,7 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -99,10 +99,17 @@ function DashboardScene({
         accessDeniedToDashboard,
         error404,
         dashboardId,
+        shouldUseStreaming,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
+    const {
+        reportDashboardViewed,
+        abortAnyRunningQuery,
+        setLayoutZoom,
+        loadDashboard,
+        loadDashboardStreaming,
+    } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
@@ -127,7 +134,10 @@ function DashboardScene({
         return (
             <NotFound
                 object="dashboard"
-                meta={{ urlId: Number.isFinite(dashboardId) ? String(dashboardId) : undefined }}
+                meta={{
+                    urlId: Number.isFinite(dashboardId) ? String(dashboardId) : undefined,
+                    loadPath: shouldUseStreaming ? 'streaming' : 'classic',
+                }}
                 caption={
                     <>
                         We couldn't load this dashboard. Try refreshing the page. It might be in a different project, or
@@ -154,7 +164,17 @@ function DashboardScene({
             <DashboardPublicAccessBanner dashboard={dashboard} placement={placement} />
 
             {dashboardFailedToLoad ? (
-                <InsightErrorState title="There was an error loading this dashboard" supportOnly />
+                <InsightErrorState
+                    title="There was an error loading this dashboard"
+                    onRetry={() => {
+                        const action = DashboardLoadAction.Update
+                        if (shouldUseStreaming) {
+                            loadDashboardStreaming({ action })
+                        } else {
+                            loadDashboard({ action })
+                        }
+                    }}
+                />
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (

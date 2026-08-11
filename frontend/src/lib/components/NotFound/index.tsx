@@ -32,6 +32,7 @@ export interface NotFoundProps {
     caption?: React.ReactNode
     meta?: {
         urlId?: string
+        loadPath?: 'classic' | 'streaming'
     }
     className?: string
 }
@@ -45,7 +46,7 @@ export function NotFound({ object, caption, meta, className }: NotFoundProps): J
     const appContext = getAppContext()
 
     useOnMountEffect(() => {
-        posthog.capture('not_found_shown', { object, url_id: meta?.urlId })
+        posthog.capture('not_found_shown', { object, url_id: meta?.urlId, load_path: meta?.loadPath })
     })
 
     return (
