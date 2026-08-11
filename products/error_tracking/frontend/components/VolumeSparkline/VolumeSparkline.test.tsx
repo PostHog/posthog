@@ -136,6 +136,41 @@ describe('VolumeSparkline', () => {
         })
     })
 
+    describe('spike stripes', () => {
+        const SPIKE = { isSpike: true, color: 'var(--brand-yellow)' }
+
+        function renderStripes(data: SparklineData): HTMLElement[] {
+            const { container } = render(
+                <VolumeSparkline sparklineKey={SPARKLINE_KEY} data={data} layout="detailed" xAxis="full" />
+            )
+            return Array.from(
+                container.querySelectorAll<HTMLElement>('[data-attr="error-tracking-volume-spike-stripes"]')
+            )
+        }
+
+        it('overlays one striped element per spike bucket', () => {
+            expect(renderStripes(buildData({ 1: SPIKE, 3: SPIKE }))).toHaveLength(2)
+        })
+
+        it('overlays nothing when no bucket is a spike', () => {
+            expect(renderStripes(buildData())).toHaveLength(0)
+        })
+
+        // The overlay mirrors quill's `minBarSize` flooring, which quill skips for a zero bucket —
+        // so the overlay must too, or it stripes empty plot.
+        it('overlays nothing for a spike bucket with no occurrences', () => {
+            expect(renderStripes(buildData({ 2: { ...SPIKE, value: 0 } }))).toHaveLength(0)
+        })
+
+        it('places each overlay over its own bucket, in bucket order', () => {
+            const [first, second] = renderStripes(buildData({ 1: SPIKE, 3: SPIKE }))
+
+            expect(parseFloat(first.style.left)).toBeLessThan(parseFloat(second.style.left))
+            expect(parseFloat(first.style.width)).toBeGreaterThan(0)
+            expect(parseFloat(first.style.height)).toBeGreaterThan(0)
+        })
+    })
+
     describe('bar hover reporting', () => {
         it('publishes the hovered bin to the logic', () => {
             const data = buildData()

@@ -19,6 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { errorTrackingVolumeSparklineLogic } from './errorTrackingVolumeSparklineLogic'
 import { EVENT_LABEL_BAR_GAP, EVENT_LABEL_HEIGHT, EventMarkers } from './EventMarkers'
+import { SpikeStripes } from './SpikeStripes'
 import type {
     SparklineData,
     SparklineDatum,
@@ -87,8 +88,10 @@ export function VolumeSparkline({
                 // Canvas can't resolve `var(--…)`; `BAR_COLOR` is already a hex literal.
                 color: BAR_COLOR,
                 data: data.map((datum) => datum.value),
+                // Solid here, striped by `SpikeStripes`. quill's `hatch` is a de-emphasis
+                // treatment, so it reads as unfinished rather than flagged.
                 bars: data.map((datum) =>
-                    datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color), hatch: true } : {}
+                    datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color) } : {}
                 ),
             },
         ],
@@ -177,6 +180,13 @@ export function VolumeSparkline({
                 dataAttr="error-tracking-volume-sparkline"
             >
                 <HoverReporter sparklineKey={sparklineKey} data={data} />
+                {hasSpikes && (
+                    <SpikeStripes
+                        data={data}
+                        minBarSize={LAYOUTS[layout].minBarSize}
+                        cornerRadius={LAYOUTS[layout].barCornerRadius}
+                    />
+                )}
                 {events.length > 0 && <EventMarkers events={events} dates={dates} onHover={setHoveredEvent} />}
             </TimeSeriesBarChart>
         </div>
