@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import migrations
 
 BATCH_SIZE = 10_000
@@ -6,9 +8,16 @@ BATCH_SIZE = 10_000
 def backfill_scanner_id(apps, schema_editor):
     """Attribute pre-existing receipts to their scanner, so a limit set mid-period counts the
     period's earlier spend instead of starting from zero. Receipts whose observation was already
-    deleted have nothing to derive from and stay unattributed."""
+    deleted have nothing to derive from and stay unattributed, as do pre-stack prompt-evaluation
+    receipts, whose synthetic observation_id (uuid5 of suggestion/session/started_at, see
+    prompt_evaluation.py) matches no observation row; that spend is bounded by the evaluation
+    session cap and accepted. A follow-up migration in the notification PR repeats this pass to
+    catch receipts written by old-code workers during the rolling deploy."""
     usage_table = apps.get_model("replay_vision", "ReplayObservationUsage")._meta.db_table
     observation_table = apps.get_model("replay_vision", "ReplayObservation")._meta.db_table
+    # Keyset pagination on the pk: the null scanner_id rows have no index, so a plain LIMIT
+    # loop would re-scan the table head on every batch.
+    last_id = uuid.UUID("00000000-0000-0000-0000-000000000000")
     with schema_editor.connection.cursor() as cursor:
         while True:
             cursor.execute(
@@ -17,16 +26,23 @@ def backfill_scanner_id(apps, schema_editor):
                     SELECT u.id AS usage_id, o.scanner_id AS scanner_id
                     FROM {usage_table} u
                     JOIN {observation_table} o ON o.id = u.observation_id
-                    WHERE u.scanner_id IS NULL
+                    WHERE u.scanner_id IS NULL AND u.id > %(last_id)s
+                    ORDER BY u.id
                     LIMIT {BATCH_SIZE}
                 )
                 UPDATE {usage_table} AS tgt
                 SET scanner_id = batch.scanner_id
                 FROM batch
                 WHERE tgt.id = batch.usage_id
-                """
+                RETURNING batch.usage_id
+                """,
+                {"last_id": last_id},
             )
-            if cursor.rowcount < BATCH_SIZE:
+            updated_ids = [row[0] for row in cursor.fetchall()]
+            if not updated_ids:
+                break
+            last_id = max(updated_ids)
+            if len(updated_ids) < BATCH_SIZE:
                 break
 
 
