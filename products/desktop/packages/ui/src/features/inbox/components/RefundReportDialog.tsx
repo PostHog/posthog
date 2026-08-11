@@ -13,24 +13,12 @@ import {
   RadioGroupItem,
   Textarea,
 } from "@posthog/quill";
+import { REFUND_REASON_OPTIONS } from "@posthog/shared";
 import type {
   SignalReport,
   SignalReportRefundReason,
 } from "@posthog/shared/types";
 import { useId, useState } from "react";
-
-const REFUND_REASON_OPTIONS: {
-  value: SignalReportRefundReason;
-  label: string;
-}[] = [
-  {
-    value: "pr_incorrect",
-    label: "The PR doesn't fix what the report describes",
-  },
-  { value: "pr_not_useful", label: "The PR works but is not useful to me" },
-  { value: "duplicate", label: "Duplicate of work already covered" },
-  { value: "other", label: "Something else…" },
-];
 
 export interface RefundReportDialogProps {
   open: boolean;
