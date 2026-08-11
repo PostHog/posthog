@@ -428,27 +428,6 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       throw new Error(`Failed to switch organization: ${response.statusText}`);
     }
   }
-  private reconcileInitialSelection(input: {
-    orgProjectsMap: OrgProjectsMap;
-    currentOrgId: string | null;
-    preferredProjectId: number | null;
-    lastSelectedOrgId: string | null;
-  }): {
-    currentOrgId: string | null;
-    currentProjectId: number | null;
-  } {
-    const currentProjectId = pickInitialProjectId(input);
-    const projectOrgId = currentProjectId
-      ? findOrgForProject(
-          input.orgProjectsMap,
-          currentProjectId,
-          input.currentOrgId,
-        )
-      : null;
-    const currentOrgId = projectOrgId ?? input.currentOrgId;
-
-    return { currentOrgId, currentProjectId };
-  }
   async logout(): Promise<AuthState> {
     const { cloudRegion, currentProjectId } = this.state;
 
@@ -733,7 +712,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
-    const selection = this.reconcileInitialSelection({
+    const currentProjectId = pickInitialProjectId({
       orgProjectsMap,
       currentOrgId,
       preferredProjectId:
@@ -751,8 +730,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       sessionType: refreshToken ? "persistent" : "impersonated",
       cloudRegion: options.cloudRegion,
       orgProjectsMap,
-      currentOrgId: selection.currentOrgId,
-      currentProjectId: selection.currentProjectId,
+      currentOrgId,
+      currentProjectId,
       orgProjectsIncomplete,
     };
 
@@ -1305,7 +1284,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           : null;
         const storedSelected =
           this.authSession.getCurrent()?.selectedProjectId ?? null;
-        const selection = this.reconcileInitialSelection({
+        const currentProjectId = pickInitialProjectId({
           orgProjectsMap: map,
           currentOrgId: session.currentOrgId,
           preferredProjectId:
@@ -1317,8 +1296,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         });
         await this.commitSessionState(session, {
           orgProjectsMap: map,
-          currentOrgId: selection.currentOrgId,
-          currentProjectId: selection.currentProjectId,
+          currentOrgId: session.currentOrgId,
+          currentProjectId,
         });
         this.logger.info(
           "Recovered organizations/projects after incomplete sync",
