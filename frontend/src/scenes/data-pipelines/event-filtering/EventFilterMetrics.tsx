@@ -38,7 +38,7 @@ export function EventFilterMetrics({ filterId }: { filterId: string | null }): J
           })
         : null
 
-    const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(
+    const { appMetricsTrends, appMetricsTrendsLoading, appMetricsTrendsError, getSingleTrendSeries } = useValues(
         logic ?? appMetricsLogic({ logicKey: 'noop' })
     )
 
@@ -65,7 +65,11 @@ export function EventFilterMetrics({ filterId }: { filterId: string | null }): J
                     />
                 ))}
             </div>
-            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={appMetricsTrends}
+                loading={appMetricsTrendsLoading}
+                error={appMetricsTrendsError}
+            />
             <p className="text-muted text-xs">
                 These counts are approximate. The actual number of dropped events may differ by a small percentage.
             </p>

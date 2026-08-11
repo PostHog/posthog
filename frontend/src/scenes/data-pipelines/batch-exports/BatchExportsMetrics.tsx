@@ -48,7 +48,7 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
         },
     })
 
-    const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
+    const { appMetricsTrends, appMetricsTrendsLoading, appMetricsTrendsError, getSingleTrendSeries } = useValues(logic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -70,7 +70,11 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
                     />
                 ))}
             </div>
-            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={appMetricsTrends}
+                loading={appMetricsTrendsLoading}
+                error={appMetricsTrendsError}
+            />
         </div>
     )
 }

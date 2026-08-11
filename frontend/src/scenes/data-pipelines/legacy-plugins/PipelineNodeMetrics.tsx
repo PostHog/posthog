@@ -48,7 +48,7 @@ export function PipelineNodeMetrics({ id }: PipelineNodeMetricsProps): JSX.Eleme
         },
     })
 
-    const { appMetricsTrends, appMetricsTrendsLoading, getSingleTrendSeries } = useValues(logic)
+    const { appMetricsTrends, appMetricsTrendsLoading, appMetricsTrendsError, getSingleTrendSeries } = useValues(logic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -71,7 +71,11 @@ export function PipelineNodeMetrics({ id }: PipelineNodeMetricsProps): JSX.Eleme
                     />
                 ))}
             </div>
-            <AppMetricsTrends appMetricsTrends={appMetricsTrends} loading={appMetricsTrendsLoading} />
+            <AppMetricsTrends
+                appMetricsTrends={appMetricsTrends}
+                loading={appMetricsTrendsLoading}
+                error={appMetricsTrendsError}
+            />
         </div>
     )
 }
