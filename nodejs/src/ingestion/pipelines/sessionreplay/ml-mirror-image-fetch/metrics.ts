@@ -1,8 +1,15 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-export type UrlDropReason = 'malformed' | 'unsupported_version' | 'stale' | 'bad_ref' | 'bad_url'
+export type UrlDropReason =
+    | 'malformed'
+    | 'unsupported_version'
+    | 'stale'
+    | 'bad_ref'
+    | 'bad_url'
+    | 'foreign_domain'
+    | 'oversized_record'
 
-export type DedupScope = 'batch' | 'pod' | 'ledger'
+export type DedupScope = 'batch' | 'pod' | 'store'
 
 export class ImageFetchConsumerMetrics {
     /**
@@ -20,13 +27,13 @@ export class ImageFetchConsumerMetrics {
      * Duplicates split by which layer caught them.
      *
      * The split is the measurement, not the total. `batch` and `pod` are free and bounded by memory,
-     * `ledger` costs a Redis read, and anything the ledger catches that the pod cache did not is what
-     * the shared store is buying. A high `ledger` share against a full pod cache says the cache is
+     * `store` costs a Redis read, and anything the store catches that the pod cache did not is what
+     * the shared store is buying. A high `store` share against a full pod cache says the cache is
      * undersized; a low one says it is already holding the working set.
      */
     private static readonly deduped = new Counter({
         name: 'ml_image_fetch_consumer_deduped_total',
-        help: 'URLs skipped as already known, by the layer that caught them: "batch" (another copy in the same poll batch), "pod" (this pod saw it earlier), "ledger" (another pod saw it, or this pod before a restart)',
+        help: 'URLs skipped as already known, by the layer that caught them: "batch" (another copy in the same poll batch), "pod" (this pod saw it earlier), "store" (another pod saw it, or this pod before a restart)',
         labelNames: ['scope'],
     })
     /**
@@ -59,9 +66,9 @@ export class ImageFetchConsumerMetrics {
         help: 'URLs carried by one Kafka record. The producer caps this, so a distribution pinned at the cap means records are being split and the cap is the binding constraint',
         buckets: [1, 2, 4, 8, 16, 32, 64],
     })
-    private static readonly ledgerErrors = new Counter({
-        name: 'ml_image_fetch_consumer_ledger_errors_total',
-        help: 'Redis operations that failed, by operation. A read failure makes the lane treat a known URL as new, so a sustained rate means the dedup measurement understates the hit rate',
+    private static readonly storeErrors = new Counter({
+        name: 'ml_image_fetch_consumer_store_errors_total',
+        help: 'Sighting-store keys that failed, by operation. A failed read makes the lane treat a known URL as new, so the measured hit rate understates the real one. A failed write leaves the URL unrecorded, so the next pod to see it counts it again',
         labelNames: ['operation'],
     })
     private static readonly batchDuration = new Histogram({
@@ -74,7 +81,6 @@ export class ImageFetchConsumerMetrics {
         help: 'Age of a URL when this lane reached it, measured from capture rather than from produce. The tail against the configured age limit says how much of a backlog would be dropped rather than fetched',
         buckets: [1, 10, 60, 300, 900, 3600, 6 * 3600, 24 * 3600],
     })
-    /** Never referenced again: constructing it registers it, and it reads its own value at scrape time. */
     private static readonly dryRun = new Gauge({
         name: 'ml_image_fetch_consumer_dry_run',
         help: '1 while the lane sends no outbound request, 0 once fetching is enabled. Every other metric of this lane means something different either side of this value',
@@ -92,8 +98,8 @@ export class ImageFetchConsumerMetrics {
     public static incDropped(reason: UrlDropReason, count: number): void {
         this.dropped.labels(reason).inc(count)
     }
-    public static incLedgerError(operation: 'read' | 'write'): void {
-        this.ledgerErrors.labels(operation).inc()
+    public static incStoreError(operation: 'read' | 'write', count: number): void {
+        this.storeErrors.labels(operation).inc(count)
     }
     public static observeBatch(domains: number, durationSeconds: number): void {
         this.domainsPerBatch.observe(domains)

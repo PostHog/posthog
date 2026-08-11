@@ -8,6 +8,13 @@ const MAX_URL_LENGTH = 2048
 
 const FETCHABLE_SCHEMES = new Set(['http:', 'https:'])
 
+/**
+ * The producer splits a record at 64 URLs. A record above this came from a producer that does not
+ * agree with this one, and its size drives a Redis pipeline and a batch's memory, so it is refused
+ * rather than trusted.
+ */
+const MAX_URLS_PER_RECORD = 256
+
 export interface FetchCandidate {
     ref: string
     urlHash: string
@@ -20,7 +27,7 @@ export interface FetchCandidate {
 
 export type RecordParse =
     | { ok: true; candidates: FetchCandidate[]; urlCount: number; rejected: { reason: UrlDropReason }[] }
-    | { ok: false; reason: Extract<UrlDropReason, 'malformed' | 'unsupported_version'> }
+    | { ok: false; reason: Extract<UrlDropReason, 'malformed' | 'unsupported_version' | 'oversized_record'> }
 
 function isStringRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -57,6 +64,15 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
     if (typeof pseudoTeam !== 'string' || !pseudoTeam || typeof capturedAtMs !== 'number' || !Array.isArray(urls)) {
         return { ok: false, reason: 'malformed' }
     }
+    // Finite, not merely a number: JSON carries `-1e400`, which parses to -Infinity and would reach
+    // a histogram as an infinite age. prom-client throws on that, and a throw here stops the
+    // consumer and replays the same record forever.
+    if (!Number.isFinite(capturedAtMs)) {
+        return { ok: false, reason: 'malformed' }
+    }
+    if (urls.length > MAX_URLS_PER_RECORD) {
+        return { ok: false, reason: 'oversized_record' }
+    }
 
     const candidates: FetchCandidate[] = []
     const rejected: { reason: UrlDropReason }[] = []
@@ -75,6 +91,12 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
             rejected.push({ reason: 'bad_url' })
             continue
         }
+        // The key is what the per-site budget is scoped to, so a host outside it would be rate
+        // limited against another site's allowance.
+        if (!hostBelongsToDomain(host, key)) {
+            rejected.push({ reason: 'foreign_domain' })
+            continue
+        }
         candidates.push({
             ref: entry.ref,
             urlHash: ref.hash,
@@ -86,6 +108,10 @@ export function parseCollectedUrlsRecord(value: Buffer | null, key: string | nul
         })
     }
     return { ok: true, candidates, urlCount: urls.length, rejected }
+}
+
+function hostBelongsToDomain(host: string, domain: string): boolean {
+    return host === domain || host.endsWith(`.${domain}`)
 }
 
 /**

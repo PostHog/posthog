@@ -84,8 +84,8 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
     /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
     SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
-    /** Per-command timeout for the ledger. A ledger stall must not hold the poll loop. */
-    SESSION_RECORDING_ML_IMAGE_FETCH_LEDGER_TIMEOUT_MS: number
+    /** Bounds one round trip to the sighting store, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
 
     /**
      * Capacity of the mirror's produced-URL ref cache, which bounds re-produces onto the fetch
@@ -167,7 +167,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: 6 * 60 * 60 * 1000,
         SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
-        SESSION_RECORDING_ML_IMAGE_FETCH_LEDGER_TIMEOUT_MS: 5_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
         SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',

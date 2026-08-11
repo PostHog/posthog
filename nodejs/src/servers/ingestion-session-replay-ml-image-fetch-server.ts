@@ -4,7 +4,7 @@ import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/cons
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
-import { UrlLedger } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-ledger'
+import { UrlSightings } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-sightings'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 
 import { RedisPool } from '../types'
@@ -36,7 +36,7 @@ export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMi
 export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     readonly lifecycle: ServerLifecycle
     private config: IngestionSessionReplayMlMirrorServerConfig
-    private ledgerPool?: RedisPool
+    private sightingPool?: RedisPool
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -57,19 +57,22 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
-        // Its own instance, never the cluster that serves the primary replay lane. The ledger holds
-        // one key per distinct image URL, so its eviction pressure must not be able to reach the
-        // lane that gates replay ingestion.
+        // The ml-mirror's instance, which is deliberately not the cluster that serves the primary
+        // replay lane: this store holds one key per distinct image URL, and its eviction pressure
+        // must not be able to reach the lane that gates replay ingestion.
         const connection = resolveMlMirrorRedisConnection(this.config)
         if (!connection) {
             throw new Error('SESSION_RECORDING_ML_REDIS_HOST must be set for the image-fetch consumer')
         }
-        this.ledgerPool = createRedisPoolFromConfig({
+        this.sightingPool = createRedisPoolFromConfig({
             connection,
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
-        const ledger = new UrlLedger(this.ledgerPool, this.config.SESSION_RECORDING_ML_IMAGE_FETCH_LEDGER_TIMEOUT_MS)
+        const sightings = new UrlSightings(
+            this.sightingPool,
+            this.config.SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS
+        )
 
         // Refuse to start rather than run as though fetching were on: this lane has no request path
         // yet, so a cleared flag would report itself as fetching while downloading nothing.
@@ -77,7 +80,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         if (!dryRun) {
             throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN cannot be cleared yet: this lane cannot fetch')
         }
-        const fetchConsumer = new UrlFetchConsumer(ledger, {
+        const fetchConsumer = new UrlFetchConsumer(sightings, {
             maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
             dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
             dryRun,
@@ -97,7 +100,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: this.ledgerPool ? [this.ledgerPool] : [],
+            redisPools: this.sightingPool ? [this.sightingPool] : [],
         }
     }
 }

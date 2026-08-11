@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { UrlFetchConsumer } from './url-fetch-consumer'
-import { LedgerEntry, UrlLedger, ledgerKey } from './url-ledger'
+import { SightingStore, sightingKey } from './url-sightings'
 
 const TEAM = '0123456789abcdef0123456789abcdef'
 const OTHER_TEAM = 'fedcba9876543210fedcba9876543210'
@@ -14,28 +14,41 @@ function ref(name: string, team: string = TEAM): string {
     return `imageurl:${team}:${hash(name)}`
 }
 
-class FakeLedger {
-    public readonly stored = new Map<string, LedgerEntry>()
+class FakeSightings implements SightingStore {
+    public readonly stored = new Map<string, number>()
     public readFailure: Error | null = null
     public writeFailure: Error | null = null
+    /** Keys whose individual write reports a per-command failure, as ioredis does inside a pipeline. */
+    public partialWriteFailures = new Set<string>()
     public reads = 0
 
-    getMany(keys: string[]): Promise<(LedgerEntry | null)[]> {
+    read(keys: string[]): Promise<{ known: Set<number>; failed: number }> {
         this.reads++
         if (this.readFailure) {
             return Promise.reject(this.readFailure)
         }
-        return Promise.resolve(keys.map((key) => this.stored.get(key) ?? null))
+        const known = new Set<number>()
+        keys.forEach((key, index) => {
+            if (this.stored.has(key)) {
+                known.add(index)
+            }
+        })
+        return Promise.resolve({ known, failed: 0 })
     }
 
-    recordMany(entries: { key: string; entry: LedgerEntry }[]): Promise<void> {
+    record(keys: string[], nowMs: number): Promise<{ failed: Set<number> }> {
         if (this.writeFailure) {
             return Promise.reject(this.writeFailure)
         }
-        for (const { key, entry } of entries) {
-            this.stored.set(key, entry)
-        }
-        return Promise.resolve()
+        const failed = new Set<number>()
+        keys.forEach((key, index) => {
+            if (this.partialWriteFailures.has(key)) {
+                failed.add(index)
+                return
+            }
+            this.stored.set(key, nowMs)
+        })
+        return Promise.resolve({ failed })
     }
 }
 
@@ -60,54 +73,53 @@ function url(name: string, host = 'cdn.example.com'): { ref: string; url: string
 }
 
 describe('UrlFetchConsumer', () => {
-    let ledger: FakeLedger
+    let sightings: FakeSightings
     let consumer: UrlFetchConsumer
 
     const build = (dedupMaxRefs = 1000): UrlFetchConsumer =>
-        new UrlFetchConsumer(ledger as unknown as UrlLedger, {
+        new UrlFetchConsumer(sightings, {
             maxAgeMs: 6 * 60 * 60 * 1000,
             dedupMaxRefs,
             dryRun: true,
         })
 
     beforeEach(() => {
-        ledger = new FakeLedger()
+        sightings = new FakeSightings()
         consumer = build()
     })
 
-    const hashOf = (key: string): string => key.split(':')[2]
+    const hashOf = (key: string): string => key.split(':').pop() as string
 
     it('writes one ledger entry per URL it would fetch', async () => {
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
-        expect([...ledger.stored.keys()].map(hashOf).sort()).toEqual([hash('a'), hash('b')])
-        expect(ledger.stored.get(ledgerKey(TEAM, hash('a')))?.outcome).toBe('seen')
+        expect([...sightings.stored.keys()].map(hashOf).sort()).toEqual([hash('a'), hash('b')])
     })
 
     it('does not re-record a URL another pod already reached', async () => {
-        ledger.stored.set(ledgerKey(TEAM, hash('a')), { fetchedAtMs: NOW - 1000, outcome: 'seen' })
+        sightings.stored.set(sightingKey(TEAM, hash('a')), NOW - 1000)
 
         await consumer.handleBatch([record([url('a'), url('b')])], NOW)
 
         // 'a' keeps the earlier entry rather than being counted and written again, which is what
         // makes the ledger measure the hit rate instead of the sighting rate.
-        expect(ledger.stored.get(ledgerKey(TEAM, hash('a')))?.fetchedAtMs).toBe(NOW - 1000)
-        expect(ledger.stored.get(ledgerKey(TEAM, hash('b')))?.fetchedAtMs).toBe(NOW)
+        expect(sightings.stored.get(sightingKey(TEAM, hash('a')))).toBe(NOW - 1000)
+        expect(sightings.stored.get(sightingKey(TEAM, hash('b')))).toBe(NOW)
     })
 
     it('collapses a repeated URL inside one batch into a single ledger write', async () => {
         await consumer.handleBatch([record([url('a')]), record([url('a')]), record([url('a')])], NOW)
 
-        expect([...ledger.stored.keys()]).toEqual([ledgerKey(TEAM, hash('a'))])
+        expect([...sightings.stored.keys()]).toEqual([sightingKey(TEAM, hash('a'))])
     })
 
-    it('does not consult the ledger for a URL this pod already handled', async () => {
+    it('does not consult the store for a URL this pod already handled', async () => {
         await consumer.handleBatch([record([url('a')])], NOW)
-        const readsAfterFirst = ledger.reads
+        const readsAfterFirst = sightings.reads
 
         await consumer.handleBatch([record([url('a')])], NOW)
 
-        expect(ledger.reads).toBe(readsAfterFirst)
+        expect(sightings.reads).toBe(readsAfterFirst)
     })
 
     it('drops a URL older than the age limit without recording it', async () => {
@@ -115,7 +127,7 @@ describe('UrlFetchConsumer', () => {
 
         await consumer.handleBatch([record([url('a')], { capturedAtMs: sevenHoursAgo })], NOW)
 
-        expect(ledger.stored.size).toBe(0)
+        expect(sightings.stored.size).toBe(0)
     })
 
     it.each([
@@ -126,7 +138,7 @@ describe('UrlFetchConsumer', () => {
     ])('drops %s without throwing', async (_name, message) => {
         await expect(consumer.handleBatch([message], NOW)).resolves.toBeUndefined()
 
-        expect(ledger.stored.size).toBe(0)
+        expect(sightings.stored.size).toBe(0)
     })
 
     it.each([
@@ -146,17 +158,47 @@ describe('UrlFetchConsumer', () => {
     ])('rejects %s while keeping the rest of the record', async (_name, bad) => {
         await consumer.handleBatch([record([bad as ReturnType<typeof url>, url('good')])], NOW)
 
-        expect([...ledger.stored.keys()].map(hashOf)).toEqual([hash('good')])
+        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('good')])
     })
 
-    it('treats a URL as unseen when the ledger read fails, rather than stalling the partition', async () => {
-        ledger.readFailure = new Error('redis down')
+    it('does not mark the pod cache for a URL whose write failed', async () => {
+        sightings.partialWriteFailures.add(sightingKey(TEAM, hash('a')))
+
+        await consumer.handleBatch([record([url('a')])], NOW)
+        const readsAfterFirst = sightings.reads
+        await consumer.handleBatch([record([url('a')])], NOW)
+
+        // The URL is in no durable store, so the next sighting has to reach the store again rather
+        // than be suppressed locally and vanish from the measurement.
+        expect(sightings.reads).toBe(readsAfterFirst + 1)
+    })
+
+    it('rejects a host outside the domain the record is keyed by', async () => {
+        // The key scopes the per-site budget, so a foreign host would spend another site's allowance.
+        await consumer.handleBatch(
+            [record([url('a', 'img.other-site.net'), url('good', 'cdn.example.com')], { key: 'example.com' })],
+            NOW
+        )
+
+        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('good')])
+    })
+
+    it('drops a record carrying more URLs than any producer sends', async () => {
+        const many = Array.from({ length: 300 }, (_value, index) => url(`u${index}`))
+
+        await consumer.handleBatch([record(many)], NOW)
+
+        expect(sightings.stored.size).toBe(0)
+    })
+
+    it('treats a URL as unseen when the store read fails, rather than stalling the partition', async () => {
+        sightings.readFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
     })
 
-    it('survives a ledger write failure', async () => {
-        ledger.writeFailure = new Error('redis down')
+    it('survives a store write failure', async () => {
+        sightings.writeFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
     })
