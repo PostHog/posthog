@@ -233,9 +233,8 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         old_minimal_flag_called_events = config.minimal_flag_called_events
         old_max_feature_flags_override = config.max_feature_flags_override
 
-        # An absent setting means "leave unchanged", and an explicit null on the override means
-        # "clear it". Saving only the fields actually sent means two staff editing different
-        # settings on the same team don't overwrite each other.
+        # Saving only the fields actually sent keeps two staff editing different settings on the
+        # same team from overwriting each other.
         update_fields = [setting for setting in MUTABLE_SETTINGS if setting in validated]
         for setting in update_fields:
             setattr(config, setting, validated[setting])
@@ -251,19 +250,14 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             from products.feature_flags.backend.tasks import update_team_flags_cache  # noqa: PLC0415
 
             # /flags and /decide read this value out of team_metadata_hypercache, and local-eval
-            # SDKs read it out of the flag-definitions blob — neither reads the DB, so the write
-            # above has no effect until both caches are rebuilt. This is gated on the setting
-            # being present rather than on its value changing so that re-sending the same value
-            # still forces a rebuild after a failed cache write. max_feature_flags_override needs
-            # no equivalent: check_flag_limits_for_team reads it straight from Postgres, and no
-            # cache holds it.
+            # SDKs read it out of the flag-definitions blob, so the write above has no effect
+            # until both caches are rebuilt. Re-sending an unchanged value rebuilds them anyway,
+            # which is the way back from a failed cache write.
             update_team_metadata_cache_task.delay(team.id)
             update_team_flags_cache.delay(team.id)
 
-        # Only the settings the request actually touched are logged, so an override-only write
-        # doesn't assert an unchanged value for the other one. old_value/new_value stay bound to
-        # minimal_flag_called_events under those names because dashboards outside this repo were
-        # built on them before the endpoint took a second setting.
+        # old_value/new_value stay bound to minimal_flag_called_events under those names because
+        # dashboards outside this repo were built on them before the endpoint took a second setting.
         changed_values: dict[str, Any] = {}
         if "minimal_flag_called_events" in validated:
             changed_values["old_value"] = old_minimal_flag_called_events
@@ -281,14 +275,18 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             **changed_values,
         )
 
-        # The override and count resolve to the project root, matching list() and the validator.
-        # An environment team reaches here only on a minimal_flag_called_events-only edit (the
-        # override write is refused above), and its row still has to show the root's override.
+        # The row has to show the root's override, matching list() and the validator. A root team's
+        # own config is already that, and an environment team reaches here only on a
+        # minimal_flag_called_events-only edit, since the override write is refused above.
         return response.Response(
             _config_row(
                 team_id=team.id,
                 minimal_flag_called_events=config.minimal_flag_called_events,
-                max_feature_flags_override=get_max_feature_flags_override_for_team(team.id),
+                max_feature_flags_override=(
+                    config.max_feature_flags_override
+                    if team.parent_team_id is None
+                    else get_max_feature_flags_override_for_team(team.parent_team_id)
+                ),
                 feature_flag_count=FeatureFlag.objects.filter(team_id=team.id).count(),
             )
         )

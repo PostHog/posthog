@@ -10,8 +10,13 @@ def resolve_max_feature_flags(override: int | None) -> int:
     return override if override is not None else settings.MAX_FEATURE_FLAGS_PER_TEAM
 
 
-def root_team_id_for(team_id: int) -> int:
-    """Project root for a team id, or the id itself when it is already the root or unknown."""
+def _root_team_id_for(team_id: int) -> int:
+    """Project root for a team id, or the id itself when it is already the root or unknown.
+
+    Deliberately does not raise the way posthog.models.scoping.manager.resolve_effective_team_id
+    does: an unknown team here should fall back to the global default rather than 500 a flag
+    create. Private because that difference makes it wrong to reach for from outside this module.
+    """
     return Team.objects.filter(id=team_id).values_list("parent_team_id", flat=True).first() or team_id
 
 
@@ -27,7 +32,7 @@ def get_max_feature_flags_override_for_team(team_id: int) -> int | None:
     # A missing config row and a row holding a null override both mean "no override", and
     # .first() returns None for both.
     return (
-        TeamFeatureFlagsConfig.objects.filter(team_id=root_team_id_for(team_id))
+        TeamFeatureFlagsConfig.objects.filter(team_id=_root_team_id_for(team_id))
         .values_list("max_feature_flags_override", flat=True)
         .first()
     )

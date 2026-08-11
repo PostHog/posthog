@@ -220,6 +220,11 @@ export interface StaffTeamResultApi {
     organization_name: string
     /** Project id the team belongs to. */
     project_id: number
+    /**
+     * Project root team id when this team is an environment, or null when it is the root. The flag limit is set on the root, so a team with this set cannot take an override.
+     * @nullable
+     */
+    parent_team_id: number | null
 }
 
 export interface StaffTeamSearchResponseApi {

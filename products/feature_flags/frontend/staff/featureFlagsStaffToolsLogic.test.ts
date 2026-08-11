@@ -6,6 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import type { StaffTeamConfigMutationApi } from '../generated/api.schemas'
 import { featureFlagsStaffToolsLogic, parseFlagLimit, StaffTeamResult } from './featureFlagsStaffToolsLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -19,6 +20,8 @@ const TEAM: StaffTeamResult = {
     organization_id: 'org-uuid',
     organization_name: 'Acme Org',
     project_id: 5,
+    // Null marks a project root, which is the team the flag limit can be set on.
+    parent_team_id: null,
 }
 
 describe('featureFlagsStaffToolsLogic', () => {
@@ -402,8 +405,23 @@ describe('featureFlagsStaffToolsLogic', () => {
         })
 
         it.each([500, null])('setMaxFeatureFlagsOverride(%p) sends only its own field', async (override) => {
-            let lastBody: Record<string, any> | undefined
+            let lastBody: StaffTeamConfigMutationApi | undefined
             useMocks({
+                // Seeded with the full row so the response below is a genuinely partial one, and
+                // the merge has something to preserve.
+                get: {
+                    [TEAM_CONFIG_URL]: {
+                        results: [
+                            {
+                                team_id: 5,
+                                minimal_flag_called_events: true,
+                                max_feature_flags_override: null,
+                                effective_max_feature_flags: 2000,
+                                feature_flag_count: 7,
+                            },
+                        ],
+                    },
+                },
                 post: {
                     [SET_URL]: async ({ request }: { request: Request }) => {
                         lastBody = await request.json()
@@ -411,6 +429,9 @@ describe('featureFlagsStaffToolsLogic', () => {
                     },
                 },
             })
+
+            logic.actions.setSelectedTeamIds([5])
+            await expectLogic(logic).toDispatchActions(['loadTeamConfigSuccess'])
 
             logic.actions.setMaxFeatureFlagsOverride(5, override)
             // Drives the pencil button's loading state and disabledReason while the write is in
@@ -423,6 +444,15 @@ describe('featureFlagsStaffToolsLogic', () => {
             // revert a concurrent staff change to that setting, which is why the backend takes
             // partial updates and each mutation sends only the field it owns.
             expect(lastBody).toEqual({ team_id: 5, max_feature_flags_override: override })
+            // The fields the response omits keep the values list() fetched. Replacing the row
+            // instead of merging would blank the whole Flag limit cell to "Loading…" after a save.
+            expect(logic.values.teamConfigByTeamId[5]).toEqual({
+                team_id: 5,
+                minimal_flag_called_events: true,
+                max_feature_flags_override: override,
+                effective_max_feature_flags: 2000,
+                feature_flag_count: 7,
+            })
         })
 
         it('only allows one request in flight per team across both mutations', async () => {

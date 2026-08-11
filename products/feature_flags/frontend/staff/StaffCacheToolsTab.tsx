@@ -262,9 +262,13 @@ export function StaffCacheToolsTab(): JSX.Element {
                     return <span className="text-secondary">Loading…</span>
                 }
                 const hasOverride = config.max_feature_flags_override !== null
+                // Search returns environment teams too, and the endpoint refuses an override on
+                // one. Keying on parent_team_id matches what the backend enforces on, so the
+                // button is disabled for exactly the rows whose write would be rejected.
+                const rootTeamId = team.parent_team_id
                 return (
                     <span className="flex items-center gap-2">
-                        <span>{config.effective_max_feature_flags.toLocaleString()}</span>
+                        <span>{config.effective_max_feature_flags.toLocaleString()} limit</span>
                         <LemonTag type={hasOverride ? 'completion' : 'muted'}>
                             {hasOverride ? 'Override' : 'Default'}
                         </LemonTag>
@@ -274,7 +278,13 @@ export function StaffCacheToolsTab(): JSX.Element {
                             icon={<IconPencil />}
                             noPadding
                             loading={pending}
-                            disabledReason={pending ? 'Update in progress' : undefined}
+                            disabledReason={
+                                pending
+                                    ? 'Update in progress'
+                                    : rootTeamId !== null
+                                      ? `The flag limit is set on the project's root team (#${rootTeamId})`
+                                      : undefined
+                            }
                             tooltip="Edit this team's flag limit"
                             onClick={() => openFlagLimitDialog(team, config, setMaxFeatureFlagsOverride)}
                             data-attr="ff-staff-team-config-max-feature-flags-override"

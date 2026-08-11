@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, sel
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import {
@@ -517,10 +518,12 @@ export const featureFlagsStaffToolsLogic = kea<featureFlagsStaffToolsLogicType>(
                 const teamConfig = await featureFlagsStaffTeamConfigSetCreate({ team_id: teamId, ...body })
                 actions.teamConfigMutationSucceeded(teamConfig)
                 lemonToast.success(`Updated team ${teamId}'s ${settingLabel}.`)
-            } catch (error: any) {
-                // The endpoint refuses an override on an environment team, which the dialog's
-                // client-side bounds can't catch, so surface the server's reason when there is one.
-                lemonToast.error(error.detail || `Failed to update team ${teamId}'s ${settingLabel}.`)
+            } catch (error) {
+                // The endpoint refuses an override on an environment team and names the team to
+                // set it on instead, which the dialog's numeric bounds can't catch, so surface the
+                // server's sentence when there is one.
+                const detail = error instanceof ApiError ? error.detail : null
+                lemonToast.error(detail || `Failed to update team ${teamId}'s ${settingLabel}.`)
             } finally {
                 inFlight.delete(teamId)
                 actions.teamConfigMutationSettled(teamId)

@@ -268,16 +268,22 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         config.refresh_from_db()
         self.assertTrue(config.minimal_flag_called_events)
 
-    def test_set_refuses_an_override_on_an_environment_team(self):
+    @parameterized.expand([("a_value", 5000), ("an_explicit_null", None)])
+    def test_set_refuses_an_override_on_an_environment_team(self, _name, override):
         # Flags are project-scoped, so get_max_feature_flags_for_team reads the override off the
         # project root. A row written on an environment team would never be read, leaving staff
         # believing they had granted capacity that was silently inert.
+        #
+        # The null case is refused too, since the guard keys on the field being present rather than
+        # on its value. Clearing an override that was never writable here is a no-op, so refusing
+        # it costs nothing and keeps one answer for "can this team hold an override?". Pinned so a
+        # later `validated.get(...) is not None` refactor can't flip it silently.
         environment = Team.objects.create(
             organization=self.organization, project=self.project, parent_team=self.team, name="Environment"
         )
 
         response = self.client.post(
-            SET_URL, {"team_id": environment.id, "max_feature_flags_override": 5000}, format="json"
+            SET_URL, {"team_id": environment.id, "max_feature_flags_override": override}, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
