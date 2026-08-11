@@ -75,17 +75,21 @@ class Channel(TeamScopedRootMixin):
     PERSONAL_CHANNEL_NAME = "me"
 
     @classmethod
-    def visible_to_q(cls, user_id: int | None, *, relation: str = "") -> models.Q:
+    def visible_to_q(cls, user_id: int | None, *, relation: Literal["", "channel", "task__channel"] = "") -> models.Q:
         """The channel-visibility rule as a queryset filter: a personal channel is
         visible only to its creator. ``relation`` names the join to ``Channel`` when
         filtering another model's queryset (e.g. ``"channel"``); empty filters
         ``Channel`` rows directly."""
-        prefix = f"{relation}__" if relation else ""
-        if user_id is None:
-            return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL})
-        return ~models.Q(**{f"{prefix}channel_type": cls.ChannelType.PERSONAL}) | models.Q(
-            **{f"{prefix}created_by_id": user_id}
-        )
+        prefix = {"": "", "channel": "channel__", "task__channel": "task__channel__"}[relation]
+        visible_q = models.Q(**{f"{prefix}channel_type": cls.ChannelType.PUBLIC})
+        if user_id is not None:
+            visible_q |= models.Q(
+                **{
+                    f"{prefix}channel_type": cls.ChannelType.PERSONAL,
+                    f"{prefix}created_by_id": user_id,
+                }
+            )
+        return models.Q(**{f"{prefix}deleted": False}) & visible_q
 
     # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -764,6 +768,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,
         repository: str | None = None,
+        channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         branch: str | None = None,
@@ -790,6 +795,7 @@ class Task(DeletedMetaFields, models.Model):
             origin_product=origin_product,
             user_id=user_id,
             repository=repository,
+            channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
