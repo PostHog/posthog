@@ -1,5 +1,6 @@
 import { Text } from "@components/text";
 import { usePathname, useRouter } from "expo-router";
+import { useColorScheme } from "nativewind";
 import {
   Binoculars,
   CaretRight,
@@ -31,7 +32,7 @@ import { useTasks } from "@/features/tasks/hooks/useTasks";
 import { useArchivedTasksStore } from "@/features/tasks/stores/archivedTasksStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { logger } from "@/lib/logger";
-import { useThemeColors } from "@/lib/theme";
+import { darkTheme, lightTheme, useThemeColors } from "@/lib/theme";
 import { useNavDrawerStore } from "../stores/navDrawerStore";
 import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
 
@@ -334,6 +335,8 @@ export function NavDrawer() {
   const close = useNavDrawerStore((s) => s.close);
   const insets = useSafeAreaInsets();
   const { isConnected } = useNetworkStatus();
+  const { colorScheme } = useColorScheme();
+  const themeVars = colorScheme === "dark" ? darkTheme : lightTheme;
   // Live window width (not a module-scope capture): stays correct through
   // rotation, Split View, and Stage Manager, and can never be 0 from a
   // prewarmed launch before a window exists.
@@ -413,9 +416,12 @@ export function NavDrawer() {
       animationType="none"
       onRequestClose={close}
     >
+      {/* A native Modal mounts in its own native root, outside the app's
+          themed wrapper — the NativeWind CSS variables set in _layout.tsx
+          don't reach it. Re-apply them or every var-based class collapses. */}
       <View
         pointerEvents={isOpen ? "auto" : "none"}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, themeVars]}
       >
         <Animated.View
           pointerEvents={isOpen ? "auto" : "none"}

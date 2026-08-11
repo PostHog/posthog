@@ -1,3 +1,4 @@
+import * as Haptics from "expo-haptics";
 import { ExpoSpeechRecognitionModule } from "expo-speech-recognition";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert } from "react-native";
@@ -95,6 +96,9 @@ export function useVoiceRecording(
     setStatus("idle");
 
     if (text) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => {},
+      );
       onTranscriptRef.current?.(text);
     }
 
@@ -208,6 +212,7 @@ export function useVoiceRecording(
         addsPunctuation: true,
       });
 
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
       setStatus("recording");
     } catch (err) {
       log.error("Failed to start speech recognition", err);
