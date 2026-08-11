@@ -29,11 +29,12 @@ import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { replayScannerLogic } from './replayScannerLogic'
 import {
     SCANNER_EDITOR_STEP_ORDER,
+    STEP_LABELS,
     ScannerEditorStep,
     scannerEditorSceneLogic,
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
-import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
+import { ScannerEditorStepper } from './ScannerEditorStepper'
 import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)

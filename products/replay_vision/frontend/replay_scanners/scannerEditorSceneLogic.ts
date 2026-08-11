@@ -13,6 +13,12 @@ export const SCANNER_EDITOR_STEP_ORDER: Record<ScannerEditorStep, number> = {
     triggers: 2,
     self_driving: 3,
 }
+export const STEP_LABELS: Record<ScannerEditorStep, string> = {
+    template: 'Template',
+    configure: 'Configure',
+    triggers: 'Scan conditions',
+    self_driving: 'Self-driving',
+}
 
 /** Earliest step rendering an errored form field; must match which step component mounts which fields. */
 export function firstErroredScannerStep(errors: {
@@ -66,7 +72,7 @@ export interface scannerEditorSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isNew: (scannerId: string) => boolean
         visibleSteps: (isNew: boolean) => readonly ScannerEditorStep[]
-        breadcrumbs: (scannerId: string, isNew: boolean) => Breadcrumb[]
+        breadcrumbs: (scannerId: string, isNew: boolean, step: ScannerEditorStep) => Breadcrumb[]
     }
 }
 
@@ -109,8 +115,8 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                 SCANNER_EDITOR_STEPS.filter((step) => isNew || step !== 'template'),
         ],
         breadcrumbs: [
-            (s) => [s.scannerId, s.isNew],
-            (scannerId: string, isNew: boolean): Breadcrumb[] => {
+            (s) => [s.scannerId, s.isNew, s.step],
+            (scannerId: string, isNew: boolean, step: ScannerEditorStep): Breadcrumb[] => {
                 const crumbs: Breadcrumb[] = [
                     {
                         key: 'replay-vision',
@@ -120,7 +126,12 @@ export const scannerEditorSceneLogic = kea<scannerEditorSceneLogicType>([
                     },
                 ]
                 if (isNew) {
-                    crumbs.push({ key: 'new-scanner', name: 'New scanner', path: urls.replayVision('new') })
+                    // The back arrow targets the second-to-last crumb, so past the template step the
+                    // 'New scanner' crumb points at the template picker and the current step trails it.
+                    crumbs.push({ key: 'new-scanner', name: 'New scanner', path: urls.replayVisionTemplates() })
+                    if (step !== 'template') {
+                        crumbs.push({ key: 'new-scanner-step', name: STEP_LABELS[step] })
+                    }
                     return crumbs
                 }
                 // Editing an existing scanner: surface the detail page (on its Configuration tab, where the
