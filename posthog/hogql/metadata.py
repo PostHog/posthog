@@ -14,7 +14,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, humanize_hogql_parse_error
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -129,10 +129,7 @@ def get_hogql_metadata(
     except Exception as e:
         response.isValid = False
         if isinstance(e, ExposedHogQLError):
-            error = str(e)
-            # cpp-json (ANTLR) and rust-py word EOF differently; collapse both into a single human-readable string.
-            if "mismatched input '<EOF>' expecting" in error or "unexpected token in expression: Eof" in error:
-                error = "Unexpected end of query"
+            error = humanize_hogql_parse_error(str(e))
             if e.end and e.start and e.end < e.start:
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
             else:

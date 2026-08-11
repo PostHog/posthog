@@ -12,7 +12,7 @@ from rest_framework.exceptions import APIException, NotFound
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, humanize_hogql_parse_error
 
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
@@ -297,7 +297,10 @@ def execute_process_query(
         )
         if is_user_safe_error or is_staff_user:
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
-            query_status.error_message = str(err)
+            if isinstance(err, ExposedHogQLError):
+                query_status.error_message = humanize_hogql_parse_error(str(err))
+            else:
+                query_status.error_message = str(err)
             if isinstance(err, APIException):
                 # get_codes() returns a list/dict for compound validation errors; only scalar codes
                 # are meaningful to the frontend, which matches on specific code strings.

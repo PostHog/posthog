@@ -5,7 +5,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import HOGQL_PARSE_ERROR_PREFIXES, ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
@@ -259,12 +259,9 @@ The newly updated query gave us this error:
             prepare_and_print_ast(parse_select(result.query), context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, ResolutionError) as err:
             err_msg = str(err)
-            # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
-            # terse low-level error wording on syntax failures; collapse them into a
-            # single human/LLM-friendly message regardless of which backend handled the parse.
-            if err_msg.startswith(
-                ("no viable alternative", "trailing tokens after expression", "unexpected token in expression")
-            ):
+            # Both parser backends produce terse low-level wording on syntax failures; collapse
+            # them into a single LLM-friendly message regardless of which backend parsed.
+            if err_msg.startswith(HOGQL_PARSE_ERROR_PREFIXES):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=result.query, validation_message=err_msg)
 

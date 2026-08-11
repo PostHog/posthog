@@ -95,7 +95,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "select 1",
                 "errors": [
                     {
-                        "message": "trailing tokens after expression: '1' (Number)",
+                        "message": "This isn't valid HogQL. Check for a typo, a missing comma or operator, "
+                        "or a reserved word used as a column or alias without quotes.",
                         "start": 7,
                         "end": 8,
                         "fix": None,
@@ -135,7 +136,8 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "timestamp",
                 "errors": [
                     {
-                        "message": "mismatched input 'timestamp' expecting {SELECT, WITH, '{', '(', '<'}",
+                        "message": "This isn't valid HogQL. Check for a typo, a missing comma or operator, "
+                        "or a reserved word used as a column or alias without quotes.",
                         "start": 0,
                         "end": 9,
                         "fix": None,

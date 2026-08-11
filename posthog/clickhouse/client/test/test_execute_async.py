@@ -289,7 +289,8 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.pickup_time)
         self.assertIsNotNone(result.end_time)
         assert result.error_message
-        self.assertRegex(result.error_message, "trailing tokens after expression")
+        # The low-level parser wording is humanized before it reaches the user.
+        self.assertRegex(result.error_message, "isn't valid HogQL")
 
     def test_async_query_user_safe_error_carries_error_code(self):
         query = build_query("SELECT * FROM events")

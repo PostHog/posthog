@@ -21,6 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import (
+    HOGQL_PARSE_ERROR_PREFIXES,
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
     QueryError,
@@ -188,19 +189,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
             err_msg = str(err)
-            # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
-            # terse low-level error wording on syntax failures ("no viable alternative…",
-            # "trailing tokens after expression…", "unexpected token in expression…",
-            # "mismatched input … expecting …"). Replace any of them with a single
-            # human/LLM-friendly message.
-            if err_msg.startswith(
-                (
-                    "no viable alternative",
-                    "trailing tokens after expression",
-                    "unexpected token in expression",
-                    "mismatched input",
-                )
-            ):
+            # Both parser backends produce terse low-level wording on syntax failures. Replace
+            # any of them with a single LLM-friendly message the model can recover from.
+            if err_msg.startswith(HOGQL_PARSE_ERROR_PREFIXES):
                 err_msg = "HogQL parsing error: this query isn't valid HogQL."
             raise PydanticOutputParserException(llm_output=cleaned_query, validation_message=err_msg)
 

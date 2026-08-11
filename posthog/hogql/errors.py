@@ -95,3 +95,32 @@ class ResolutionError(InternalHogQLError):
     """Resolution of a table/field/expression failed."""
 
     pass
+
+
+# Both parser backends (the antlr-based cpp parser and the hand-rolled rust parser) report
+# syntax failures with terse, low-level wording, and the rust backend even Debug-prints internal
+# token kinds like ``Keyword(With)``. A message starting with one of these prefixes is such a
+# low-level string, safe to swap for guidance a person can act on.
+HOGQL_PARSE_ERROR_PREFIXES = (
+    "no viable alternative",
+    "trailing tokens after expression",
+    "unexpected token in expression",
+    "mismatched input",
+)
+
+
+def humanize_hogql_parse_error(message: str) -> str:
+    """Turn a low-level HogQL parser error into one a person writing SQL can act on.
+
+    Returns the message unchanged when it isn't a known low-level parser string, so
+    semantic errors (unknown table, bad function) pass through as written.
+    """
+    # cpp and rust word an unexpected end of input differently; collapse both.
+    if "mismatched input '<EOF>' expecting" in message or "unexpected token in expression: Eof" in message:
+        return "Unexpected end of query. Check for a missing table, column, bracket, or quote."
+    if message.startswith(HOGQL_PARSE_ERROR_PREFIXES):
+        return (
+            "This isn't valid HogQL. Check for a typo, a missing comma or operator, "
+            "or a reserved word used as a column or alias without quotes."
+        )
+    return message
