@@ -114,6 +114,7 @@ fn fenced_status(fence: &Fence) -> Status {
 
 pub struct SimLeader {
     pool: PgPool,
+    person_table: String,
     calls: Mutex<Vec<LeaderCall>>,
     fences: Mutex<HashMap<i64, Fence>>,
     deaths: Mutex<HashMap<i64, DeathDocument>>,
@@ -128,9 +129,10 @@ pub struct SimLeader {
 }
 
 impl SimLeader {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: PgPool, person_table: String) -> Self {
         Self {
             pool,
+            person_table,
             calls: Mutex::new(Vec::new()),
             fences: Mutex::new(HashMap::new()),
             deaths: Mutex::new(HashMap::new()),
@@ -205,19 +207,21 @@ impl SimLeader {
     }
 
     async fn live_person(&self, team_id: i64, person_id: i64) -> Option<Person> {
+        let live_sql = format!(
+            r#"
+            SELECT uuid, COALESCE(version, 0), created_at, is_identified, properties
+            FROM {person_table}
+            WHERE team_id = $1 AND id = $2 AND is_deleted = false
+            "#,
+            person_table = self.person_table,
+        );
         let row: Option<(Uuid, i64, chrono::DateTime<Utc>, bool, serde_json::Value)> =
-            sqlx::query_as(
-                r#"
-                SELECT uuid, COALESCE(version, 0), created_at, is_identified, properties
-                FROM posthog_person
-                WHERE team_id = $1 AND id = $2 AND is_deleted = false
-                "#,
-            )
-            .bind(team_id as i32)
-            .bind(person_id)
-            .fetch_optional(&self.pool)
-            .await
-            .expect("person lookup");
+            sqlx::query_as(&live_sql)
+                .bind(team_id as i32)
+                .bind(person_id)
+                .fetch_optional(&self.pool)
+                .await
+                .expect("person lookup");
         row.map(
             |(uuid, version, created_at, is_identified, properties)| Person {
                 id: person_id,
