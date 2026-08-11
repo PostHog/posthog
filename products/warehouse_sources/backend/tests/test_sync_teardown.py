@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_should_sync,
 )
 from products.warehouse_sources.backend.sync_teardown import teardown_schema_syncs
-from products.warehouse_sources.backend.tasks import (
+from products.warehouse_sources.backend.tasks.tasks import (
     STOPPED_SYNC_SWEEP_GRACE,
     STOPPED_SYNC_SWEEP_MAX_JOB_AGE,
     sweep_stopped_schema_syncs,

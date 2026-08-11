@@ -6,6 +6,8 @@ from django.utils import timezone
 import structlog
 from celery import shared_task
 
+from posthog.scoping_audit import skip_team_scope_audit
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
@@ -62,6 +64,7 @@ def cleanup_disabled_external_data_schema(
 
 
 @shared_task(ignore_result=True)
+@skip_team_scope_audit
 def sweep_stopped_schema_syncs() -> None:
     """Backstop for the write-time disable/delete teardown dispatch.
 
