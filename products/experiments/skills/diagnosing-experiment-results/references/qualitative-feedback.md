@@ -105,7 +105,7 @@ The app's quick-create modal surfaces these warnings; over MCP nothing does, so 
 
 - `linkedFlagVariant` without `linked_flag_id` → 400.
 - The value must be a variant key on the linked flag, or `"any"` — read keys from `feature_flag.filters.multivariate.variants` (source of truth; `parameters.feature_flag_variants` can be stale).
-- Survey names are unique per project — include the experiment name.
+- Survey names are unique per project — use an opaque unique name, and put the experiment name in the survey description if an internal reference is needed.
 - `linkedFlagVariant` (with URL, selector, device, and wait-period conditions) is dropped for `external_survey` — variant-scoped feedback needs an in-app survey.
 
 ## Reading responses back, split by variant
