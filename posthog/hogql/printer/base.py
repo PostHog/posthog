@@ -699,7 +699,10 @@ class BasePrinter(Visitor[str]):
             if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
                 raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
             if on_clause_guard is not None:
-                combined_constraint = ast.And(exprs=[on_clause_guard, node.constraint.expr])
+                # Nest the JoinConstraint node itself, not its `.expr`: comparison printing only skips
+                # `ifNull(...)` wrapping while a JoinConstraint is on the stack, and ClickHouse can't derive
+                # join keys from a wrapped equality. The guard sits outside it, keeping its WHERE semantics.
+                combined_constraint = ast.And(exprs=[on_clause_guard, node.constraint])
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
             else:
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")

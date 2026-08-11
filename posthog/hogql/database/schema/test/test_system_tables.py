@@ -1362,3 +1362,35 @@ class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
 
         assert str(account.id) in rows_by_id
         assert rows_by_id[str(account.id)] in ([], None)
+
+
+class TestSystemTablesNullableJoinKey(NonAtomicBaseTest):
+    """A LEFT JOIN keyed on a nullable column must stay executable.
+
+    The team_id and access-control guards are spliced into the ON clause on a LEFT JOIN, so the join key
+    is printed alongside them. ClickHouse rejects the query outright if that key comes out wrapped in
+    `ifNull(...)`, because it can't derive join keys from it.
+    """
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_left_join_on_nullable_foreign_key(self):
+        directory = _create_evaluation_directory(self.team, "counted")
+        inside = _create_evaluation(self.team, "inside")
+        inside.directory = directory
+        inside.save()
+        # A top-level evaluation: `directory_id` is NULL, which is what makes the join key nullable.
+        _create_evaluation(self.team, "top_level")
+
+        response = execute_hogql_query(
+            """
+            SELECT d.name, count(e.id) AS evaluation_count
+            FROM system.evaluation_directories AS d
+            LEFT JOIN system.evaluations AS e ON e.directory_id = d.id AND e.deleted = false
+            GROUP BY d.name
+            """,
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [(directory.name, 1)]
