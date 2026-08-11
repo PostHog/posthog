@@ -1,37 +1,25 @@
-// The provider manifest: which integration apps exist, and which credential fields
-// each one holds.
+// The provider manifest: which integration apps exist, and which credential fields each
+// one holds. Only keys listed here are ever served.
 //
-// Deliberately code rather than discovered by listing Secrets Manager. Three reasons:
-// the service needs no ListSecrets permission; a mistyped key name fails as an explicit
-// "unknown key" instead of silently resolving to nothing; and the manifest is a
-// reviewable, versioned statement of which integration apps PostHog owns and what
-// credential material each one holds.
+// Kept in code rather than discovered by listing Secrets Manager, so the service needs no
+// ListSecrets permission, a mistyped key name fails as an explicit "unknown key", and
+// adding a credential is a reviewed change. One secret holds every field, so the provider
+// grouping is for metrics, rotation reporting and review, not a storage boundary.
 //
-// One AWS secret holds every field (see store/fileStore.ts); the provider a key
-// belongs to is a grouping for metrics, rotation reporting and review, not a storage
-// boundary. Rotation rides an explicit `<KEY>_FALLBACKS` sibling rather than AWS staging
-// labels, precisely because a staging label applies to a whole secret version.
+// Key names are the existing Django env var names, so the cutover is a 1:1 mapping.
 //
-// Key names are the existing Django env var names, unchanged. That makes the cutover
-// a 1:1 mapping with nothing to get wrong. Logical `provider/field` names come later,
-// when the per-team Integration model moves onto this service and there is a reason
-// to rename.
-//
-// ONLY OUTBOUND CREDENTIALS BELONG HERE. Every key below is something PostHog presents
-// to a third party. An inbound-request authenticator — a webhook signing secret, an API
-// key we check on requests arriving at PostHog — must not be added: there is no
-// per-deployment allowlist any more, so anything in this manifest is readable by every
-// deployment holding a signing key, and for an outbound OAuth secret that is no
-// expansion (the pod already had its own copy in its environment) while for an inbound
-// authenticator it hands any compromised pod the ability to forge requests to us.
+// ONLY OUTBOUND CREDENTIALS BELONG HERE. There is no per-deployment allowlist, so every
+// key below is readable by every deployment holding a signing key. For a secret PostHog
+// presents to a third party that is no expansion, since the pod already had its own copy
+// in its environment. For an inbound-request authenticator, such as a webhook signing
+// secret, it would hand any compromised pod the ability to forge requests to us.
 
 export interface ProviderDefinition {
-    /** Credential field names, i.e. the keys inside this provider's AWS secret. */
+    /** Credential field names, i.e. the keys this provider owns inside the secret. */
     keys: readonly string[]
 }
 
-// Phase 1: the platform credentials the data warehouse sources need. These are exactly
-// the keys duplicated today between shared/posthog-django/common.yaml and
+// The keys duplicated between shared/posthog-django/common.yaml and
 // apps/temporal-worker-data-warehouse/values.yaml in PostHog/charts.
 export const PROVIDERS: Readonly<Record<string, ProviderDefinition>> = {
     'bing-ads': {
@@ -84,11 +72,9 @@ export const PROVIDERS: Readonly<Record<string, ProviderDefinition>> = {
         keys: ['SALESFORCE_CONSUMER_KEY', 'SALESFORCE_CONSUMER_SECRET'],
     },
     stripe: {
-        // Deliberately NOT here: STRIPE_SIGNING_SECRET, which authenticates requests
-        // arriving at ee/partners/stripe/api/provisioning/ rather than requests we make,
-        // and STRIPE_POSTHOG_OAUTH_CLIENT_ID, which is a public client id and not
-        // credential material. Both stay as plain env vars on the one deployment that
-        // uses them. See the header for why an inbound authenticator cannot live here.
+        // Deliberately absent: STRIPE_SIGNING_SECRET, which authenticates requests arriving
+        // at ee/partners/stripe/api/provisioning/ rather than requests we make, and
+        // STRIPE_POSTHOG_OAUTH_CLIENT_ID, a public client id. Both stay as plain env vars.
         keys: ['STRIPE_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'],
     },
     'tiktok-ads': {
@@ -101,9 +87,8 @@ export const PROVIDERS: Readonly<Record<string, ProviderDefinition>> = {
 
 export const PROVIDER_NAMES: readonly string[] = Object.keys(PROVIDERS).sort()
 
-// Reverse index, built once. A key belongs to exactly one provider; buildKeyIndex
-// throws if the manifest ever violates that, since two providers claiming a key would
-// make "which secret do I rotate" ambiguous.
+// A key belongs to exactly one provider. Two providers claiming one would make "which
+// secret do I rotate" ambiguous, so the manifest fails to load instead.
 function buildKeyIndex(): ReadonlyMap<string, string> {
     const index = new Map<string, string>()
     for (const [provider, definition] of Object.entries(PROVIDERS)) {

@@ -9,12 +9,10 @@
 //     CALLER_KEY_TEMPORAL_WORKER_DATA_WAREHOUSE  = "<new>,<old>"
 //
 // The same value goes into that deployment's own secret as INTEGRATION_SERVICE_JWT_SECRET.
-// Duplicating one value per deployment is inherent to shared-secret auth, and it replaces
-// 26 duplicated credentials with one.
 //
-// Deployment names are DERIVED from the entries present, not declared in code. Onboarding a
-// caller or revoking a compromised one is therefore a secrets edit with no deploy — and
-// revoking one deployment's key leaves every other deployment working, which is the
+// Deployment names are DERIVED from the entries present, not declared in code, so
+// onboarding a caller or revoking a compromised one is a secrets edit with no deploy.
+// Revoking one deployment's key leaves every other deployment working, which is the
 // containment this design relies on.
 //
 // Held in process memory only. These are the keys that authenticate callers.
@@ -29,13 +27,10 @@ export const CALLER_KEY_PREFIX = 'CALLER_KEY_'
 /**
  * Reject a key value listed under more than one deployment.
  *
- * Two deployments sharing a value would collapse into one identity: the verifier stops at
- * the first entry that verifies, so both resolve to whichever CALLER_KEY_* came first.
- * Revoking one would then not cut it off, because the same value is still listed under the
- * other name — and revocation is the containment this design relies on. Attribution goes
- * with it: the audit log, the usage rollup and safeToRetirePrevious would all name the
- * wrong caller. Fail at load instead; a paste error is the likely cause, and it is not
- * visible in an opaque value.
+ * Two deployments sharing a value collapse into one identity, because the verifier stops at
+ * the first entry that verifies. Revoking one would then not cut it off, and the audit log,
+ * the usage rollup and safeToRetirePrevious would all name the wrong caller. A paste error
+ * is the likely cause and is invisible in an opaque value, so fail at load instead.
  */
 export function assertNoSharedKeys(keys: SigningKeys): void {
     const owner = new Map<string, string>()
@@ -70,11 +65,9 @@ export class SigningKeyLoader {
     }
 
     /**
-     * Reload, keeping the previous keys if the mount is unreadable or invalid. A malformed
-     * edit must not lock every caller out of a running fleet.
-     *
-     * That fail-open is what the two metrics exist for: staleness on the gauge means "a
-     * revocation has not landed on this pod".
+     * Reload, keeping the previous keys if the mount is unreadable or invalid, so a
+     * malformed edit cannot lock every caller out of a running fleet. The two metrics are
+     * what make that fail-open visible when a revocation does not land.
      */
     async reload(): Promise<void> {
         try {

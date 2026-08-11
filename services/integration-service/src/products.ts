@@ -1,15 +1,12 @@
-// The product names this service recognises.
+// The product names this service recognises: the code path that wanted a credential
+// (`warehouse-sources`, `cdp`). Caller-supplied, never verified, and grants nothing.
 //
-// A product is the code path that wanted a credential (`warehouse-sources`, `cdp`). The
-// caller supplies it and it is NOT verified: Django holds one signing key and hosts many
-// products, so a compromised Django pod could name any of them. It grants nothing.
-//
-// This list exists purely so an unrecognised value collapses to a constant. A
-// caller-supplied string must never reach a Prometheus label, because prom-client keeps
-// every series in process memory for the pod's lifetime.
+// The list exists so an unrecognised value collapses to a constant. A caller-supplied
+// string must never reach a Prometheus label, because prom-client keeps every series in
+// process memory for the pod's lifetime.
 //
 // Keep in step with IntegrationCaller in posthog/integration_secrets/callers.py. A name
-// missing here still works; it just records as "unknown".
+// missing here still works, and records as "unknown".
 
 const UNKNOWN_PRODUCT = 'unknown'
 

@@ -1,18 +1,15 @@
 // HS256 JWT verification, following the recording-api scheme (PostHog/posthog#67476).
 //
-// The deployment is established by WHICH KEY VERIFIES the token, never by a claim. So
-// there is nothing in the token an attacker could edit to become a different deployment,
-// and no need for the token to name one. Trying each deployment's keys in turn is a
-// handful of HMAC verifies against a set the size of our pod fleet.
+// The deployment is established by WHICH KEY VERIFIES the token, never by a claim, so there
+// is nothing in the token an attacker could edit to become a different deployment. Trying
+// each deployment's keys in turn is a handful of HMAC verifies.
 //
-// The `caller` claim names the product that wanted the credential. It is NOT verified:
-// Django holds one key and hosts many products, so a compromised Django pod could name
-// any of them. It is recorded for metrics and audit, collapsed to a constant when we do
-// not recognise it, and it grants nothing.
+// The `caller` claim names the product that wanted the credential. It is not verified,
+// because Django holds one key and hosts many products, so it is recorded for metrics and
+// audit and grants nothing.
 //
 // The requested key set travels in the `keys` claim and there is no request body, so a
-// token lifted from a log unlocks the fields of one call rather than every credential we
-// hold.
+// token lifted from a log unlocks the fields of one call rather than every credential.
 
 import { decodeJwt, jwtVerify } from 'jose'
 
@@ -21,14 +18,11 @@ import type { CallerIdentity } from '../types.js'
 import type { SigningKeyLoader } from './registry.js'
 import { AUDIENCE, AuthError, type Verifier } from './types.js'
 
-// Caps on the `keys` claim. A holder of a valid signing key would otherwise be able to
-// grow this process's memory without bound: every distinct key name becomes an entry in
-// the in-memory usage batch and then a Postgres row, and neither is reclaimed. Revoking a
-// deployment's key bounds what a compromised caller can *read*; these bound what it can
-// *cost* before anyone notices.
-//
-// The real ceiling is the provider manifest, well under 50 fields in total, so no
-// legitimate request comes close.
+// Caps on the `keys` claim. Without them a holder of a valid signing key could grow this
+// process's memory without bound, since every distinct key name becomes an entry in the
+// in-memory usage batch and then a Postgres row. Revoking a key bounds what a compromised
+// caller can read; these bound what it can cost. The provider manifest holds well under 50
+// fields, so no legitimate request comes close.
 const MAX_REQUESTED_KEYS = 50
 const MAX_KEY_LENGTH = 128
 
@@ -63,10 +57,9 @@ export class JwtVerifier implements Verifier {
                         algorithms: ['HS256'],
                         audience: AUDIENCE,
                         // jose only checks `exp` when the claim is present, so without this
-                        // a token minted without one verifies and never expires. The five
-                        // minutes the README quotes is set by the minting client; this is
-                        // what makes a bound exist at the boundary, for every future
-                        // minting path as well as the one that exists today.
+                        // a token minted without one verifies and never expires. The
+                        // lifetime itself is set by the minting client; this is what makes
+                        // a bound exist at the boundary for every minting path.
                         requiredClaims: ['exp'],
                     })
                     payload = result.payload as Record<string, unknown>
@@ -112,8 +105,8 @@ export class JwtVerifier implements Verifier {
         return {
             deployment,
             product: productLabel(typeof claimedProduct === 'string' ? claimedProduct : ''),
-            // Deduplicate: a repeated key would otherwise be resolved, counted and logged
-            // once per occurrence for no benefit.
+            // A repeated key would otherwise be resolved, counted and logged once per
+            // occurrence.
             requestedKeys: [...new Set(claimedKeys)],
         }
     }

@@ -1,24 +1,11 @@
-// AWS credentials for this service, chosen explicitly rather than by the SDK's default
-// chain.
+// AWS credentials, chosen explicitly rather than by the SDK's default chain. That chain
+// would let a service whose job is holding third-party credentials authenticate silently as
+// an EC2 instance role, or as whatever a developer last ran `aws sso login` against.
 //
-// The default chain (`@aws-sdk/credential-provider-node`) tries, in order: environment,
-// SSO cache, shared INI profiles, a `credential_process` subprocess, web identity, and
-// finally the EC2 instance metadata service. For a service whose entire job is holding
-// third-party credentials, most of those are paths it should never be able to take —
-// silently authenticating as an EC2 instance role, or as whatever a developer last
-// logged into with `aws sso login`, is a failure mode worth removing rather than
-// documenting.
-//
-// The only AWS client left is S3, for the usage artifact. So there are exactly two ways in:
-//   - in the cluster: the IRSA web identity token, which is how the pod is meant to
-//     assume its role;
-//   - against a local mock (moto): static throwaway credentials, when AWS_ENDPOINT_URL is
-//     set. loadConfig() exits the process if that variable is present under
-//     NODE_ENV=production, so this branch cannot be reached on a deployed pod — otherwise
-//     one environment variable would turn "exactly two ways in" into an arbitrary endpoint.
-//
-// Narrowing this also drops the SSO/INI/IMDS providers out of the bundle, which is what
-// keeps deps-allowlist.txt short.
+// There are exactly two ways in: the IRSA web identity token in cluster, and static
+// throwaway credentials against a local mock when AWS_ENDPOINT_URL is set. loadConfig()
+// exits under NODE_ENV=production if that variable is present, so the second cannot be
+// reached on a deployed pod.
 
 import { fromTokenFile } from '@aws-sdk/credential-provider-web-identity'
 import type { AwsCredentialIdentityProvider } from '@smithy/types'

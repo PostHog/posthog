@@ -1,8 +1,6 @@
-// HTTP surface.
-//
-// One functional route. The request scope lives entirely in the JWT, so `resolve`
-// takes no body — see auth/jwt.ts for why. Keeping it a POST (rather than a GET) means
-// no intermediary treats a credential response as cacheable.
+// HTTP surface. One functional route: the request scope lives entirely in the JWT, so
+// `resolve` takes no body (see auth/jwt.ts). It is a POST so no intermediary treats a
+// credential response as cacheable.
 
 import { Hono } from 'hono'
 import { createHash, timingSafeEqual } from 'node:crypto'
@@ -31,8 +29,7 @@ function tokensMatch(provided: string, expected: string): boolean {
     )
 }
 
-// Route label for metrics. Every path here is static, so this only exists to keep an
-// unmatched request from creating an unbounded label value.
+// Keeps an unmatched request from creating an unbounded metric label value.
 function routeLabel(pathname: string): string {
     return PROBE_PATHS.has(pathname) || pathname === RESOLVE_PATH ? pathname : 'other'
 }
@@ -61,9 +58,8 @@ export function createApp(opts: AppOptions): Hono {
 
     app.get('/_liveness', (c) => c.json({ status: 'ok' }))
 
-    // Not ready until the pod holds a credential snapshot. One that does not would answer
-    // every resolve all-missing, which callers treat as terminal rather than retryable, so
-    // it must fail its probe instead of accepting traffic.
+    // Not ready until the pod holds a credential snapshot: one that does not would answer
+    // every resolve all-missing, which callers treat as terminal rather than retryable.
     app.get('/_readiness', (c) => {
         if (opts.lifecycle.shuttingDown) {
             return c.json({ status: 'shutting_down' }, 503)
@@ -102,9 +98,8 @@ export function createApp(opts: AppOptions): Hono {
             const response = await resolveKeys(verified, opts.resolveDeps)
             return c.json(response)
         } catch (err) {
-            // No snapshot at all. A mount that merely failed to re-read has already
-            // degraded gracefully by keeping the previous snapshot, so reaching here means
-            // the pod has never held one.
+            // Reaching here means the pod has never held a snapshot; a failed re-read
+            // keeps the previous one and never lands here.
             logger.error('secrets:resolve_failed', {
                 deployment: verified.deployment,
                 error: err instanceof Error ? err.message : String(err),

@@ -1,15 +1,13 @@
-// Auth seam.
-//
-// Phase 1 verifies an HS256 JWT signed with a deployment's key. The interface exists so
-// a Kubernetes projected-ServiceAccount-token verifier (TokenReview) can drop in later
-// as a second implementation without touching the routes or the policy layer — that
-// would remove the last long-lived secret from caller pods.
+// Auth seam. Today an HS256 JWT signed with a deployment's key; the interface exists so a
+// Kubernetes projected-ServiceAccount-token verifier (TokenReview) can drop in later without
+// touching the routes or the policy layer, removing the last long-lived secret from caller
+// pods.
 
 import type { CallerIdentity } from '../types.js'
 
 export const AUDIENCE = 'posthog:integration_service'
 
-/** Why a token was rejected. Metric label — keep the set small and stable. */
+/** Why a token was rejected. A metric label, so keep the set small and stable. */
 export type AuthFailureReason =
     | 'missing_token'
     | 'malformed'

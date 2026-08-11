@@ -1,14 +1,10 @@
 // Build-time stub for the AWS credential providers this service must never use.
 //
-// The SDK's runtimeConfig imports the whole default provider chain statically, so
-// esbuild bundles SSO, shared-INI, `credential_process` and IMDS even though we always
-// pass an explicit `credentials` (see credentials.ts) and none of them can ever be
-// reached at runtime. The esbuild config aliases those modules here instead.
-//
-// Two things this buys beyond a smaller bundle: the service physically cannot fall back
-// to a developer's SSO cache or an EC2 instance role if the explicit provider is ever
-// dropped by accident, and we stop having to keep those packages' transitive tree
-// compatible with the monorepo's pinned @smithy/* versions.
+// The SDK's runtimeConfig imports the whole default provider chain statically, so esbuild
+// would bundle SSO, shared-INI, `credential_process` and IMDS even though credentials.ts
+// always passes an explicit provider. The esbuild config aliases those modules here, so the
+// service cannot fall back to a developer's SSO cache or an EC2 instance role even if the
+// explicit provider is ever dropped by accident.
 
 function refuse(name: string): () => never {
     return () => {

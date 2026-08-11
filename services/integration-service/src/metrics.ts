@@ -1,12 +1,8 @@
-// Prometheus metrics for the integration-service.
+// Prometheus metrics.
 //
-// Cardinality is deployment × product × provider × key. Every one of those is drawn from
-// fixed configuration in code, never from a request: a key the manifest does not define
-// and a product we do not recognise both collapse to a constant. See policy/resolve.ts
-// and products.ts. Never add a per-team or per-request label.
-//
-// Everything here is measured by this service. Nothing is reported to it by a caller, so
-// no metric depends on a client being well behaved, current, or honest.
+// Every label value comes from fixed configuration in code, never from a request: an
+// unknown key and an unrecognised product both collapse to a constant (policy/resolve.ts,
+// products.ts). Never add a per-team or per-request label.
 
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client'
 
@@ -23,8 +19,6 @@ collectDefaultMetrics({ register, prefix: 'integration_service_' })
 export const resolveTotal = new Counter({
     name: 'integration_secret_resolve_total',
     help: 'Credential field resolutions, by deployment, product and outcome',
-    // `deployment` is authenticated; `product` is caller-supplied but collapsed to a
-    // known set in products.ts, so both stay bounded.
     labelNames: ['deployment', 'product', 'provider', 'key', 'result'],
     registers: [register],
 })
@@ -40,8 +34,8 @@ export const lastResolvedTimestamp = new Gauge({
 // Rotation
 // ---------------------------------------------------------------------------
 
-// How often we handed out a previous value at all — i.e. how much traffic is reading a
-// field that is mid-rotation. Says nothing about whether anyone needed it.
+// How much traffic is reading a field that is mid-rotation. Says nothing about whether
+// anyone needed the previous value.
 export const previousVersionServedTotal = new Counter({
     name: 'integration_secret_previous_version_served_total',
     help: 'Responses in which a previous (<KEY>_FALLBACKS) value was included alongside the current one',
@@ -59,8 +53,8 @@ export const secretAgeSeconds = new Gauge({
 // Mount health
 // ---------------------------------------------------------------------------
 
-// An unreadable mount keeps the last snapshot rather than failing every read, so without
-// this the degradation is silent. Alert on it.
+// An unreadable mount keeps the last snapshot rather than failing every read, so this
+// gauge is the only sign of that degradation. Alert on it.
 export const servingStaleSeconds = new Gauge({
     name: 'integration_secret_serving_stale_seconds',
     help: 'Age of the snapshot still being served because the mount could not be re-read (0 when healthy)',
@@ -106,9 +100,9 @@ export const authFailuresTotal = new Counter({
     registers: [register],
 })
 
-// Revocation is applied by reloading the signing keys, and that reload deliberately fails
-// open so a malformed edit cannot lock a running fleet out. These two make the fail-open
-// alertable: staleness on the gauge means "a revocation has not landed on this pod".
+// The signing-key reload fails open so a malformed edit cannot lock a running fleet out.
+// These two make that alertable: staleness on the gauge means a revocation has not landed
+// on this pod.
 export const signingKeysLastLoadedTimestamp = new Gauge({
     name: 'integration_service_signing_keys_last_loaded_timestamp',
     help: 'Unix timestamp of the last successful load of the caller signing keys',

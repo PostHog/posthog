@@ -4,14 +4,12 @@
 // so a leaked one unlocks the fields of one call rather than everything.
 //
 // There is deliberately no per-deployment provider allowlist. Every authenticated
-// deployment may read any credential in the manifest. A list would have to be maintained
-// per deployment, which is the same friction this service exists to remove, and it bounds
-// nothing that the per-deployment signing key does not already bound: a compromised
-// deployment is contained by revoking its key, which leaves every other deployment
-// working. What it actually read is in the audit log and the usage rollup.
+// deployment may read any credential in the manifest, because a list bounds nothing the
+// per-deployment signing key does not already bound: a compromised deployment is contained
+// by revoking its key. What it actually read is in the audit log and the usage rollup.
 //
 // `missing` covers both an unknown key name and a manifest key with no value here. Both
-// are diagnosable states reported per key, not errors that fail the batch.
+// are reported per key rather than failing the batch.
 
 import { logger } from '../lib/logging.js'
 import { observeResolve, previousVersionServedTotal } from '../metrics.js'
@@ -39,9 +37,9 @@ export interface ResolveResponse {
 /**
  * Thrown when this pod holds no credential snapshot.
  *
- * Deliberately not answered as an all-`missing` response. A caller treats a missing key as
- * terminal — the credential was deleted — so answering that way during a cold start or a
- * lost mount turns an unavailable service into what looks like a deleted credential.
+ * Deliberately not answered as an all-`missing` response, because a caller treats a missing
+ * key as terminal. Answering that way during a cold start would turn an unavailable service
+ * into what looks like a deleted credential.
  */
 export class SnapshotUnavailableError extends Error {
     constructor() {
@@ -69,11 +67,10 @@ export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): 
         const provider = providerForKey(key)
         if (!provider) {
             missing.push(key)
-            // Constant labels, not the key itself. A key absent from the manifest is a
-            // caller-supplied string, and putting it on a metric would let any holder
-            // of a signing key grow this process's series set without bound. The real
-            // name still reaches the response and the log line, neither of which is a
-            // label.
+            // Constant labels, not the key itself: a key absent from the manifest is a
+            // caller-supplied string, and labelling with it would let any holder of a
+            // signing key grow this process's series set without bound. The real name still
+            // reaches the response and the log line.
             observeResolve(identity, UNKNOWN_LABEL, UNKNOWN_LABEL, 'missing')
             continue
         }
@@ -104,8 +101,8 @@ export async function resolveKeys(identity: CallerIdentity, deps: ResolveDeps): 
         }
     }
 
-    // One audit line per request rather than per key: the key list is bounded by the
-    // token scope, so it stays readable, and Loki keeps the whole request together.
+    // One audit line per request rather than per key, so Loki keeps the whole request
+    // together. The key list is bounded by the token scope, so it stays readable.
     logger.info('secrets:resolved', {
         deployment: identity.deployment,
         product: identity.product,

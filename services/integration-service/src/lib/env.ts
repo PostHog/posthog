@@ -1,9 +1,6 @@
-// Typed accessor for process.env in the integration-service.
-//
-// KnownEnvKey is an exhaustive union of every environment variable the service reads.
-// Callers use getEnv() instead of process.env[] directly so typos in key names are caught
-// at compile time rather than silently returning undefined at runtime — which here would
-// mean a security control quietly not applying.
+// Typed accessor for process.env. Callers use getEnv() instead of process.env[] so a typo
+// in a key name fails at compile time rather than silently returning undefined, which here
+// would mean a security control quietly not applying.
 
 export type KnownEnvKey =
     | 'PORT'

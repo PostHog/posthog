@@ -1,18 +1,10 @@
 // Reads the credentials out of a mounted Kubernetes Secret.
 //
 // External Secrets Operator syncs the AWS secret into a Kubernetes Secret, and kubelet
-// mounts it as a directory: one file per key, the file contents being the value. ESO is
-// already how every PostHog deployment receives its secrets, so this service stops being
-// the exception that calls Secrets Manager at runtime.
-//
-// Kubelet rewrites the mount in place when the content changes, so a rotation reaches the
-// pod without a restart. It swaps the `..data` symlink atomically, which means a read
-// never sees a half-written set.
-//
-// What this replaces is worth recording: the service previously read Secrets Manager over
-// the API and cached the result in Redis under a KMS-wrapped data key. The envelope
-// encryption existed only to keep plaintext out of Redis. With the values arriving on a
-// tmpfs mount instead, Redis holds no credentials and the crypto has no job.
+// mounts it as a directory: one file per key, the file contents being the value. Kubelet
+// rewrites the mount in place when the content changes, so a rotation reaches the pod
+// without a restart, and it swaps the `..data` symlink atomically, so a read never sees a
+// half-written set.
 
 import { createHash } from 'node:crypto'
 import { readFile, readdir } from 'node:fs/promises'
@@ -41,8 +33,7 @@ export interface FileStoreOptions {
     dir: string
     /**
      * Records when a content hash was first seen and returns that timestamp. Persisted, so
-     * every replica agrees and the answer survives a restart — see the note on
-     * SecretsSnapshot.changedAt.
+     * every replica agrees and the answer survives a restart. See SecretsSnapshot.changedAt.
      */
     observeVersion: (contentHash: string) => Promise<string | null>
 }
@@ -99,10 +90,9 @@ export function createFileStore(opts: FileStoreOptions): SecretStore {
             const fetchedAt = new Date().toISOString()
             const secrets: Record<string, ResolvedSecret> = {}
 
-            // Only manifest keys are ever exposed. A file present on the mount but not in
-            // the manifest is ignored rather than served, so adding a credential is a
-            // reviewed code change and never just a secrets edit. This is also what keeps
-            // the caller signing keys sharing this secret from being served as credentials.
+            // Only manifest keys are ever served. A file the manifest does not define is
+            // ignored, so adding a credential is a reviewed code change, and the caller
+            // signing keys sharing this secret can never be served as credentials.
             for (const definition of Object.values(PROVIDERS)) {
                 for (const key of definition.keys) {
                     const value = values[key]
