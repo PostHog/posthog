@@ -26,11 +26,12 @@ logger = structlog.get_logger(__name__)
 
 # Python-level errors the Hog standard library raises when a unit's data is not the shape the
 # evaluation source assumed: `ilike` against a list rather than a string, `jsonParse` on truncated
-# model output, a property chain that walks into a string. The evaluation is not broken and neither
-# are we, so these skip the one unit instead of paging us or disabling the evaluation.
+# model output, a divide by a token count that arrived as zero. The evaluation is not broken and
+# neither are we, so these skip the one unit instead of paging us or disabling the evaluation.
 #
-# The list stays narrow, because classifying by Python type cannot tell a bad value apart from a bug
-# that happens to fail the same way. Two exclusions are load-bearing:
+# Classifying by Python type cannot separate a bad value from a source that always fails the same
+# way, so a source hardcoded to raise one of these (`length(5)`) still skips every unit. Closing
+# that needs an every-unit-skipped signal, not a narrower list. Two exclusions we can make here:
 #
 # - `ValueError` at large, with `json.JSONDecodeError` (a subclass) listed instead: our own code
 #   raises plain ValueError, and skipping on that would hide real bugs.
