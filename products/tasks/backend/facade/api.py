@@ -1855,7 +1855,9 @@ def _task_automation_to_dto(automation: TaskAutomation) -> contracts.TaskAutomat
 
 
 def _visible_task_automations(team_id: int, user_id: int | None):
-    return TaskAutomation.objects.filter(task__team_id=team_id).filter(task_run_visibility_q(user_id))
+    return TaskAutomation.objects.filter(task__team_id=team_id, task__deleted=False).filter(
+        task_run_visibility_q(user_id)
+    )
 
 
 def list_task_automations(team_id: int, user_id: int | None) -> list[contracts.TaskAutomationDTO]:
@@ -4241,7 +4243,7 @@ def get_conversation_task_dtos(
         TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id").values("id")[:1]
     )
     tasks = (
-        Task.objects.filter(team_id=team_id, id__in=task_ids)
+        Task.objects.filter(team_id=team_id, id__in=task_ids, deleted=False)
         .filter(task_visibility_q(user_id))
         .select_related("created_by", "team")
         .annotate(_latest_run_id=Subquery(latest_run_id_sq))
@@ -5824,7 +5826,7 @@ def resolve_slack_thread_context(
 
     mapping = (
         SlackThreadTaskMapping.objects.select_related("task", "task__created_by")
-        .filter(channel=channel, thread_ts=thread_ts, team_id=team_id)
+        .filter(channel=channel, thread_ts=thread_ts, team_id=team_id, task__deleted=False)
         .filter(task_run_visibility_q(user_id))
         .first()
     )

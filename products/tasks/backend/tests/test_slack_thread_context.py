@@ -124,6 +124,14 @@ class TestSlackThreadContextEndpoint(_SlackThreadContextBase):
         assert body["thread"]["channel"] == "C0ACRAMJUAG"
         assert body["thread"]["thread_ts"] == "1779956938.619299"
 
+    def test_soft_deleted_task_has_no_slack_thread_context(self):
+        task, _run, _mapping = self._create_fixture()
+        task.soft_delete()
+
+        response = self.client.get(self._url("https://posthog.slack.com/archives/C0ACRAMJUAG/p1779956938619299"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_happy_path_returns_task_and_runs(self):
         task, run, mapping = self._create_fixture()
         with patch(

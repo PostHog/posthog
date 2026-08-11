@@ -262,6 +262,12 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertIsNone(dto.latest_run_id)
 
+    def test_get_conversation_task_dtos_excludes_soft_deleted_task(self):
+        task = self._make_task(title="Deleted conversation task")
+        task.soft_delete()
+
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], self.team.id, self.user.id), {})
+
     def test_get_conversation_task_dtos_is_cheap_for_many_tasks(self):
         tasks = [self._make_task(title=f"task-{i}") for i in range(5)]
         for task in tasks:
