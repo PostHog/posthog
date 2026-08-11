@@ -142,25 +142,6 @@ describe('logsAlertingLogic', () => {
             logic.unmount()
         })
 
-        it('updates editingAlert optimistically when the reset target matches the open modal', async () => {
-            const editing = { id: 'alert-1', name: 'broken', state: 'broken' } as any
-            const updated = { id: 'alert-1', name: 'broken', state: 'ok' } as any
-            mockReset.mockResolvedValue(updated)
-
-            const logic = logsAlertingLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            logic.actions.setEditingAlert(editing)
-
-            await expectLogic(logic, () => {
-                logic.actions.resetAlert('alert-1')
-            })
-                .toFinishAllListeners()
-                .toMatchValues({ editingAlert: updated })
-
-            logic.unmount()
-        })
-
         it('surfaces an error toast and does not reload on failure', async () => {
             mockReset.mockRejectedValue(new Error('boom'))
 

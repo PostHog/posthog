@@ -106,12 +106,6 @@ export interface logsAlertFormLogicActions {
         alertId: string
     } // logsAlertNotificationLogic
     loadAlerts: (_?: any) => any // logsAlertingLogic
-    setEditingAlert: (alert: LogsAlertConfigurationApi | null) => {
-        alert: LogsAlertConfigurationApi | null
-    } // logsAlertingLogic
-    setIsCreating: (isCreating: boolean) => {
-        isCreating: boolean
-    } // logsAlertingLogic
     clearSimulation: () => {
         value: true
     }
@@ -229,7 +223,7 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
         ],
         actions: [
             logsAlertingLogic,
-            ['loadAlerts', 'setEditingAlert', 'setIsCreating'],
+            ['loadAlerts'],
             logsAlertNotificationLogic({ alertId: alert?.id }),
             ['createPendingHogFunctions'],
         ],
@@ -351,8 +345,6 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                         await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId)
                     }
 
-                    actions.setEditingAlert(null)
-                    actions.setIsCreating(false)
                     actions.loadAlerts()
                 } catch (e: any) {
                     const message =
