@@ -21,14 +21,17 @@ from django.db.models import Count
 
 from posthog.models import OrganizationMembership, Team
 from posthog.tasks.usage_report import (
+    SDK_BREAKDOWN_USAGE_KEYS,
     InstanceMetadata,
     OrgReport,
     UsageReportCounters,
     _get_team_report,
     _get_teams_for_usage_reports,
     convert_team_usage_rows_to_dict,
+    convert_team_usage_sdk_breakdown_rows_to_dict,
     has_non_zero_usage,
     serialize_full_org_report,
+    sum_usage_report_counter_field,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.temporal.usage_report.storage import bucket, read_json
@@ -42,7 +45,7 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
 )
 
 
-def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int, int]]:
+def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int, Any]]:
     """Reconstruct the legacy `all_data` map from per-query S3 files.
 
     Single-output specs become one entry keyed by `spec.name`. Multi-output
@@ -50,7 +53,7 @@ def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int
     `multi_keys_mapping` so downstream code sees the same flat shape the
     Celery path produces today.
     """
-    all_data: dict[str, dict[int, int]] = {}
+    all_data: dict[str, dict[int, Any]] = {}
     for result in query_results:
         spec = QUERY_INDEX[result.query_name]
         raw = read_json(result.s3_key)
@@ -58,6 +61,8 @@ def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int
             for source_key, dest_key in spec.multi_keys_mapping.items():
                 rows = raw.get(source_key, [])
                 all_data[dest_key] = convert_team_usage_rows_to_dict(rows)
+        elif spec.name in SDK_BREAKDOWN_USAGE_KEYS:
+            all_data[spec.name] = convert_team_usage_sdk_breakdown_rows_to_dict(raw)
         else:
             all_data[spec.name] = convert_team_usage_rows_to_dict(raw)
     return all_data
@@ -68,6 +73,18 @@ def add_pre_sandbox_compute_patch_defaults(
 ) -> None:
     if not any(result.query_name == _SANDBOX_COMPUTE_QUERY_NAME for result in query_results):
         for key in _SANDBOX_COMPUTE_DESTINATION_KEYS:
+            all_data[key] = {}
+
+
+def add_pre_ff_sdk_breakdown_patch_defaults(
+    all_data: dict[str, dict[int, Any]], query_results: list[RunQueryToS3Result]
+) -> None:
+    """Default the SDK-breakdown keys to empty for executions that ran before the SDK-breakdown
+    queries existed, so `_get_team_report` never KeyErrors when replaying such a history.
+    """
+    ran = {result.query_name for result in query_results}
+    for key in SDK_BREAKDOWN_USAGE_KEYS:
+        if key not in ran:
             all_data[key] = {}
 
 
@@ -231,5 +248,5 @@ def _add_team_report_to_org_reports(
                 setattr(
                     org_report,
                     field.name,
-                    getattr(org_report, field.name) + getattr(team_report, field.name),
+                    sum_usage_report_counter_field(getattr(org_report, field.name), getattr(team_report, field.name)),
                 )

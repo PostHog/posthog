@@ -1721,7 +1721,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _create_event(
                 distinct_id="3",
                 event="decide usage",
-                properties={"count": 10, "token": "correct"},
+                properties={"count": 10, "token": "correct", "sdk_breakdown": {"posthog-js": 2}},
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,
             )
@@ -1730,14 +1730,14 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _create_event(
                 distinct_id="4",
                 event="decide usage",
-                properties={"count": 1, "token": "correct"},
+                properties={"count": 1, "token": "correct", "sdk_breakdown": {"posthog-js": 1, "posthog-node": 3}},
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,
             )
             _create_event(
                 distinct_id="4",
                 event="decide usage",
-                properties={"count": 100, "token": "wrong"},
+                properties={"count": 100, "token": "wrong", "sdk_breakdown": {"posthog-python": 9}},
                 timestamp=now() - relativedelta(hours=i),
                 team=self.analytics_team,
             )
@@ -1784,12 +1784,23 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["decide_requests_count_in_period"] == 1
         assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_period"] == 1
 
+        # Per-SDK breakdown ships alongside the totals; the wrong-token events are excluded.
+        assert org_1_report["teams"]["3"]["decide_requests_sdk_breakdown_in_period"] == {"posthog-js": 2}
+        assert org_1_report["teams"]["4"]["decide_requests_sdk_breakdown_in_period"] == {
+            "posthog-js": 1,
+            "posthog-node": 3,
+        }
+        # Org rollup sums each SDK across the org's teams, merging the shared `posthog-js` key.
+        assert org_1_report["decide_requests_sdk_breakdown_in_period"] == {"posthog-js": 3, "posthog-node": 3}
+
         # because of wrong token, Org 2 has no decide counts.
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["decide_requests_count_in_period"] == 0
         assert org_2_report["billable_feature_flag_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["decide_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
+        assert org_2_report["teams"]["5"]["decide_requests_sdk_breakdown_in_period"] == {}
+        assert org_2_report["decide_requests_sdk_breakdown_in_period"] == {}
 
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")

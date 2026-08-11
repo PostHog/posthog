@@ -67,6 +67,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
+    get_teams_with_feature_flag_requests_sdk_breakdown_in_period,
     get_teams_with_free_historical_rows_synced_in_period,
     get_teams_with_heatmap_count_in_period,
     get_teams_with_hog_function_calls_in_period,
@@ -353,6 +354,16 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_local_evaluation_requests_count_in_period",
         fn=lambda b, e: get_teams_with_feature_flag_requests_count_in_period(b, e, FlagRequestType.LOCAL_EVALUATION),
+    ),
+    QuerySpec(
+        name="teams_with_decide_requests_sdk_breakdown_in_period",
+        fn=lambda b, e: get_teams_with_feature_flag_requests_sdk_breakdown_in_period(b, e, FlagRequestType.DECIDE),
+    ),
+    QuerySpec(
+        name="teams_with_local_evaluation_requests_sdk_breakdown_in_period",
+        fn=lambda b, e: get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
+            b, e, FlagRequestType.LOCAL_EVALUATION
+        ),
     ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(

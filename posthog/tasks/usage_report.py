@@ -195,6 +195,12 @@ class UsageReportCounters:
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
+    # Per-SDK split of the request counts above. Each maps SDK name (for example `posthog-js`,
+    # `posthog-node`, `posthog-go`) to its request count for the team. The flags service reads the
+    # SDK off the User-Agent and buckets the counts onto the `sdk_breakdown` event property. Empty
+    # when the source events carry no `sdk_breakdown`.
+    decide_requests_sdk_breakdown_in_period: dict[str, int]
+    local_evaluation_requests_sdk_breakdown_in_period: dict[str, int]
 
     # Queries
     query_app_bytes_read: int
@@ -2807,6 +2813,36 @@ def convert_team_usage_rows_to_dict(
     return team_id_map
 
 
+# `all_data` keys whose rows are `(team_id, sdk_name, count)` and need per-team SDK grouping rather
+# than the default `(team_id, total)` conversion.
+SDK_BREAKDOWN_USAGE_KEYS = {
+    "teams_with_decide_requests_sdk_breakdown_in_period",
+    "teams_with_local_evaluation_requests_sdk_breakdown_in_period",
+}
+
+
+def convert_team_usage_sdk_breakdown_rows_to_dict(
+    rows: list[tuple[int, str, int]],
+) -> dict[int, dict[str, int]]:
+    """Group `(team_id, sdk_name, count)` rows into a per-team map of SDK name to count."""
+    team_id_map: dict[int, dict[str, int]] = {}
+    for team_id, sdk_name, count in rows:
+        team_id_map.setdefault(int(team_id), {})[sdk_name] = count
+    return team_id_map
+
+
+def sum_usage_report_counter_field(org_value: Any, team_value: Any) -> Any:
+    """Combine one `UsageReportCounters` field across teams when rolling teams into an org.
+    Scalars add; SDK-breakdown maps merge key by key so per-SDK counts sum across the org's teams.
+    """
+    if isinstance(org_value, dict):
+        merged = dict(org_value)
+        for sdk_name, count in team_value.items():
+            merged[sdk_name] = merged.get(sdk_name, 0) + count
+        return merged
+    return org_value + team_value
+
+
 def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """
     Gets all usage data for the specified period. Clickhouse is good at counting things so
@@ -2901,6 +2937,12 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end, FlagRequestType.DECIDE
         ),
         "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
+            period_start, period_end, FlagRequestType.LOCAL_EVALUATION
+        ),
+        "teams_with_decide_requests_sdk_breakdown_in_period": get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
+            period_start, period_end, FlagRequestType.DECIDE
+        ),
+        "teams_with_local_evaluation_requests_sdk_breakdown_in_period": get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
         ),
         "teams_with_group_types_total": count_group_type_mappings_per_team(),
@@ -3114,7 +3156,10 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
     all_data = _get_all_usage_data(period_start, period_end)
     # convert it to a map of team_id -> value
     for key, rows in all_data.items():
-        all_data[key] = convert_team_usage_rows_to_dict(rows)
+        if key in SDK_BREAKDOWN_USAGE_KEYS:
+            all_data[key] = convert_team_usage_sdk_breakdown_rows_to_dict(rows)
+        else:
+            all_data[key] = convert_team_usage_rows_to_dict(rows)
     return all_data
 
 
@@ -3175,6 +3220,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
         billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
         + (local_evaluation_requests_count_in_period * 10),
+        decide_requests_sdk_breakdown_in_period=all_data["teams_with_decide_requests_sdk_breakdown_in_period"].get(
+            team.id, {}
+        ),
+        local_evaluation_requests_sdk_breakdown_in_period=all_data[
+            "teams_with_local_evaluation_requests_sdk_breakdown_in_period"
+        ].get(team.id, {}),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
         dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),
@@ -3375,7 +3426,7 @@ def _add_team_report_to_org_reports(
                 setattr(
                     org_report,
                     field.name,
-                    getattr(org_report, field.name) + getattr(team_report, field.name),
+                    sum_usage_report_counter_field(getattr(org_report, field.name), getattr(team_report, field.name)),
                 )
 
 

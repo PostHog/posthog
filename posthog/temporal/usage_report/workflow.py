@@ -22,6 +22,7 @@ from temporalio import common, workflow
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.tasks.usage_report import SDK_BREAKDOWN_USAGE_KEYS
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.usage_report.activities import (
     aggregate_and_chunk_org_reports,
@@ -45,12 +46,19 @@ from posthog.temporal.usage_report.types import (
 QUERY_CONCURRENCY = 4
 SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+FF_SDK_BREAKDOWN_QUERY_PATCH_ID = "usage-report-ff-sdk-breakdown-query-2026-08"
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
     if patch_applied:
         return QUERIES
     return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
+
+
+def _queries_for_ff_sdk_breakdown_patch(specs: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return specs
+    return [spec for spec in specs if spec.name not in SDK_BREAKDOWN_USAGE_KEYS]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -99,6 +107,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
             queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_ff_sdk_breakdown_patch(queries, workflow.patched(FF_SDK_BREAKDOWN_QUERY_PATCH_ID))
             workflow.logger.info(
                 "Starting usage reports workflow",
                 extra={
