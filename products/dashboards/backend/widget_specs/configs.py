@@ -268,3 +268,20 @@ class ConversationsRecentTicketsWidgetConfig(BaseModel):
         max_length=200,
         description="Search requester name or email, ticket subject, message text, or ticket number.",
     )
+    savedViewId: str | None = Field(
+        default=None,
+        max_length=12,
+        description=(
+            "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket "
+            "filters; the widget still sorts by most recently updated and applies its limit."
+        ),
+    )
+
+    @field_validator("savedViewId", mode="before")
+    @classmethod
+    def validate_saved_view_id(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise ValueError("savedViewId must be a string.")
+        return value

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { mswDecorator } from '~/mocks/browser'
 import { DashboardPlacement } from '~/types'
 
 import { WidgetCard } from '../../components/WidgetCard/WidgetCard'
@@ -20,6 +21,21 @@ import { ConversationsWidgetTileFilters } from './ConversationsWidgetTileFilters
 
 const CATALOG = getDashboardWidgetCatalogEntry('conversations_recent_tickets')!
 const DEFAULT_CONFIG = CATALOG.defaultConfig as Record<string, unknown>
+const savedViewsApiDecorator = mswDecorator({
+    get: {
+        '/api/projects/:team_id/conversations/views/': () => [
+            200,
+            {
+                count: 3,
+                results: [
+                    { short_id: 'urgent-unassigned', name: 'Urgent and unassigned' },
+                    { short_id: 'needs-reply', name: 'Needs a reply' },
+                    { short_id: 'breached-sla', name: 'Breached SLA' },
+                ],
+            },
+        ],
+    },
+})
 
 function StoryTile(props: DashboardWidgetComponentProps): JSX.Element {
     const { isAvailable } = useWidgetAvailability(CATALOG.availability)
@@ -60,7 +76,7 @@ const meta: Meta<typeof StoryTile> = {
     title: 'Products/Dashboards/Dashboard Widgets/Widget types/Support/Recent tickets',
     component: StoryTile,
     parameters: { layout: 'padded', ...widgetStorybookParameters },
-    decorators: widgetTileFrameDecorator,
+    decorators: [savedViewsApiDecorator, ...widgetTileFrameDecorator],
     args: {
         tileId: 1,
         config: DEFAULT_CONFIG,
@@ -137,6 +153,13 @@ const tickets: ConversationsWidgetTicket[] = [
 export const Populated: Story = {
     decorators: [withConversationsProjectState(true)],
     args: { result: { results: tickets, hasMore: true, totalCount: 12 } },
+}
+export const SavedView: Story = {
+    decorators: [withConversationsProjectState(true)],
+    args: {
+        config: { ...DEFAULT_CONFIG, savedViewId: 'needs-reply' },
+        result: { results: tickets, hasMore: true, totalCount: 12 },
+    },
 }
 export const Loading: Story = {
     decorators: [withConversationsProjectState(true)],

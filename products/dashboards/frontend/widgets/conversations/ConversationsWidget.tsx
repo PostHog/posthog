@@ -137,6 +137,7 @@ export function ConversationsWidget({
     const tickets = payload?.results ?? []
     const parsedConfig = parseConversationsWidgetConfig(config)
     const hasActiveFilters =
+        !!parsedConfig.savedViewId ||
         parsedConfig.status !== 'all' ||
         (parsedConfig.priorities?.length ?? 0) > 0 ||
         parsedConfig.channel !== 'all' ||

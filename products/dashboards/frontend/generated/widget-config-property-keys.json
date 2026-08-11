@@ -41,7 +41,15 @@
             "timezone",
             "wrapLines"
         ],
-        "conversations_recent_tickets": ["assignees", "channel", "limit", "priorities", "search", "status"]
+        "conversations_recent_tickets": [
+            "assignees",
+            "channel",
+            "limit",
+            "priorities",
+            "savedViewId",
+            "search",
+            "status"
+        ]
     },
     "configPropertyTrees": {
         "activity_events_list": {
@@ -447,6 +455,9 @@
                 }
             },
             "search": {
+                "$type": "string"
+            },
+            "savedViewId": {
                 "$type": "string"
             }
         }

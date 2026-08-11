@@ -4,12 +4,19 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
-from products.conversations.backend.models import Ticket, TicketAssignment
+from products.conversations.backend.models import Ticket, TicketAssignment, TicketView
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
-from products.dashboards.backend.widget_specs.registry import get_widget_registry_entry
+from products.dashboards.backend.widget_specs.registry import get_widget_registry_entry, validate_widget_config
 
 
 class TestConversationsRecentTicketsWidget(BaseTest):
+    def test_saved_view_id_validation_matches_ticket_view_short_id(self) -> None:
+        validated = validate_widget_config("conversations_recent_tickets", {"savedViewId": "123456789012"})
+        assert validated["savedViewId"] == "123456789012"
+
+        with self.assertRaises(Exception):
+            validate_widget_config("conversations_recent_tickets", {"savedViewId": "1234567890123"})
+
     def _ticket(
         self,
         number: int,
@@ -94,6 +101,50 @@ class TestConversationsRecentTicketsWidget(BaseTest):
         assert result["results"][0]["requester_name"] == "Jordan Lee"
         assert result["results"][0]["requester_email"] == "requester@example.com"
         assert result["results"][0]["sla_due_at"] == sla_due_at.isoformat()
+
+    def test_saved_view_owns_filters_and_keeps_recent_ordering(self) -> None:
+        older_high = self._ticket(1, "open", 1, priority="high")
+        self._ticket(2, "resolved", 3, priority="high")
+        newer_high = self._ticket(3, "open", 2, priority="high")
+        view = TicketView.objects.create(
+            team=self.team,
+            name="High priority open tickets",
+            filters={
+                "status": ["open"],
+                "priority": ["high"],
+                "sorting": {"columnKey": "ticket_number", "order": 1},
+            },
+        )
+
+        entry = get_widget_registry_entry("conversations_recent_tickets")
+        assert entry is not None
+        result = entry["query_fn"](
+            self.team,
+            {"limit": 10, "status": "resolved", "savedViewId": view.short_id},
+            self.user,
+        )
+
+        assert [row["id"] for row in result["results"]] == [str(newer_high.id), str(older_high.id)]
+
+    def test_missing_or_cross_team_saved_view_falls_back_to_direct_filters(self) -> None:
+        matching = self._ticket(1, "open", 1)
+        self._ticket(2, "resolved", 2)
+        other_team = self.create_team(organization=self.organization)
+        other_view = TicketView.objects.create(
+            team=other_team,
+            name="Other project view",
+            filters={"status": ["resolved"]},
+        )
+
+        entry = get_widget_registry_entry("conversations_recent_tickets")
+        assert entry is not None
+        result = entry["query_fn"](
+            self.team,
+            {"limit": 10, "status": "open", "savedViewId": other_view.short_id},
+            self.user,
+        )
+
+        assert [row["id"] for row in result["results"]] == [str(matching.id)]
 
     def test_reports_conversations_availability(self) -> None:
         self.team.conversations_enabled = False

@@ -236,6 +236,8 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightAssignee
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchDefault = ``
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSearchMax = 200
 
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedViewIdOneMax = 12
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
@@ -957,6 +959,19 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .describe(
                                                 'Search requester name or email, ticket subject, message text, or ticket number.'
                                             ),
+                                        savedViewId: zod
+                                            .union([
+                                                zod
+                                                    .string()
+                                                    .max(
+                                                        dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneEightSavedViewIdOneMax
+                                                    ),
+                                                zod.null(),
+                                            ])
+                                            .optional()
+                                            .describe(
+                                                'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
+                                            ),
                                     }),
                                 ])
                                 .optional()
@@ -1361,6 +1376,8 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneAssigneesM
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchDefault = ``
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSearchMax = 200
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewIdOneMax = 12
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
@@ -2444,6 +2461,19 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'Search requester name or email, ticket subject, message text, or ticket number.'
                                     ),
+                                savedViewId: zod
+                                    .union([
+                                        zod
+                                            .string()
+                                            .max(
+                                                dashboardsWidgetsBatchCreateBodyWidgetsItemEightConfigOneSavedViewIdOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
+                                    ),
                             })
                             .describe('Configuration for the recent tickets widget.'),
                     }),
@@ -2545,6 +2575,8 @@ export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneAssigneesM
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault = ``
 export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchMax = 200
+
+export const dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewIdOneMax = 12
 
 export const dashboardsUpdateWidgetsBatchBodyWidgetsMax = 10
 
@@ -3298,6 +3330,19 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .default(dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSearchDefault)
                                     .describe(
                                         'Search requester name or email, ticket subject, message text, or ticket number.'
+                                    ),
+                                savedViewId: zod
+                                    .union([
+                                        zod
+                                            .string()
+                                            .max(
+                                                dashboardsUpdateWidgetsBatchBodyWidgetsItemEightConfigOneSavedViewIdOneMax
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
                                     ),
                             })
                             .optional()

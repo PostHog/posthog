@@ -18,6 +18,8 @@ export const conversationsRecentTicketsWidgetConfigAssigneesMax = 100
 export const conversationsRecentTicketsWidgetConfigSearchDefault = ``
 export const conversationsRecentTicketsWidgetConfigSearchMax = 200
 
+export const conversationsRecentTicketsWidgetConfigSavedViewIdOneMax = 12
+
 export const ConversationsRecentTicketsWidgetConfig = /* @__PURE__ */ zod.object({
     limit: zod
         .number()
@@ -49,6 +51,12 @@ export const ConversationsRecentTicketsWidgetConfig = /* @__PURE__ */ zod.object
         .max(conversationsRecentTicketsWidgetConfigSearchMax)
         .default(conversationsRecentTicketsWidgetConfigSearchDefault)
         .describe('Search requester name or email, ticket subject, message text, or ticket number.'),
+    savedViewId: zod
+        .union([zod.string().max(conversationsRecentTicketsWidgetConfigSavedViewIdOneMax), zod.null()])
+        .optional()
+        .describe(
+            'short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.'
+        ),
 })
 
 export type ConversationsRecentTicketsWidgetConfig = zod.input<typeof ConversationsRecentTicketsWidgetConfig>

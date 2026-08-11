@@ -6,8 +6,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.conversations.backend.api.ticket_filters import apply_ticket_filters
-from products.conversations.backend.models import Ticket
+from products.conversations.backend.api.ticket_filters import apply_ticket_filters, parse_stored_view_filters
+from products.conversations.backend.models import Ticket, TicketView
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
@@ -85,17 +85,23 @@ def run_conversations_recent_tickets_widget(
     )
     if user is not None:
         queryset = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(queryset)
-    filters: dict[str, Any] = {"sorting": {"columnKey": "updated_at", "order": -1}}
-    if typed_config["status"] != "all":
-        filters["status"] = [typed_config["status"]]
-    if typed_config["priorities"]:
-        filters["priority"] = typed_config["priorities"]
-    if typed_config["channel"] != "all":
-        filters["channel"] = typed_config["channel"]
-    if typed_config["assignees"]:
-        filters["assignee"] = typed_config["assignees"]
-    if typed_config["search"]:
-        filters["search"] = typed_config["search"]
+    saved_view_id = typed_config.get("savedViewId")
+    saved_view = TicketView.objects.filter(team=team, short_id=saved_view_id).first() if saved_view_id else None
+    if saved_view is not None:
+        filters = parse_stored_view_filters(saved_view.filters)
+    else:
+        filters = {}
+        if typed_config["status"] != "all":
+            filters["status"] = [typed_config["status"]]
+        if typed_config["priorities"]:
+            filters["priority"] = typed_config["priorities"]
+        if typed_config["channel"] != "all":
+            filters["channel"] = typed_config["channel"]
+        if typed_config["assignees"]:
+            filters["assignee"] = typed_config["assignees"]
+        if typed_config["search"]:
+            filters["search"] = typed_config["search"]
+    filters["sorting"] = {"columnKey": "updated_at", "order": -1}
     queryset = apply_ticket_filters(queryset, filters, team=team, user=user)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:

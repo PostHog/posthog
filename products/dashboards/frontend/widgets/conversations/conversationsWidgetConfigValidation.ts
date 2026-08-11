@@ -54,6 +54,25 @@ export function patchConversationsWidgetConfig(
     return conversationsRecentTicketsWidgetConfigSchema.parse({ ...parseConversationsWidgetConfig(config), ...patch })
 }
 
+export function patchConversationsWidgetFilterFields(
+    config: Record<string, unknown>,
+    patch: {
+        status?: ConversationsTicketStatus
+        priorities?: ConversationsTicketPriority[]
+        assignees?: ConversationsTicketAssignee[]
+        savedViewId?: string | null
+    }
+): ConversationsRecentTicketsWidgetConfig {
+    const base = parseConversationsWidgetConfig(config)
+    return conversationsRecentTicketsWidgetConfigSchema.parse({
+        ...base,
+        status: patch.status ?? base.status,
+        priorities: patch.priorities ?? base.priorities,
+        assignees: patch.assignees ?? base.assignees,
+        savedViewId: 'savedViewId' in patch ? patch.savedViewId : base.savedViewId,
+    })
+}
+
 export function parseConversationsWidgetConfigApiError(
     error: unknown,
     config: Record<string, unknown>

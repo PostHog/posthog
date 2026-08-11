@@ -5508,6 +5508,8 @@ export namespace Schemas {
          * @maxLength 200
          */
       search?: string;
+      /** short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit. */
+      savedViewId?: string | null;
     }
 
     export interface ConversationsRecentTicketsWidgetAddRequestOpenApi {
