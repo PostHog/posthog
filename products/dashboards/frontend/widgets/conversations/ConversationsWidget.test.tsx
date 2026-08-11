@@ -59,7 +59,15 @@ describe('ConversationsWidget', () => {
     it('shows the saved view name in the card top heading', () => {
         const savedViewsLogic = conversationsWidgetSavedViewsLogic({ projectId: teamLogic.values.currentProjectId })
         savedViewsLogic.mount()
-        savedViewsLogic.actions.loadSavedViewsSuccess([{ short_id: 'needs-reply', name: 'Needs a reply' }])
+        savedViewsLogic.actions.loadSavedViewsSuccess([
+            {
+                id: 'view-1',
+                short_id: 'needs-reply',
+                name: 'Needs a reply',
+                created_at: '2026-08-11T12:00:00Z',
+                created_by: null,
+            },
+        ])
 
         render(
             <ConversationsWidgetTopHeading
