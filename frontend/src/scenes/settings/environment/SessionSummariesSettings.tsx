@@ -8,6 +8,7 @@ import { LemonButton, LemonInput, LemonSkeleton, LemonTextArea, Tooltip } from '
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import {
     CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
     CUSTOM_TAG_NAME_MAX_LENGTH,
@@ -27,7 +28,7 @@ Users often switch between board view and list view rapidly when comparing tasks
 
 const EMPTY_DRAFT: CustomTagFormEntry = { name: '', description: '' }
 
-function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
+function CustomTagsField({ disabledReason }: { disabledReason: string | null }): JSX.Element {
     const { configForm } = useValues(sessionSummariesConfigLogic)
     const { setConfigFormValue } = useActions(sessionSummariesConfigLogic)
     const tags = configForm.custom_tags
@@ -87,8 +88,8 @@ function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
 
     return (
         <div className="deprecated-space-y-3">
-            <div>
-                <div className="font-semibold">Custom tags</div>
+            <div className="flex flex-col gap-1">
+                <LemonLabel>Custom tags</LemonLabel>
                 <p className="text-sm text-muted-alt mb-0">
                     Add up to {CUSTOM_TAGS_MAX_COUNT} of your own tags. Use snake_case for the tag name and add a
                     description so the AI knows when to apply it.
@@ -116,14 +117,14 @@ function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
                                     icon={<IconPencil />}
                                     size="xsmall"
                                     onClick={() => beginEdit(i)}
-                                    disabled={disabled}
+                                    disabledReason={disabledReason}
                                     aria-label="Edit tag"
                                 />
                                 <LemonButton
                                     icon={<IconX />}
                                     size="xsmall"
                                     onClick={() => removeTag(i)}
-                                    disabled={disabled}
+                                    disabledReason={disabledReason}
                                     aria-label="Remove tag"
                                 />
                             </div>
@@ -141,7 +142,7 @@ function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
                             onChange={(value) => setDraft({ ...draft, name: value })}
                             placeholder="tag_name"
                             maxLength={CUSTOM_TAG_NAME_MAX_LENGTH}
-                            disabled={disabled}
+                            disabledReason={disabledReason}
                             status={trimmedName && (!nameValid || duplicate) ? 'danger' : undefined}
                         />
                         {trimmedName && !nameValid && <div className="text-xs text-danger mt-1">Use snake_case.</div>}
@@ -155,13 +156,13 @@ function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
                             onChange={(value) => setDraft({ ...draft, description: value })}
                             placeholder="When the AI should apply this tag"
                             maxLength={CUSTOM_TAG_DESCRIPTION_MAX_LENGTH}
-                            disabled={disabled}
+                            disabledReason={disabledReason}
                         />
                     </div>
                 </div>
                 <div className="flex gap-2 justify-end">
                     {editingIndex !== null && (
-                        <LemonButton type="secondary" size="small" onClick={cancelEdit} disabled={disabled}>
+                        <LemonButton type="secondary" size="small" onClick={cancelEdit} disabledReason={disabledReason}>
                             Cancel
                         </LemonButton>
                     )}
@@ -171,13 +172,14 @@ function CustomTagsField({ disabled }: { disabled: boolean }): JSX.Element {
                         icon={editingIndex === null ? <IconPlus /> : undefined}
                         onClick={submit}
                         disabledReason={
-                            atCap && editingIndex === null
-                                ? 'Tag limit reached'
-                                : !canSubmit
-                                  ? 'Fill in a valid name and description'
-                                  : undefined
+                            disabledReason
+                                ? disabledReason
+                                : atCap && editingIndex === null
+                                  ? 'Tag limit reached'
+                                  : !canSubmit
+                                    ? 'Fill in a valid name and description'
+                                    : undefined
                         }
-                        disabled={disabled}
                     >
                         {editingIndex === null ? 'Add tag' : 'Save changes'}
                     </LemonButton>
@@ -218,7 +220,7 @@ export function SessionSummariesSettings(): JSX.Element {
                                 disabled={!!restrictedReason}
                             />
                         </LemonField>
-                        <CustomTagsField disabled={!!restrictedReason} />
+                        <CustomTagsField disabledReason={restrictedReason} />
                     </>
                 )}
                 <div className="flex justify-end">

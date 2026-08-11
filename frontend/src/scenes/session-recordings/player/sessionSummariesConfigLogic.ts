@@ -8,6 +8,9 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { SessionSummariesConfig } from 'products/session_summaries/frontend/types'
 
+// Bound the save request so a PATCH that never settles can't leave the Save button spinning forever.
+export const CONFIG_SAVE_TIMEOUT_MS = 30_000
+
 export const CUSTOM_TAGS_MAX_COUNT = 15
 export const CUSTOM_TAG_NAME_MAX_LENGTH = 60
 export const CUSTOM_TAG_DESCRIPTION_MAX_LENGTH = 200
@@ -171,12 +174,27 @@ export const sessionSummariesConfigLogic = kea<sessionSummariesConfigLogicType>(
                 return await api.sessionSummaries.config.get()
             },
             updateConfig: async (data: SessionSummariesConfigForm): Promise<SessionSummariesConfig> => {
-                const response = await api.sessionSummaries.config.update({
-                    product_context: data.product_context,
-                    custom_tags: customTagsToDict(data.custom_tags),
-                })
-                lemonToast.success('Session summaries config saved.')
-                return response
+                const controller = new AbortController()
+                const timeout = window.setTimeout(() => controller.abort(), CONFIG_SAVE_TIMEOUT_MS)
+                try {
+                    const response = await api.sessionSummaries.config.update(
+                        {
+                            product_context: data.product_context,
+                            custom_tags: customTagsToDict(data.custom_tags),
+                        },
+                        { signal: controller.signal }
+                    )
+                    lemonToast.success('Session summaries config saved.')
+                    return response
+                } catch (error) {
+                    // The global loader error handler stays silent on aborts, so surface the timeout here.
+                    if (controller.signal.aborted) {
+                        lemonToast.error('Saving timed out. Check your connection and try again.')
+                    }
+                    throw error
+                } finally {
+                    window.clearTimeout(timeout)
+                }
             },
         },
     })),

@@ -46,6 +46,10 @@ const meta: Meta<StoryProps> = {
                     hidden_contexts: [],
                     enabled: false,
                 },
+                '/api/environments/:id/session_summaries/config': {
+                    product_context: 'We are a B2B project management tool for software teams.',
+                    custom_tags: { checkout_friction: 'Apply when the user hesitates on the checkout page' },
+                },
             },
             patch: {
                 '/api/projects/:id': async ({ request }) => {
