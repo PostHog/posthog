@@ -4,6 +4,7 @@ import {
   PackageIcon,
 } from "@phosphor-icons/react";
 import {
+  ANY_SOURCE,
   type ChannelItemFilters,
   type ChannelItemSort,
   channelItemSources,
@@ -148,6 +149,9 @@ function ChannelItemsSkeleton() {
   );
 }
 
+const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
+  placeTaskInCommandCenter(taskId, taskTitle);
+
 /** `ready` is the list itself, whether or not the filters leave any rows in it. */
 type ListState = "unavailable" | "loading" | "empty" | "ready";
 
@@ -207,16 +211,25 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   const isPersonalChannel =
     channels.find((c) => c.id === channelId)?.name === PERSONAL_CHANNEL_NAME;
-  const filters = useMemo<ChannelItemFilters>(
-    () =>
-      isPersonalChannel ? { ...rawFilters, createdBy: "anyone" } : rawFilters,
-    [isPersonalChannel, rawFilters],
-  );
-  const filtersActive = hasActiveChannelItemFilters(filters);
   // The menu only offers sources the list holds, so it is built from everything
   // in the space rather than from what the current filters left behind — picking
   // one source must not be what removes the others from the menu.
   const sources = useMemo(() => channelItemSources(items), [items]);
+  // A source the space you moved to has none of is neutralised the same way, and
+  // for the same reason: it would empty the list while its submenu shows no
+  // chosen option, so there'd be nothing to switch off. Rows arriving later put
+  // the source back, because the state itself is untouched.
+  const filters = useMemo<ChannelItemFilters>(() => {
+    const sourceMissing =
+      rawFilters.source !== ANY_SOURCE && !sources.includes(rawFilters.source);
+    if (!isPersonalChannel && !sourceMissing) return rawFilters;
+    return {
+      ...rawFilters,
+      ...(isPersonalChannel ? { createdBy: "anyone" as const } : {}),
+      ...(sourceMissing ? { source: ANY_SOURCE } : {}),
+    };
+  }, [isPersonalChannel, rawFilters, sources]);
+  const filtersActive = hasActiveChannelItemFilters(filters);
 
   const base = `/website/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
@@ -251,9 +264,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   // The one section, which only exists once there are items — but its header
   // stays while the list is narrowed, so you can undo whatever emptied it.
   const showRecent = listState === "ready";
-
-  const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
-    placeTaskInCommandCenter(taskId, taskTitle);
 
   const taskRow = (item: (typeof items)[number]) => (
     <ChannelItemRow
