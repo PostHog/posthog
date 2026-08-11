@@ -69,6 +69,7 @@ import {
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { computeReportAgeHours, useAnalytics } from "@/lib/analytics";
+import { modalTopOffset } from "@/lib/navigation";
 import { useThemeColors } from "@/lib/theme";
 
 const statusColorMap: Record<string, { bg: string; text: string }> = {
