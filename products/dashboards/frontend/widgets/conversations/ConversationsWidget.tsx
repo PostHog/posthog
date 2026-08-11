@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
-import { IconChevronDown } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconClock, IconWarning } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -19,7 +19,7 @@ import {
     type TicketAssignee,
 } from 'products/conversations/frontend/components/Assignee'
 import { channelIcon } from 'products/conversations/frontend/components/Channels/ChannelsTag'
-import { SlaDisplay } from 'products/conversations/frontend/components/SlaDisplay'
+import { getSlaState } from 'products/conversations/frontend/components/SlaDisplay'
 import { channelOptions, type TicketChannel } from 'products/conversations/frontend/types'
 
 import {
@@ -99,6 +99,30 @@ function priorityTagType(priority: string): 'danger' | 'caution' | 'warning' | '
     return 'default'
 }
 
+function TicketSlaIcon({ slaDueAt }: { slaDueAt: string | null }): JSX.Element | null {
+    if (!slaDueAt) {
+        return null
+    }
+
+    const slaState = getSlaState(slaDueAt)
+    let icon = <IconCheckCircle className="text-success" />
+    let tooltip = 'SLA on track'
+
+    if (slaState === 'breached') {
+        icon = <IconWarning className="text-danger" />
+        tooltip = 'SLA breached'
+    } else if (slaState === 'at-risk') {
+        icon = <IconClock className="text-warning" />
+        tooltip = 'SLA due soon'
+    }
+
+    return (
+        <Tooltip title={tooltip}>
+            <span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">{icon}</span>
+        </Tooltip>
+    )
+}
+
 function ConversationsWidgetRow({
     ticket,
     canMutateTickets,
@@ -142,6 +166,7 @@ function ConversationsWidgetRow({
                                 {channelIcon[ticket.channel_source]}
                             </span>
                         </Tooltip>
+                        <TicketSlaIcon slaDueAt={ticket.sla_due_at} />
                     </div>
                 </Link>
                 <div>
@@ -198,11 +223,6 @@ function ConversationsWidgetRow({
                     ) : null}
                 </div>
                 <div className="mt-1.5 flex min-w-0 items-center gap-2 text-xs text-muted">
-                    {ticket.sla_due_at ? (
-                        <div>
-                            SLA due <SlaDisplay slaDueAt={ticket.sla_due_at} showPopover={false} className="text-xs" />
-                        </div>
-                    ) : null}
                     <div className="ml-auto shrink-0">
                         <TZLabel time={ticket.updated_at} showPopover={false} className="text-xs text-muted" />
                     </div>
