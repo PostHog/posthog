@@ -25,6 +25,7 @@ import {
 } from "@/features/inbox/stores/dismissedReportsStore";
 import { useInboxFilterStore } from "@/features/inbox/stores/inboxFilterStore";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
+import { NavDrawer } from "@/features/navigation/components/NavDrawer";
 import { useIntegrations } from "@/features/tasks/hooks/useIntegrations";
 import { ANALYTICS_EVENTS, useAnalytics } from "@/lib/analytics";
 
@@ -174,6 +175,7 @@ export default function InboxScreen() {
         visible={reviewerOpen}
         onClose={() => setReviewerOpen(false)}
       />
+      <NavDrawer />
     </View>
   );
 }

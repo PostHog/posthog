@@ -1,6 +1,5 @@
 import { Text } from "@components/text";
 import { usePathname, useRouter } from "expo-router";
-import { useColorScheme } from "nativewind";
 import {
   Binoculars,
   CaretRight,
@@ -12,7 +11,6 @@ import {
 } from "phosphor-react-native";
 import { memo, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -32,7 +30,7 @@ import { useTasks } from "@/features/tasks/hooks/useTasks";
 import { useArchivedTasksStore } from "@/features/tasks/stores/archivedTasksStore";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { logger } from "@/lib/logger";
-import { darkTheme, lightTheme, useThemeColors } from "@/lib/theme";
+import { useThemeColors } from "@/lib/theme";
 import { useNavDrawerStore } from "../stores/navDrawerStore";
 import { SwipeableArchivedDrawerRow } from "./SwipeableArchivedDrawerRow";
 
@@ -335,8 +333,6 @@ export function NavDrawer() {
   const close = useNavDrawerStore((s) => s.close);
   const insets = useSafeAreaInsets();
   const { isConnected } = useNetworkStatus();
-  const { colorScheme } = useColorScheme();
-  const themeVars = colorScheme === "dark" ? darkTheme : lightTheme;
   // Live window width (not a module-scope capture): stays correct through
   // rotation, Split View, and Stage Manager, and can never be 0 from a
   // prewarmed launch before a window exists.
@@ -394,54 +390,29 @@ export function NavDrawer() {
     opacity: progress.value,
   }));
 
-  // Host the drawer in a native Modal: react-native-screens' native screen
-  // containers paint above plain sibling views on iPad regardless of zIndex,
-  // which left the drawer opening invisibly behind the Stack. A transparent
-  // Modal always renders on top. Kept mounted through the close animation.
-  const [rendered, setRendered] = useState(isOpen);
-  useEffect(() => {
-    if (isOpen) {
-      setRendered(true);
-      return;
-    }
-    const timeout = setTimeout(() => setRendered(false), CLOSE_DURATION + 50);
-    return () => clearTimeout(timeout);
-  }, [isOpen]);
-
   return (
-    <Modal
-      transparent
-      statusBarTranslucent
-      visible={rendered}
-      animationType="none"
-      onRequestClose={close}
+    <View
+      pointerEvents={isOpen ? "auto" : "none"}
+      style={StyleSheet.absoluteFillObject}
     >
-      {/* A native Modal mounts in its own native root, outside the app's
-          themed wrapper — the NativeWind CSS variables set in _layout.tsx
-          don't reach it. Re-apply them or every var-based class collapses. */}
-      <View
+      <Animated.View
         pointerEvents={isOpen ? "auto" : "none"}
-        style={[StyleSheet.absoluteFillObject, themeVars]}
+        style={[
+          StyleSheet.absoluteFillObject,
+          { backgroundColor: "rgba(0,0,0,0.4)" },
+          backdropStyle,
+        ]}
       >
-        <Animated.View
-          pointerEvents={isOpen ? "auto" : "none"}
-          style={[
-            StyleSheet.absoluteFillObject,
-            { backgroundColor: "rgba(0,0,0,0.4)" },
-            backdropStyle,
-          ]}
-        >
-          {/* Touch-down close so the dismiss starts the moment the finger lands. */}
-          <Pressable className="flex-1" onPressIn={close} />
-        </Animated.View>
+        {/* Touch-down close so the dismiss starts the moment the finger lands. */}
+        <Pressable className="flex-1" onPressIn={close} />
+      </Animated.View>
 
-        <Animated.View
-          className="absolute bottom-0 left-0 border-gray-6 border-r bg-gray-2"
-          style={[{ top: drawerTop, width: drawerWidth }, drawerStyle]}
-        >
-          <NavDrawerContent paddingTop={drawerPaddingTop} />
-        </Animated.View>
-      </View>
-    </Modal>
+      <Animated.View
+        className="absolute bottom-0 left-0 border-gray-6 border-r bg-gray-2"
+        style={[{ top: drawerTop, width: drawerWidth }, drawerStyle]}
+      >
+        <NavDrawerContent paddingTop={drawerPaddingTop} />
+      </Animated.View>
+    </View>
   );
 }

@@ -2,7 +2,6 @@ import { Stack, usePathname, useRouter } from "expo-router";
 import { useEffect, useRef } from "react";
 import { BackHandler, PanResponder, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { NavDrawer } from "@/features/navigation/components/NavDrawer";
 import { useNavDrawerStore } from "@/features/navigation/stores/navDrawerStore";
 import { useThemeColors } from "@/lib/theme";
 
@@ -88,7 +87,6 @@ export default function TabsLayout() {
         style={{ width: EDGE_SWIPE_HIT_WIDTH, top: insets.top + 64 }}
         {...edgePanResponder.panHandlers}
       />
-      <NavDrawer />
     </View>
   );
 }

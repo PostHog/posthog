@@ -2,6 +2,7 @@ import { useRouter } from "expo-router";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { NavDrawer } from "@/features/navigation/components/NavDrawer";
 import { FloatingNewTaskButton } from "@/features/tasks/components/FloatingNewTaskButton";
 import { FloatingTasksHeader } from "@/features/tasks/components/FloatingTasksHeader";
 import { PinnedTasksRail } from "@/features/tasks/components/PinnedTasksRail";
@@ -76,6 +77,7 @@ export default function TasksScreen() {
       ) : null}
 
       <TaskFilterMenu open={filterMenu.open} onClose={filterMenu.hide} />
+      <NavDrawer />
     </View>
   );
 }

@@ -530,12 +530,29 @@ export default function NewTaskScreen() {
 
   return (
     <>
-      <View className="flex-1 bg-background">
+      <View
+        className="flex-1 bg-background"
+        onLayout={(e) =>
+          log.debug("new-task root layout", {
+            width: Math.round(e.nativeEvent.layout.width),
+            height: Math.round(e.nativeEvent.layout.height),
+          })
+        }
+      >
         <DotBackground />
 
         <Animated.View style={[{ flex: 1 }, containerStyle]}>
           <View className="flex-1 justify-center px-4">
-            <View style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}>
+            <View
+              style={{ width: "100%", maxWidth: 600, alignSelf: "center" }}
+              onLayout={(e) =>
+                log.debug("new-task composer layout", {
+                  width: Math.round(e.nativeEvent.layout.width),
+                  height: Math.round(e.nativeEvent.layout.height),
+                  y: Math.round(e.nativeEvent.layout.y),
+                })
+              }
+            >
               <View className="mb-2">
                 <RepositoryPickerInline
                   open={repoSheetOpen}
