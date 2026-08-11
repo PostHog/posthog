@@ -36,6 +36,15 @@ _POLL_MAX_INTERVAL_SECONDS = 2.0
 class DataPlaneError(Exception):
     """A query the data plane rejected or failed to run; message is user-facing."""
 
+    def __init__(self, message: str, delivery: str | None = None) -> None:
+        super().__init__(message)
+        # The transport the server said it was serving this fetch with, when it is already
+        # known at the point of failure. A failure after the accept must still attribute to
+        # its transport: otherwise every failed run lands in the unlabeled bucket and the
+        # per-transport failure ratio reads near zero however badly a transport is doing.
+        # None means the request failed before any transport was chosen.
+        self.delivery = delivery
+
 
 class DataPlaneInterrupted(DataPlaneError):
     """The run's cancel event fired while waiting on the data plane."""
@@ -184,15 +193,22 @@ def _request_table(
     # one requested: an object request falls back to inline when the frame store is
     # unconfigured or the user is outside the rollout. A backend predating this field leaves
     # it None rather than guessing.
-    served_by = body.get("delivery")
-    fetched = _poll_for_table(
-        f"{url.rstrip('/')}/{query_id}/", token, expect_object=delivery == "object", cancel_event=cancel_event
-    )
+    served_by = body.get("delivery") if isinstance(body.get("delivery"), str) else None
+    try:
+        fetched = _poll_for_table(
+            f"{url.rstrip('/')}/{query_id}/", token, expect_object=delivery == "object", cancel_event=cancel_event
+        )
+    except DataPlaneError as exc:
+        # Polling, the presigned download, and Arrow decoding all raise from below here,
+        # where the transport is not known. Stamp it on the way out so the failed run keeps
+        # its attribution.
+        exc.delivery = served_by
+        raise
     return _FetchedTable(
         table=fetched.table,
         source=fetched.source,
         download_s=fetched.download_s,
-        delivery=served_by if isinstance(served_by, str) else None,
+        delivery=served_by,
     )
 
 

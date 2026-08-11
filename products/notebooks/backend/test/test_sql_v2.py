@@ -1,10 +1,13 @@
 import io
+import os
 import json
 import math
 import tarfile
 import datetime
+import tempfile
 import threading
 import urllib.error
+import email.message
 import urllib.request
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
@@ -2351,6 +2354,55 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         # never carry the signature query parameters.
         self.assertEqual(materialized.source, presigned_url[:30])
         self.assertNotIn("X-Amz-Signature", materialized.source or "")
+
+    def test_a_failure_after_the_accept_keeps_the_transport_it_was_served_by(self):
+        # The transport is only known from the accept body, and everything below the poll
+        # raises without it. If the failure path drops it, every failed run is recorded as
+        # delivery="none" and the per-transport failure ratio only ever counts successes.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, content_type: str, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": content_type}
+
+            def __exit__(self, *args):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            return _FakeResponse("application/json", b'{"query_id": "q1", "delivery": "object_relay"}')
+
+        def fake_poll_open(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 500, "Boom", email.message.Message(), None)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            with self.assertRaises(kernel_data_plane.DataPlaneError) as caught:
+                kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", os.path.join(directory, "df.arrow"), limit=1000
+                )
+        self.assertEqual(caught.exception.delivery, "object_relay")
+
+    def test_a_failure_before_the_accept_has_no_transport_to_report(self):
+        # Nothing chose a transport yet, so the run belongs in the unlabeled bucket rather
+        # than being attributed to whichever transport it would have used.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 400, "Bad query", email.message.Message(), None)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            with self.assertRaises(kernel_data_plane.DataPlaneError) as caught:
+                kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", os.path.join(directory, "df.arrow"), limit=1000
+                )
+        self.assertIsNone(caught.exception.delivery)
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()

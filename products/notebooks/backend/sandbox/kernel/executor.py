@@ -189,6 +189,13 @@ class KernelExecutor:
                     download_s = materialized.download_s
                     if deliveries is not None and materialized.delivery:
                         deliveries.add(materialized.delivery)
+                except data_plane.DataPlaneError as exc:
+                    # Same reason the wait is accumulated below: a failed fetch is exactly the
+                    # one whose transport has to stay attributable, or the per-transport
+                    # failure ratio only ever counts successes.
+                    if deliveries is not None and exc.delivery:
+                        deliveries.add(exc.delivery)
+                    raise
                 finally:
                     # Accumulated even when the fetch raises — a run that died waiting on the
                     # data plane is exactly the one whose wait must stay visible.

@@ -248,6 +248,14 @@ ORDER BY hour, bucket;
 --    is a Select whose rows stream back through a worker, the CH-writes path is an
 --    `INSERT INTO FUNCTION s3(...)` that returns no result set.
 --
+--    `query_kind` alone is not enough to scope the arms, though. `lc_product =
+--    'notebooks'` also covers the direct lane (`sql_v2_direct.py`) and the data
+--    plane's inline transport, and both of those are Selects too. Without the
+--    workflow filter below they all land in the worker-relay arm and corrupt its
+--    counts, latency, and scan size. Only the materialize activity runs under
+--    `notebook-frame-materialize`, so that filter is what makes the two arms
+--    comparable rather than one arm plus everything else.
+--
 --    That difference is also why the delivered-size columns differ per mode, and why
 --    averaging the two together is wrong. A Select reports what it handed back in
 --    `result_bytes`/`result_rows`; an Insert leaves both at zero and reports what it
@@ -281,5 +289,6 @@ FROM query_log_archive
 WHERE event_date >= today() - 1
   AND lc_product = 'notebooks'
   AND is_initial_query
+  AND lc_temporal__workflow_type = 'notebook-frame-materialize'
 GROUP BY mode
 ORDER BY mode;
