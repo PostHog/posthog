@@ -147,10 +147,13 @@ function ConversationsWidgetRow({
                             <TZLabel time={ticket.updated_at} showPopover={false} className="text-xs text-muted" />
                         </div>
                     </div>
-                    <div className="flex min-w-0 items-center gap-2 text-sm text-muted">
-                        <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 items-start gap-2 text-sm text-muted">
+                        <div className="flex min-w-0 items-start gap-2">
                             <span
-                                className={cn('truncate', ticket.unread_team_count > 0 && 'font-medium text-primary')}
+                                className={cn(
+                                    'line-clamp-2',
+                                    ticket.unread_team_count > 0 && 'font-medium text-primary'
+                                )}
                                 title={ticketTitle(ticket)}
                             >
                                 {stripMarkdown(ticketTitle(ticket))}
