@@ -14,6 +14,11 @@ from products.dashboards.backend.widget_specs.registry import validate_widget_co
 from products.dashboards.backend.widgets.list_widget import ListWidgetPage, run_list_widget
 
 
+def _string_trait(ticket: Ticket, key: str) -> str | None:
+    value = ticket.anonymous_traits.get(key)
+    return value if isinstance(value, str) else None
+
+
 def _serialize_ticket(ticket: Ticket) -> dict[str, Any]:
     assignment = getattr(ticket, "assignment", None)
     assignee = None
@@ -37,6 +42,9 @@ def _serialize_ticket(ticket: Ticket) -> dict[str, Any]:
         "last_message_text": ticket.last_message_text,
         "unread_team_count": ticket.unread_team_count,
         "email_subject": ticket.email_subject,
+        "requester_name": _string_trait(ticket, "name"),
+        "requester_email": ticket.email_from or _string_trait(ticket, "email") or ticket.distinct_id,
+        "sla_due_at": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
     }
 
 
@@ -63,6 +71,10 @@ def run_conversations_recent_tickets_widget(
             "last_message_text",
             "unread_team_count",
             "email_subject",
+            "email_from",
+            "anonymous_traits",
+            "distinct_id",
+            "sla_due_at",
             "assignment__user__id",
             "assignment__user__first_name",
             "assignment__user__email",

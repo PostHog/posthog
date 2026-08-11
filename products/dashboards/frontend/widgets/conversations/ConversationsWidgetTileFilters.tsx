@@ -15,7 +15,6 @@ import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import { WidgetTileFilterReadOnlyLabel, WidgetTileFiltersBar } from '../widgetTileFiltersReadOnly'
 import {
-    CONVERSATIONS_TICKET_CHANNEL_OPTIONS,
     CONVERSATIONS_TICKET_PRIORITY_OPTIONS,
     CONVERSATIONS_TICKET_STATUS_OPTIONS,
     type ConversationsTicketAssignee,
@@ -129,13 +128,10 @@ export function ConversationsWidgetTileFilters({
     const parsedConfig = parseConversationsWidgetConfig(config)
     const status = parsedConfig.status ?? 'all'
     const priorities = parsedConfig.priorities ?? []
-    const channel = parsedConfig.channel ?? 'all'
     const assignees = (parsedConfig.assignees ?? []) as AssigneeFilterEntry[]
     const search = parsedConfig.search ?? ''
     const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
     const statusLabel = CONVERSATIONS_TICKET_STATUS_OPTIONS.find((option) => option.value === status)?.label ?? status
-    const channelLabel =
-        CONVERSATIONS_TICKET_CHANNEL_OPTIONS.find((option) => option.value === channel)?.label ?? channel
     const prioritiesLabel = priorities.length === 0 ? 'All priorities' : `${priorities.length} selected`
     const assigneesLabel = assignees.length === 0 ? 'All assignees' : `${assignees.length} selected`
 
@@ -144,7 +140,6 @@ export function ConversationsWidgetTileFilters({
             <WidgetTileFiltersBar dataAttr="conversations-widget-filters-readonly">
                 <WidgetTileFilterReadOnlyLabel name="Status" value={statusLabel} />
                 <WidgetTileFilterReadOnlyLabel name="Priority" value={prioritiesLabel} />
-                <WidgetTileFilterReadOnlyLabel name="Channel" value={channelLabel} />
                 <WidgetTileFilterReadOnlyLabel name="Assignee" value={assigneesLabel} />
                 {search ? <WidgetTileFilterReadOnlyLabel name="Search" value={search} /> : null}
             </WidgetTileFiltersBar>
@@ -169,18 +164,6 @@ export function ConversationsWidgetTileFilters({
                     value={priorities}
                     onChange={(value) => {
                         const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { priorities: value })
-                        void persistConfigNow(nextConfig)
-                    }}
-                />
-                <LemonSelect
-                    size="small"
-                    value={channel}
-                    options={CONVERSATIONS_TICKET_CHANNEL_OPTIONS}
-                    renderButtonContent={(option) =>
-                        option?.value === 'all' ? 'Channel' : (option?.label ?? 'Channel')
-                    }
-                    onChange={(value) => {
-                        const nextConfig = patchConversationsWidgetConfig(getLatestConfig(), { channel: value })
                         void persistConfigNow(nextConfig)
                     }}
                 />

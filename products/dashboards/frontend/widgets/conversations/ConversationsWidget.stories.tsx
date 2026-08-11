@@ -67,6 +67,9 @@ const ticket = {
     last_message_text: 'Unable to finish checkout',
     unread_team_count: 1,
     email_subject: null,
+    requester_name: 'Jordan Lee',
+    requester_email: 'jordan@example.com',
+    sla_due_at: '2026-05-28T09:55:00Z',
 }
 export const Populated: Story = { args: { result: { results: [ticket], hasMore: true, totalCount: 12 } } }
 export const Loading: Story = {

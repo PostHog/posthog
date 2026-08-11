@@ -4,7 +4,10 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
+import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
+
+import { SlaDisplay } from 'products/conversations/frontend/components/SlaDisplay'
 
 import {
     WIDGET_LIST_COUNT_TICKETS,
@@ -27,6 +30,9 @@ export type ConversationsWidgetTicket = {
     last_message_text: string | null
     unread_team_count: number
     email_subject: string | null
+    requester_name: string | null
+    requester_email: string
+    sla_due_at: string | null
 }
 
 export type ConversationsWidgetResult = {
@@ -42,6 +48,33 @@ function ticketTitle(ticket: ConversationsWidgetTicket): string {
 
 function assigneeName(ticket: ConversationsWidgetTicket): string | null {
     return ticket.assignee?.user?.name ?? ticket.assignee?.role?.name ?? null
+}
+
+function requesterName(ticket: ConversationsWidgetTicket): string {
+    return ticket.requester_name || ticket.requester_email
+}
+
+function statusTagType(status: string): 'success' | 'primary' | 'default' {
+    if (status === 'resolved') {
+        return 'success'
+    }
+    if (status === 'new') {
+        return 'primary'
+    }
+    return 'default'
+}
+
+function priorityTagType(priority: string): 'danger' | 'caution' | 'warning' | 'default' {
+    if (priority === 'critical') {
+        return 'danger'
+    }
+    if (priority === 'high') {
+        return 'caution'
+    }
+    if (priority === 'medium') {
+        return 'warning'
+    }
+    return 'default'
 }
 
 function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket }): JSX.Element {
@@ -60,19 +93,26 @@ function ConversationsWidgetRow({ ticket }: { ticket: ConversationsWidgetTicket 
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                     <span className="shrink-0 text-xs text-muted">#{ticket.ticket_number}</span>
-                    <span className="truncate font-semibold" title={ticketTitle(ticket)}>
-                        {ticketTitle(ticket)}
+                    <span className="truncate font-semibold" title={requesterName(ticket)}>
+                        {requesterName(ticket)}
                     </span>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted">
-                    <span className="capitalize">{ticket.channel_source}</span>
+                    <span className="truncate" title={ticketTitle(ticket)}>
+                        {stripMarkdown(ticketTitle(ticket))}
+                    </span>
                     {assignee ? <span className="truncate">{assignee}</span> : null}
                     <TZLabel time={ticket.updated_at} />
                 </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1">
-                {ticket.priority ? <LemonTag type="muted">{ticket.priority}</LemonTag> : null}
-                <LemonTag type="muted">{ticket.status.replace('_', ' ')}</LemonTag>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+                <div className="flex items-center gap-1">
+                    {ticket.priority ? (
+                        <LemonTag type={priorityTagType(ticket.priority)}>{ticket.priority}</LemonTag>
+                    ) : null}
+                    <LemonTag type={statusTagType(ticket.status)}>{ticket.status.replace('_', ' ')}</LemonTag>
+                </div>
+                {ticket.sla_due_at ? <SlaDisplay slaDueAt={ticket.sla_due_at} className="text-xs" /> : null}
             </div>
         </Link>
     )
