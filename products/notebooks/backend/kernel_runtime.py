@@ -37,7 +37,7 @@ logger = structlog.get_logger(__name__)
 # Hard lifetime of a notebook kernel sandbox. Modal counts it from creation, so it caps how long
 # one session can last; the idle timeout below is what reclaims an abandoned kernel. The
 # task-agent default (`SANDBOX_TTL_SECONDS`) is longer because it outlasts an unattended run.
-NOTEBOOK_KERNEL_TTL_SECONDS = 2 * 60 * 60
+NOTEBOOK_KERNEL_TTL_SECONDS = 1 * 60 * 60
 
 # How long a kernel survives with nobody running cells. Modal counts a cell run as activity, so
 # this reclaims the sandbox behind a closed tab. Long enough that a person can read a result or
