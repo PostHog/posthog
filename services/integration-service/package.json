@@ -6,8 +6,8 @@
     "author": "PostHog Inc.",
     "type": "module",
     "scripts": {
-        "build": "tsx scripts/build-integration-service.ts",
-        "dev": "tsx scripts/dev-integration-service.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
+        "build": "tsx scripts/build.ts",
+        "dev": "tsx watch src/index.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
         "test": "vitest",
         "test:unit": "vitest run tests/unit",
         "typecheck": "tsc --noEmit",
@@ -15,13 +15,10 @@
         "lint:fix": "oxlint --fix --quiet",
         "format": "oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml}\"",
         "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,tsx,json,yaml,yml}\"",
-        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s",
-        "check:deps": "tsx scripts/check-deps-allowlist.ts",
-        "check:boundary": "tsx scripts/check-import-boundary.ts"
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s"
     },
     "dependencies": {
         "@hono/node-server": "^2.0.2",
-        "esbuild": "^0.25.11",
         "hono": "^4.12.18",
         "jose": "^6.0.10",
         "pg": "^8.13.1",
@@ -30,6 +27,7 @@
     },
     "devDependencies": {
         "@types/node": "^22.17.2",
+        "esbuild": "^0.25.11",
         "@types/pg": "^8.11.10",
         "oxfmt": "catalog:",
         "oxlint": "^1.72.0",

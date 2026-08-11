@@ -4674,9 +4674,6 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.2
         version: 2.0.2(hono@4.12.24)
-      esbuild:
-        specifier: ^0.25.11
-        version: 0.25.12
       hono:
         specifier: ^4.12.18
         version: 4.12.24
@@ -4699,6 +4696,9 @@ importers:
       '@types/pg':
         specifier: ^8.11.10
         version: 8.15.6
+      esbuild:
+        specifier: ^0.25.11
+        version: 0.25.12
       oxfmt:
         specifier: 'catalog:'
         version: 0.57.0

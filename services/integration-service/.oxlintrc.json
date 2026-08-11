@@ -1,0 +1,16 @@
+{
+    "$schema": "../../node_modules/oxlint/configuration_schema.json",
+    "rules": {
+        "no-restricted-imports": [
+            "error",
+            {
+                "patterns": [
+                    {
+                        "group": ["**/nodejs/**", "**/frontend/**", "**/common/**", "@posthog/*", "@posthog/**"],
+                        "message": "integration-service must not import from the rest of the monorepo — copy the small piece you need instead"
+                    }
+                ]
+            }
+        ]
+    }
+}

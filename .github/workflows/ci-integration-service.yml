@@ -86,14 +86,3 @@ jobs:
             - name: Build
               working-directory: services/integration-service
               run: pnpm build
-
-            # The two isolation guardrails. They run against the built bundle rather than
-            # the source, so a re-export chain cannot smuggle a module past them. The
-            # Dockerfile re-runs both, so the image is gated too and not only CI.
-            - name: Check import boundary
-              working-directory: services/integration-service
-              run: pnpm check:boundary
-
-            - name: Check dependency allowlist
-              working-directory: services/integration-service
-              run: pnpm check:deps

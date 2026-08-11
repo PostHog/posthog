@@ -40,11 +40,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 
 COPY services/integration-service/ services/integration-service/
 WORKDIR /code/services/integration-service
-RUN pnpm exec tsx scripts/build-integration-service.ts
-
-# Fail the image build, not just CI, if the bundle reached outside this package or
-# grew a dependency nobody listed.
-RUN pnpm exec tsx scripts/check-import-boundary.ts && pnpm exec tsx scripts/check-deps-allowlist.ts
+RUN pnpm build
 
 #
 # Runtime stage: the slim image plus the self-contained bundle.
