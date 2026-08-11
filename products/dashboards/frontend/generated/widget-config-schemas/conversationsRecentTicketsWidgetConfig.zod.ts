@@ -6,9 +6,6 @@
  */
 import { z as zod } from 'zod'
 
-import { Channel } from './channel.zod'
-import { Priority } from './priority.zod'
-import { Status } from './status.zod'
 import { WidgetAssigneeFilter } from './widgetAssigneeFilter.zod'
 
 export const conversationsRecentTicketsWidgetConfigLimitDefault = 10
@@ -31,15 +28,15 @@ export const ConversationsRecentTicketsWidgetConfig = /* @__PURE__ */ zod.object
         .default(conversationsRecentTicketsWidgetConfigLimitDefault)
         .describe('Maximum number of tickets to return.'),
     status: zod
-        .union([Status, zod.literal('all')])
+        .enum(['new', 'open', 'pending', 'on_hold', 'resolved', 'all'])
         .default(conversationsRecentTicketsWidgetConfigStatusDefault)
         .describe('Ticket status filter.'),
     priorities: zod
-        .array(Priority)
+        .array(zod.enum(['low', 'medium', 'high', 'critical']))
         .optional()
         .describe('Only show tickets with these priorities. Empty shows all priorities.'),
     channel: zod
-        .union([Channel, zod.literal('all')])
+        .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
         .default(conversationsRecentTicketsWidgetConfigChannelDefault)
         .describe('Ticket channel filter.'),
     assignees: zod

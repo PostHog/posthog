@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator, model_validator
 
 from posthog.schema import PropertyOperator
 
@@ -62,9 +62,18 @@ LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
 # How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
 LogsTimezone = Literal["UTC", "local"]
-ConversationsTicketStatus = Status | Literal["all"]
-ConversationsTicketPriority = Priority
-ConversationsTicketChannel = Channel | Literal["all"]
+ConversationsTicketStatus = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": [*Status.values, "all"]}),
+]
+ConversationsTicketPriority = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": list(Priority.values)}),
+]
+ConversationsTicketChannel = Annotated[
+    str,
+    WithJsonSchema({"type": "string", "enum": [*Channel.values, "all"]}),
+]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -300,6 +309,28 @@ class ConversationsRecentTicketsWidgetConfig(BaseModel):
             "filters; the widget still sorts by most recently updated and applies its limit."
         ),
     )
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in {*Status.values, "all"}:
+            raise ValueError("Ticket status filter is invalid.")
+        return value
+
+    @field_validator("priorities")
+    @classmethod
+    def validate_priorities(cls, values: list[str]) -> list[str]:
+        invalid_values = set(values).difference(Priority.values)
+        if invalid_values:
+            raise ValueError("Ticket priority filter is invalid.")
+        return values
+
+    @field_validator("channel")
+    @classmethod
+    def validate_channel(cls, value: str) -> str:
+        if value not in {*Channel.values, "all"}:
+            raise ValueError("Ticket channel filter is invalid.")
+        return value
 
     @field_validator("savedViewId", mode="before")
     @classmethod

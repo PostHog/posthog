@@ -800,33 +800,44 @@ export interface LogsListWidgetConfigApi {
     savedViewId?: string | null
 }
 
-export type StatusApi = (typeof StatusApi)[keyof typeof StatusApi]
+/**
+ * Ticket status filter.
+ */
+export type ConversationsRecentTicketsWidgetConfigApiStatus =
+    (typeof ConversationsRecentTicketsWidgetConfigApiStatus)[keyof typeof ConversationsRecentTicketsWidgetConfigApiStatus]
 
-export const StatusApi = {
+export const ConversationsRecentTicketsWidgetConfigApiStatus = {
     New: 'new',
     Open: 'open',
     Pending: 'pending',
     OnHold: 'on_hold',
     Resolved: 'resolved',
+    All: 'all',
 } as const
 
-export type PriorityApi = (typeof PriorityApi)[keyof typeof PriorityApi]
+export type ConversationsRecentTicketsWidgetConfigApiPrioritiesItem =
+    (typeof ConversationsRecentTicketsWidgetConfigApiPrioritiesItem)[keyof typeof ConversationsRecentTicketsWidgetConfigApiPrioritiesItem]
 
-export const PriorityApi = {
+export const ConversationsRecentTicketsWidgetConfigApiPrioritiesItem = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
     Critical: 'critical',
 } as const
 
-export type ChannelApi = (typeof ChannelApi)[keyof typeof ChannelApi]
+/**
+ * Ticket channel filter.
+ */
+export type ConversationsRecentTicketsWidgetConfigApiChannel =
+    (typeof ConversationsRecentTicketsWidgetConfigApiChannel)[keyof typeof ConversationsRecentTicketsWidgetConfigApiChannel]
 
-export const ChannelApi = {
+export const ConversationsRecentTicketsWidgetConfigApiChannel = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
     Teams: 'teams',
     Github: 'github',
+    All: 'all',
 } as const
 
 export interface ConversationsRecentTicketsWidgetConfigApi {
@@ -837,11 +848,11 @@ export interface ConversationsRecentTicketsWidgetConfigApi {
      */
     limit?: number
     /** Ticket status filter. */
-    status?: StatusApi | 'all'
+    status?: ConversationsRecentTicketsWidgetConfigApiStatus
     /** Only show tickets with these priorities. Empty shows all priorities. */
-    priorities?: PriorityApi[]
+    priorities?: ConversationsRecentTicketsWidgetConfigApiPrioritiesItem[]
     /** Ticket channel filter. */
-    channel?: ChannelApi | 'all'
+    channel?: ConversationsRecentTicketsWidgetConfigApiChannel
     /**
      * Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.
      * @maxItems 100
