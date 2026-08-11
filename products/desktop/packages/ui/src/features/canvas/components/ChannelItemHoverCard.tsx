@@ -108,7 +108,7 @@ export function ChannelItemHoverCard({
       <PreviewCard.Trigger
         delay={400}
         closeDelay={100}
-        render={<div className="min-w-0">{children}</div>}
+        render={<div className="flex min-w-0">{children}</div>}
       />
       <PreviewCard.Portal>
         <PreviewCard.Positioner

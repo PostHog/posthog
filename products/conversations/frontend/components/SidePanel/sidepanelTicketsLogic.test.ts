@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -6,10 +7,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { BillingType } from '~/types'
+import { BillingType, SidePanelTab } from '~/types'
 
+import type { ConversationTicket } from '../../types'
 import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
 
 describe('sidepanelTicketsLogic', () => {
@@ -141,7 +145,7 @@ describe('sidepanelTicketsLogic', () => {
         }).toFinishAllListeners()
 
         const failures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support ticket send failed'
+            ([event]) => event === 'support ticket send blocked'
         )
         expect(failures).toHaveLength(1)
         expect(failures[0][1]).toMatchObject({
@@ -194,7 +198,7 @@ describe('sidepanelTicketsLogic', () => {
         expect(logic.values.view).toBe('new')
         // Nothing was turned away, so there is no lost-submit to report
         expect(
-            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send failed')
+            (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === 'support ticket send blocked')
         ).toHaveLength(0)
     })
 
@@ -302,6 +306,91 @@ describe('sidepanelTicketsLogic', () => {
         expect(supportLogic.values.pendingViewTicket).toBeNull()
     })
 
+    // A ?ticket= deep link lands before the ticket list loads, so the id has to wait for it
+    it.each([
+        ['opens the linked ticket once tickets load', 't2', 'ticket', 't2'],
+        ['falls back to the list when the linked ticket does not exist', 'gone', 'list', undefined],
+    ])('%s', async (_case, linkedId, expectedView, expectedTicketId) => {
+        ;(posthog as any).conversations.getTickets = jest.fn().mockResolvedValue({
+            results: [
+                { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+                { id: 't2', status: 'open', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            ],
+        })
+        router.actions.push(urls.myTickets(linkedId))
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.view).toBe(expectedView)
+        expect(logic.values.currentTicket?.id).toBe(expectedTicketId)
+        // Consumed either way, so a later poll can't yank the view
+        expect(logic.values.pendingTicketId).toBeNull()
+    })
+
+    it('opens the ticket a `#panel=support:ticket:` deep link points at', async () => {
+        ;(posthog as any).conversations.getTickets = jest.fn().mockResolvedValue({
+            results: [
+                { id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+                { id: 't2', status: 'open', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            ],
+        })
+        sidePanelStateLogic.mount()
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support, 'ticket:t2')
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.view).toBe('ticket')
+        expect(logic.values.currentTicket?.id).toBe('t2')
+    })
+
+    it('mirrors the open ticket into the panel options and clears them on leaving the thread', async () => {
+        sidePanelStateLogic.mount()
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTicket({
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket)
+        }).toFinishAllListeners()
+        expect(sidePanelStateLogic.values.selectedTabOptions).toBe('ticket:t1')
+
+        logic.actions.setView('list')
+        // The hash round-trip re-parses cleared options as '' rather than null; both mean none
+        expect(sidePanelStateLogic.values.selectedTabOptions ?? '').toBe('')
+    })
+
+    it('keeps the URL in sync with the selected ticket on the full-screen scene', async () => {
+        router.actions.push(urls.myTickets())
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setCurrentTicket({
+                id: 't1',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-13T00:00:00Z',
+            } as ConversationTicket)
+        }).toFinishAllListeners()
+        expect(router.values.searchParams['ticket']).toBe('t1')
+
+        router.actions.push(urls.myTickets())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.view).toBe('list')
+    })
+
     // The panel already shows free plans the community and upgrade options, and they have no email
     // channel, so warning them the chat failed would offer support they don't actually get.
     it.each([
@@ -359,7 +448,7 @@ describe('sidepanelTicketsLogic', () => {
         expect(onSuccess).not.toHaveBeenCalled()
         expect(logic.values.messageSending).toBe(false)
         const failures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support ticket send failed'
+            ([event]) => event === 'support ticket send blocked'
         )
         expect(failures).toHaveLength(1)
         expect(failures[0][1]).toMatchObject({ reason: 'widget_unavailable' })
@@ -401,7 +490,7 @@ describe('sidepanelTicketsLogic', () => {
 
         expect(onSuccess).not.toHaveBeenCalled()
         const failures = (posthog.capture as jest.Mock).mock.calls.filter(
-            ([event]) => event === 'support ticket send failed'
+            ([event]) => event === 'support ticket send blocked'
         )
         expect(failures).toHaveLength(1)
         expect(failures[0][1]).toMatchObject({

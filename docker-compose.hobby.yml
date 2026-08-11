@@ -32,6 +32,12 @@ services:
         volumes:
             - redis7-data:/data
 
+    valkey:
+        extends:
+            file: docker-compose.base.yml
+            service: valkey
+        logging: *default-logging
+
     clickhouse:
         extends:
             file: docker-compose.base.yml
@@ -199,6 +205,9 @@ services:
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
+            # Every CDP process dual-writes to Valkey and refuses to start without a host.
+            CDP_VALKEY_HOST: valkey
+            CDP_VALKEY_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
             CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
@@ -209,6 +218,7 @@ services:
         depends_on:
             - db
             - redis7
+            - valkey
             - clickhouse
             - kafka
             - objectstorage
@@ -224,11 +234,15 @@ services:
             PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            # The combined-mode AI consumer reads persons through PersonHog
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             - db
             - redis7
             - clickhouse
             - kafka
+            - personhog-router
 
     ingestion-sessionreplay:
         extends:
@@ -269,6 +283,7 @@ services:
         logging: *default-logging
         environment:
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            ERROR_TRACKING_CYMBAL_BASE_URL: 'http://cymbal:3302'
         depends_on:
             - db
             - redis7
@@ -586,6 +601,7 @@ services:
                     clickhouse_heatmap_events \
                     clickhouse_flag_evaluations \
                     clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_ai \
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \

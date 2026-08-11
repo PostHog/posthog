@@ -74,7 +74,7 @@ FEATURE_FLAG_CREATION_TOOL_DESCRIPTION = dedent("""
     - The user wants to create a new feature flag
     - The user wants to roll out a feature to a percentage of users
     - The user wants to target specific users by properties (email, country, etc.)
-    - The user wants to create an A/B test or experiment with multiple variants
+    - The user wants a multivariate flag to back an A/B test (to create and run the actual experiment, follow up with the `create_experiment` tool)
 
     # Flag Types
 

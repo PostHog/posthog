@@ -35,6 +35,22 @@ vi.mock("@posthog/ui/features/task-detail/components/TaskInput", () => ({
   },
 }));
 
+// The raw channel rows WebsiteNewTask reads repository defaults from.
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskChannels", () => ({
+  useTaskChannels: () => ({
+    channels: [
+      {
+        id: "chan-1",
+        name: "project-bluebird",
+        channel_type: "public",
+        starred: false,
+      },
+    ],
+  }),
+}));
+
+// SpaceSelect (the spaceSelector chip) reads useChannels; keep its dependency
+// chain inert under the stubbed TaskInput.
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({
     channels: [

@@ -1,9 +1,10 @@
 import type { Contribution } from "@posthog/di/contribution";
-import type { TaskActivityPage } from "@posthog/shared/domain-types";
+import type { Task, TaskActivityPage } from "@posthog/shared/domain-types";
 import {
   NotificationBus,
   type TaskActivitySignal,
 } from "@posthog/ui/features/notifications/notifications";
+import { taskKeys } from "@posthog/ui/features/tasks/taskKeys";
 import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
@@ -40,11 +41,19 @@ export class TaskActivityContribution implements Contribution {
         const previous = data?.pages
           .flatMap((page) => page.results)
           .find((row) => row.task_id === signal.taskId);
+        const cachedTask =
+          this.queryClient.getQueryData<Task>(taskKeys.detail(signal.taskId)) ??
+          this.queryClient
+            .getQueriesData<Task[]>({ queryKey: taskKeys.lists() })
+            .flatMap(([, tasks]) => tasks ?? [])
+            .find((task) => task.id === signal.taskId);
         const activity = {
           id: `local:${signal.taskId}`,
           task_id: signal.taskId,
           task_title: signal.taskTitle,
-          channel_id: previous?.channel_id ?? null,
+          channel_id: previous
+            ? (previous.channel_id ?? null)
+            : (cachedTask?.channel ?? null),
           channel_name: previous?.channel_name ?? null,
           activity_at: signal.activityAt,
           activity_kind: signal.activityKind,

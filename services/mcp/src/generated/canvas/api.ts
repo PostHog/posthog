@@ -72,6 +72,13 @@ export const CanvasesBuildsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const CanvasesBuildsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    version_id: zod
+        .string()
+        .optional()
+        .describe('Include the retained ready build for this historical source version.'),
+})
+
 /**
  * Publish per-file edits against the canvas's current source project.
  *

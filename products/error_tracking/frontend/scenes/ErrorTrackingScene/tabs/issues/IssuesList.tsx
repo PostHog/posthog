@@ -154,7 +154,9 @@ export function IssuesList(): JSX.Element {
             logic={issuesDataNodeLogic}
             props={{ key: insightVizDataNodeKey(insightProps), query: query.source }}
         >
-            <SceneStickyBar className="-mt-4" showBorderBottom={false}>
+            {/* first:-mt-4 tucks the bar flush under the tab bar, but only when no banner
+                renders above — an unconditional -mt-4 would cover the banner's bottom edge */}
+            <SceneStickyBar className="first:-mt-4" showBorderBottom={false}>
                 <IssuesFilters />
                 <ListOptions />
             </SceneStickyBar>

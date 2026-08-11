@@ -13,10 +13,12 @@ from django.utils import timezone
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
+from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -236,20 +238,22 @@ async def arun_signals_scout(
     run_id = uuid7()
     started_at = timezone.now()
 
-    # Resolve the scout's agent model from the `scouts-model-selection` gate. A `None` model keeps the
-    # agent-server default; an override routes this run on that model, paired with the runtime adapter
-    # that can serve it (the agent server can't route a model without one). The flag payload is a
-    # per-team, per-scout model distribution, bucketed per run on `run_id` — so a scout can A/B/n
+    # Resolve the scout's agent model. A `None` model keeps the agent-server default; an override
+    # routes this run on that model, paired with the runtime adapter that can serve it (the agent
+    # server can't route a model without one). Two flag-gated layers, resolved in one call: the
+    # scout's own `config.model` pin (honored while the `scouts-model-config` dogfood flag is on
+    # for the team, deterministic per scout), then the `scouts-model-selection` payload — a
+    # per-team, per-scout model distribution, bucketed per run on `run_id`, so a scout can A/B/n
     # across models against itself across runs. Resolved once here so the whole run is consistent.
-    # Off the event loop — the flag read does blocking network I/O.
+    # Off the event loop — the flag reads do blocking network I/O.
     scout_model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(
-        team, skill.name, str(run_id)
+        team, skill.name, str(run_id), configured_model=config.model
     )
 
-    # The scout-model gate is the per-scout, per-run experiment layer; the `signals-pipeline-models`
-    # runtime pin is the default layer beneath it. When the gate resolves a model for this run it
-    # wins (its unallocated remainder resolves None and falls through to the pin), so a fleet-wide
-    # pin can't silently swallow a configured model trial. Either way the whole
+    # The scout-model resolution (config pin, then experiment gate) sits above the
+    # `signals-pipeline-models` runtime pin, the default layer beneath it. When it resolves a model
+    # for this run it wins (the gate's unallocated remainder resolves None and falls through to the
+    # pin), so a fleet-wide pin can't silently swallow a configured model. Either way the whole
     # runtime/model/effort triple is taken from one source — a Codex runtime never pairs with a
     # model it can't serve. Model-only pin entries are still ignored for scout: a pin supplies
     # model+runtime as a pair, and overriding one without the other would mis-route.
@@ -438,6 +442,23 @@ async def arun_signals_scout(
         raise
 
 
+def _data_catalog_enabled_for_team(team: Team) -> bool:
+    """Whether this team's scouts get the governed-metrics catalog steering.
+
+    A flag-read error falls back to off rather than propagating: this resolves inside the
+    `_spawn_and_run` call the outer handler treats as a failed run, so a transient SDK or
+    cache error would book a failure and advance the streak toward pausing the lane, over a
+    prompt section the run does not need. Mirrors `team_limits._read_flag_payload`, where a
+    read error never breaks dispatch either. Off is also the pre-catalog behaviour, so the
+    fallback can only cost steering, never mis-steer a team at a table it cannot query.
+    """
+    try:
+        return is_data_catalog_enabled(team)
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
 async def _spawn_and_run(
     *,
     team: Team,
@@ -522,12 +543,14 @@ async def _spawn_and_run(
         runtime_adapter=runtime_adapter,
         reasoning_effort=reasoning_effort,
     )
+    data_catalog_enabled = await database_sync_to_async(_data_catalog_enabled_for_team, thread_sensitive=False)(team)
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
         team_id=team.id,
         started_at=started_at,
         github_read_access=github_guidance,
+        data_catalog_enabled=data_catalog_enabled,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project
         # events, so a dry-run scout must not be steered at a tool that fails closed.
