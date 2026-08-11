@@ -54,7 +54,10 @@ const SessionReplayConfigStep = (): JSX.Element => {
             teamProperty: 'session_recording_masking_config',
             onChange: (value: string | number | null) => {
                 return {
-                    session_recording_masking_config: getMaskingConfigFromLevel(value as SessionRecordingMaskingLevel),
+                    session_recording_masking_config: {
+                        ...currentTeam?.session_recording_masking_config,
+                        ...getMaskingConfigFromLevel(value as SessionRecordingMaskingLevel),
+                    },
                 }
             },
             selectOptions: [

@@ -303,7 +303,10 @@ export function ReplayMaskingSettings(): JSX.Element {
         maskAllInputs: maskingConfig.maskAllInputs ?? true,
         maskTextSelector: maskingConfig.maskTextSelector,
     })
-    const maskImages = maskingConfig.blockSelector === 'img'
+    // A custom block selector can hold non-image selectors set through the API. The toggle only
+    // writes 'img', so disable it there to avoid overwriting the custom value.
+    const hasCustomBlockSelector = !!maskingConfig.blockSelector && maskingConfig.blockSelector !== 'img'
+    const maskImages = !!maskingConfig.blockSelector
     const maskElementAttributes = maskingConfig.maskAllElementAttributes ?? false
 
     return (
@@ -324,7 +327,13 @@ export function ReplayMaskingSettings(): JSX.Element {
                 bordered
                 checked={maskImages}
                 onChange={(checked) => updateMasking({ blockSelector: checked ? 'img' : undefined })}
-                disabledReason={restrictedReason}
+                loading={currentTeamLoading}
+                disabledReason={
+                    restrictedReason ??
+                    (hasCustomBlockSelector
+                        ? 'This project has a custom block selector. Edit it through the API so it is not overwritten.'
+                        : undefined)
+                }
                 tooltip="Block every image element from recordings. Text masking does not hide images, so turn this on to keep images private."
             />
             <LemonSwitch
@@ -332,6 +341,7 @@ export function ReplayMaskingSettings(): JSX.Element {
                 bordered
                 checked={maskElementAttributes}
                 onChange={(checked) => updateMasking({ maskAllElementAttributes: checked || undefined })}
+                loading={currentTeamLoading}
                 disabledReason={restrictedReason}
                 tooltip="Mask HTML attribute values, such as image src and link href, that can hold sensitive data."
             />
