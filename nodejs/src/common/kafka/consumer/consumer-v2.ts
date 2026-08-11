@@ -95,6 +95,9 @@ export class KafkaConsumerV2 {
     private generation = 0
     private rebalanceQueue: RebalanceEvent[] = []
     private inFlight: TaskEntry[] = []
+    // Settle promise of the most recent batch that had offsets to store, so store decisions stay
+    // ordered even when batches that store nothing sit between them in inFlight.
+    private lastStoringSettled?: Promise<void>
     private loopDone: Promise<void> | undefined
 
     // Latched on the first backgroundTask failure: blocks further offset stores and
@@ -355,8 +358,13 @@ export class KafkaConsumerV2 {
         // would keep it in inFlight behind a slow predecessor, and enough empty polls stacked up
         // that way exhaust the backpressure budget and stop the loop from polling at all (which
         // strands any rebalance until the slow batch finishes).
-        const predecessorSettled =
-            offsets.length > 0 && this.inFlight.length > 0 ? this.inFlight[this.inFlight.length - 1].settled : undefined
+        //
+        // Chain on the last batch that actually stored, not on the last inFlight entry. An empty
+        // batch still enters inFlight when it carries a backgroundTask (the CDP cyclotron worker
+        // returns one for an empty poll), and it no longer waits for its predecessor — so reading
+        // the tail here would let a storing batch inherit an empty batch's settle instead of the
+        // previous storing batch's, and store out of order.
+        const predecessorSettled = offsets.length > 0 ? this.lastStoringSettled : undefined
 
         const settled: Promise<void> = (async () => {
             try {
@@ -395,6 +403,10 @@ export class KafkaConsumerV2 {
                 }
             }
         })()
+
+        if (offsets.length > 0) {
+            this.lastStoringSettled = settled
+        }
 
         const entry: TaskEntry = { settled }
         this.inFlight.push(entry)

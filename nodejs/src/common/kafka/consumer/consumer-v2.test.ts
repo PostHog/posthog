@@ -338,6 +338,37 @@ describe('KafkaConsumerV2', () => {
         expect(mockRdKafka.offsetsStore.mock.calls.length).toBe(offsetCallsBeforeReassign)
     })
 
+    it('store order survives an empty batch that lingers in inFlight: a later batch waits for the earlier storing one', async () => {
+        // Empty batches no longer chain, which is what stops them holding a backpressure slot.
+        // But an empty batch still enters inFlight when it carries a backgroundTask, and the CDP
+        // cyclotron worker returns one for an empty poll. Chaining a storing batch on the tail of
+        // inFlight would then let it inherit the empty batch's settle and store ahead of the
+        // earlier storing batch — the exact reordering the chain exists to prevent.
+        ;(consumer as any).maxBackgroundTasks = 10
+        ;(consumer as any).config.callEachBatchWhenEmpty = true
+        const eachBatch = jest.fn(() => Promise.resolve({}))
+        await startConsuming(eachBatch)
+
+        const slowFirst = triggerablePromise()
+        const emptyBatchTask = triggerablePromise()
+
+        await dispatchBatch(eachBatch, [createMessage({ offset: 1, partition: 0 })], slowFirst.promise)
+        await dispatchBatch(eachBatch, [], emptyBatchTask.promise)
+        await dispatchBatch(eachBatch, [createMessage({ offset: 2, partition: 0 })], undefined)
+
+        // The empty batch finishes first. The later batch must still be waiting on the first one.
+        emptyBatchTask.resolve()
+        await delay(20)
+        expect(mockRdKafka.offsetsStore).not.toHaveBeenCalled()
+
+        slowFirst.resolve()
+        await delay(20)
+        expect(mockRdKafka.offsetsStore.mock.calls.map((call) => call[0])).toEqual([
+            [{ topic: 'test-topic', partition: 0, offset: 2 }],
+            [{ topic: 'test-topic', partition: 0, offset: 3 }],
+        ])
+    })
+
     it('empty polls behind a slow batch keep polling: they hold no backpressure slot and never strand a rebalance', async () => {
         // Mirrors the CDP cyclotron worker: callEachBatchWhenEmpty on, a handful of background
         // slots. An empty poll stores no offsets, so it must not queue behind the slow batch —
