@@ -31,6 +31,11 @@ export function insideTemplateExpression(textBeforeCursor: string, language: Tem
         const character = textBeforeCursor[index]
         if (character === '\\') {
             index++
+        } else if (depth > 0 && (character === "'" || character === '"')) {
+            // Braces inside a string literal are content, not delimiters. Only inside an
+            // expression though: in the surrounding prose a lone quote (the apostrophe in
+            // "don't") is plain text, not the start of a literal.
+            index = skipStringLiteral(textBeforeCursor, index)
         } else if (character === '{') {
             depth++
         } else if (character === '}' && depth > 0) {
@@ -40,6 +45,19 @@ export function insideTemplateExpression(textBeforeCursor: string, language: Tem
     return depth > 0
 }
 
+/** Returns the index of the closing quote, or the end of the text for an unterminated literal. */
+function skipStringLiteral(text: string, openingQuoteIndex: number): number {
+    const quote = text[openingQuoteIndex]
+    for (let index = openingQuoteIndex + 1; index < text.length; index++) {
+        if (text[index] === '\\') {
+            index++
+        } else if (text[index] === quote) {
+            return index
+        }
+    }
+    return text.length
+}
+
 /**
  * Monaco closes the suggest widget on backspace and does not reopen it, so a user correcting a
  * chain has to retype a trigger character. Reopen it once the deletions pause, while the cursor is
@@ -47,10 +65,7 @@ export function insideTemplateExpression(textBeforeCursor: string, language: Tem
  * request, and those share the project's query rate limit - one request per pause is fine, one per
  * deleted character is not.
  */
-export function retriggerSuggestionsAfterDeletion(
-    editorInstance: editor.IStandaloneCodeEditor,
-    language: TemplateLanguage
-): IDisposable {
+export function retriggerSuggestionsAfterDeletion(editorInstance: editor.IStandaloneCodeEditor): IDisposable {
     let timeout: ReturnType<typeof setTimeout> | null = null
 
     const cancel = (): void => {
@@ -75,7 +90,13 @@ export function retriggerSuggestionsAfterDeletion(
             if (!model || !position || !editorInstance.hasTextFocus()) {
                 return
             }
-            if (!insideTemplateExpression(model.getValue().slice(0, model.getOffsetAt(position)), language)) {
+            // Read the language at fire time: the language selector swaps it on the live
+            // model after mount, and a stale language would scan with the wrong rules.
+            const languageId = model.getLanguageId()
+            if (!isTemplateLanguage(languageId)) {
+                return
+            }
+            if (!insideTemplateExpression(model.getValue().slice(0, model.getOffsetAt(position)), languageId)) {
                 return
             }
             editorInstance.trigger('deletionRetrigger', 'editor.action.triggerSuggest', {})

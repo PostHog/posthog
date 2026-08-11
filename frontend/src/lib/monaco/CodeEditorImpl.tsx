@@ -6,14 +6,13 @@ import * as monacoModule from 'monaco-editor'
 import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
-import 'lib/monaco/monacoEnvironment'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { enableClipboardPaste } from 'lib/monaco/clipboardPaste'
-import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogic'
+import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
 import { trackFindWidgetVisibility } from 'lib/monaco/findWidgetBodyClass'
 import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
@@ -23,8 +22,9 @@ import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
 import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
+import 'lib/monaco/monacoEnvironment'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
-import { isTemplateLanguage, retriggerSuggestionsAfterDeletion } from 'lib/monaco/suggestionRetrigger'
+import { retriggerSuggestionsAfterDeletion } from 'lib/monaco/suggestionRetrigger'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -463,9 +463,7 @@ export function CodeEditor({
         remeasureFontsWhenReady(monaco)
         monacoDisposables.current.push(trackFindWidgetVisibility(editor))
 
-        if (isTemplateLanguage(editorProps.language)) {
-            monacoDisposables.current.push(retriggerSuggestionsAfterDeletion(editor, editorProps.language))
-        }
+        monacoDisposables.current.push(retriggerSuggestionsAfterDeletion(editor))
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
