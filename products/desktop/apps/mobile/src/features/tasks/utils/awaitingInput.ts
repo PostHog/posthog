@@ -5,19 +5,34 @@ import type { TaskSession } from "../stores/taskSessionStore";
 type AwaitingInputTask = Pick<Task, "id" | "latest_run">;
 
 /**
+ * A session whose stream is gone stopped tracking the run, so its
+ * `isAwaitingUserInput` is frozen at whatever it was when the stream died.
+ */
+function isLiveSession(
+  session: TaskSession | undefined,
+): session is TaskSession {
+  return (
+    session !== undefined &&
+    session.status !== "error" &&
+    session.status !== "disconnected"
+  );
+}
+
+/**
  * Whether a task is blocked on its user.
  *
  * Two sources say so and they disagree by design. A live session in this app is
  * the fresher of the two — it reflects events the list has not refetched yet —
- * so when one exists it decides on its own. Without a session (a task the user
- * has never opened on this device) the server's persisted marker is the only
- * signal, since `latest_run.status` stays `in_progress` while an agent waits.
+ * so when one exists it decides on its own. Without one (a task the user has
+ * never opened on this device, or one whose stream died) the server's persisted
+ * marker is the only signal, since `latest_run.status` stays `in_progress`
+ * while an agent waits.
  */
 export function isTaskAwaitingUserInput(
   task: AwaitingInputTask | undefined,
   session: TaskSession | undefined,
 ): boolean {
-  if (session) {
+  if (isLiveSession(session)) {
     // A run that has reached a terminal status is waiting on nobody, however
     // its log ended.
     return Boolean(session.isAwaitingUserInput) && !session.terminalStatus;
@@ -36,18 +51,24 @@ export function collectAwaitingInputTaskIds(
   sessions: Record<string, TaskSession>,
   tasks: readonly AwaitingInputTask[] = [],
 ): Set<string> {
+  // Sessions are keyed by run, so a task with more than one collapses to the
+  // last inserted — which is the newest run, the one the list should reflect.
   const sessionsByTaskId = new Map<string, TaskSession>();
   for (const session of Object.values(sessions)) {
     sessionsByTaskId.set(session.taskId, session);
   }
 
   const taskIds = new Set<string>();
-  for (const [taskId, session] of sessionsByTaskId) {
-    if (isTaskAwaitingUserInput(undefined, session)) taskIds.add(taskId);
-  }
+  const listedTaskIds = new Set<string>();
   for (const task of tasks) {
-    if (sessionsByTaskId.has(task.id)) continue;
-    if (isTaskAwaitingUserInput(task, undefined)) taskIds.add(task.id);
+    listedTaskIds.add(task.id);
+    if (isTaskAwaitingUserInput(task, sessionsByTaskId.get(task.id))) {
+      taskIds.add(task.id);
+    }
+  }
+  for (const [taskId, session] of sessionsByTaskId) {
+    if (listedTaskIds.has(taskId)) continue;
+    if (isTaskAwaitingUserInput(undefined, session)) taskIds.add(taskId);
   }
   return taskIds;
 }

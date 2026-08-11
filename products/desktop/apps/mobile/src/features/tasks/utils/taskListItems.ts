@@ -67,6 +67,14 @@ export function relativeDateGroup(ms: number, now: number): string {
   return "Earlier";
 }
 
+/** Newest activity first — the one ordering every group in this list uses. */
+function byActivityDesc(
+  sortMode: TaskActivitySortMode,
+): (a: Task, b: Task) => number {
+  return (a, b) =>
+    taskActivityTimestamp(b, sortMode) - taskActivityTimestamp(a, sortMode);
+}
+
 interface BuildTaskListItemsOptions {
   /** Already filtered to what the list should show (e.g. minus archived). */
   tasks: readonly Task[];
@@ -98,14 +106,12 @@ export function buildTaskListItems({
   now = Date.now(),
 }: BuildTaskListItemsOptions): TaskListItem[] {
   const items: TaskListItem[] = [];
+  const byActivity = byActivityDesc(sortMode);
 
   const isAwaiting = (task: Task) =>
     awaitingInputTaskIds?.has(task.id) === true;
   const awaitingTasks = tasks.filter(isAwaiting);
-  const restingTasks =
-    awaitingTasks.length > 0
-      ? tasks.filter((task) => !isAwaiting(task))
-      : tasks;
+  const restingTasks = tasks.filter((task) => !isAwaiting(task));
 
   if (awaitingTasks.length > 0) {
     const collapsed = collapsedGroupKeys.has(ATTENTION_GROUP_KEY);
@@ -117,11 +123,7 @@ export function buildTaskListItems({
       collapsed,
     });
     if (!collapsed) {
-      awaitingTasks.sort(
-        (a, b) =>
-          taskActivityTimestamp(b, sortMode) -
-          taskActivityTimestamp(a, sortMode),
-      );
+      awaitingTasks.sort(byActivity);
       for (const task of awaitingTasks) {
         items.push({ type: "task", task });
       }
@@ -141,20 +143,13 @@ export function buildTaskListItems({
     }
 
     for (const tasksInRepo of groups.values()) {
-      tasksInRepo.sort(
-        (a, b) =>
-          taskActivityTimestamp(b, sortMode) -
-          taskActivityTimestamp(a, sortMode),
-      );
+      tasksInRepo.sort(byActivity);
     }
 
     const groupEntries = Array.from(groups.entries()).sort((a, b) => {
       if (a[0] === NO_REPO_LABEL) return 1;
       if (b[0] === NO_REPO_LABEL) return -1;
-      return (
-        taskActivityTimestamp(b[1][0], sortMode) -
-        taskActivityTimestamp(a[1][0], sortMode)
-      );
+      return byActivity(a[1][0], b[1][0]);
     });
 
     for (const [repoLabel, tasksInRepo] of groupEntries) {
@@ -176,10 +171,7 @@ export function buildTaskListItems({
     return items;
   }
 
-  const sorted = [...restingTasks].sort(
-    (a, b) =>
-      taskActivityTimestamp(b, sortMode) - taskActivityTimestamp(a, sortMode),
-  );
+  const sorted = [...restingTasks].sort(byActivity);
 
   const buckets = new Map<string, Task[]>();
   for (const task of sorted) {

@@ -79,6 +79,30 @@ describe("isTaskAwaitingUserInput", () => {
       session: undefined,
       expected: false,
     },
+    {
+      name: "an errored session, which falls through to the server marker",
+      task: task("t", { awaiting: true }),
+      session: session({ status: "error", isAwaitingUserInput: false }),
+      expected: true,
+    },
+    {
+      name: "a disconnected session, which falls through to the server marker",
+      task: task("t", { awaiting: true }),
+      session: session({ status: "disconnected", isAwaitingUserInput: false }),
+      expected: true,
+    },
+    {
+      name: "an errored session on a task the server does not flag",
+      task: task("t", { awaiting: false }),
+      session: session({ status: "error", isAwaitingUserInput: true }),
+      expected: false,
+    },
+    {
+      name: "a connecting session, which is still live",
+      task: task("t", { awaiting: true }),
+      session: session({ status: "connecting", isAwaitingUserInput: false }),
+      expected: false,
+    },
   ])("is $expected for $name", ({ task: t, session: s, expected }) => {
     expect(isTaskAwaitingUserInput(t, s)).toBe(expected);
   });
@@ -136,5 +160,40 @@ describe("collectAwaitingInputTaskIds", () => {
     );
 
     expect(Array.from(ids)).toEqual(["t-hidden"]);
+  });
+
+  it("falls back to the server marker when the session's stream died", () => {
+    const ids = collectAwaitingInputTaskIds(
+      {
+        a: session({
+          taskId: "t-a",
+          status: "error",
+          isAwaitingUserInput: false,
+        }),
+      },
+      [task("t-a", { awaiting: true })],
+    );
+
+    expect(Array.from(ids)).toEqual(["t-a"]);
+  });
+
+  it("lets the newest run's session decide when a task has several", () => {
+    const ids = collectAwaitingInputTaskIds(
+      {
+        old: session({
+          taskRunId: "old",
+          taskId: "t-a",
+          isAwaitingUserInput: true,
+        }),
+        new: session({
+          taskRunId: "new",
+          taskId: "t-a",
+          isAwaitingUserInput: false,
+        }),
+      },
+      [task("t-a", { awaiting: true })],
+    );
+
+    expect(ids.size).toBe(0);
   });
 });
