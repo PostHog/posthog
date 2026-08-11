@@ -228,6 +228,19 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     // "something is wrong with my setup" instead of two.
     const setupEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]
 
+    // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
+    // somewhere sensible. Here rather than in the logic because only the scene knows
+    // whether Setup is rendering: with its flag off those tabs are still real and
+    // resolve on their own. Above the early return below, since hooks have to run on
+    // every render.
+    const absorbed = setupEnabled ? SETUP_ABSORBED_TABS[activeTab] : undefined
+    useEffect(() => {
+        if (absorbed) {
+            setActiveTab(MarketingAnalyticsTab.SETUP)
+            setSetupSection(absorbed)
+        }
+    }, [absorbed, setActiveTab, setSetupSection])
+
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
         // Untouched by Setup: the explorer compares attribution models against each
@@ -259,18 +272,6 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     if (tabs.length === 1) {
         return dashboard
     }
-
-    // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
-    // somewhere sensible. Here rather than in the logic because only the scene knows
-    // whether Setup is rendering: with its flag off those tabs are still real and
-    // resolve on their own.
-    const absorbed = setupEnabled ? SETUP_ABSORBED_TABS[activeTab] : undefined
-    useEffect(() => {
-        if (absorbed) {
-            setActiveTab(MarketingAnalyticsTab.SETUP)
-            setSetupSection(absorbed)
-        }
-    }, [absorbed, setActiveTab, setSetupSection])
 
     // A stored tab can still name one no flag is rendering — a key persisted from before
     // a flag was turned off. LemonTabs would show nothing selected and no content, so
