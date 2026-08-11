@@ -204,9 +204,6 @@ def backfill_task_search_documents(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("tasks", "0084_tasksearchdocument"),
-        ("tasks", "0085_sandboxsession_cpu_attribution_usage"),
-    ]
+    dependencies = [("tasks", "0087_tasksearchdocument")]
 
     operations = [migrations.RunPython(backfill_task_search_documents, migrations.RunPython.noop, elidable=True)]

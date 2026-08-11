@@ -12,7 +12,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1279_drop_duckgresserverteam_table"),
-        ("tasks", "0083_taskcommentactivity"),
+        ("tasks", "0086_clear_disconnected_channel_repositories"),
     ]
 
     operations = [
