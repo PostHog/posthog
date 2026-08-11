@@ -24,6 +24,11 @@ vi.mock("../utils/sounds", () => ({
 vi.mock("@/features/notifications/lib/notifications", () => ({
   presentLocalNotification: vi.fn(() => Promise.resolve()),
 }));
+vi.mock("@/features/auth", () => ({
+  useAuthStore: {
+    getState: () => ({ projectId: 2 }),
+  },
+}));
 vi.mock("../api", () => ({
   CloudCommandError: class CloudCommandError extends Error {},
   runTaskInCloud: vi.fn(),
