@@ -899,7 +899,9 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="failed", mode=mode).inc()
             raise exceptions.ApplicationError(message, non_retryable=True) from exc
 
-    _finalize_status(manager, inputs, results={"object_key": key})
+    # The bucket travels with the key: a status outlives the deploy that changes
+    # NOTEBOOKS_FRAME_STORE_S3_BUCKET, and the key alone does not say where the object went.
+    _finalize_status(manager, inputs, results={"object_key": key, "bucket": settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET})
     FRAME_MATERIALIZATIONS_FINISHED_COUNTER.labels(outcome="succeeded", mode=mode).inc()
     FRAME_OBJECT_BYTES_HISTOGRAM.observe(object_bytes)
     FRAME_MATERIALIZE_SECONDS_HISTOGRAM.observe((dt.datetime.now(dt.UTC) - started_at).total_seconds())

@@ -96,11 +96,15 @@ def stat_frame(key: str, *, written_after: "dt.datetime | None" = None) -> int:
     return int(head.get("ContentLength") or 0)
 
 
-def presign_get(key: str, team_id: int) -> str:
+def presign_get(key: str, team_id: int, bucket: str | None = None) -> str:
     """Mint a short-lived presigned GET for `key`, refusing keys outside the team's prefix.
 
     The caller must have verified the data-plane token for `team_id` first; this check is
     the last line keeping a poisoned stored key from ever crossing tenant boundaries.
+
+    `bucket` is the one the writer recorded on the run. Signing against the current setting
+    instead would break every frame written before a bucket change for as long as its status
+    lives, since the key alone does not say where the object went.
     """
     if not key.startswith(team_prefix(team_id)):
         raise FrameStoreError("Frame key is not under the requesting team's prefix")
@@ -108,7 +112,7 @@ def presign_get(key: str, team_id: int) -> str:
         key,
         expiration=PRESIGN_EXPIRY_SECONDS,
         content_type=ARROW_STREAM_CONTENT_TYPE,
-        bucket=settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET,
+        bucket=bucket or settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET,
     )
     if not url:
         raise FrameStoreError("Could not presign the frame object")

@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 from temporalio import exceptions
 
@@ -213,7 +215,9 @@ class TestFrameMaterializeCHWrites(APIBaseTest):
         self.assertEqual(returned_key, key)
         status = manager.get_query_status()
         self.assertTrue(status.complete and not status.error)
-        self.assertEqual(status.results, {"object_key": key})
+        # The bucket is recorded next to the key so the status survives a bucket change:
+        # the poll signs against what the writer used, not whatever the setting says later.
+        self.assertEqual(status.results, {"object_key": key, "bucket": settings.NOTEBOOKS_FRAME_STORE_S3_BUCKET})
 
         import pyarrow as pa  # noqa: PLC0415 — keeps the heavy dep off the module import path
 
