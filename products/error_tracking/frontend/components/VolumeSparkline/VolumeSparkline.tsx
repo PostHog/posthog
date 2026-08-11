@@ -220,11 +220,17 @@ function resolveMargins(
     if (layout === 'compact') {
         return COMPACT_MARGINS
     }
-    const horizontal = xAxis === 'full' ? EDGE_LABEL_RESERVE : undefined
-    if (eventLabelReserve == null && horizontal == null) {
-        return undefined
+    const margins: Partial<ChartMargins> = {}
+    if (eventLabelReserve != null) {
+        margins.top = eventLabelReserve
     }
-    return { top: eventLabelReserve, left: horizontal, right: horizontal }
+    if (xAxis === 'full') {
+        margins.left = EDGE_LABEL_RESERVE
+        margins.right = EDGE_LABEL_RESERVE
+    }
+    // Only the sides actually being reserved — an explicit `undefined` side would override the
+    // chart's own computed margin for it.
+    return Object.keys(margins).length > 0 ? margins : undefined
 }
 
 /** Axis ticks in the browser's timezone, at the coarsest granularity the range allows, keeping only
