@@ -57,7 +57,9 @@ _APPROVAL_FIELDS = frozenset({"status", "approved_by", "approved_at"})
 # Fields that carry the metric's reviewed meaning: editing any of them invalidates a prior approval.
 # The definition is compared by canonical hash separately; these are compared by value. display_name
 # (a cosmetic label), owner, and provenance metadata are not part of what a reviewer blessed.
-_APPROVAL_RELEVANT_FIELDS = frozenset({"description", "unit"})
+# name is in here because agents pick a metric by matching its name (see the information_schema.metrics
+# description), so moving an approved definition under a different name changes what the approval says.
+_APPROVAL_RELEVANT_FIELDS = frozenset({"name", "description", "unit"})
 
 
 def _canonical_definition(
@@ -284,8 +286,6 @@ def update_metric(
     try:
         with team_scope(team.id), transaction.atomic():
             metric = Metric.objects.for_team(team.id).select_for_update().get(pk=metric.pk)
-            # A rename keeps approval: _invalidates_approval only inspects meaning-bearing fields,
-            # and the name is an address, not part of what a reviewer blessed.
             approval_invalidated = _invalidates_approval(metric, fields)
 
             for key, value in fields.items():

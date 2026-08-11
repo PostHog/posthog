@@ -102,15 +102,17 @@ class TestMetricUpdate(BaseTest):
         assert updated.description == "v2"
         assert updated.unit == "usd"
 
-    def test_rename_keeps_approval(self) -> None:
+    def test_rename_resets_approval(self) -> None:
+        # Agents pick a metric by matching its name, so moving an approved definition under a new
+        # name needs a fresh review. Catalog write access alone must not rebind an approved handle.
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="v1")
         metric = approve_metric(metric, self.user)
 
         renamed = update_metric(metric, team=self.team, user=self.user, name="arr")
         assert renamed.name == "arr"
-        assert renamed.status == MetricStatus.APPROVED
-        assert renamed.approved_by_id == self.user.id
-        assert renamed.approved_at is not None
+        assert renamed.status == MetricStatus.PROPOSED
+        assert renamed.approved_by_id is None
+        assert renamed.approved_at is None
 
     @parameterized.expand([("bad name",), ("1leading_digit",), ("has-dash",), ("",)])
     def test_rename_rejects_invalid_names(self, name: str) -> None:
