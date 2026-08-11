@@ -86,26 +86,38 @@ export function createProduceCollectedUrlsStep<
             return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
         }
 
-        // Every ref of one replay message belongs to one team, so one parse gives the pseudonym for
-        // all of them. The pseudonym comes back out of the ref because the ref is the only place
-        // the collector puts it.
+        // Each entry is checked, not just the first. A `bytes` ref names an image the page
+        // inlined, and its hash can never be reproduced from a URL, so a record carrying one
+        // reaches the fetcher under a hash nothing will ever match. Both kinds parse, so only
+        // `source` separates them, and checking one entry would let every later one through.
         //
-        // `source` must be `url`. A `bytes` ref names the bytes of an image the page inlined, and
-        // its hash can never be reproduced from a URL, so producing one here would put a record on
-        // the fetch topic that the fetcher indexes under a hash nothing will ever match. Both kinds
-        // parse, so only this check separates them.
-        const parsed = parseImageRef(fresh[0].ref)
-        if (!parsed || parsed.source !== 'url') {
-            logger.error('🌐', 'ml_image_fetch_ref_unusable', {
-                count: fresh.length,
-                source: parsed?.source ?? 'unparseable',
-            })
-            SessionRecordingIngesterMetrics.incrementMlUrlsCollected('ref_unusable', fresh.length)
+        // The pseudonym comes back out of the ref, because the ref is the only place the collector
+        // puts it. Every entry must agree on it: one replay message belongs to one team, and a
+        // record stamped with another team's pseudonym is a tenant-attribution error that nothing
+        // downstream can detect.
+        const usable: { ref: string; url: string; host: string }[] = []
+        let pseudoTeam: string | undefined
+        for (const entry of fresh) {
+            const parsed = parseImageRef(entry.ref)
+            if (!parsed || parsed.source !== 'url' || (pseudoTeam && parsed.pseudoTeam !== pseudoTeam)) {
+                continue
+            }
+            pseudoTeam ??= parsed.pseudoTeam
+            usable.push(entry)
+        }
+        const unusable = fresh.length - usable.length
+        if (unusable > 0) {
+            SessionRecordingIngesterMetrics.incrementMlUrlsCollected('ref_unusable', unusable)
+            // Warn, not error: this is per replay message, so an addon-side format drift would
+            // otherwise write an error line at full ingest rate for as long as it lasted.
+            logger.warn('🌐', 'ml_image_fetch_ref_unusable', { count: unusable })
+        }
+        if (!pseudoTeam || usable.length === 0) {
             return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
         }
 
         const byHost = new Map<string, { ref: string; url: string }[]>()
-        for (const entry of fresh) {
+        for (const entry of usable) {
             producedRefs.add(entry.ref)
             const group = byHost.get(entry.host)
             if (group) {
@@ -114,18 +126,20 @@ export function createProduceCollectedUrlsStep<
                 byHost.set(entry.host, [{ ref: entry.ref, url: entry.url }])
             }
         }
-        SessionRecordingIngesterMetrics.incrementMlUrlsCollected('queued', fresh.length)
+        SessionRecordingIngesterMetrics.incrementMlUrlsCollected('queued', usable.length)
 
         // The capture timestamp of the source Kafka record, so the fetcher's age check measures the
-        // age of the replay data rather than the age of this produce.
-        const capturedAtMs = input.message.timestamp ?? Date.now()
+        // age of the replay data rather than the age of this produce. librdkafka reports an absent
+        // timestamp as -1, which is not nullish, so a plain ?? would ship a negative age.
+        const messageTimestamp = input.message.timestamp
+        const capturedAtMs = messageTimestamp !== undefined && messageTimestamp > 0 ? messageTimestamp : Date.now()
         const messages = [...byHost].flatMap(([host, urls]) =>
             chunk(urls, MAX_URLS_PER_RECORD).map((slice) => ({
                 key: host,
                 value: Buffer.from(
                     JSON.stringify({
                         v: 1,
-                        pseudoTeam: parsed.pseudoTeam,
+                        pseudoTeam,
                         capturedAtMs,
                         urls: slice,
                     } satisfies CollectedUrlsMessage)
@@ -135,7 +149,7 @@ export function createProduceCollectedUrlsStep<
 
         // The failure handler captures only the refs, so that a produce which is not yet delivered
         // does not hold the URL strings alive longer than the messages themselves.
-        const refs = fresh.map((entry) => entry.ref)
+        const refs = usable.map((entry) => entry.ref)
         const produce = outputs
             .queueMessages(ML_IMAGE_FETCH_OUTPUT, messages)
             .then(() => {

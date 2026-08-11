@@ -151,4 +151,50 @@ describe('produceCollectedUrlsStep', () => {
 
         expect(queueMessages).not.toHaveBeenCalled()
     })
+
+    it('drops a bytes ref that follows a usable one, and keeps the rest', async () => {
+        // A guard that reads only the first entry passes this array and produces the bytes ref.
+        const step = createProduceCollectedUrlsStep(outputs, 100)
+
+        await run(step, {
+            message: { timestamp: CAPTURED_AT },
+            collectedUrls: [
+                collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
+                {
+                    ref: `image:${PSEUDO_TEAM}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    url: 'https://img.example.com/inlined.png',
+                    host: 'img.example.com',
+                },
+                collected('h3', 'img.example.com', 'https://img.example.com/c.png'),
+            ],
+        })
+
+        const sent = decode(queued[0])
+        expect(sent).toHaveLength(1)
+        expect(sent[0].value.urls.map((u: { ref: string }) => u.ref)).toEqual([
+            `imageurl:${PSEUDO_TEAM}:h1xxxxxxxxxxxxxxxxxxxx`,
+            `imageurl:${PSEUDO_TEAM}:h3xxxxxxxxxxxxxxxxxxxx`,
+        ])
+    })
+
+    it('drops an entry whose ref names another team', async () => {
+        const step = createProduceCollectedUrlsStep(outputs, 100)
+        const otherTeam = 'b'.repeat(32)
+
+        await run(step, {
+            message: { timestamp: CAPTURED_AT },
+            collectedUrls: [
+                collected('h1', 'img.example.com', 'https://img.example.com/a.png'),
+                {
+                    ref: `imageurl:${otherTeam}:h2xxxxxxxxxxxxxxxxxxxx`,
+                    url: 'https://img.example.com/b.png',
+                    host: 'img.example.com',
+                },
+            ],
+        })
+
+        const sent = decode(queued[0])
+        expect(sent[0].value.pseudoTeam).toBe(PSEUDO_TEAM)
+        expect(sent[0].value.urls).toHaveLength(1)
+    })
 })
