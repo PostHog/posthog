@@ -245,7 +245,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                                 : 'No changes to save'
                                     }
                                 >
-                                    {props.id === 'new' ? 'Create as draft' : 'Save'}
+                                    {props.id === 'new'
+                                        ? 'Create as draft'
+                                        : workflow?.status === 'active'
+                                          ? 'Save draft'
+                                          : 'Save'}
                                 </LemonButton>
                             </AccessControlAction>
                         )}

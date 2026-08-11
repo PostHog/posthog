@@ -258,6 +258,7 @@ import type {
     HogFlow,
     HogFlowAction,
     HogFlowBatchJob,
+    HogFlowPublishResponse,
     HogFlowSchedule,
     HogFlowTemplate,
 } from 'products/workflows/frontend/Workflows/hogflows/types'
@@ -6716,9 +6717,22 @@ const api = {
             hogFlowId: HogFlow['id'],
             // `base_updated_at` is the updated_at the client loaded; the server rejects the write with a
             // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
-            data: Partial<HogFlow> & { base_updated_at?: string | null }
+            // `stage_draft` routes content edits on an active workflow into its staged draft instead of
+            // the live config; publish promotes them. Ignored on non-active workflows.
+            data: Partial<HogFlow> & { base_updated_at?: string | null; stage_draft?: boolean }
         ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
+        },
+        async publishHogFlow(
+            hogFlowId: HogFlow['id'],
+            // Without `confirm` this only previews the impact and returns a `confirm_token`; a confirmed
+            // publish must send that token back.
+            data: { confirm: boolean; confirm_token?: string }
+        ): Promise<HogFlowPublishResponse> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('publish').create({ data })
+        },
+        async discardHogFlowDraft(hogFlowId: HogFlow['id']): Promise<HogFlow> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('discard_draft').create()
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()

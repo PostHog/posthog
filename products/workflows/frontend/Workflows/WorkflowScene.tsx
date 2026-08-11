@@ -56,6 +56,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { setAutoSaveEnabled } = useActions(logic)
     const showSaving = useDebouncedValue(isAutoSavePending || workflowLoading, 1000)
     const isDraft = originalWorkflow?.status === 'draft'
+    const isActive = originalWorkflow?.status === 'active'
 
     // Attach child logics to the scene logic so they persist across tab switches
     useAttachedLogic(batchJobsLogic, sceneLogic)
@@ -126,7 +127,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         tabs={tabs}
                         sceneInset
                         rightSlot={
-                            isDraft ? (
+                            isDraft || isActive ? (
                                 <span className="flex items-center gap-3">
                                     {autoSaveEnabled && showSaving ? (
                                         <span className="text-xs text-tertiary flex items-center gap-1">
@@ -143,7 +144,11 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                                             size="small"
                                         />
                                         <Tooltip
-                                            title="Auto-save is only available for draft workflows. Active workflows require an explicit save to prevent unintended changes to live behavior."
+                                            title={
+                                                isActive
+                                                    ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
+                                                    : 'Draft workflows auto-save as you edit.'
+                                            }
                                             placement="bottom"
                                         >
                                             <IconInfo className="text-tertiary size-4" />

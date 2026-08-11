@@ -2811,11 +2811,16 @@ class HogFlowViewSet(
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of
         # clobbering edits made via a different channel (UI/MCP/API). Fires for every channel; the
         # frontend dedupes its own echo by comparing updated_at. Transient — no inbox notification.
+        # Draft writes don't touch the live updated_at, so broadcast the newer of the two stamps;
+        # otherwise an open builder never hears about content staged from another channel.
+        edited_at = instance.updated_at
+        if instance.draft_updated_at and instance.draft_updated_at > edited_at:
+            edited_at = instance.draft_updated_at
         publish_resource_edited(
             team=self.team,
             resource_type="HogFlow",
             resource_id=str(instance.id),
-            updated_at=instance.updated_at.isoformat(),
+            updated_at=edited_at.isoformat(),
             actor_user_id=getattr(self.request.user, "id", None),
             ac_resource_type=self.scope_object,
         )
@@ -2893,6 +2898,11 @@ class HogFlowViewSet(
             # PATCHes (the lifecycle tools) and metadata-only edits apply straight to the live row.
             if serializer.instance.status == HogFlow.State.ACTIVE and has_non_status:
                 route_to_draft = bool(keys & set(DRAFT_CONTENT_FIELDS))
+        elif serializer.instance.status == HogFlow.State.ACTIVE and self.request.data.get("stage_draft"):
+            # The web builder opts into the same draft routing per request ("stage_draft" rides the
+            # raw body like "base_updated_at"). Callers that don't send it keep deploy-on-save, so
+            # existing raw-API automation is unaffected.
+            route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
         instance_id = serializer.instance.id
 

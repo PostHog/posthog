@@ -97,6 +97,47 @@ class TestHogFlowDraftPublish(APIBaseTest):
         live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
         assert live_urls == ["https://changed.example.com"]
 
+    def test_web_content_edit_with_stage_draft_routes_to_draft_and_applies_metadata_live(self):
+        flow_id = self._create_active_flow()
+        live_actions_before = HogFlow.objects.get(pk=flow_id).actions
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://changed.example.com")],
+                "name": "Renamed live",
+                "stage_draft": True,
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.actions == live_actions_before
+        assert flow.draft is not None
+        assert flow.draft_updated_at is not None
+        draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
+        assert draft_urls == ["https://changed.example.com"]
+        assert flow.name == "Renamed live"
+        assert response.json()["draft"] is not None
+
+    def test_stage_draft_on_inactive_flow_applies_live(self):
+        hog_flow = {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]}
+        create = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        flow_id = create.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://changed.example.com")],
+                "stage_draft": True,
+            },
+        )
+        assert response.status_code == 200, response.json()
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is None
+        live_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.actions if a["type"] == "function"]
+        assert live_urls == ["https://changed.example.com"]
+
     def test_mcp_content_edit_on_inactive_flow_applies_live(self):
         # Disabled/draft-status workflows edit in place — the draft cycle protects in-flight runs only
         hog_flow = {"name": "Test Flow", "actions": [_trigger_action(), _webhook_action()]}
