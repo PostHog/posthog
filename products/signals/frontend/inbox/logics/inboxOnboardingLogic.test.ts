@@ -16,6 +16,7 @@ describe('inboxOnboardingLogic', () => {
             bannerDismissed: false,
             isWizardRunning: false,
             isWizardStateResolved: true,
+            isRefetching: false,
         }
 
         it.each<[string, Partial<OnboardingModeInputs>, InboxOnboardingMode]>([
@@ -64,6 +65,12 @@ describe('inboxOnboardingLogic', () => {
                 'none',
             ],
             ['with work, config still loading', { isSetupLoaded: false, hasExistingWork: true }, 'none'],
+            // A refetch in flight (wizard just finished, or the user came back to the tab) means
+            // the loaded values may be stale – never commit to the takeover on them.
+            ['refetch in flight, would otherwise take over', { isRefetching: true }, 'pending'],
+            // The refetch hold only guards the takeover; settled inbox verdicts stay put.
+            ['refetch in flight, set up', { isRefetching: true, isSelfDrivingSetUp: true }, 'none'],
+            ['refetch in flight, with work', { isRefetching: true, hasExistingWork: true }, 'banner'],
         ])('%s', (_label, overrides, expected) => {
             expect(computeOnboardingMode({ ...base, ...overrides })).toBe(expected)
         })
