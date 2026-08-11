@@ -1,18 +1,9 @@
-import { type LabelSpreadItem, spreadLabels } from './spreadLabels'
+import { spreadLabels } from './spreadLabels'
 
 describe('spreadLabels', () => {
     const MIN_GAP = 2
     const MIN = 0
     const MAX = 200
-
-    function overlaps(items: LabelSpreadItem[], centers: number[]): boolean {
-        const sorted = centers
-            .map((center, index) => ({ center, halfWidth: items[index].halfWidth }))
-            .sort((a, b) => a.center - b.center)
-        return sorted.some(
-            (item, i) => i > 0 && item.center - item.halfWidth < sorted[i - 1].center + sorted[i - 1].halfWidth
-        )
-    }
 
     // "First seen" and "Last seen" land in the same bucket on a short-lived issue, so both pills
     // want the same x. Without the second (right-to-left) pass the clamp at `max` piles them back
@@ -24,6 +15,7 @@ describe('spreadLabels', () => {
                 { center: 100, halfWidth: 25 },
                 { center: 100, halfWidth: 25 },
             ],
+            expected: [100, 152],
         },
         {
             name: 'both pinned at the right edge',
@@ -31,6 +23,7 @@ describe('spreadLabels', () => {
                 { center: 200, halfWidth: 30 },
                 { center: 198, halfWidth: 30 },
             ],
+            expected: [170, 108],
         },
         {
             name: 'both pinned at the left edge',
@@ -38,6 +31,7 @@ describe('spreadLabels', () => {
                 { center: 0, halfWidth: 30 },
                 { center: 2, halfWidth: 30 },
             ],
+            expected: [30, 92],
         },
         {
             name: 'three crowded labels',
@@ -46,11 +40,10 @@ describe('spreadLabels', () => {
                 { center: 100, halfWidth: 28 },
                 { center: 110, halfWidth: 28 },
             ],
+            expected: [56, 114, 172],
         },
-    ])('separates $name', ({ items }) => {
-        const centers = spreadLabels(items, MIN_GAP, MIN, MAX)
-        expect(overlaps(items, centers)).toBe(false)
-        expect(Math.max(...centers.map((c, i) => c + items[i].halfWidth))).toBeLessThanOrEqual(MAX)
+    ])('separates $name', ({ items, expected }) => {
+        expect(spreadLabels(items, MIN_GAP, MIN, MAX)).toEqual(expected)
     })
 
     it('preserves left-to-right order when spreading', () => {
@@ -68,5 +61,14 @@ describe('spreadLabels', () => {
             { center: 150, halfWidth: 10 },
         ]
         expect(spreadLabels(items, MIN_GAP, MIN, MAX)).toEqual([30, 150])
+    })
+
+    it('spills the leftmost labels past `min` when they cannot all fit', () => {
+        const items = [
+            { center: 100, halfWidth: 60 },
+            { center: 100, halfWidth: 60 },
+            { center: 100, halfWidth: 60 },
+        ]
+        expect(spreadLabels(items, MIN_GAP, MIN, MAX)).toEqual([-104, 18, 140])
     })
 })

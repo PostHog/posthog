@@ -28,20 +28,27 @@ import type {
 
 export type { VolumeSparklineLayout, VolumeSparklineXAxisMode } from './types'
 
-/** Neutral bar color — volume is the subject here, so the bars stay grey and spikes carry the only
- *  color. Hover shading is quill's. */
+/** Volume is the subject here, so the bars stay grey and spikes carry the only color. */
 const BAR_COLOR = 'var(--color-zinc-400)'
 
 const SERIES_KEY = 'volume'
 
+type LayoutPreset = {
+    minBarSize: number
+    barCornerRadius: number
+    bandPadding: number
+    padding: string
+}
+
 const LAYOUTS = {
     compact: { minBarSize: 2, barCornerRadius: 3, bandPadding: 0.22, padding: 'p-1' },
     detailed: { minBarSize: 10, barCornerRadius: 4, bandPadding: 0.1, padding: 'p-0' },
-} as const satisfies Record<VolumeSparklineLayout, unknown>
+} as const satisfies Record<VolumeSparklineLayout, LayoutPreset>
 
 const COMPACT_MARGINS = { left: 0, right: 0, top: 2, bottom: 2 }
 
-/** Half of a "Jan 04"-ish axis label, so the first and last one aren't clipped at the plot edge. */
+/** Half of a "Jan 04"-ish axis label, so the first one isn't clipped at the plot's left edge. The
+ *  right edge is handled by the chart's own computed margin (see `resolveMargins`). */
 const EDGE_LABEL_RESERVE = 24
 
 const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000
@@ -88,10 +95,8 @@ export function VolumeSparkline({
                 // palette and brand variables these use hold the same value in light and dark.
                 color: resolveVariableColor(BAR_COLOR),
                 data: data.map((datum) => datum.value),
-                // A detected spike keeps its own color and picks up the hatch fill, so it reads as
-                // flagged rather than just tall.
                 bars: data.map((datum) =>
-                    datum.animated && datum.color ? { color: resolveVariableColor(datum.color), hatch: true } : {}
+                    datum.isSpike && datum.color ? { color: resolveVariableColor(datum.color), hatch: true } : {}
                 ),
             },
         ],
@@ -100,7 +105,10 @@ export function VolumeSparkline({
 
     const showAxis = xAxis !== 'none'
     const eventLabelReserve = events.length > 0 ? EVENT_LABEL_HEIGHT + EVENT_LABEL_BAR_GAP : undefined
-    const tickFormatter = useMemo(() => buildTickFormatter(dates), [dates])
+    // Only built when the axis actually renders ticks — quill reads `xTickFormatter` from
+    // `AxisLabels`/`tickMarkCoords`/`useChartMargins`, all of which bail out when the axis is
+    // hidden, so building it for `xAxis="minimal"` (both issues-list call sites) is wasted work.
+    const tickFormatter = useMemo(() => (xAxis === 'full' ? buildTickFormatter(dates) : undefined), [dates, xAxis])
 
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({
@@ -140,14 +148,14 @@ export function VolumeSparkline({
 
     // Wired only when a spike is actually present: quill shows the pointer cursor across the whole
     // chart whenever `onPointClick` is set, which would mask the drag-select crosshair.
-    const hasSpikes = useMemo(() => data.some((datum) => datum.animated), [data])
+    const hasSpikes = useMemo(() => data.some((datum) => datum.isSpike), [data])
 
     const onPointClick = useMemo(
         () =>
             onSpikeClick && hasSpikes
                 ? ({ dataIndex }: PointClickData) => {
                       const datum = data[dataIndex]
-                      if (datum?.animated) {
+                      if (datum?.isSpike) {
                           onSpikeClick(datum, cursorRef.current.x, cursorRef.current.y)
                       }
                   }
@@ -186,9 +194,9 @@ export function VolumeSparkline({
     )
 }
 
-/** Publishes the hovered bucket to the sparkline's logic, so the surrounding scene can swap its
- *  metrics for that bucket's values. A chart child because `useChartHover` is only available inside
- *  the chart; `paused` yields to an event marker's own hover, which owns the same logic field. */
+/** A chart child because `useChartHover` is only available inside the chart; `paused` yields to an
+ *  event marker's own hover, which owns the same logic field, so while paused this reports nothing
+ *  at all rather than overwriting the event's own hover. */
 function HoverReporter({
     data,
     paused,
@@ -199,19 +207,26 @@ function HoverReporter({
     onHoverBin: (payload: { index: number; datum: SparklineDatum } | null) => void
 }): null {
     const { hoverIndex } = useChartHover()
-    const index = paused ? -1 : hoverIndex
 
     useEffect(() => {
-        const datum = data[index]
-        onHoverBin(index >= 0 && datum ? { index, datum } : null)
-    }, [index, data, onHoverBin])
+        if (paused) {
+            return
+        }
+        const datum = data[hoverIndex]
+        onHoverBin(hoverIndex >= 0 && datum ? { index: hoverIndex, datum } : null)
+    }, [hoverIndex, paused, data, onHoverBin])
+
+    // Reset on unmount so a parent still mounted after the chart tears down doesn't keep showing
+    // the last hovered bucket (mirrors quill's own `Sparkline.tsx` `HoverWatcher`).
+    useEffect(() => () => onHoverBin(null), [onHoverBin])
 
     return null
 }
 
-/** Plot insets. Compact runs the bars edge to edge; detailed reserves room above for the event pills,
- *  and room either side for the first and last axis labels — those are centered on their bucket, and
- *  the chart clips anything outside the plot. */
+/** Plot insets. The right edge is left to the chart's own computed margin, which already reserves
+ *  enough for the widest label at the real axis font; a flat override here would just reintroduce
+ *  the clipping it prevents. The left override stays because `hideYAxis` short-circuits the chart's
+ *  own left margin to a collapsed axis width, without an edge reserve. */
 function resolveMargins(
     layout: VolumeSparklineLayout,
     xAxis: VolumeSparklineXAxisMode,
@@ -220,34 +235,29 @@ function resolveMargins(
     if (layout === 'compact') {
         return COMPACT_MARGINS
     }
-    const margins: Partial<ChartMargins> = {}
-    if (eventLabelReserve != null) {
-        margins.top = eventLabelReserve
+    return {
+        top: eventLabelReserve,
+        left: xAxis === 'full' ? EDGE_LABEL_RESERVE : undefined,
     }
-    if (xAxis === 'full') {
-        margins.left = EDGE_LABEL_RESERVE
-        margins.right = EDGE_LABEL_RESERVE
-    }
-    // Only the sides actually being reserved — an explicit `undefined` side would override the
-    // chart's own computed margin for it.
-    return Object.keys(margins).length > 0 ? margins : undefined
 }
 
 /** Axis ticks in the browser's timezone, at the coarsest granularity the range allows, keeping only
  *  the first bucket of each distinct label so a multi-bucket day is labelled once (quill then thins
- *  whatever still overlaps). */
+ *  whatever still overlaps). Dedupes on a full-precision key rather than the displayed text — the
+ *  displayed text alone repeats past its format's period (e.g. 'HH:mm' past 24h), which would
+ *  wrongly collapse every later occurrence to `null`. */
 function buildTickFormatter(dates: Date[]): (value: string, index: number) => string | null {
     const spanMs = dates.length > 1 ? dates[dates.length - 1].getTime() - dates[0].getTime() : 0
     const format = spanMs <= TWO_DAYS_MS ? 'HH:mm' : spanMs <= ONE_YEAR_MS ? 'MMM DD' : 'MMM YYYY'
 
     const seen = new Set<string>()
     const ticks = dates.map((date) => {
-        const text = dayjs(date).format(format)
-        if (seen.has(text)) {
+        const uniqueKey = dayjs(date).format('YYYY-MM-DD HH:mm')
+        if (seen.has(uniqueKey)) {
             return null
         }
-        seen.add(text)
-        return text
+        seen.add(uniqueKey)
+        return dayjs(date).format(format)
     })
 
     return (_value, index) => ticks[index] ?? null

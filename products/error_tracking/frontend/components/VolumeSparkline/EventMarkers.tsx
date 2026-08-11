@@ -19,12 +19,9 @@ export type EventMarkersProps = {
     onHover: (event: SparklineEvent<string> | null) => void
 }
 
-/** Timeline annotations (first seen, last seen, the selected event) drawn over the volume chart: a
- *  pill label in the chart's top margin, a connector down to the x-axis, and an anchor dot on it.
- *
- *  A chart child rather than part of the chart: it reads pixel positions from `useChartLayout()` and
- *  renders DOM, so an event at an arbitrary timestamp can be placed between two buckets — quill's
- *  band scale only resolves whole labels. */
+/** A chart child rather than part of the chart because it reads pixel positions from
+ *  `useChartLayout()` and renders DOM, so an event at an arbitrary timestamp can be placed between
+ *  two buckets, which quill's band scale can't do since it only resolves whole labels. */
 export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX.Element | null {
     const { scales, dimensions, labels } = useChartLayout()
     const labelRefs = useRef<(HTMLDivElement | null)[]>([])
@@ -63,8 +60,10 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
 
     // Measure the rendered pills, then place them: the labels are author-supplied strings, so their
     // widths aren't known until the browser has laid them out. Runs before paint, so the unmeasured
-    // first pass is never visible.
-    const measureKey = `${events.map((e) => e.id + e.payload).join('|')}|${plotWidth}`
+    // first pass is never visible. Safe to run on every render — the updater below already bails
+    // out to the previous value when nothing measured changed, so this also catches a pill's width
+    // shifting for a reason that isn't in the dependency list (e.g. a webfont finishing load).
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
     useLayoutEffect(() => {
         const measured = labelRefs.current.slice(0, events.length).map((node) => (node?.offsetWidth ?? 0) / 2)
         setHalfWidths((previous) =>
@@ -72,8 +71,7 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
                 ? previous
                 : measured
         )
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [measureKey, events.length])
+    })
 
     const labelCenters = useMemo(() => {
         if (!halfWidths || halfWidths.length !== anchors.length) {
@@ -113,7 +111,7 @@ export function EventMarkers({ events, dates, onHover }: EventMarkersProps): JSX
                             <circle
                                 cx={anchorX}
                                 cy={plotBottom}
-                                r={event.radius ?? ANCHOR_RADIUS}
+                                r={ANCHOR_RADIUS}
                                 fill="white"
                                 stroke={color}
                                 strokeWidth={2}

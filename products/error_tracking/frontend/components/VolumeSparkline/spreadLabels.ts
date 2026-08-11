@@ -5,9 +5,8 @@ export type LabelSpreadItem = {
 }
 
 /** Spread overlapping labels along one axis, keeping their left-to-right order and staying within
- *  `[min, max]`. Two passes: left-to-right pushes each label clear of its left neighbour, then
- *  right-to-left pulls the run back inside the right bound. When the labels can't all fit, the
- *  leftmost ones spill past `min` rather than piling up on top of each other. */
+ *  `[min, max]`. When the labels can't all fit, the leftmost ones spill past `min` rather than
+ *  piling up on top of each other. */
 export function spreadLabels(items: LabelSpreadItem[], minGap: number, min: number, max: number): number[] {
     const centers = items.map((item) => item.center)
     const order = items.map((_, index) => index).sort((a, b) => items[a].center - items[b].center)
