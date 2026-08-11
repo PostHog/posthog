@@ -17,9 +17,10 @@ import {
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -58,6 +59,7 @@ import {
     failureKindDescription,
     ineligibleKindDescription,
     modelLabel,
+    modelNamingVariant,
     parseFailureReason,
     parseIneligibleReason,
     OBSERVATION_TRIGGER_TAG,
@@ -110,7 +112,8 @@ function AutoSeekToTime({
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
-    const showTierNames = useFeatureFlag('REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT', 'test')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -531,7 +534,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <div className="flex flex-col gap-3 text-sm">
                         {snapshot?.model && (
                             <LabeledRow label="Model">
-                                <span>{modelLabel(snapshot.model, showTierNames)}</span>
+                                <span>{modelLabel(snapshot.model, namingVariant)}</span>
                             </LabeledRow>
                         )}
                         {summarizerLength && (

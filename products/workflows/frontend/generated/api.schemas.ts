@@ -1374,7 +1374,7 @@ export type HogFlowTemplatesListParams = {
 
 export type HogFlowTemplatesLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**
@@ -1531,7 +1531,7 @@ export type HogFlowsInvocationResultsRetrieveParams = {
 
 export type HogFlowsLogsRetrieveParams = {
     /**
-     * Only return entries after this ISO 8601 timestamp.
+     * Only return entries after this ISO 8601 timestamp. Defaults to 7 days ago; pass an explicit value to read further back.
      */
     after?: string
     /**

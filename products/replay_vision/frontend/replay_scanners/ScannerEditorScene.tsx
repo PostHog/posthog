@@ -9,9 +9,10 @@ import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -33,7 +34,7 @@ import {
     scannerStepUrl,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
-import { SCANNER_TYPE_OPTIONS, getModelOptions } from './types'
+import { SCANNER_TYPE_OPTIONS, getModelOptions, modelNamingVariant } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
 const HedgehogImTheDriver = pngHoggie(imTheDriverPng)
@@ -201,7 +202,8 @@ function ConfigureStep(): JSX.Element {
     const { scanner, isNew } = useValues(replayScannerLogic({ id: scannerId }))
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
-    const showTierNames = useFeatureFlag('REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT', 'test')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const isTypeSelectable = isNew && !searchParams.template
 
     if (!scanner) {
@@ -283,11 +285,11 @@ function ConfigureStep(): JSX.Element {
                     <LemonSelect
                         className="max-w-full"
                         value={scanner.model}
-                        options={getModelOptions(showTierNames)}
+                        options={getModelOptions(namingVariant)}
                     />
                 </LemonField>
                 <div className="text-xs text-muted">
-                    {showTierNames
+                    {namingVariant
                         ? 'Higher tiers tend to produce higher-quality observations, but cost more per observation.'
                         : 'Newer models tend to produce higher-quality observations, but cost more per observation.'}
                 </div>
