@@ -28,6 +28,7 @@ import structlog
 
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
@@ -349,12 +350,49 @@ class AccountState:
     link_url: str | None = None
 
 
+@dataclass(frozen=True)
+class GitHubAccount:
+    """One personal GitHub App installation the user has connected."""
+
+    installation_id: str
+    login: str | None = None
+    account_name: str | None = None
+
+    @property
+    def label(self) -> str:
+        """`login` is the GitHub user who authorized; `account_name` is the org
+        or user the App is installed on. Show both when they differ."""
+        if self.login and self.account_name and self.login != self.account_name:
+            return f"`{self.login}` on *{self.account_name}*"
+        return f"`{self.login or self.account_name or self.installation_id}`"
+
+
+@dataclass(frozen=True)
+class GitHubState:
+    """Inputs the renderer needs to draw the GitHub half of the accounts card.
+
+    ``user_resolved`` is False when we couldn't tell which PostHog user is
+    behind this Slack identity — the card then asks them to link PostHog first
+    instead of claiming they have no GitHub connection.
+
+    ``credentials_usable`` carries the same judgment the task flow gates on,
+    so a row whose tokens have gone stale reads as needing a reconnect rather
+    than as a working connection.
+    """
+
+    user_resolved: bool = False
+    accounts: tuple[GitHubAccount, ...] = ()
+    credentials_usable: bool = False
+    settings_url: str | None = None
+
+
 def render_home_view(
     *,
     effective: AIPreferences,
     user_row: SlackSettings | None,
     is_admin: bool,
     account_state: AccountState | None = None,
+    github_state: GitHubState | None = None,
     project_state: ProjectState | None = None,
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
@@ -396,11 +434,12 @@ def render_home_view(
     blocks.extend(_active_model_blocks(effective, source))
     blocks.extend(_personal_section_blocks(user_row))
 
-    # Section 4 — account linking: shown before Tasks so the connect
-    # prompt is visible while the Tasks list is still empty. Flag-gated.
-    if account_state and account_state.enabled:
+    # Section 4 — linked accounts: PostHog and GitHub side by side, shown
+    # before Tasks so the connect prompts are visible while the Tasks list
+    # is still empty. The PostHog half is flag-gated.
+    if (account_state and account_state.enabled) or github_state is not None:
         blocks.append({"type": "divider"})
-        blocks.extend(_account_section_blocks(account_state))
+        blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
 
     # Section 5 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
@@ -634,65 +673,108 @@ def _project_section_blocks(state: ProjectState, *, is_admin: bool) -> list[dict
     return blocks
 
 
-def _account_section_blocks(account_state: AccountState) -> list[dict]:
-    """Render the Sign-in-with-Slack account card.
+def _linked_accounts_section_blocks(
+    account_state: AccountState | None,
+    github_state: GitHubState | None,
+) -> list[dict]:
+    """Render the linked-accounts card: one row per account.
 
-    Visible only when `is_slack_app_oauth_enabled` returned True. Linked
-    state mirrors the Claude home pattern: ✅ + email, with a danger-styled
-    Disconnect button at the bottom.
+    A row is a section carrying that account's status, with its button as the
+    right-aligned `accessory`. Block Kit allows at most one accessory per
+    section and renders `actions` blocks full width, so a row apiece is the
+    only layout that keeps each button next to the account it acts on.
+    The PostHog row only appears when `is_slack_app_oauth_enabled` returned
+    True; the GitHub row is independent of that flag.
     """
+    rows: list[dict] = []
+
+    if account_state and account_state.enabled:
+        rows.append(_account_row(_posthog_account_text(account_state), _posthog_account_button(account_state)))
+
+    if github_state is not None:
+        rows.append(_account_row(_github_account_text(github_state), _github_account_button(github_state)))
+
+    if not rows:
+        return []
+
+    return [
+        _section_title(
+            "🔗 Linked accounts",
+            "Who @PostHog acts as: your PostHog user, and the GitHub account it opens pull requests with.",
+        ),
+        *rows,
+    ]
+
+
+def _account_row(text: str, button: dict | None) -> dict:
+    row: dict[str, Any] = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+    if button:
+        row["accessory"] = button
+    return row
+
+
+def _posthog_account_text(account_state: AccountState) -> str:
     if account_state.linked_email:
-        return [
-            _section_title("🔗 Linked PostHog account"),
-            {
-                "type": "section",
+        return f"*PostHog*\n✅ Connected as {account_state.linked_email}"
+    return "*PostHog*\nNot connected. Link your Slack identity so @PostHog knows it's you without matching on email."
+
+
+def _posthog_account_button(account_state: AccountState) -> dict | None:
+    if account_state.linked_email:
+        return {
+            "type": "button",
+            "action_id": ACTION_UNLINK_ACCOUNT,
+            "style": "danger",
+            "text": {"type": "plain_text", "text": "Disconnect", "emoji": True},
+            "confirm": {
+                "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"✅ Connected as *{account_state.linked_email}*",
+                    "text": "@PostHog will fall back to matching your Slack email against PostHog users until you link again.",
                 },
+                "confirm": {"type": "plain_text", "text": "Disconnect"},
+                "deny": {"type": "plain_text", "text": "Cancel"},
             },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "action_id": ACTION_UNLINK_ACCOUNT,
-                        "style": "danger",
-                        "text": {"type": "plain_text", "text": "Disconnect", "emoji": True},
-                        "confirm": {
-                            "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
-                            "text": {
-                                "type": "mrkdwn",
-                                "text": "@PostHog will fall back to matching your Slack email against PostHog users until you link again.",
-                            },
-                            "confirm": {"type": "plain_text", "text": "Disconnect"},
-                            "deny": {"type": "plain_text", "text": "Cancel"},
-                        },
-                    }
-                ],
-            },
-        ]
-    blocks: list[dict] = [
-        _section_title(
-            "🔗 Connect your PostHog account",
-            "Link your Slack identity to a PostHog user so @PostHog knows it's you without falling back to email matching.",
-        ),
-    ]
-    if account_state.link_url:
-        blocks.append(
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "url": account_state.link_url,
-                        "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
-                        "style": "primary",
-                    }
-                ],
-            }
-        )
-    return blocks
+        }
+    if not account_state.link_url:
+        return None
+    return {
+        "type": "button",
+        "url": account_state.link_url,
+        "text": {"type": "plain_text", "text": "Connect to PostHog", "emoji": True},
+        "style": "primary",
+    }
+
+
+def _github_account_text(github_state: GitHubState) -> str:
+    if not github_state.user_resolved:
+        return "*GitHub*\nLink your PostHog account first, so we know whose GitHub to look up."
+    if not github_state.accounts:
+        return "*GitHub*\nNot connected. Connect it so @PostHog opens pull requests as you."
+    marker = "✅" if github_state.credentials_usable else "⚠️"
+    listed = "\n".join(f"{marker} {account.label}" for account in github_state.accounts)
+    if github_state.credentials_usable:
+        return f"*GitHub*\n{listed}"
+    return f"*GitHub*\n{listed}\nYour access has expired. Reconnect it, or @PostHog can't open pull requests as you."
+
+
+def _github_account_button(github_state: GitHubState) -> dict | None:
+    if not github_state.user_resolved or not github_state.settings_url:
+        return None
+    if not github_state.accounts:
+        label, style = "Connect GitHub", "primary"
+    elif not github_state.credentials_usable:
+        label, style = "Reconnect GitHub", "primary"
+    else:
+        label, style = "Manage GitHub", ""
+    button: dict[str, Any] = {
+        "type": "button",
+        "url": github_state.settings_url,
+        "text": {"type": "plain_text", "text": label, "emoji": True},
+    }
+    if style:
+        button["style"] = style
+    return button
 
 
 def _personal_section_blocks(user_row: SlackSettings | None) -> list[dict]:
@@ -1359,6 +1441,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
     is_admin = _is_admin(slack, integration, slack_user_id)
     accessible = _accessible_integrations(integration, slack_user_id)
     account_state = _resolve_account_state(integration, slack_user_id)
+    github_state = _resolve_github_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id, accessible=accessible)
     tasks_state = _resolve_tasks_state(integration, slack_user_id, accessible=accessible)
     stats_state = _resolve_stats_state(integration, accessible=accessible, is_admin=is_admin)
@@ -1368,6 +1451,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
         user_row=user_row,
         is_admin=is_admin,
         account_state=account_state,
+        github_state=github_state,
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
@@ -1722,6 +1806,7 @@ def _republish_home(
     is_admin = _is_admin(slack, integration, slack_user_id)
     accessible = _accessible_integrations(integration, slack_user_id)
     account_state = _resolve_account_state(integration, slack_user_id)
+    github_state = _resolve_github_state(integration, slack_user_id)
     project_state = _resolve_project_state(integration, slack_user_id, accessible=accessible)
     tasks_state = _resolve_tasks_state(
         integration,
@@ -1743,6 +1828,7 @@ def _republish_home(
         user_row=user_row,
         is_admin=is_admin,
         account_state=account_state,
+        github_state=github_state,
         project_state=project_state,
         tasks_state=tasks_state,
         stats_state=stats_state,
@@ -1953,6 +2039,96 @@ def _resolve_account_state(integration: Integration, slack_user_id: str) -> Acco
         )
         link_url = None
     return AccountState(enabled=True, linked_email=None, link_url=link_url)
+
+
+def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | None:
+    """Identify the PostHog user behind this Slack identity.
+
+    Mirrors the event-path cascade in `resolve_posthog_user_from_event`: the
+    OAuth link wins, otherwise we match the cached Slack profile email against
+    members of the organizations connected to this workspace. Deactivated
+    users count as no match on both paths, so an offboarded account can't be
+    reached through a Slack identity that still maps to it. Reading the
+    profile cache instead of calling `users.info` keeps the Home render free
+    of a Slack API roundtrip.
+    """
+    slack_team_id = integration.integration_id
+    candidate_org_ids = _workspace_org_ids(slack_team_id)
+    if not candidate_org_ids:
+        return None
+
+    if is_slack_app_oauth_enabled(integration, slack_team_id):
+        linked_user = find_linked_posthog_user(
+            slack_user_id=slack_user_id,
+            slack_team_id=slack_team_id,
+            candidate_org_ids=candidate_org_ids,
+        )
+        if linked_user is not None:
+            return linked_user if linked_user.is_active else None
+
+    profile = SlackUserProfileCache.objects.filter(integration_id=integration.id, slack_user_id=slack_user_id).first()
+    if profile is None or not profile.email:
+        return None
+    membership = (
+        OrganizationMembership.objects.filter(
+            organization_id__in=candidate_org_ids,
+            user__email__iexact=profile.email,
+            user__is_active=True,
+        )
+        .select_related("user")
+        .first()
+    )
+    return membership.user if membership else None
+
+
+def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHubState:
+    """List the personal GitHub installations of the user opening the Home tab.
+
+    Usability comes from the tasks facade, the same judgment
+    `should_block_task_for_missing_user_github` gates on, so the card and the
+    task flow never disagree about whether a connection works.
+
+    Connecting GitHub needs an authenticated PostHog session, so the button
+    deep-links to Personal integrations settings — the same target the
+    in-thread "Connect GitHub" prompt uses.
+    """
+    from products.tasks.backend.facade import api as tasks_facade
+
+    settings_url = f"{settings.SITE_URL.rstrip('/')}/project/{integration.team_id}/settings/user-personal-integrations"
+    try:
+        user = _resolve_home_user(integration, slack_user_id)
+        if user is None:
+            return GitHubState(user_resolved=False, settings_url=settings_url)
+        rows = UserIntegration.objects.filter(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+        ).order_by("created_at")
+        accounts = tuple(_github_account_from_row(row) for row in rows)
+        credentials_usable = bool(accounts) and tasks_facade.user_has_usable_personal_github(user.id)
+    except Exception:
+        logger.exception(
+            "slack_app_home_resolve_github_state_failed",
+            slack_user_id=slack_user_id,
+            integration_id=integration.id,
+        )
+        return GitHubState(user_resolved=False, settings_url=settings_url)
+    return GitHubState(
+        user_resolved=True,
+        accounts=accounts,
+        credentials_usable=credentials_usable,
+        settings_url=settings_url,
+    )
+
+
+def _github_account_from_row(row: UserIntegration) -> GitHubAccount:
+    config = row.config or {}
+    github_user = config.get("github_user")
+    account = config.get("account")
+    return GitHubAccount(
+        installation_id=row.integration_id,
+        login=github_user.get("login") if isinstance(github_user, dict) else None,
+        account_name=account.get("name") if isinstance(account, dict) else None,
+    )
 
 
 def _workspace_integrations(slack_team_id: str) -> list[Integration]:
