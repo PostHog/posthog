@@ -74,8 +74,6 @@ next eligible item waits for the next launch, so overlapping announcements
 never show back to back. Required updates are exempt: one still blocks even
 after an announcement was handled in the same session.
 
-While an announcement is on stage, it hides `UpdateAvailableModal`.
-
 ## CTA rules
 
 `cta.url` is either `https://…` (opens the default browser) or a
