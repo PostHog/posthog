@@ -243,7 +243,7 @@ describe("ActivityTimeline events and comments", () => {
   });
 
   it("keeps the anchor with the comment it points at, once opened", () => {
-    renderRows({ commentThreads: [commentThread()], commentsEnabled: true });
+    renderRows({ commentThreads: [commentThread()] });
 
     expect(
       screen.queryByText(/every event should also go to the activity panel/),
@@ -261,7 +261,6 @@ describe("ActivityTimeline events and comments", () => {
   it("reads as a mention when the mention is of you", () => {
     renderRows({
       commentThreads: [commentThread({ mentioned_user_ids: [42] })],
-      commentsEnabled: true,
       currentUserId: 42,
     });
 
@@ -271,7 +270,6 @@ describe("ActivityTimeline events and comments", () => {
   it("reads as an ordinary comment when someone else was mentioned", () => {
     renderRows({
       commentThreads: [commentThread({ mentioned_user_ids: [7] })],
-      commentsEnabled: true,
       currentUserId: 42,
     });
 
@@ -295,16 +293,9 @@ describe("ActivityTimeline events and comments", () => {
           },
         }),
       ],
-      commentsEnabled: true,
     });
 
     expect(screen.getByText("resolved a thread on")).toBeInTheDocument();
-  });
-
-  it("shows no comment rows when comments are off", () => {
-    renderRows({ commentThreads: [commentThread()], commentsEnabled: false });
-
-    expect(screen.queryByText("commented on")).toBeNull();
   });
 });
 

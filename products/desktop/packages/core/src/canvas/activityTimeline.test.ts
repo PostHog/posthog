@@ -46,14 +46,12 @@ function thread(overrides: Partial<CommentThreadLike> = {}): CommentThreadLike {
 function build(input: {
   messages?: ThreadMessageLike[];
   commentThreads?: CommentThreadLike[];
-  commentsEnabled?: boolean;
   taskOverrides?: Partial<ActivityTaskLike>;
 }) {
   return buildActivityTimeline({
     task: { ...task, ...input.taskOverrides },
     messages: input.messages ?? [],
     commentThreads: input.commentThreads ?? [],
-    commentsEnabled: input.commentsEnabled,
   });
 }
 
@@ -127,19 +125,6 @@ describe("activity timeline", () => {
       "comment",
       "comment_state",
     ]);
-  });
-
-  it("drops the comment feed when comments are off", () => {
-    const rows = build({
-      commentThreads: [
-        thread({
-          stateEvent: { state: "resolved", createdAt: "2026-08-01T11:30:00Z" },
-        }),
-      ],
-      commentsEnabled: false,
-    });
-
-    expect(rows.map((row) => row.kind)).toEqual(["task_created"]);
   });
 
   it("keeps one row when two paths announced the same pull request", () => {

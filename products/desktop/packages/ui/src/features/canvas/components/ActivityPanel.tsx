@@ -157,7 +157,7 @@ function ActivityConversation({
   // Runs for the whole panel, not just the tab that draws it, so leaving the timeline
   // doesn't discard a fetch already in flight.
   const { threads: commentThreads, hasLoaded: hasLoadedComments } =
-    useTaskCommentActivity(taskId, { enabled: true });
+    useTaskCommentActivity(taskId);
   // Draw once both durable sources have answered, and never take the timeline away again.
   // Drawing on the thread alone paints sooner but in two waves, with comment rows pushing in
   // among rows already on screen; gating on the live session (`isReady`) blinks a loader over
@@ -281,7 +281,6 @@ function ActivityConversation({
         messages={messages}
         conversationItems={conversationItems}
         commentThreads={commentThreads}
-        commentsEnabled
         currentUserId={currentUser?.id}
         canOpenInPlace={canOpenInPlace}
       />
@@ -358,6 +357,7 @@ export function ActivityPanel({
     enabled: !taskProp && !collapsed,
   });
   const task = taskProp ?? fetchedTask;
+
   // Warmed from the id alone so they don't queue behind the task itself, which can take
   // seconds to arrive. Same query keys as the panel's own hooks, so this shares one fetch.
   useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });

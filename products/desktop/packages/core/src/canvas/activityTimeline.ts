@@ -90,13 +90,11 @@ export function buildActivityTimeline<
   messages,
   commentThreads,
   userMessages = [],
-  commentsEnabled = true,
 }: {
   task: ActivityTaskLike;
   messages: TMessage[];
   commentThreads: TComment[];
   userMessages?: UserMessageLike[];
-  commentsEnabled?: boolean;
 }): ActivityRow<TMessage, TComment>[] {
   const rows: ActivityRow<TMessage, TComment>[] = [
     {
@@ -158,23 +156,21 @@ export function buildActivityTimeline<
     });
   }
 
-  if (commentsEnabled) {
-    for (const thread of commentThreads) {
+  for (const thread of commentThreads) {
+    rows.push({
+      kind: "comment",
+      key: `comment-${thread.id}`,
+      ts: timestamp(thread.lastActivityAt),
+      thread,
+    });
+    if (thread.stateEvent) {
       rows.push({
-        kind: "comment",
-        key: `comment-${thread.id}`,
-        ts: timestamp(thread.lastActivityAt),
+        kind: "comment_state",
+        key: `comment-state-${thread.id}`,
+        ts: timestamp(thread.stateEvent.createdAt),
         thread,
+        state: thread.stateEvent.state,
       });
-      if (thread.stateEvent) {
-        rows.push({
-          kind: "comment_state",
-          key: `comment-state-${thread.id}`,
-          ts: timestamp(thread.stateEvent.createdAt),
-          thread,
-          state: thread.stateEvent.state,
-        });
-      }
     }
   }
 

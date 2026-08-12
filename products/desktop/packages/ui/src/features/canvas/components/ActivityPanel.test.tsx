@@ -10,8 +10,8 @@ import {
   vi,
 } from "vitest";
 
-// Mutable so a test can render the panel mid-load. Hoisted for the same reason the
-// comments flag below is: a plain `let` is initialized after the hoisted mock factories.
+// Mutable so a test can render the panel mid-load. Hoisted because a plain `let`
+// is initialized after the hoisted mock factories.
 const loaded = vi.hoisted(() => ({ thread: true, comments: true }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useThreadConversation", () => ({

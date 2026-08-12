@@ -182,12 +182,6 @@ export const FullTimeline: Story = {
       // biome-ignore lint/suspicious/noExplicitAny: story fixture for the row under test
     ] as any,
     commentThreads,
-    commentsEnabled: true,
     currentUserId: ben.id,
   },
-};
-
-/** What a reader without the comments flag sees: lifecycle rows only. */
-export const WithoutComments: Story = {
-  args: { ...FullTimeline.args, commentsEnabled: false } as Story["args"],
 };

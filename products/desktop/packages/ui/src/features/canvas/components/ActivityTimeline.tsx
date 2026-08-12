@@ -149,7 +149,6 @@ export function ActivityTimeline({
   messages,
   conversationItems,
   commentThreads = NO_COMMENT_THREADS,
-  commentsEnabled = false,
   currentUserId,
   canOpenInPlace,
 }: {
@@ -160,7 +159,6 @@ export function ActivityTimeline({
   messages: TaskThreadMessage[];
   conversationItems: ConversationItem[];
   commentThreads?: TaskCommentThreadSummary[];
-  commentsEnabled?: boolean;
   currentUserId?: number;
   /** True when the task's transcript and review pane are mounted beside this pane. False in
    *  the channel-home sidebar, where rows stay inert and PRs open externally instead. */
@@ -216,9 +214,8 @@ export function ActivityTimeline({
           },
           [],
         ),
-        commentsEnabled,
       }),
-    [task, messages, commentThreads, conversationItems, commentsEnabled],
+    [task, messages, commentThreads, conversationItems],
   );
 
   // Numbering a run and deciding whether to number it at all have to come from the same
