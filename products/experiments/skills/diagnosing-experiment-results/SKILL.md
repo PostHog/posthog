@@ -1,6 +1,14 @@
 ---
 name: diagnosing-experiment-results
-description: "Diagnoses bias, anomalies, and strange-looking results on a specific PostHog experiment. Covers empty / 0-exposure experiments, sample ratio mismatch, identity fragmentation, multi-variant exposure, uneven-split exclusion bias, significance traps (peeking, A/A, Bayesian vs Frequentist), PostHog-vs-SQL discrepancies, surprises after mid-run edits, and adding a qualitative angle via a survey shown when users finish the experimented flow, split by variant. Symptom-driven dispatch to the right diagnostic.\nTRIGGER when: user asks 'is my experiment biased?' or 'why 0 exposures?', references the bias banner, says a variant looks strange / wrong / off, sees significance flipping, notices PostHog numbers disagreeing with their SQL, sees an A/A test showing significance, reports surprises after mid-run edits, asks what users think of a variant or why they preferred one, wants qualitative feedback on an experiment, or wants to survey the users in an experiment.\nDO NOT TRIGGER when: creating a new experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
+description: >
+  Diagnoses bias, anomalies, empty results, and strange-looking results in a specific PostHog experiment.
+  Covers zero exposures, sample ratio mismatch, identity fragmentation, multi-variant exposure,
+  uneven-split exclusion bias, significance traps, PostHog-versus-SQL discrepancies, mid-run edits,
+  and qualitative feedback by variant. Use when a user asks why experiment results look wrong, sees a
+  bias or SRM warning, gets zero exposures, sees significance flip or an A/A test win, finds PostHog
+  disagrees with SQL, reports surprises after edits, or wants to learn why users preferred a variant.
+  Do not use for creating experiments, rollout-only setup, metric-only setup, or lifecycle-only questions;
+  use the dedicated experiment skills instead.
 ---
 
 # Diagnosing experiment results
