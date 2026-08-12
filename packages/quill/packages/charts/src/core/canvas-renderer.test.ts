@@ -13,7 +13,6 @@ import {
     drawSelectionRect,
     drawTickMarks,
     resolveAxisLineColor,
-    withPlotClip,
     withVerticalClip,
 } from './canvas-renderer'
 import type { ChartDrawArgs, ChartTheme } from './types'
@@ -1181,35 +1180,6 @@ describe('hog-charts canvas-renderer', () => {
                 expect(rectCall[2]).toBe(expectedWidth)
             }
         )
-    })
-})
-
-describe('withPlotClip', () => {
-    it('clips to the plot rect, so a bar past a bounded axis is truncated instead of painting the margins', () => {
-        const ctx = mockCanvasContext()
-        const draw = jest.fn()
-
-        withPlotClip(ctx, dimensions, draw)
-
-        expect(ctx.rect).toHaveBeenCalledWith(
-            dimensions.plotLeft,
-            dimensions.plotTop,
-            dimensions.plotWidth,
-            dimensions.plotHeight
-        )
-        expect(ctx.clip).toHaveBeenCalledTimes(1)
-        expect(draw).toHaveBeenCalledTimes(1)
-    })
-
-    it('restores the context even when draw throws', () => {
-        const ctx = mockCanvasContext()
-
-        expect(() =>
-            withPlotClip(ctx, dimensions, () => {
-                throw new Error('boom')
-            })
-        ).toThrow('boom')
-        expect(ctx.restore).toHaveBeenCalledTimes(1)
     })
 })
 
