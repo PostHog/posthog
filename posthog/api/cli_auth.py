@@ -23,11 +23,13 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.personal_api_key import validate_personal_api_key_scopes
+from posthog.api.personal_api_key import MAX_API_KEYS_PER_USER, validate_personal_api_key_scopes
 from posthog.auth import SessionAuthentication
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.user_permissions import UserPermissions
 
 # Device code lives for 10 minutes
 DEVICE_CODE_EXPIRY_SECONDS = 600
@@ -129,7 +131,9 @@ class CLIAuthViewSet(viewsets.ViewSet):
     def get_permissions(self):
         """Authorize endpoint requires auth, others don't"""
         if getattr(self, "action", None) == "authorize":
-            return [IsAuthenticated()]
+            # Minting a Personal API Key survives logout and a password change, so it carries the same
+            # freshness requirement as PersonalAPIKeyViewSet, which creates the same credential.
+            return [IsAuthenticated(), TimeSensitiveActionPermission()]
         return [AllowAny()]
 
     def get_authenticators(self):
@@ -241,18 +245,32 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Verify user has access to the project
         try:
             team = Team.objects.get(id=project_id)
-            # Check if user has access to this team's organization
-            if not user.organization_memberships.filter(organization=team.organization).exists():
-                return Response(
-                    {"error": "access_denied", "error_description": "You do not have access to this project"},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
         except Team.DoesNotExist:
             return Response(
                 {"error": "invalid_project", "error_description": "Project not found"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Same check PersonalAPIKeySerializer.validate_scoped_teams runs: org membership alone is not
+        # access, because a project the member has been denied under access control is still in their org.
+        if UserPermissions(user).team(team).effective_membership_level is None:
+            return Response(
+                {"error": "access_denied", "error_description": "You do not have access to this project"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        existing_key_count = PersonalAPIKey.objects.filter(user=user).count()
+        if existing_key_count >= MAX_API_KEYS_PER_USER:
+            return Response(
+                {
+                    "error": "too_many_keys",
+                    "error_description": (
+                        f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. "
+                        "Remove an existing key before creating a new one."
+                    ),
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -267,7 +285,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
         team_name_truncated = team.name[:max_team_name_len] if len(team.name) > max_team_name_len else team.name
         label = f"CLI - {team_name_truncated} - {timestamp}"
 
-        had_prior_pat = PersonalAPIKey.objects.filter(user=user).exists()
+        had_prior_pat = existing_key_count > 0
 
         PersonalAPIKey.objects.create(
             user=user,

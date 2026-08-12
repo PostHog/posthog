@@ -1,9 +1,11 @@
+import time
 from datetime import timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -11,9 +13,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.cli_auth import CLI_SCOPES, DEVICE_CODE_EXPIRY_SECONDS, get_device_cache_key, get_user_code_cache_key
+from posthog.api.personal_api_key import MAX_API_KEYS_PER_USER
+from posthog.constants import AvailableFeature
 from posthog.models import PersonalAPIKey, Team, User
 from posthog.models.organization import Organization
-from posthog.models.utils import hash_key_value
+from posthog.models.utils import hash_key_value, mask_key_value
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestCLIAuthDeviceCodeEndpoint(APIBaseTest):
@@ -185,6 +191,59 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_authorization_requires_a_recently_authenticated_session(self):
+        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 100
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+        session.save()
+
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+        self.assertEqual(PersonalAPIKey.objects.filter(user=self.user).count(), 0)
+
+    def test_authorization_rejects_once_the_key_limit_is_reached(self):
+        for index in range(MAX_API_KEYS_PER_USER):
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label=f"existing {index}",
+                secure_value=hash_key_value(f"phx_existing_{index}"),
+                mask_value=mask_key_value(f"phx_existing_{index}"),
+                scopes=["user:read"],
+            )
+
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["error"], "too_many_keys")
+        self.assertEqual(PersonalAPIKey.objects.filter(user=self.user).count(), MAX_API_KEYS_PER_USER)
+
+    def test_authorization_rejects_a_project_the_member_has_no_access_to(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+
+        response = self.client.post(
+            "/api/cli-auth/authorize/",
+            {"user_code": self.user_code, "project_id": self.team.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error"], "access_denied")
+        self.assertEqual(PersonalAPIKey.objects.filter(user=self.user).count(), 0)
 
     def test_authorization_rejects_cross_site_post_without_csrf_token(self):
         from rest_framework.test import APIClient
