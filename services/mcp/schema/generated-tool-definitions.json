@@ -1108,6 +1108,20 @@
             "readOnlyHint": false
         }
     },
+    "canvas-publish-current-version": {
+        "description": "Queue a build for the canvas's current source version without changing its source or metadata. Any project member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale value returns a 409 version_conflict.",
+        "category": "Canvas",
+        "feature": "canvas",
+        "summary": "Publish current canvas version",
+        "title": "Publish current canvas version",
+        "required_scopes": ["canvas:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "canvas-source-retrieve": {
         "description": "Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit the returned files, then publish the complete project with canvas-publish-create, passing the `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten. Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds the React component.",
         "category": "Canvas",
