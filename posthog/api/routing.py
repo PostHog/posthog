@@ -182,10 +182,18 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         try:
             return super().dispatch(request, *args, **kwargs)
         finally:
-            token = getattr(self, "_team_scope_token", None)
-            if token is not None:
-                reset_current_team_id(token)
-                self._team_scope_token = None
+            self._release_team_scope()
+
+    def _release_team_scope(self) -> None:
+        """Reset the team scope this request set, if it set one.
+
+        Idempotent, so a `dispatch` override that returns without reaching the wrapper above can
+        call it without having to know whether `initial()` ran.
+        """
+        token = getattr(self, "_team_scope_token", None)
+        if token is not None:
+            reset_current_team_id(token)
+            self._team_scope_token = None
 
     def initial(self, request, *args, **kwargs):
         """

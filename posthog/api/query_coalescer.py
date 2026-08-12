@@ -457,6 +457,18 @@ class QueryCoalescingMixin(_MixinBase):
         if coalesced is None:
             return super().dispatch(request, *args, **kwargs)
 
+        try:
+            return self._replay_coalesced_response(request, coalesced, *args, **kwargs)
+        finally:
+            # This branch returns without reaching `TeamAndOrgViewSetMixin.dispatch`, whose finally
+            # releases the team scope `initial()` set. ContextVars are thread-local and the worker
+            # thread is reused, so a token left set here would scope the next request on this
+            # thread to this request's team. Views without that mixin set no scope to release.
+            release_team_scope = getattr(self, "_release_team_scope", None)
+            if release_team_scope is not None:
+                release_team_scope()
+
+    def _replay_coalesced_response(self, request, coalesced, *args, **kwargs):
         self.args = args
         self.kwargs = kwargs
         self.headers = self.default_response_headers
