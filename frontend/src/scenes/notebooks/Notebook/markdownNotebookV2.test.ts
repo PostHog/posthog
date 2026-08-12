@@ -1,5 +1,7 @@
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
+import { NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 
 import {
     ArtifactContentType,
@@ -7,6 +9,7 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { NodeKind } from '~/queries/schema/schema-general'
+import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeType } from '../types'
 import {
@@ -17,6 +20,7 @@ import {
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
+    getSqlV2PropsFromQueryProp,
     insertMarkdownNotebookBlockAfterNode,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
@@ -899,6 +903,59 @@ Body`)
 
         it('ignores URLs from other origins', () => {
             expect(convertDroppedPostHogUrlToMarkdownNode('https://example.com/feature_flags/123')).toBeNull()
+        })
+    })
+
+    describe('getSqlV2PropsFromQueryProp', () => {
+        const hogqlQuery = { kind: NodeKind.HogQLQuery, query: 'select event from events' }
+        const visualizationQuery = {
+            kind: NodeKind.DataVisualizationNode,
+            source: hogqlQuery,
+            display: ChartDisplayType.ActionsBar,
+        }
+
+        it.each<[string, NotebookComponentProps, NotebookComponentProps]>([
+            [
+                'a visualization query',
+                { query: visualizationQuery },
+                {
+                    code: 'select event from events',
+                    vizQuery: visualizationQuery,
+                    outputTab: OutputTab.Visualization,
+                },
+            ],
+            [
+                'a data table query',
+                { query: { kind: NodeKind.DataTableNode, source: hogqlQuery } },
+                { code: 'select event from events' },
+            ],
+            ['a bare HogQL query', { query: hogqlQuery }, { code: 'select event from events' }],
+            ['a plain SQL string', { query: 'select event from events' }, { code: 'select event from events' }],
+            [
+                'a query serialized to a JSON string',
+                { query: JSON.stringify(visualizationQuery) },
+                {
+                    code: 'select event from events',
+                    vizQuery: visualizationQuery,
+                    outputTab: OutputTab.Visualization,
+                },
+            ],
+        ])('recovers the SQL from a cell written with %s', (_case, props, expected) => {
+            expect(getSqlV2PropsFromQueryProp(props)).toEqual(expected)
+        })
+
+        it.each<[string, NotebookComponentProps]>([
+            ['the cell already has code', { code: 'select 1', query: hogqlQuery }],
+            ['there is no query prop', { title: 'Events' }],
+            [
+                'the query holds no SQL',
+                { query: { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: ['event'] } } },
+            ],
+            // Never fall through to the plain-SQL reading here: the editor would show JSON and run it.
+            ['a JSON string does not parse', { query: '{"kind":"HogQLQuery",' }],
+            ['a JSON string carries no SQL', { query: JSON.stringify({ kind: NodeKind.EventsQuery }) }],
+        ])('leaves the cell untouched when %s', (_case, props) => {
+            expect(getSqlV2PropsFromQueryProp(props)).toBeNull()
         })
     })
 
