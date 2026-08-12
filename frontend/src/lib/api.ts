@@ -7507,6 +7507,19 @@ if (typeof window !== 'undefined') {
     })
 }
 
+/**
+ * A malformed URL is one of the things `fetch` rejects with a `TypeError` for, and `new URL` would
+ * throw on the same input. Without the fallback that throw escapes from inside the failure path and
+ * replaces the classified `NetworkError` with a bare crash, losing the request that caused it.
+ */
+function requestPathname(url: string): string {
+    try {
+        return new URL(url, location.origin).pathname
+    } catch {
+        return url
+    }
+}
+
 function classifyNetworkFailure(): NetworkFailureReason {
     if (documentUnloading) {
         return 'navigating'
@@ -7564,7 +7577,7 @@ async function handleFetch(
         if (error instanceof TypeError) {
             const reason = classifyNetworkFailure()
             captureClientRequestFailure({
-                pathname: new URL(url, location.origin).pathname,
+                pathname: requestPathname(url),
                 method,
                 duration: new Date().getTime() - startTime,
                 status: 0,

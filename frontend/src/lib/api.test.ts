@@ -348,6 +348,7 @@ describe('API helper', () => {
         // letting one test's simulated navigation classify the next test's failure.
         afterEach(() => {
             window.dispatchEvent(new Event('pageshow'))
+            window.localStorage.removeItem(OAUTH_SESSION_KEY)
         })
 
         it.each([
@@ -392,6 +393,27 @@ describe('API helper', () => {
                     failure_reason: 'network',
                 })
             )
+        })
+
+        it('still classifies the failure when the request URL cannot be parsed', async () => {
+            // `backendHost` comes straight from localStorage, so an out-of-range port reaches the
+            // request URL, and `fetch` rejects it with a TypeError. Deriving the pathname must not
+            // throw on the same URL, which would replace the classified failure with a crash.
+            window.localStorage.setItem(
+                OAUTH_SESSION_KEY,
+                JSON.stringify({
+                    backendHost: 'https://:99999',
+                    clientId: 'client',
+                    accessToken: 'oauth-token',
+                    refreshToken: 'refresh',
+                    expiresAt: 9999999999999,
+                })
+            )
+            fakeFetch.mockRejectedValue(new TypeError('Failed to parse URL'))
+
+            const error = await api.get('/api/projects/2/insights/').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
         })
 
         it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
