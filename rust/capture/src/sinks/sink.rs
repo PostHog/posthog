@@ -12,18 +12,33 @@
 //! v0 whole-request response collapse the results with [`fold_results`].
 
 use async_trait::async_trait;
+use common_types::CapturedEventHeaders;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
-use crate::sinks::producer::ProduceRecord;
+use crate::ordering::OrderingGuarantee;
 
 /// A serialized, addressed record ready for a backend: the sink input.
 /// The uuid identifies the source event so per-event results can be
 /// reported without the sink ever seeing event metadata.
+///
+/// The fields are backend-agnostic: each sink interprets them in its own
+/// terms, and nothing here names a Kafka concept. Kept field-for-field in
+/// sync with `v1::sinks::types::PreparedEvent`, the shape the two stacks
+/// converge on.
 #[derive(Debug, Clone)]
 pub struct PreparedPayload {
     pub uuid: Uuid,
-    pub record: ProduceRecord,
+    /// Realized namespace within the backend: a Kafka topic, an S3 prefix.
+    /// Namespace realization happens above the sink.
+    pub destination: String,
+    /// Raw key; whether the sink uses it is decided by `ordering`.
+    pub partition_key: String,
+    /// The guarantee `partition_key` exists to preserve.
+    /// [`OrderingGuarantee::None`] means publish without a key.
+    pub ordering: OrderingGuarantee,
+    pub payload: Vec<u8>,
+    pub headers: CapturedEventHeaders,
 }
 
 /// What happened to one published payload.

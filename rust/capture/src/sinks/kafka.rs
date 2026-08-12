@@ -422,13 +422,11 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     ///
     /// Prep lives in this file rather than the outputs layer because it
     /// reads state the sink still owns (the topic registry, the replay
-    /// envelope setting) and produces a Kafka-shaped `ProduceRecord` with a
-    /// concrete topic and partition key. Keeping it off the `Sink` trait is
-    /// what matters for the layering: callers above can prep and publish as
-    /// separate phases. The prep hoist (step 12 of
+    /// envelope setting). Keeping it off the `Sink` trait is what matters
+    /// for the layering: callers above can prep and publish as separate
+    /// phases. The prep hoist (step 12 of
     /// `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) moves the assembly and that
-    /// state up once payloads carry backend-agnostic addresses; drop this
-    /// note when it lands.
+    /// state up; drop this note when it lands.
     ///
     /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `prepare_batch`'s serial fast path call it inline
@@ -508,19 +506,15 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             },
         };
 
-        let topic: &str = self.topics.topic_for(&target);
+        let destination = self.topics.topic_for(&target).to_string();
 
-        let partition_key: Option<&str> = match decision.ordering {
-            OrderingGuarantee::PerDistinctId => Some(event_key.as_str()),
-            OrderingGuarantee::None => None,
+        let partition_key = match decision.ordering {
             // resolve() rejects replay events without a session id, so the id
             // is present whenever PerSession is decided.
-            OrderingGuarantee::PerSession => Some(
-                metadata
-                    .session_id
-                    .as_deref()
-                    .ok_or(CaptureError::MissingSessionId)?,
-            ),
+            OrderingGuarantee::PerSession => {
+                metadata.session_id.ok_or(CaptureError::MissingSessionId)?
+            }
+            OrderingGuarantee::PerDistinctId | OrderingGuarantee::None => event_key,
         };
 
         if let Some(encoding) = serializer.content_encoding() {
@@ -529,24 +523,38 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
 
         Ok(PreparedPayload {
             uuid,
-            record: ProduceRecord {
-                topic: topic.to_string(),
-                key: partition_key.map(|s| s.to_string()),
-                payload,
-                headers,
-            },
+            destination,
+            partition_key,
+            ordering: decision.ordering,
+            payload,
+            headers,
         })
     }
 
-    /// Serial, ordering-preserving enqueue into librdkafka. Emits the per-topic
-    /// bytes counter and returns the ack future for the caller to await.
-    /// librdkafka preserves on-wire partition order by `send_result` call order,
-    /// so this MUST be called in the original event order within a batch.
-    fn enqueue_record(&self, record: ProduceRecord) -> Result<P::AckFuture, CaptureError> {
-        let payload_bytes = record.payload.len() as u64;
-        counter!("capture_kafka_produce_bytes_total", "topic" => record.topic.clone())
-            .increment(payload_bytes);
-        self.producer.send(record)
+    /// Serial, ordering-preserving enqueue into librdkafka. The one place the
+    /// backend-agnostic payload becomes Kafka-shaped: `destination` is the
+    /// topic, and `ordering` decides whether the record is keyed. Emits the
+    /// per-topic bytes counter and returns the ack future for the caller to
+    /// await. librdkafka preserves on-wire partition order by `send_result`
+    /// call order, so this MUST be called in the original event order within
+    /// a batch.
+    fn enqueue_record(&self, payload: PreparedPayload) -> Result<P::AckFuture, CaptureError> {
+        counter!("capture_kafka_produce_bytes_total", "topic" => payload.destination.clone())
+            .increment(payload.payload.len() as u64);
+
+        // No key reaches rdkafka as round-robin; `Some("")` would murmur2-hash
+        // every record onto one deterministic hot partition.
+        let key = match payload.ordering {
+            OrderingGuarantee::None => None,
+            _ => Some(payload.partition_key),
+        };
+
+        self.producer.send(ProduceRecord {
+            topic: payload.destination,
+            key,
+            payload: payload.payload,
+            headers: payload.headers,
+        })
     }
 
     /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
@@ -554,7 +562,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// pieces through `prepare_batch` and `Sink::publish`.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
         let payload = self.prepare_record(event)?;
-        self.enqueue_record(payload.record)
+        self.enqueue_record(payload)
     }
 }
 
@@ -682,10 +690,11 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
         let mut ack_set = JoinSet::new();
         let mut payloads = payloads.into_iter();
         for payload in payloads.by_ref() {
-            match self.enqueue_record(payload.record) {
+            let uuid = payload.uuid;
+            match self.enqueue_record(payload) {
                 Ok(ack_future) => {
                     ack_set.spawn(ack_future);
-                    results.push(SinkResult::published(payload.uuid));
+                    results.push(SinkResult::published(uuid));
                 }
                 Err(err) => {
                     // Record enqueue duration on the error path too so slow-fail
@@ -698,7 +707,7 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
                     for result in &mut results {
                         result.outcome = Outcome::Failed(err.clone());
                     }
-                    results.push(SinkResult::failed(payload.uuid, err.clone()));
+                    results.push(SinkResult::failed(uuid, err.clone()));
                     results.extend(payloads.map(|p| SinkResult::failed(p.uuid, err.clone())));
                     return results;
                 }
