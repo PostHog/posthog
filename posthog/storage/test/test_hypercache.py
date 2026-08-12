@@ -112,21 +112,25 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
 
     @parameterized.expand(
         [
-            ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}")),
-            ("object_storage_error", object_storage.ObjectStorageError("read failed")),
-            ("boto_core_error", BotoCoreError()),
-            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),
+            ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}"), True),
+            ("object_storage_error", object_storage.ObjectStorageError("read failed"), False),
+            ("boto_core_error", BotoCoreError(), True),
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject"), True),
         ]
     )
-    def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception):
-        """A storage-layer failure on the S3 read must degrade to a cache miss, not a 500."""
+    def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception, should_capture):
+        """S3 failures fall back to DB without recapturing errors reported by ObjectStorage."""
         self.hypercache.clear_cache(self.team_id, kinds=["redis"])
 
-        with patch.object(object_storage, "read", side_effect=exception):
+        with (
+            patch.object(object_storage, "read", side_effect=exception),
+            patch("posthog.storage.hypercache.capture_exception") as mock_capture,
+        ):
             result, source = self.hypercache.get_from_cache_with_source(self.team_id)
 
         assert result == {"default": "data"}
         assert source == "db"
+        assert mock_capture.called is should_capture
 
     def test_get_from_cache_corrupt_s3_payload_falls_back_to_db(self):
         """A malformed S3 blob (json.JSONDecodeError, a ValueError subclass) must degrade to a cache miss."""

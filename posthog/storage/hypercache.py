@@ -289,9 +289,12 @@ class HyperCache:
             # Any storage-layer failure here (including a misconfigured S3 endpoint that
             # makes boto3 raise on client construction) must degrade to a cache miss and
             # fall through to load_fn, never bubble a 500 up to the request handler.
-            # ValueError also catches json.JSONDecodeError from a corrupt blob, so capture
-            # it — otherwise persistent corruption keeps missing silently as a plain hit_db.
-            capture_exception(e)
+            # ObjectStorage already logs and captures ObjectStorageError at its boundary.
+            # Do not capture its wrapper again here: that creates a second error-tracking
+            # event for every failed read. Other failures originate in this layer (for
+            # example JSONDecodeError from a corrupt blob), so capture those here.
+            if not isinstance(e, ObjectStorageError):
+                capture_exception(e)
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
         try:
