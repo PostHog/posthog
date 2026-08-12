@@ -231,6 +231,48 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         live_refresh_token.refresh_from_db()
         self.assertIsNone(live_refresh_token.revoked)
 
+    def test_oauth_access_token_revocation_does_not_touch_other_sessions_with_same_app(self) -> None:
+        # A leaked token is evidence about that one token, not the user's other sessions
+        # with the same app (e.g. the same app authorized from a second device) - a
+        # report about one session must not revoke another.
+        oauth_app = self._create_oauth_app()
+
+        leaked_refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user, application=oauth_app, token="phr_leaked_session_refresh"
+        )
+        leaked_access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_leaked_session_access",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+            source_refresh_token=leaked_refresh_token,
+        )
+
+        other_refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user, application=oauth_app, token="phr_other_session_refresh"
+        )
+        other_access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=oauth_app,
+            token="pha_other_session_access",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+            source_refresh_token=other_refresh_token,
+        )
+
+        response = self._post("pha_leaked_session_access")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"found": True, "type": CANONICAL_OAUTH_ACCESS_TOKEN})
+        self.assertFalse(OAuthAccessToken.objects.filter(id=leaked_access_token.id).exists())
+        leaked_refresh_token.refresh_from_db()
+        self.assertIsNotNone(leaked_refresh_token.revoked)
+
+        self.assertTrue(OAuthAccessToken.objects.filter(id=other_access_token.id).exists())
+        other_refresh_token.refresh_from_db()
+        self.assertIsNone(other_refresh_token.revoked)
+
     def test_blank_token_returns_400(self) -> None:
         response = self._post("")
 

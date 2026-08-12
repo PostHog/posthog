@@ -4,7 +4,7 @@ from typing import Literal
 from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.api.project_secret_api_key import roll_project_secret_api_key_and_notify
 from posthog.dataclasses import frozen
-from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token, revoke_oauth_session
+from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token, revoke_oauth_token_session
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.project_secret_api_key import find_project_secret_api_key
 from posthog.models.utils import (
@@ -60,13 +60,16 @@ def _revoke_oauth_token(token: str, more_info: str, *, kind: Literal["access", "
         # saw a since-expired token could still force-revoke the holder's live session.
         if access_token is None or access_token.is_expired():
             return False
-        revoke_oauth_session(access_token=access_token)
+        # Scoped to this one access/refresh token pair, not every session the user has
+        # with the application - a leaked-token report is evidence about that one
+        # token, not the user's other sessions. See revoke_oauth_token_session.
+        revoke_oauth_token_session(access_token=access_token)
         user = access_token.user
     else:
         refresh_token = find_oauth_refresh_token(token)
         if refresh_token is None:
             return False
-        revoke_oauth_session(refresh_token=refresh_token)
+        revoke_oauth_token_session(refresh_token=refresh_token)
         user = refresh_token.user
     if user:
         send_oauth_token_exposed(user.id, kind, mask_key_value(token), more_info)

@@ -1126,7 +1126,7 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
-    def test_oauth_access_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
+    def test_oauth_access_token_revocation_revokes_paired_refresh_token_not_grant(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
         oauth_app = self._create_oauth_app()
@@ -1184,11 +1184,14 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         refresh_token.refresh_from_db()
         self.assertIsNotNone(refresh_token.revoked)
 
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # A leaked-token report is evidence about this one token, not the user's other
+        # sessions or in-flight authorizations - revoke_oauth_token_session only revokes
+        # the paired access/refresh token, not other grants for the same user+app.
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
-    def test_oauth_refresh_token_revocation_also_revokes_related_artifacts(self, mock_send_email, mock_verify):
+    def test_oauth_refresh_token_revocation_revokes_paired_access_token_not_grant(self, mock_send_email, mock_verify):
         mock_verify.return_value = None
 
         oauth_app = self._create_oauth_app()
@@ -1246,7 +1249,9 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=access_token_id).exists())
 
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # See the access-token variant above: the narrow revocation doesn't sweep other
+        # grants for the same user+app.
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
     def test_revoked_oauth_refresh_token_returns_false_positive(self, mock_verify):
@@ -1350,8 +1355,9 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         refresh_token.refresh_from_db()
         self.assertIsNotNone(refresh_token.revoked)
 
-        # Grant should be deleted
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # Grant is untouched - it's not part of this token's session (see
+        # revoke_oauth_token_session's docstring)
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())
 
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
@@ -1421,5 +1427,5 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
         refresh_token.refresh_from_db()
         self.assertIsNotNone(refresh_token.revoked)
 
-        # Grant should be deleted
-        self.assertFalse(OAuthGrant.objects.filter(id=grant_id).exists())
+        # Grant is untouched - see the access-token variant above.
+        self.assertTrue(OAuthGrant.objects.filter(id=grant_id).exists())
