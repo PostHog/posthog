@@ -14,6 +14,7 @@ from posthog.sync import database_sync_to_async_pool
 from products.logs.backend.temporal.volume_tick.constants import (
     BUCKET_SECONDS,
     FINALIZATION_ALLOWANCE,
+    MINUTE_SHARDS,
     TEAMS_WITH_LOGS_WINDOW,
 )
 from products.logs.backend.temporal.volume_tick.metrics import (
@@ -34,6 +35,8 @@ class VolumeTickInput:
 class VolumeTickOutput:
     ticked_at: str
     teams_with_logs: int
+    minute_shard: int
+    teams_due_in_shard: int
     due_bucket_start: str
     due_bucket_end: str
 
@@ -53,8 +56,15 @@ def due_bucket_bounds(now: datetime) -> DueBucket:
     return DueBucket(start=end - timedelta(seconds=BUCKET_SECONDS), end=end)
 
 
-def count_teams_with_logs(begin: datetime, end: datetime) -> int:
-    """Distinct teams with at least one log record in [begin, end).
+@frozen
+class TeamsWithLogs:
+    total: int
+    due_in_shard: int
+
+
+def count_teams_with_logs(begin: datetime, end: datetime, shard: int) -> TeamsWithLogs:
+    """Distinct teams with at least one log record in [begin, end), and the subset
+    whose `team_id % MINUTE_SHARDS` puts them in `shard`.
 
     Queries the physical `logs_distributed` table, not `logs` — `logs` is the
     HogQL table alias and does not exist for raw `sync_execute` SQL.
@@ -62,14 +72,16 @@ def count_teams_with_logs(begin: datetime, end: datetime) -> int:
     with tags_context(product=Product.LOGS, feature=Feature.PREAGGREGATION):
         rows = sync_execute(
             """
-            SELECT count(DISTINCT team_id)
+            SELECT
+                uniqExact(team_id),
+                uniqExactIf(team_id, modulo(team_id, %(shards)s) = %(shard)s)
             FROM logs_distributed
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             """,
-            {"begin": begin, "end": end},
+            {"begin": begin, "end": end, "shards": MINUTE_SHARDS, "shard": shard},
             workload=Workload.LOGS,
         )
-    return int(rows[0][0])
+    return TeamsWithLogs(total=int(rows[0][0]), due_in_shard=int(rows[0][1]))
 
 
 @temporalio.activity.defn
@@ -79,10 +91,13 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     # No aggregation runs yet; the rollup writer replaces this body.
     ticked_at = datetime.now(UTC)
     due = due_bucket_bounds(ticked_at)
+    # The smear is observed, not enforced: this fire's minute selects a cohort
+    # and we report its size, but no per-shard work happens yet.
+    minute_shard = ticked_at.minute % MINUTE_SHARDS
     started = time.monotonic()
     try:
-        teams_with_logs = await database_sync_to_async_pool(count_teams_with_logs)(
-            ticked_at - TEAMS_WITH_LOGS_WINDOW, ticked_at
+        counts = await database_sync_to_async_pool(count_teams_with_logs)(
+            ticked_at - TEAMS_WITH_LOGS_WINDOW, ticked_at, minute_shard
         )
     except Exception:
         increment_tick_runs("error")
@@ -90,19 +105,23 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     duration_ms = int((time.monotonic() - started) * 1000)
 
     record_clickhouse_duration(duration_ms)
-    record_teams_with_logs(teams_with_logs)
+    record_teams_with_logs(counts.total)
     increment_tick_runs("ok")
     logger.info(
         "logs_volume_tick_heartbeat",
         ticked_at=ticked_at.isoformat(),
-        teams_with_logs=teams_with_logs,
+        teams_with_logs=counts.total,
+        minute_shard=minute_shard,
+        teams_due_in_shard=counts.due_in_shard,
         clickhouse_duration_ms=duration_ms,
         due_bucket_start=due.start.isoformat(),
         due_bucket_end=due.end.isoformat(),
     )
     return VolumeTickOutput(
         ticked_at=ticked_at.isoformat(),
-        teams_with_logs=teams_with_logs,
+        teams_with_logs=counts.total,
+        minute_shard=minute_shard,
+        teams_due_in_shard=counts.due_in_shard,
         due_bucket_start=due.start.isoformat(),
         due_bucket_end=due.end.isoformat(),
     )

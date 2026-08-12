@@ -20,6 +20,10 @@ TEAMS_WITH_LOGS_WINDOW = timedelta(minutes=5)
 # must stay stable across ticks, backfills, and recomputes, so this is
 # deliberately not env-tunable.
 BUCKET_SECONDS = BUCKET_MINUTES * 60
+# One team cohort per minute of the bucket cadence: the every-minute schedule
+# smears teams across the bucket's minutes (team_id % MINUTE_SHARDS), so each
+# team is processed once per bucket and the write burst spreads out.
+MINUTE_SHARDS = BUCKET_MINUTES
 # A bucket only becomes due this long after it closes, so late-arriving logs are
 # already in place when it is counted. Sized from measured prod ingestion lag:
 # 99.96% of rows land within 10 minutes; the residual tail is reconciliation's job.

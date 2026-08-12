@@ -19,7 +19,7 @@ from products.logs.backend.temporal.volume_tick.activities import (
     count_teams_with_logs,
     due_bucket_bounds,
 )
-from products.logs.backend.temporal.volume_tick.constants import WORKFLOW_NAME
+from products.logs.backend.temporal.volume_tick.constants import MINUTE_SHARDS, WORKFLOW_NAME
 from products.logs.backend.temporal.volume_tick.workflow import LogsVolumeTickWorkflow
 
 TASK_QUEUE = "logs-volume-tick-test"
@@ -36,6 +36,8 @@ async def test_schedule_shaped_invocation_runs_the_tick() -> None:
         return VolumeTickOutput(
             ticked_at="2026-08-12T00:16:00+00:00",
             teams_with_logs=3,
+            minute_shard=1,
+            teams_due_in_shard=1,
             due_bucket_start="2026-08-12T00:00:00+00:00",
             due_bucket_end="2026-08-12T00:05:00+00:00",
         )
@@ -108,8 +110,11 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
 
     def test_counts_distinct_teams_inside_the_half_open_window(self) -> None:
         inside = self.WINDOW_START + timedelta(minutes=1)
-        team_a, team_b, team_c = (secrets.randbelow(2**31 - 4) + 1 for _ in range(3))
-        before = count_teams_with_logs(self.WINDOW_START, self.WINDOW_END)
+        # Residue-controlled ids: team_a lands in shard 1, team_b in shard 2, so
+        # the shard subset is exact regardless of what the random base is.
+        base = (secrets.randbelow(2**27) + 1) * MINUTE_SHARDS
+        team_a, team_b, team_c = base + 1, base + 2, base + 3
+        before = count_teams_with_logs(self.WINDOW_START, self.WINDOW_END, shard=1)
 
         self._insert_log_rows(
             [
@@ -121,6 +126,9 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
             ]
         )
 
+        after = count_teams_with_logs(self.WINDOW_START, self.WINDOW_END, shard=1)
         # +2, not +3: team_a counts once despite two rows, and team_c's rows sit
         # exactly on the outside of both half-open window edges.
-        assert count_teams_with_logs(self.WINDOW_START, self.WINDOW_END) == before + 2
+        assert after.total == before.total + 2
+        # Only team_a's residue matches shard 1; team_b is in the window but in shard 2.
+        assert after.due_in_shard == before.due_in_shard + 1
