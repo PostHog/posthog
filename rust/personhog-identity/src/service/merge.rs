@@ -20,9 +20,9 @@ use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonP
 use crate::leader::PropertyWriter;
 use crate::lifecycle::engine::OpRow;
 use crate::lifecycle::merge::{
-    MergeOpExecutor, MergeOutcome, MergeRequest, MergeSourceEntry, OP_TYPE_MERGE, OUTCOME_ERROR,
-    OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED,
-    OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
+    record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest, MergeSourceEntry,
+    OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON,
+    OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_MOVE_LIMIT,
 };
 use crate::lifecycle::validation::{is_distinct_id_illegal, validate_merge_persons};
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
@@ -30,6 +30,8 @@ use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOut
 /// Handler-decided outcomes that never reach the saga.
 const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
 const OUTCOME_ATTACHED: &str = "attached";
+
+const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
 
 /// The full MergePersons flow, owned by the identity side of the crate.
 pub struct MergeEntrance {
@@ -59,6 +61,7 @@ impl MergeEntrance {
         request: MergePersonsRequest,
     ) -> Result<MergePersonsResponse, Status> {
         let (op_id, move_limit) = validate_merge_persons(&request)?;
+        common_metrics::histogram(MERGE_SOURCES_PER_CALL, &[], request.sources.len() as f64);
         let event_set = parse_json_map(&request.event_set, "event_set")?;
         let event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
         let original = merge_original(&request, &event_set, &event_set_once);
@@ -152,6 +155,19 @@ impl MergeEntrance {
                 };
                 inline_results.insert(did, outcome.to_string());
             }
+        }
+
+        // Inline outcomes never reach the saga's terminal record, so they
+        // are counted here at settlement. A retried call that re-classifies
+        // re-counts — the same at-least-once semantics as the response
+        // itself (see below); a retry that attaches to an existing op
+        // returns above and never re-counts.
+        let mut inline_counts: HashMap<&str, u64> = HashMap::new();
+        for outcome in inline_results.values() {
+            *inline_counts.entry(outcome.as_str()).or_default() += 1;
+        }
+        for (outcome, count) in inline_counts {
+            record_outcome_count(outcome, count);
         }
 
         if saga_sources.is_empty() {
