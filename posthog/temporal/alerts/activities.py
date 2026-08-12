@@ -1,5 +1,3 @@
-import time
-import random
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -16,8 +14,7 @@ from posthog.schema import AlertState
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS, is_transient_memory_limit
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -27,7 +24,6 @@ from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investi
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
-    AlertEvaluationResult,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
@@ -204,56 +200,6 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
         return await _prepare()
 
 
-# Retrying cluster memory pressure in place matters because the fallback is not a prompt second
-# attempt: a failed check records the error and advances next_check_at to the alert's normal cadence
-# slot, so an hourly alert stays silent for an hour over a blip that cleared in seconds.
-# Two retries with a widening wait, because the pressure can outlast a single short pause, and a
-# query rejected under it costs almost nothing: ClickHouse can refuse the allocation for the
-# connection itself, before the query reads anything.
-_TRANSIENT_MEMORY_LIMIT_MAX_ATTEMPTS = 3
-_TRANSIENT_MEMORY_LIMIT_BASE_DELAY_SECONDS = 5.0
-# Only retry a query that aborted well inside the shortest evaluate budget (3 minutes for real-time
-# alerts), so a later attempt cannot push the activity past its start_to_close timeout and turn a
-# recorded error into a workflow failure.
-_TRANSIENT_MEMORY_LIMIT_RETRY_MAX_ELAPSED_SECONDS = 60.0
-
-
-def _memory_limit_scope(error: Exception) -> str | None:
-    """Which ClickHouse memory ceiling the query hit, or None when it did not run out of memory."""
-    if not isinstance(error, ClickHouseQueryMemoryLimitExceeded):
-        return None
-    return "query" if error.is_per_query_limit else "cluster"
-
-
-def _check_alert_for_insight_with_retry(alert: AlertConfiguration) -> AlertEvaluationResult:
-    for attempt in range(1, _TRANSIENT_MEMORY_LIMIT_MAX_ATTEMPTS + 1):
-        started_at = time.monotonic()
-        try:
-            return check_alert_for_insight(alert)
-        except Exception as err:
-            elapsed = time.monotonic() - started_at
-            if (
-                attempt == _TRANSIENT_MEMORY_LIMIT_MAX_ATTEMPTS
-                or not is_transient_memory_limit(err)
-                or elapsed > _TRANSIENT_MEMORY_LIMIT_RETRY_MAX_ELAPSED_SECONDS
-            ):
-                raise
-            # Jitter so alerts that lost the same sweep to cluster pressure don't retry in lockstep.
-            max_delay = _TRANSIENT_MEMORY_LIMIT_BASE_DELAY_SECONDS * 2 ** (attempt - 1)
-            delay = random.uniform(max_delay / 2, max_delay)
-            logger.warning(
-                "alerts.transient_memory_limit_retry",
-                alert_id=str(alert.id),
-                error=str(err),
-                attempt=attempt,
-                delay=round(delay, 1),
-            )
-            # `_evaluate` runs in a worker thread while the Heartbeater keeps beating on the event
-            # loop, so blocking here cannot trip the heartbeat timeout.
-            time.sleep(delay)
-    raise AssertionError("unreachable: the retry loop either returns or re-raises")
-
-
 @temporalio.activity.defn
 async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertResult:
     """Run the insight ClickHouse query, apply the state machine, persist an AlertCheck row."""
@@ -294,7 +240,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         alert_evaluation_result = None
 
         try:
-            alert_evaluation_result = _check_alert_for_insight_with_retry(alert)
+            alert_evaluation_result = check_alert_for_insight(alert)
             value = alert_evaluation_result.value
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
@@ -334,22 +280,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
                 error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
-            # Which memory ceiling ClickHouse hit survives only on the exception object, because
-            # both ceilings carry the same user-facing copy into the message stored on the check.
-            # Log it so the retry decision stays answerable afterwards without reading query_log.
-            logger.exception(
-                "Alert failed to evaluate",
-                alert_id=alert.id,
-                exc_info=err,
-                memory_limit_scope=_memory_limit_scope(err),
-            )
+            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
                 err,
                 additional_properties={
                     "alert_configuration_id": str(alert.id),
                     "insight_id": alert.insight_id,
                     "team_id": alert.team_id,
-                    "memory_limit_scope": _memory_limit_scope(err),
                 },
             )
             error = {"message": str(err), "traceback": traceback.format_exc()}

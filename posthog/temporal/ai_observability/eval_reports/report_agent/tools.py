@@ -25,7 +25,7 @@ from langgraph.prebuilt import InjectedState
 
 from posthog.hogql import ast
 
-from posthog.errors import CH_TRANSIENT_ERRORS, is_transient_memory_limit
+from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.temporal.ai_observability.eval_reports.output_types import (
     EvaluationReportOutcomeDefinition,
     get_outcome_definition,
@@ -222,7 +222,7 @@ T = TypeVar("T")
 
 
 def _is_retriable_ch_error(error: Exception) -> bool:
-    return isinstance(error, RETRIABLE_CH_ERRORS) or is_transient_memory_limit(error)
+    return isinstance(error, RETRIABLE_CH_ERRORS)
 
 
 def _execute_ch_query_with_retry(

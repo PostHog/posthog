@@ -10,6 +10,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.exceptions import (
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQuerySizeExceeded,
@@ -122,12 +123,15 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "TIMEOUT_EXCEEDED":
         return ClickHouseQueryTimeOut()
     elif name == "MEMORY_LIMIT_EXCEEDED":
-        memory_error = ClickHouseQueryMemoryLimitExceeded()
         # Match the known per-query phrasings ("Memory limit (for query) exceeded" before
         # ClickHouse 26, "Query memory limit exceeded" since). Anything else - "(total)",
-        # "(for user)", or a future rewording - counts as transient cluster pressure.
-        memory_error.is_per_query_limit = "(for query)" in err.message or "Query memory limit exceeded" in err.message
-        return memory_error
+        # "(for user)", or a future rewording - counts as transient cluster pressure, which gets
+        # its own class so the CH_TRANSIENT_ERRORS retry paths cover it.
+        if "(for query)" in err.message or "Query memory limit exceeded" in err.message:
+            memory_error = ClickHouseQueryMemoryLimitExceeded()
+            memory_error.is_per_query_limit = True
+            return memory_error
+        return ClickHouseClusterMemoryLimitExceeded()
     elif (
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
@@ -1027,14 +1031,5 @@ CH_TRANSIENT_ERRORS = (
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorTableIsReadOnly,
     ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
 )
-
-
-def is_transient_memory_limit(error: Exception) -> bool:
-    """Whether a memory limit was cluster pressure rather than a query that is too heavy.
-
-    A memory limit only proves the query itself needs narrowing when ClickHouse hit that query's
-    own ceiling. The server-wide and per-user ceilings mean the cluster was busy, so re-running
-    the same query unchanged stands a real chance of succeeding.
-    """
-    return isinstance(error, ClickHouseQueryMemoryLimitExceeded) and not error.is_per_query_limit

@@ -22,7 +22,11 @@ from posthog.schema import (
 )
 
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseQueryMemoryLimitExceeded,
+)
 from posthog.models import User
 from posthog.slo.types import SloOperation, SloOutcome
 from posthog.tasks.alerts.utils import (
@@ -31,6 +35,7 @@ from posthog.tasks.alerts.utils import (
     send_notifications_for_errors,
 )
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
@@ -57,9 +62,9 @@ def _default_threshold_configuration() -> dict:
     return {"type": "absolute", "bounds": {"upper": 100.0}}
 
 
-def _memory_limit_error(*, is_per_query_limit: bool) -> ClickHouseQueryMemoryLimitExceeded:
+def _memory_limit_error() -> ClickHouseQueryMemoryLimitExceeded:
     error = ClickHouseQueryMemoryLimitExceeded()
-    error.is_per_query_limit = is_per_query_limit
+    error.is_per_query_limit = True
     return error
 
 
@@ -450,84 +455,41 @@ class TestEvaluateAlert:
         assert "2 numeric columns" in reason
         assert targets  # the subscribed owner's email
 
-    async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
-        # Transient CH errors bubble up so Temporal's retry policy handles them.
-        # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
+    # Transient CH errors bubble up so Temporal's retry policy handles them.
+    # Capacity errors (codes 202/439) surface as ClickHouseAtCapacity, so that's what we simulate.
+    # A server-wide or per-user memory limit is the same kind of cluster pressure: recording it as
+    # an error instead sends the alert silent until its next cadence slot, an hour for hourly ones.
+    @pytest.mark.parametrize(
+        "error_class",
+        [ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded],
+    )
+    async def test_evaluate_reraises_ch_transient_error(self, alert, error_class) -> None:
         with patch(
             "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=ClickHouseAtCapacity(),
+            side_effect=error_class(),
         ):
             env = ActivityEnvironment()
-            with pytest.raises(ClickHouseAtCapacity):
+            with pytest.raises(error_class):
                 await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
         # No AlertCheck should have been written
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
 
-    # The first case guards the alert going silent until its next cadence slot, which for an hourly
-    # alert is an hour, over pressure that cleared on its own. The second pins the attempts as
-    # bounded, so pressure that never clears cannot spin the activity until its timeout.
-    @pytest.mark.parametrize(
-        "side_effect,expected_calls,expected_state",
-        [
-            pytest.param(
-                [
-                    _memory_limit_error(is_per_query_limit=False),
-                    AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
-                ],
-                2,
-                AlertState.FIRING,
-                id="pressure_clears_on_the_retry",
-            ),
-            pytest.param(
-                [_memory_limit_error(is_per_query_limit=False) for _ in range(3)],
-                3,
-                AlertState.ERRORED,
-                id="pressure_outlasts_every_attempt",
-            ),
-        ],
-    )
-    async def test_evaluate_retries_when_the_cluster_ran_out_of_memory(
-        self, alert, side_effect, expected_calls, expected_state
-    ) -> None:
-        with (
-            patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=side_effect,
-            ) as mock_check,
-            patch("posthog.temporal.alerts.activities._TRANSIENT_MEMORY_LIMIT_BASE_DELAY_SECONDS", 0),
+    async def test_evaluate_records_error_when_the_query_ran_out_of_memory(self, alert) -> None:
+        # The query hit its own memory ceiling, so retrying it fails identically. It has to stay on
+        # the recorded-error path rather than joining the transient class above.
+        with patch(
+            "posthog.temporal.alerts.activities.check_alert_for_insight",
+            side_effect=_memory_limit_error(),
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
-        assert mock_check.call_count == expected_calls
-        assert result.new_state == expected_state
-
-        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
-        assert check.state == expected_state
-
-    async def test_evaluate_does_not_retry_when_the_query_ran_out_of_memory(self, alert) -> None:
-        # The query hit its own memory ceiling, so a second attempt fails identically and only adds
-        # load to a cluster that is already struggling with this query.
-        with (
-            patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=_memory_limit_error(is_per_query_limit=True),
-            ) as mock_check,
-            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
-        ):
-            env = ActivityEnvironment()
-            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
-
-        assert mock_check.call_count == 1
         assert result.new_state == AlertState.ERRORED
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.error is not None
-        # The stored message is the same copy for both ceilings, so which one it was has to reach
-        # error tracking or the retry decision can't be reviewed afterwards.
-        assert mock_capture.call_args.kwargs["additional_properties"]["memory_limit_scope"] == "query"
 
     async def test_evaluate_non_retryable_when_alert_deleted_mid_workflow(self) -> None:
         env = ActivityEnvironment()
@@ -885,6 +847,15 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+
+@pytest.mark.parametrize("calculation_interval", [None, AlertCalculationInterval.REAL_TIME])
+def test_cluster_memory_limit_stays_retryable_for_the_evaluate_policy(calculation_interval) -> None:
+    # The evaluate policy takes its non-retryable list from the exports user-error class names, and
+    # the cluster class subclasses one of them. Listing it there too would stop every retry, so the
+    # re-raise out of evaluate_alert would fail the workflow on the first attempt instead.
+    policy = alert_timeouts(calculation_interval).evaluate_retry_policy
+    assert ClickHouseClusterMemoryLimitExceeded.__name__ not in (policy.non_retryable_error_types or [])
 
 
 @pytest.mark.asyncio
