@@ -1432,7 +1432,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     last_run_at = models.DateTimeField(null=True, blank=True)
     # Failure-streak circuit breaker over this lane's run outcomes, maintained by the runner:
     # bumped on a failed run, zeroed on a successful one. At the threshold
-    # `failure_streak_pause_threshold` derives from this lane's cadence, the runner pauses it
+    # `failure_streak_pause_threshold` derives from this lane's own schedule, the runner pauses it
     # (`transition_status_by_system`, `repeated_failures`) and the
     # coordinator holds it to one probe per `AUTO_PAUSE_PROBE_INTERVAL_S`. Without it a lane
     # that can never succeed re-dispatches forever, taking a full-length sandbox lease per

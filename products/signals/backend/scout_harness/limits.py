@@ -46,27 +46,41 @@ FAILURE_STREAK_MIN_RUNS = 5
 # workday shorter than the 24h probe cooldown the pause then costs — the healthy scouts the
 # breaker exists to leave alone are exactly the ones it trips first. So the streak also has
 # to span this much wall clock before it counts as a wedge, which is what
-# `failure_streak_pause_threshold` converts into a per-cadence run count.
+# `failure_streak_pause_threshold` converts into a per-lane run count.
 FAILURE_STREAK_MIN_SPAN_MINUTES = 12 * 60
 
-# Ceiling on the derived threshold, so a cadence at or below the schedule floor can never
-# turn the span into an unbounded lease budget. The 30-minute floor on `run_interval_minutes`
-# (and on the minimum gap between cron occurrences) puts the tightest real lane exactly here.
+# Ceiling on the derived threshold, so a lane that runs constantly can never turn the span
+# into an unbounded lease budget. The 30-minute floor on `run_interval_minutes` (and on the
+# minimum gap between cron occurrences) puts the densest real lane exactly here.
 FAILURE_STREAK_MAX_RUNS = 24
 
 
-def failure_streak_pause_threshold(cadence_minutes: int) -> int:
-    """Consecutive failures this lane's cadence has to reach before the breaker pauses it.
+def failure_streak_pause_threshold(runs_in_tolerance_window: int) -> int:
+    """Consecutive failures this lane has to reach before the breaker pauses it.
 
     Deliberately not a fleet-wide number: the same count means hours on an hourly scout and
     weeks on a monthly one, so one constant either trips healthy tight lanes during an outage
-    or lets broken slow lanes burn leases for months. Callers pass the lane's effective
-    cadence (`run_interval_minutes`, or the tightest gap of its cron schedule).
+    or lets broken slow lanes burn leases for months.
+
+    Callers pass how many runs the lane's schedule actually fits inside
+    `FAILURE_STREAK_MIN_SPAN_MINUTES` — the most an outage of that length can consume, and so
+    the most the breaker has to sit through before a streak means "wedged" rather than "the
+    platform was down". Deliberately not derived from one gap between runs: a bursty schedule
+    can pair a tight gap with only a couple of runs a day, and sizing off the gap would hand
+    it the tolerance of a lane that runs all day, i.e. weeks of lease burn.
     """
-    if cadence_minutes <= 0:
-        return FAILURE_STREAK_MIN_RUNS
-    runs_to_span = -(-FAILURE_STREAK_MIN_SPAN_MINUTES // cadence_minutes)  # ceil
-    return max(FAILURE_STREAK_MIN_RUNS, min(FAILURE_STREAK_MAX_RUNS, runs_to_span))
+    return max(FAILURE_STREAK_MIN_RUNS, min(FAILURE_STREAK_MAX_RUNS, runs_in_tolerance_window))
+
+
+def interval_runs_in_tolerance_window(interval_minutes: int) -> int:
+    """Runs a rolling-interval lane fits in the tolerance window — the evenly spaced case.
+
+    Cron lanes count occurrences instead (`runner._failure_streak_runs_in_window`), since
+    their gaps are uneven and no single one stands for the window's worth of runs.
+    """
+    if interval_minutes <= 0:
+        return 1
+    return -(-FAILURE_STREAK_MIN_SPAN_MINUTES // interval_minutes)  # ceil
 
 
 # Cooldown a paused lane holds before the coordinator dispatches one probe — the half-open

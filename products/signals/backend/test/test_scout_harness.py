@@ -41,7 +41,7 @@ from products.signals.backend.scout_harness.runner import (
     RunResult,
     _ai_stage,
     _create_run_row,
-    _effective_cadence_minutes,
+    _failure_streak_runs_in_window,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -1087,46 +1087,46 @@ async def test_sandbox_env_matches_config_network_access(
     assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
 
 
+def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int) -> int:
+    config = SignalScoutConfig(run_cron_schedule=cron_schedule, run_interval_minutes=interval_minutes)
+    return failure_streak_pause_threshold(_failure_streak_runs_in_window(config))
+
+
 @parameterized.expand(
     [
-        # The schedule floor. Bounded, so the tightest lane cannot turn the span into an
+        # The schedule floor. Bounded, so the densest lane cannot turn the span into an
         # unbounded lease budget.
-        ("floor_cadence", 30, 24),
+        ("floor_interval", None, 30, 24),
         # The outage case the breaker used to get wrong: hourly lanes accrued five failures
         # inside an outage shorter than the 24h probe cooldown the pause then cost them.
-        ("hourly", 60, 12),
-        ("two_hourly", 120, 6),
+        ("hourly_interval", None, 60, 12),
+        ("two_hourly_interval", None, 120, 6),
         # Past the span the count floor takes over — a broken lane must not get more leases
         # just because it runs rarely.
-        ("six_hourly", 360, 5),
-        ("daily_default", 1440, 5),
-        ("monthly_ceiling", 43200, 5),
+        ("six_hourly_interval", None, 360, 5),
+        ("daily_default", None, 1440, 5),
+        ("monthly_interval", None, 43200, 5),
+        # A cron wins at dispatch, but `run_interval_minutes` keeps whatever it held before —
+        # so reading the column alone would size an hourly lane as a daily one.
+        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 12),
+        ("half_hourly_cron_hits_the_ceiling", "*/30 * * * *", 1440, 24),
+        # Bursty: a 30-minute gap that repeats twice a day is not a lane that runs all day, and
+        # must not be handed the tolerance of one — that is twelve days of leases on a wedge.
+        ("bursty_cron_is_not_a_dense_lane", "0,30 0 * * *", 1440, 5),
+        ("uneven_daily_cron", "0 9,17 * * *", 1440, 5),
+        # Both only reachable by an out-of-band write (the API validates cron and interval on
+        # save); a run's breaker bookkeeping must not die on either.
+        ("malformed_cron_falls_back_to_the_interval", "not a cron", 60, 12),
+        ("nonsensical_interval_falls_back_to_the_floor", None, 0, 5),
     ]
 )
-def test_failure_breaker_threshold_scales_with_cadence(_name, cadence_minutes, expected):
-    # A fleet-wide count means hours on a tight lane and months on a slow one: it either trips
-    # healthy hourly scouts during a platform outage or lets a wedged daily scout burn leases
-    # for weeks. Both directions have to hold at once.
-    assert failure_streak_pause_threshold(cadence_minutes) == expected
-
-
-@parameterized.expand(
-    [
-        # A cron schedule wins at dispatch, but `run_interval_minutes` keeps whatever it held
-        # before — so reading the column alone would size an hourly lane as a daily one.
-        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 60),
-        # Uneven gaps: failures accrue at the tightest one, which is the tolerant answer.
-        ("uneven_gaps_use_tightest", "0 9,17 * * *", 1440, 480),
-        ("no_cron_uses_interval", None, 60, 60),
-        # Only reachable by an out-of-band write; a run's breaker bookkeeping must not die on it.
-        ("malformed_cron_falls_back", "not a cron", 120, 120),
-    ]
-)
-def test_effective_cadence_prefers_the_schedule_the_lane_actually_runs_on(
+def test_failure_breaker_threshold_tracks_the_runs_an_outage_can_consume(
     _name, cron_schedule, interval_minutes, expected
 ):
-    config = SignalScoutConfig(run_cron_schedule=cron_schedule, run_interval_minutes=interval_minutes)
-    assert _effective_cadence_minutes(config) == expected
+    # A fleet-wide count means hours on a tight lane and months on a slow one: it either trips
+    # healthy hourly scouts during a platform outage or lets a wedged daily scout burn leases
+    # for weeks. Both directions have to hold at once, on cron lanes as well as interval ones.
+    assert _resolved_failure_threshold(cron_schedule, interval_minutes) == expected
 
 
 @parameterized.expand(
@@ -1467,9 +1467,9 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     capture = MagicMock()
     await _run_once(failing=True, capture=capture)
     config = await _reload()
-    # The breaker scales with the lane's cadence, so the streak this run has to reach is
+    # The breaker scales with the lane's schedule, so the streak this run has to reach is
     # derived from the config rather than fixed.
-    threshold = failure_streak_pause_threshold(config.run_interval_minutes)
+    threshold = failure_streak_pause_threshold(_failure_streak_runs_in_window(config))
     for _ in range(threshold - 2):
         await _run_once(failing=True, capture=capture)
     config = await _reload()
