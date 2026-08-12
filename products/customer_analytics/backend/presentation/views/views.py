@@ -215,7 +215,7 @@ class FeatureRequestProductAreaViewSet(
 
     @validated_request(
         query_serializer=FeatureRequestProductAreaListQuerySerializer,
-        responses={200: FeatureRequestProductAreaSerializer(many=True)},
+        responses={200: OpenApiResponse(response=FeatureRequestProductAreaSerializer(many=True))},
     )
     def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         include_inactive = request.validated_query_data["include_inactive"]
