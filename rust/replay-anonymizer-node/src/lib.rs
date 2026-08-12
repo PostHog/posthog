@@ -12,7 +12,8 @@ use std::sync::RwLock;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use posthog_replay_anonymizer::{
-    snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy, PhaseTimings, UrlCollection,
+    politeness_key, snapshot, AllowLists, FailKind, ImageCollection, ImagePolicy, PhaseTimings,
+    UrlCollection,
 };
 use serde::Deserialize;
 
@@ -237,9 +238,23 @@ fn anonymize_kafka_payload_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     Ok(promise)
 }
 
+/// The registrable domain of a host, for the fetch lane's rate limit.
+///
+/// Exported so the fetcher asks this crate rather than deriving the same value from a second public
+/// suffix list in Node. The value is a contract: it is the Kafka key of the fetch topic, and a host
+/// that arrives through a redirect has to land in the budget its key would have put it in. Two
+/// implementations of one contract disagree the moment either list is updated.
+///
+/// It needs no initialized state, so a lane that only fetches never calls `initAnonymizer`.
+fn politeness_key_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
+    let host = cx.argument::<JsString>(0)?.value(&mut cx);
+    Ok(cx.string(politeness_key(&host)))
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("initAnonymizer", init_anonymizer)?;
     cx.export_function("anonymizeKafkaPayload", anonymize_kafka_payload_ffi)?;
+    cx.export_function("politenessKey", politeness_key_ffi)?;
     Ok(())
 }

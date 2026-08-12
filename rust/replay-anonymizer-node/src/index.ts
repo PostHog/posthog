@@ -169,3 +169,19 @@ export async function anonymizeKafkaPayload(
     }
     return { ...result, timings }
 }
+
+/**
+ * The politeness unit for a host: the registrable domain, or the host itself when it has none.
+ *
+ * The fetch lane rate limits by this value, and the fetch topic keys on it, so the two have to be
+ * the same value. That is why it comes from here rather than from a public suffix list in Node: one
+ * list, updated once, answers for both. The private section of the list is what keeps
+ * `user.github.io` and `d111.cloudfront.net` from sharing a budget with every other tenant of the
+ * same provider.
+ *
+ * An IP literal has no registrable domain and comes back unchanged, because the address is the
+ * operator.
+ */
+export function politenessKey(host: string): string {
+    return native.politenessKey(host)
+}

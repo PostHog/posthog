@@ -1,3 +1,5 @@
+import { politenessKey } from '@posthog/replay-anonymizer'
+
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
 
@@ -5,7 +7,6 @@ import { FetchCandidate } from './collected-urls-record'
 import { HostBudget } from './host-budget'
 import { FetchOutcome, ImageFetchResult, ImageFetcher, RedirectDecision } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
-import { politenessKey } from './politeness-key'
 
 /** Why a URL never reached a request. Shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
 export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline'
@@ -280,6 +281,8 @@ export class FetchRunner implements FetchPass {
      * still gets the rate limit, which is the part that protects it.
      */
     private async authorizeRedirect(url: URL, deadlineMs: number): Promise<RedirectDecision> {
+        // The same function the producer keys the topic with, called through the addon rather than
+        // reimplemented here. One public suffix list answers for both, so the two cannot drift.
         const grant = this.budget.take(politenessKey(url.hostname), Date.now(), deadlineMs)
         if (!grant.granted) {
             // Deferred rather than refused, so no sighting is written. Every refusal reason here
