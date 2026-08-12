@@ -23,8 +23,9 @@ use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
 use personhog_identity::lifecycle::delete::DeleteDriver;
 use personhog_identity::lifecycle::engine::Engine;
-use personhog_identity::lifecycle::merge::MergeDriver;
+use personhog_identity::lifecycle::merge::{MergeDriver, MergeOpExecutor};
 use personhog_identity::lifecycle::PersonHogLifecycleService;
+use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 
@@ -233,11 +234,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
 
-    let service = PersonHogIdentityService::new(storage, property_writer, config.request_limits());
     // Separate proto service co-served on the same server so lifecycle
     // callers are insulated from any future split.
+    let merge_entrance = MergeEntrance::new(
+        storage.clone(),
+        property_writer.clone(),
+        MergeOpExecutor::new(
+            engine.clone(),
+            MergeDriver::new(property_writer.clone(), config.tables()),
+        ),
+    );
     let lifecycle_service =
         PersonHogLifecycleService::new(engine, lifecycle_leader, config.tables());
+    let service = PersonHogIdentityService::new(
+        storage,
+        property_writer,
+        config.request_limits(),
+        merge_entrance,
+    );
 
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
