@@ -15,6 +15,7 @@ from django.core.cache import cache
 import structlog
 
 from posthog.models.person.util import get_persons_by_distinct_ids
+from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.conversations.backend.models.constants import Status
@@ -178,6 +179,51 @@ def get_person_distinct_ids(team_id: int, distinct_id: str) -> list[str]:
         logger.warning("conversations_cache_set_error", key=key)
 
     return all_ids
+
+
+VERIFIED_TICKET_KEYS_CACHE_TTL = 30  # seconds
+
+
+def get_verified_ticket_keys(team_id: int, verified_distinct_id: str) -> list[str]:
+    """Every value of `Ticket.distinct_id` that a verified widget identity may read.
+
+    The widget writes the requester's analytics distinct_id, so expanding the verified
+    distinct_id across the person's merged ids finds widget tickets. The Slack and email
+    channels have no analytics identity to write, so both store the requester's email
+    address in `distinct_id` instead. Without the email among the lookup keys, a ticket
+    the requester opened over Slack or by email is invisible to them in the widget and
+    in the "Your tickets" view, including the ticket that a lifecycle email links to.
+
+    The email is read from the User row the verified distinct_id resolves to. It must come
+    from a server-owned record, because person properties and request fields are both
+    settable by anyone holding the project's public token, and matching tickets on either
+    would let a caller claim another person's tickets with a distinct_id they can sign for.
+    """
+
+    key = _make_cache_key("verified_ticket_keys", str(team_id), verified_distinct_id)
+    try:
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+
+    keys = list(get_person_distinct_ids(team_id, verified_distinct_id))
+    account_email = User.objects.filter(distinct_id=verified_distinct_id).values_list("email", flat=True).first()
+    if account_email:
+        # Matching is exact so that Postgres can use the (team_id, distinct_id) index. The
+        # lowercased form is included as well because the channels copy the address through
+        # from Slack or from an SMTP envelope without normalizing its case.
+        for candidate in (account_email, account_email.lower()):
+            if candidate not in keys:
+                keys.append(candidate)
+
+    try:
+        cache.set(key, keys, timeout=VERIFIED_TICKET_KEYS_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)
+
+    return keys
 
 
 # Slack Bot User ID Cache

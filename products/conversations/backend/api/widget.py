@@ -8,7 +8,9 @@ Security model:
 - `distinct_id`: PostHog's user identifier. Used for PERSON LINKING only, not access control.
 - `identity_distinct_id` + `identity_hash`: HMAC-signed identity for verified users (opt-in).
 
-Anonymous users are controlled by widget_session_id. Verified users are controlled by distinct_id.
+Anonymous users are controlled by widget_session_id. Verified users are controlled by
+`get_verified_ticket_keys`, which covers the person's distinct_ids plus the email address on the
+account behind them, because the Slack and email channels key their tickets by email address.
 """
 
 import uuid
@@ -42,7 +44,7 @@ from products.conversations.backend.api.serializers import (
 from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
-    get_person_distinct_ids,
+    get_verified_ticket_keys,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
@@ -242,7 +244,7 @@ class WidgetMessageView(APIView):
                 ticket = Ticket.objects.get(id=ticket_id, team=team)
 
                 if verified_distinct_id is not None:
-                    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+                    allowed_ids = get_verified_ticket_keys(team.id, verified_distinct_id)
                     if ticket.distinct_id not in allowed_ids:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                 else:
@@ -388,7 +390,7 @@ class WidgetMessagesView(APIView):
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
-            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            allowed_ids = get_verified_ticket_keys(team.id, verified_distinct_id)
             if ticket.distinct_id not in allowed_ids:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         elif "widget_session_id" in query_serializer.validated_data:
@@ -524,7 +526,7 @@ class WidgetTicketsView(APIView):
 
         # Build query
         if verified_distinct_id is not None:
-            all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            all_ids = get_verified_ticket_keys(team.id, verified_distinct_id)
             tickets_query = Ticket.objects.filter(team=team, distinct_id__in=all_ids)
         else:
             tickets_query = Ticket.objects.filter(team=team, widget_session_id=cache_key_id)
@@ -608,7 +610,7 @@ class WidgetMarkReadView(APIView):
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
-            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+            allowed_ids = get_verified_ticket_keys(team.id, verified_distinct_id)
             if ticket.distinct_id not in allowed_ids:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
             cache_invalidation_key = f"iv:{verified_distinct_id}"

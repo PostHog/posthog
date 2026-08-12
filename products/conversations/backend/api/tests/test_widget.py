@@ -3,6 +3,7 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -13,7 +14,7 @@ from posthog.models.comment import Comment
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer
 from products.conversations.backend.models import SigningSecret, Ticket
-from products.conversations.backend.models.constants import ChannelDetail, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import compute_identity_hash
 
 
@@ -1032,6 +1033,93 @@ class TestWidgetIdentityVerification(BaseTest):
             },
             **self._get_headers(),
         )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class TestWidgetIdentityCrossChannelAccess(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+        self.widget_token = "test_widget_token_123"
+        self.secret = "test_secret_key"
+        self.team.conversations_enabled = True
+        self.team.conversations_settings = {"widget_public_token": self.widget_token}
+        self.team.secret_api_token = self.secret
+        self.team.save()
+
+        self.user.distinct_id = "posthog-user-distinct-id"
+        self.user.email = "requester@example.com"
+        self.user.save()
+
+        self.identity = {
+            "identity_distinct_id": self.user.distinct_id,
+            "identity_hash": compute_identity_hash(self.user.distinct_id, self.secret),
+        }
+        self.client = APIClient()
+
+    def _get_headers(self):
+        return {"HTTP_X_CONVERSATIONS_TOKEN": self.widget_token}
+
+    def _create_ticket(self, channel_source, requester_email):
+        # Mirrors how slack.py and email_events.py key a requester who has no analytics
+        # identity to attach: the email address lands in distinct_id, not email_from.
+        return Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="",
+            distinct_id=requester_email,
+            channel_source=channel_source,
+            anonymous_traits={"name": "Requester", "email": requester_email},
+            email_from=requester_email if channel_source == Channel.EMAIL else None,
+            identity_verified=True,
+        )
+
+    def _request_ticket_surface(self, surface, ticket):
+        if surface == "messages":
+            return self.client.get(
+                f"/api/conversations/v1/widget/messages/{ticket.id}", self.identity, **self._get_headers()
+            )
+        if surface == "mark_read":
+            return self.client.post(
+                f"/api/conversations/v1/widget/messages/{ticket.id}/read", self.identity, **self._get_headers()
+            )
+        return self.client.post(
+            "/api/conversations/v1/widget/message",
+            {**self.identity, "ticket_id": str(ticket.id), "message": "Any update on this?"},
+            **self._get_headers(),
+        )
+
+    @parameterized.expand([(Channel.SLACK,), (Channel.EMAIL,)])
+    def test_lists_tickets_opened_on_a_channel_that_keys_the_requester_by_email(self, channel_source):
+        ticket = self._create_ticket(channel_source, self.user.email)
+
+        response = self.client.get("/api/conversations/v1/widget/tickets", self.identity, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([t["id"] for t in response.json()["results"]], [str(ticket.id)])
+
+    def test_does_not_list_a_ticket_opened_by_a_different_email(self):
+        self._create_ticket(Channel.SLACK, "someone.else@example.com")
+
+        response = self.client.get("/api/conversations/v1/widget/tickets", self.identity, **self._get_headers())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0)
+
+    @parameterized.expand([("messages",), ("mark_read",), ("reply",)])
+    def test_slack_ticket_is_reachable_by_the_account_that_opened_it(self, surface):
+        ticket = self._create_ticket(Channel.SLACK, self.user.email)
+
+        response = self._request_ticket_surface(surface, ticket)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @parameterized.expand([("messages",), ("mark_read",), ("reply",)])
+    def test_slack_ticket_opened_by_a_different_email_stays_forbidden(self, surface):
+        ticket = self._create_ticket(Channel.SLACK, "someone.else@example.com")
+
+        response = self._request_ticket_surface(surface, ticket)
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
 
