@@ -39553,7 +39553,7 @@ export namespace Schemas {
     }
 
     /**
-     * Coarse type per key candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
+     * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
      */
     export type IncrementalEligibilityKeyCandidateTypes = {[key: string]: string};
 
@@ -39563,9 +39563,11 @@ export namespace Schemas {
     export interface IncrementalEligibility {
       /** True when nothing blocks incremental materialization. */
       eligible: boolean;
-      /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot advance as a watermark (booleans, arrays), and for a union only includes columns every branch produces. */
+      /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot serve as an advancing watermark (strings, booleans, arrays), and for a union only includes columns every branch produces. */
       key_candidates: string[];
-      /** Coarse type per key candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
+      /** Output columns the unique key may be built from. A superset of key_candidates: identifying a row only needs equality, so strings qualify here even though they cannot be the incremental key. */
+      unique_key_candidates: string[];
+      /** Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
       key_candidate_types: IncrementalEligibilityKeyCandidateTypes;
       /** Reasons this query cannot be incremental. Each names the construct responsible. */
       blockers: string[];

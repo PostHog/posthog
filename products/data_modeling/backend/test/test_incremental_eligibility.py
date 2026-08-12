@@ -321,19 +321,35 @@ class TestStarExpansion:
             ("boolean", "SELECT timestamp, timestamp > now() AS flag FROM events", "flag"),
             ("array", "SELECT timestamp, [1, 2] AS xs FROM events", "xs"),
             ("tuple", "SELECT timestamp, (1, 2) AS pair FROM events", "pair"),
+            ("string", "SELECT timestamp, event FROM events", "event"),
         ]
     )
-    def test_unorderable_columns_are_not_candidates(self, _name: str, query: str, column: str) -> None:
+    def test_columns_that_cannot_track_new_rows_are_not_key_candidates(
+        self, _name: str, query: str, column: str
+    ) -> None:
         result = self._check(query)
 
         assert column not in result.key_candidates
         assert "timestamp" in result.key_candidates
+
+    def test_strings_stay_available_for_the_unique_key(self) -> None:
+        # A grouped query's unique key must cover every GROUP BY column, and those are often
+        # strings - excluding them here would make such queries impossible to configure.
+        result = self._check(
+            "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event"
+        )
+
+        assert "event" not in result.key_candidates
+        assert "event" in result.unique_key_candidates
+        assert "day" in result.unique_key_candidates
+        assert "c" not in result.unique_key_candidates
 
     def test_without_a_database_types_are_unknown_and_nothing_is_filtered(self) -> None:
         result = check_incremental_eligibility("SELECT timestamp, flag FROM events", None)
 
         assert result.key_candidate_types == {}
         assert "flag" in result.key_candidates
+        assert result.unique_key_candidates == result.key_candidates
 
     @parameterized.expand(
         [

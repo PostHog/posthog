@@ -64,17 +64,25 @@ _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.AggregateStateType: "aggregate",
 }
 
-# Types that cannot advance as a watermark: two booleans, an array, or a map have no "highest value
-# so far" for the next run to start from. Strings stay: keys like toString(toDate(timestamp)) are
-# supported, and lexicographic order advances for them. Unknown types stay too, since a wrong
-# exclusion hides a working column while a wrong inclusion just fails validation.
-_UNORDERABLE_TYPE_LABELS = {"boolean", "array", "tuple", "map", "interval", "aggregate"}
+# Types that cannot serve as a watermark. Booleans, arrays, and maps have no "highest value so
+# far" for the next run to start from. Strings are excluded as a product call: lexicographic order
+# is arbitrary for most string columns, so offering them invites keys that silently miss rows.
+# Unknown types stay, since a wrong exclusion hides a working column while a wrong inclusion just
+# fails validation.
+_NON_KEY_TYPE_LABELS = {"boolean", "array", "tuple", "map", "interval", "aggregate", "string"}
+
+# The unique key has looser needs: it only has to identify a row, so any equatable type works —
+# and it MUST admit strings, since every GROUP BY column (event names, ids) has to be coverable.
+_NON_UNIQUE_KEY_TYPE_LABELS = {"array", "tuple", "map", "interval", "aggregate"}
 
 
 @dataclass(frozen=True, kw_only=True)
 class EligibilityResult:
     eligible: bool
     key_candidates: list[str] = field(default_factory=list)
+    # Columns the unique key may be built from: a superset of key_candidates, since identifying a
+    # row only needs equality while the incremental key needs an advancing order.
+    unique_key_candidates: list[str] = field(default_factory=list)
     # Coarse type per candidate, for the picker's type tags. Missing entry: type unknown.
     key_candidate_types: dict[str, str] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
@@ -102,12 +110,15 @@ def check_incremental_eligibility(
     raw_selects = _leaf_selects(node)
     resolved_selects = _resolved_selects(node, database)
     selects = resolved_selects if resolved_selects is not None else raw_selects
-    key_candidates = _key_candidates(selects)
+    all_candidates = _key_candidates(selects)
     key_candidate_types = (
         _key_candidate_types(resolved_selects, database) if resolved_selects is not None and database else {}
     )
-    # A column whose type cannot advance would only ever fail validation, so don't offer it.
-    key_candidates = [name for name in key_candidates if key_candidate_types.get(name) not in _UNORDERABLE_TYPE_LABELS]
+    # A column whose type cannot serve would only ever fail validation, so don't offer it.
+    key_candidates = [name for name in all_candidates if key_candidate_types.get(name) not in _NON_KEY_TYPE_LABELS]
+    unique_key_candidates = [
+        name for name in all_candidates if key_candidate_types.get(name) not in _NON_UNIQUE_KEY_TYPE_LABELS
+    ]
 
     blockers: list[str] = []
     warnings: list[str] = []
@@ -124,6 +135,7 @@ def check_incremental_eligibility(
         return EligibilityResult(
             eligible=not blockers,
             key_candidates=key_candidates,
+            unique_key_candidates=unique_key_candidates,
             key_candidate_types=key_candidate_types,
             blockers=_unique(blockers),
             warnings=_unique(warnings),
@@ -139,6 +151,7 @@ def check_incremental_eligibility(
     return EligibilityResult(
         eligible=not blockers,
         key_candidates=key_candidates,
+        unique_key_candidates=unique_key_candidates,
         key_candidate_types=key_candidate_types,
         blockers=_unique(blockers),
         warnings=_unique(warnings),

@@ -151,12 +151,15 @@ function UniqueKeyInput({
     onChange: (value: string[]) => void
     dataAttr: string
 }): JSX.Element {
+    // Wider than key_candidates: identifying a row only needs equality, so strings qualify here
+    // even though they cannot track new rows.
+    const candidates = check.unique_key_candidates ?? check.key_candidates
     return (
         <LemonInputSelect
             mode="multiple"
             value={value}
             onChange={onChange}
-            options={check.key_candidates.map((column) => ({
+            options={candidates.map((column) => ({
                 key: column,
                 label: column,
                 labelComponent: <ColumnWithType column={column} columnType={check.key_candidate_types?.[column]} />,

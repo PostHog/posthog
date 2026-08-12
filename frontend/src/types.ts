@@ -6203,7 +6203,9 @@ export interface DataWarehouseSavedQueryIncrementalState {
 export interface DataWarehouseSavedQueryIncrementalCheck {
     eligible: boolean
     key_candidates: string[]
-    /** Coarse type per key candidate (datetime, date, integer, ...). No entry: type unknown */
+    /** Superset of key_candidates: identity only needs equality, so strings qualify here */
+    unique_key_candidates?: string[]
+    /** Coarse type per candidate (datetime, date, integer, ...). No entry: type unknown */
     key_candidate_types?: Record<string, string>
     blockers: string[]
     warnings: string[]
