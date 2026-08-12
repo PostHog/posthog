@@ -672,20 +672,36 @@ def _report_install_pending(user: User, team_id: int | None, setup_action: str) 
     the install screen. Neither case writes a row anywhere, so this event is the only trace the
     attempt leaves. The approval-requested case is the one that matters, because owner approval can
     take days and nothing else records that the wait started.
+
+    Reported only when the callback resolved to a team the user belongs to. Without that, a bare
+    ``/integrations/github/callback/?setup_action=request`` would record an approval request against
+    whichever project the user happens to have open, since ``report_user_action`` falls back to
+    ``user.current_team``.
     """
-    team = Team.objects.filter(id=team_id).first() if team_id is not None else None
-    report_user_action(
-        user,
-        "integration install pending",
-        {
-            "integration_kind": "github",
-            # Kept raw as well as derived so an unfamiliar setup_action shows up rather than
-            # silently folding into the "abandoned" side of the boolean.
-            "setup_action": setup_action or None,
-            "requested_approval": setup_action == "request",
-        },
-        team=team,
-    )
+    if team_id is None:
+        return
+
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+
+    try:
+        report_user_action(
+            user,
+            "integration install pending",
+            {
+                "integration_kind": "github",
+                # Kept raw as well as derived so an unfamiliar setup_action shows up rather than
+                # silently folding into the "abandoned" side of the boolean.
+                "setup_action": setup_action or None,
+                "requested_approval": setup_action == "request",
+            },
+            team=team,
+        )
+    except Exception:
+        # The pending redirect is the graceful outcome of an install that did not complete. Letting a
+        # capture failure raise would turn it into an error page for a callback that is otherwise fine.
+        logger.exception("github_team_setup: failed to report pending install", team_id=team_id, user_id=user.id)
 
 
 def finish_team_setup(http_request) -> FinishResult:

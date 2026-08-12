@@ -3471,26 +3471,33 @@ class GitHubIntegration(GitHubIntegrationBase):
             integration.errors = ""
             integration.save()
 
-        # Every other kind reports this from IntegrationSerializer.create(). GitHub is linked through
-        # its own App installation callback, which never reaches that serializer, so GitHub connects
-        # were absent from the event entirely. Report it here to make the kind comparable.
+        # Every other kind reports this from IntegrationSerializer.create(). GitHub also gets created
+        # through its App installation callback and through agentic provisioning, which never reach
+        # that serializer, so this is the one place every GitHub connect passes through.
+        # IntegrationSerializer.create() skips github for the same reason: its own github branch ends
+        # up here, and reporting in both would count one connection twice.
         if created and created_by is not None:
             from posthog.event_usage import (  # noqa: PLC0415 — posthog.event_usage imports posthog.models
                 report_user_action,
             )
 
             owner_type = dot_get(installation_access.installation_info, "account.type", None)
-            report_user_action(
-                created_by,
-                "integration created",
-                {
-                    "integration_kind": "github",
-                    "is_overwrite": False,
-                    "repo_owner_type": owner_type,
-                    "account_type": github_account_type(owner_type),
-                },
-                team=integration.team,
-            )
+            try:
+                report_user_action(
+                    created_by,
+                    "integration created",
+                    {
+                        "integration_kind": "github",
+                        "is_overwrite": False,
+                        "repo_owner_type": owner_type,
+                        "account_type": github_account_type(owner_type),
+                    },
+                    team=integration.team,
+                )
+            except Exception:
+                # The integration row is already committed. Raising here would report a connection
+                # that actually succeeded as a failure.
+                logger.exception("github_integration: failed to report integration created")
 
         invalidate_github_repository_caches_for_installation(installation_id)
 

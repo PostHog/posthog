@@ -2283,18 +2283,20 @@ class TestGitHubIntegrationStateValidation:
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
+    # Deliberately does not mock `integration_from_installation_id`: this serializer branch reaches it,
+    # and mocking it hides whichever of the two emitters is wrong.
     @patch("posthog.api.integration.report_user_action")
+    @patch("posthog.event_usage.report_user_action")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.user_integration.user_github_integration_from_installation")
-    def test_create_github_integration_reports_account_type(
+    @patch("posthog.models.integration.GitHubIntegration.fetch_installation_access")
+    def test_create_github_integration_reports_created_exactly_once(
         self,
-        mock_user_integration,
-        mock_from_install,
+        mock_fetch,
         mock_from_code,
         mock_verify,
-        mock_report,
+        mock_model_report,
+        mock_serializer_report,
         client: HttpClient,
     ):
         from posthog.models.integration import GitHubUserAuthorization
@@ -2319,12 +2321,12 @@ class TestGitHubIntegrationStateValidation:
             refresh_token_expires_in=None,
         )
         mock_verify.return_value = True
-        mock_from_install.return_value = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345", "account": {"type": "Organization", "name": "acme"}},
-            sensitive_config={"access_token": "ghs_test"},
+        mock_fetch.return_value = GitHubInstallationAccess(
+            installation_id="12345",
+            installation_info={"account": {"type": "Organization", "login": "acme"}},
+            access_token="ghs_token",
+            token_expires_at=(timezone.now() + timedelta(hours=1)).isoformat(),
+            repository_selection="selected",
         )
 
         response = client.post(
@@ -2334,8 +2336,12 @@ class TestGitHubIntegrationStateValidation:
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
-        mock_report.assert_called_once()
-        props = mock_report.call_args.args[2]
+        # The serializer reports every other kind, but must stay silent for github.
+        assert mock_serializer_report.call_count == 0
+        # The same request also links the personal account, so filter to the team event.
+        created_calls = [c for c in mock_model_report.call_args_list if c.args[1] == "integration created"]
+        assert len(created_calls) == 1
+        props = created_calls[0].args[2]
         assert props["integration_kind"] == "github"
         assert props["repo_owner_type"] == "Organization"
         assert props["account_type"] == "organization"
@@ -2670,6 +2676,20 @@ class TestGitHubTeamIntegrationComplete:
 
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_install_pending=1" in response["Location"]
+
+    @patch("posthog.api.github_callback.team_services.report_user_action")
+    def test_pending_without_callback_state_is_not_reported(self, mock_report):
+        # No stored authorize state: anyone logged in can hit this URL directly. It still redirects,
+        # but recording it would let a hand-typed URL inflate the approval-request metric, and would
+        # attribute it to whichever project the user happens to have open.
+        client = HttpClient()
+        client.force_login(self.user)
+
+        response = client.get("/integrations/github/callback/", {"setup_action": "request"})
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_install_pending=1" in response["Location"]
+        assert mock_report.call_count == 0
 
     @parameterized.expand(
         [

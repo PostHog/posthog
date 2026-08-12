@@ -575,18 +575,23 @@ def _report_personal_integration_created(user: "User", config: dict[str, Any], *
     from posthog.event_usage import report_user_action  # noqa: PLC0415 — posthog.event_usage imports posthog.models
 
     owner_type = (config.get("account") or {}).get("type")
-    report_user_action(
-        user,
-        "personal integration created",
-        {
-            "integration_kind": "github",
-            "repo_owner_type": owner_type,
-            "account_type": github_account_type(owner_type),
-            # True when the row rode along with a team App install rather than the user
-            # deliberately linking their account under Personal integrations.
-            "auto_created": auto_created,
-        },
-    )
+    try:
+        report_user_action(
+            user,
+            "personal integration created",
+            {
+                "integration_kind": "github",
+                "repo_owner_type": owner_type,
+                "account_type": github_account_type(owner_type),
+                # True when the row rode along with a team App install rather than the user
+                # deliberately linking their account under Personal integrations.
+                "auto_created": auto_created,
+            },
+        )
+    except Exception:
+        # The row is already committed. Raising here would report a link that actually succeeded as
+        # a failure, and on the team install path it would take the team connect down with it.
+        logger.exception("user_github_integration: failed to report personal integration created")
 
 
 def refresh_user_github_installation_access(

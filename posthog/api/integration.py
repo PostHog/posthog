@@ -89,7 +89,6 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
-    github_account_type,
 )
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
@@ -480,19 +479,17 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 self.context["request"].user, self.context["get_team"]()
             ):
                 raise PermissionDenied("Editing an existing integration requires project admin access.")
-        report_properties: dict[str, Any] = {"integration_kind": kind, "is_overwrite": is_overwrite}
-        if kind == "github":
-            # Surface whether the connected GitHub account is an org or a personal one, mirroring the
-            # account_type we attach to PR webhook events. GitHub reports "Organization" / "User".
-            owner_type = ((instance.config or {}).get("account") or {}).get("type")
-            report_properties["repo_owner_type"] = owner_type
-            report_properties["account_type"] = github_account_type(owner_type)
-        report_user_action(
-            self.context["request"].user,
-            "integration created",
-            report_properties,
-            team=self.context["get_team"](),
-        )
+        # GitHub reports from GitHubIntegration.integration_from_installation_id instead, because it
+        # is also created outside this serializer (the App installation callback, agentic
+        # provisioning). This branch reaches that same helper, so reporting here too would count a
+        # new connection twice.
+        if kind != "github":
+            report_user_action(
+                self.context["request"].user,
+                "integration created",
+                {"integration_kind": kind, "is_overwrite": is_overwrite},
+                team=self.context["get_team"](),
+            )
         return instance
 
     def _build_integration(self, validated_data: Any) -> Any:
