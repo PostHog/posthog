@@ -498,8 +498,16 @@ _task_queue_specs = [
     ),
     (
         settings.LOGS_ALERTING_TASK_QUEUE,
-        LOGS_ALERTING_WORKFLOWS + LOGS_VOLUME_TICK_WORKFLOWS,
-        LOGS_ALERTING_ACTIVITIES + LOGS_VOLUME_TICK_ACTIVITIES,
+        LOGS_ALERTING_WORKFLOWS,
+        LOGS_ALERTING_ACTIVITIES,
+    ),
+    # Dedicated landing zone for the logs volume tick. Defaults to the logs-alerting queue name (so it
+    # merges into that fleet until a dedicated worker exists); setting LOGS_VOLUME_TICK_TASK_QUEUE on a
+    # worker registers these workflows under the dedicated queue, letting dispatch move there with no code change.
+    (
+        settings.LOGS_VOLUME_TICK_TASK_QUEUE,
+        LOGS_VOLUME_TICK_WORKFLOWS,
+        LOGS_VOLUME_TICK_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,

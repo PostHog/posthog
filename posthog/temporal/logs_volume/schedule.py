@@ -30,10 +30,7 @@ async def create_logs_volume_tick_schedule(client: Client) -> None:
             VOLUME_TICK_WORKFLOW_NAME,
             asdict(VolumeTickInput()),
             id=VOLUME_TICK_SCHEDULE_ID,
-            # Rides the logs-alerting queue so the skeleton needs no new worker
-            # deployment; split to a dedicated queue when the rollup writer's
-            # resource profile justifies one.
-            task_queue=settings.LOGS_ALERTING_TASK_QUEUE,
+            task_queue=settings.LOGS_VOLUME_TICK_TASK_QUEUE,
         ),
         spec=ScheduleSpec(cron_expressions=[VOLUME_TICK_SCHEDULE_CRON]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
