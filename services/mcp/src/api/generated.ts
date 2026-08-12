@@ -17087,8 +17087,8 @@ export namespace Schemas {
     export type ConversionGoalPatch = PartialConversionGoalFilter1 | PartialConversionGoalFilter2 | PartialConversionGoalFilter3;
 
     export interface ConversionGoalSummary {
-      /** Unique id of the goal (event name, action id, or DW goal id) */
-      id: string;
+      /** Id of the goal. Pass this to the explain, update and delete endpoints. */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -35856,11 +35856,13 @@ export namespace Schemas {
     } as const;
 
     /**
-     * One agent's access to a gateway server.
+     * One agent's access to a gateway server, on behalf of one member.
      */
     export interface GatewayAgentAccess {
       /** Service account granted access. */
       service_account_id: string;
+      /** The member whose connection the agent uses. */
+      user: UserBasic;
       /** Agent display name. */
       name: string;
       /** Agent identity handle, e.g. posthog-support. */
@@ -35875,7 +35877,7 @@ export namespace Schemas {
          * @nullable
          */
       last_active_at: string | null;
-      /** Admin who shared this server with the agent. */
+      /** Member who shared this server with the agent. */
       granted_by: UserBasic | null;
     }
 
@@ -36395,8 +36397,8 @@ export namespace Schemas {
     }
 
     export interface GoalExplanation {
-      /** Id of the explained conversion goal */
-      goal_id: string;
+      /** conversion_goal_id of the explained goal */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       goal_name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -44521,6 +44523,8 @@ export namespace Schemas {
     export interface MCPServiceAccountServer {
       /** Gateway server granted to the agent. */
       id: string;
+      /** The member whose connection the agent uses. */
+      shared_by: UserBasic;
       /** Server display name. */
       name: string;
       /** Server description. */
@@ -68854,10 +68858,12 @@ export namespace Schemas {
     } as const;
 
     export interface ServiceAccountAccessUpdate {
-      /** Gateway server to grant or revoke. */
+      /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
-      /** True grants access, false revokes it. */
+      /** True shares the caller's own connection with the agent, false removes the caller's share. */
       enabled: boolean;
+      /** Only valid with enabled=false. Removes every member's share of this server with this agent, along with the agent's tool policies for it. Project admins only. */
+      all?: boolean;
       /**
          * Optional agent-scope tool policies to set alongside the grant. At most 1,000 entries per request.
          * @maxItems 1000
@@ -87115,6 +87121,11 @@ export namespace Schemas {
 
     export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
     /**
+     * conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.
+     * @minLength 1
+     */
+    conversion_goal_id: string;
+    /**
      * ISO start; defaults to 30 days ago
      * @nullable
      */
@@ -87124,11 +87135,6 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
-    /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
-     * @minLength 1
-     */
-    goal_id: string;
     };
 
     export type MarketingAnalyticsSetupPlanRetrieveParams = {
