@@ -1,0 +1,45 @@
+import {
+  activityActorLabel,
+  summarizeActivity,
+} from "@posthog/core/support/activitySummary";
+import { Text } from "@posthog/quill";
+import { formatRelativeTimeShort } from "@posthog/shared";
+import { Section } from "@posthog/ui/features/support/components/SidebarSection";
+import { useSupportTicketActivity } from "@posthog/ui/features/support/hooks/useSupportTicketActivity";
+
+export function TicketActivity({ ticketId }: { ticketId: string }) {
+  const { data, isPending, isError } = useSupportTicketActivity(ticketId);
+  const entries = data ?? [];
+
+  if (!isPending && !isError && entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <Section title="Activity">
+      <div className="flex flex-col gap-1 py-1.5">
+        {isPending && (
+          <Text className="text-[12px] text-muted-foreground">Loading…</Text>
+        )}
+        {isError && (
+          <Text className="text-[12px] text-muted-foreground">
+            Could not load activity.
+          </Text>
+        )}
+        {entries.map((entry) => (
+          <div key={entry.id} className="flex items-baseline gap-2">
+            <Text className="min-w-0 flex-1 text-[12px] leading-snug">
+              <span className="font-medium">{activityActorLabel(entry)}</span>{" "}
+              <span className="text-muted-foreground">
+                {summarizeActivity(entry)}
+              </span>
+            </Text>
+            <Text className="shrink-0 text-[10px] text-gray-11 tabular-nums">
+              {formatRelativeTimeShort(entry.created_at)}
+            </Text>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}

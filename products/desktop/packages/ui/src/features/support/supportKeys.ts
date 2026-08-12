@@ -9,6 +9,8 @@ export const supportKeys = {
     [...supportKeys.all, "ticket-detail", ticketId] as const,
   thread: (ticketId: string) =>
     [...supportKeys.all, "thread", ticketId] as const,
+  activity: (ticketId: string) =>
+    [...supportKeys.all, "activity", ticketId] as const,
   unreadCount: () => [...supportKeys.all, "unread-count"] as const,
   views: () => [...supportKeys.all, "views"] as const,
 };

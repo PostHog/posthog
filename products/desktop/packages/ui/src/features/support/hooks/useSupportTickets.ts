@@ -10,14 +10,15 @@ const TICKET_LIST_POLL_INTERVAL_MS = 30_000;
 
 export function useSupportTickets(
   options: SupportTicketListOptions,
-  queryOptions?: { enabled?: boolean },
+  queryOptions?: { enabled?: boolean; refetchInterval?: number | false },
 ) {
   return useAuthenticatedQuery<SupportTicketPage>(
     supportKeys.ticketList(options),
     (client) => client.listSupportTickets(options),
     {
       enabled: queryOptions?.enabled ?? true,
-      refetchInterval: TICKET_LIST_POLL_INTERVAL_MS,
+      refetchInterval:
+        queryOptions?.refetchInterval ?? TICKET_LIST_POLL_INTERVAL_MS,
       placeholderData: keepPreviousData,
     },
   );

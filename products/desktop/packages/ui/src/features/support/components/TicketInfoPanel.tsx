@@ -1,6 +1,10 @@
-import { CaretDownIcon } from "@phosphor-icons/react";
+import { ArrowSquareOutIcon, CaretDownIcon } from "@phosphor-icons/react";
 import type { Schemas } from "@posthog/api-client";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
+import {
+  githubIssueUrl,
+  slackThreadUrl,
+} from "@posthog/core/support/ticketLinks";
 import { isTicketSnoozed } from "@posthog/core/support/ticketState";
 import {
   isTicketTaskTag,
@@ -21,6 +25,12 @@ import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authCl
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { PRBadgeLink } from "@posthog/ui/features/git-interaction/components/PRBadgeLink";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
+import {
+  Row,
+  Section,
+} from "@posthog/ui/features/support/components/SidebarSection";
+import { TicketActivity } from "@posthog/ui/features/support/components/TicketActivity";
+import { TicketHistory } from "@posthog/ui/features/support/components/TicketHistory";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
 import {
   TICKET_PRIORITY_LABELS,
@@ -133,13 +143,18 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
 
         <Row label="Snooze">
           {snoozed ? (
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => write({ snoozed_until: null })}
-            >
-              Wake now
-            </Button>
+            <div className="flex items-center gap-2">
+              <Text className="text-[12px] text-muted-foreground">
+                {formatSnoozedUntil(ticket.snoozed_until)}
+              </Text>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => write({ snoozed_until: null })}
+              >
+                Wake now
+              </Button>
+            </div>
           ) : (
             <Text className="text-[12px] text-muted-foreground">
               Not snoozed
@@ -169,9 +184,7 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
           </Text>
         </Row>
         <Row label="Channel">
-          <Text className="font-medium text-[12px]">
-            {ticket.channel_source}
-          </Text>
+          <ChannelValue ticket={ticket} />
         </Row>
         <Row label="Messages">
           <Text className="font-medium text-[12px] tabular-nums">
@@ -179,8 +192,51 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
           </Text>
         </Row>
       </Section>
+
+      <TicketActivity ticketId={ticket.id} />
+      <TicketHistory ticket={ticket} />
     </div>
   );
+}
+
+function ChannelValue({ ticket }: { ticket: SupportTicket }) {
+  const slackUrl = slackThreadUrl(ticket);
+  const issueUrl = githubIssueUrl(ticket);
+
+  return (
+    <div className="flex items-center gap-2">
+      <Text className="font-medium text-[12px]">{ticket.channel_source}</Text>
+      {slackUrl && <ExternalRowLink href={slackUrl} label="Open in Slack" />}
+      {issueUrl && (
+        <ExternalRowLink
+          href={issueUrl}
+          label={`#${ticket.github_issue_number}`}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExternalRowLink({ href, label }: { href: string; label: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center gap-0.5 text-[12px] text-accent hover:underline"
+    >
+      {label}
+      <ArrowSquareOutIcon size={11} />
+    </a>
+  );
+}
+
+function formatSnoozedUntil(snoozedUntil: string | null | undefined): string {
+  if (!snoozedUntil) {
+    return "";
+  }
+  const until = Date.parse(snoozedUntil);
+  return Number.isNaN(until) ? "" : `until ${new Date(until).toLocaleString()}`;
 }
 
 function TicketPullRequestRow({ taskId }: { taskId: string | null }) {
@@ -243,27 +299,5 @@ function PickerMenu({
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <Text className="px-0.5 font-semibold text-[10px] text-muted-foreground uppercase tracking-wider">
-        {title}
-      </Text>
-      <div className="rounded-(--radius-3) border border-border bg-card px-2.5">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex min-h-8 items-center justify-between gap-2 border-border border-b py-1 last:border-b-0">
-      <Text className="text-[12px] text-muted-foreground">{label}</Text>
-      {children}
-    </div>
   );
 }

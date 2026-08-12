@@ -121,7 +121,7 @@ function StartThreadForm({
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Ask the agent…"
-            className="min-h-[56px] text-[13px]"
+            className="max-h-[160px] min-h-[56px] resize-none text-[13px] [field-sizing:content]"
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();

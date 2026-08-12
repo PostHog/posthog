@@ -199,6 +199,8 @@ export interface TaskRunSessionLogsResult {
 }
 
 export const SUPPORT_THREAD_PAGE_SIZE = 50;
+export const SUPPORT_ACTIVITY_PAGE_SIZE = 50;
+export const SUPPORT_HISTORY_PAGE_SIZE = 10;
 
 export type SupportTicket = Omit<Schemas.Ticket, "tags" | "assignee"> & {
   tags?: string[];
@@ -225,6 +227,21 @@ export interface SupportTicketMessage {
 export interface SupportTicketPage {
   results: SupportTicket[];
   count: number;
+}
+
+export interface SupportActivityChange {
+  field?: string | null;
+  before?: unknown;
+  after?: unknown;
+}
+
+export interface SupportActivityEntry {
+  id: string;
+  activity: string;
+  created_at: string;
+  is_system?: boolean | null;
+  user?: { first_name?: string; last_name?: string; email?: string } | null;
+  detail?: { changes?: SupportActivityChange[] | null } | null;
 }
 
 export interface SupportTicketMessagePage {
@@ -262,6 +279,7 @@ export interface SupportTicketListOptions {
   sla?: "breached" | "at-risk" | "on-track";
   assignee?: SupportAssigneeFilter[];
   tags?: string[];
+  distinctIds?: string[];
   search?: string;
   orderBy?: SupportTicketOrderBy;
   view?: string;
@@ -304,6 +322,9 @@ function buildSupportTicketQuery(
   }
   if (options?.tags?.length) {
     query.tags = JSON.stringify(options.tags);
+  }
+  if (options?.distinctIds?.length) {
+    query.distinct_ids = options.distinctIds.join(",");
   }
   if (options?.search) {
     query.search = options.search;
@@ -7295,5 +7316,33 @@ export class PostHogAPIClient {
     });
     const data = (await response.json()) as { results?: SupportTicketView[] };
     return data.results ?? [];
+  }
+
+  async listSupportTicketActivity(
+    ticketId: string,
+  ): Promise<SupportActivityEntry[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/activity_log/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("scope", "Ticket");
+    url.searchParams.set("item_id", ticketId);
+    url.searchParams.set("page_size", String(SUPPORT_ACTIVITY_PAGE_SIZE));
+
+    try {
+      const response = await this.api.fetcher.fetch({
+        method: "get",
+        url,
+        path,
+      });
+      const data = (await response.json()) as {
+        results?: SupportActivityEntry[];
+      };
+      return data.results ?? [];
+    } catch (error) {
+      if (requestErrorStatus(error) === 402) {
+        return [];
+      }
+      throw error;
+    }
   }
 }

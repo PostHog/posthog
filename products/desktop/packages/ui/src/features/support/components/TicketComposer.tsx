@@ -75,7 +75,7 @@ export function TicketComposer({ ticket }: { ticket: SupportTicket }) {
               ? "Write a note only your team can see…"
               : "Write a reply to the customer…"
           }
-          className="min-h-[64px] text-[13px]"
+          className="max-h-[45vh] min-h-[64px] resize-none text-[13px] [field-sizing:content]"
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
