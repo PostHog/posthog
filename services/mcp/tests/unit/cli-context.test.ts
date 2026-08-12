@@ -59,5 +59,4 @@ describe('CLI context', () => {
             })
         )
     })
-
 })
