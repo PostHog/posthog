@@ -237,7 +237,7 @@ class SecretAlert(APIView):
 
             if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
                 more_info = f"This key was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_PERSONAL_API_KEY, more_info, trusted=True)
+                revocation = revoke_leaked_secret(token, CANONICAL_PERSONAL_API_KEY, more_info)
                 local_found = revocation.found
 
                 pending_events.append(
@@ -256,7 +256,7 @@ class SecretAlert(APIView):
 
             elif item["type"] == GITHUB_TYPE_FOR_SECURE_API_KEY:
                 more_info = f"This key was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_PROJECT_SECRET_API_KEY, more_info, trusted=True)
+                revocation = revoke_leaked_secret(token, CANONICAL_PROJECT_SECRET_API_KEY, more_info)
                 local_found = revocation.found
                 key_kind = "project_secret_api_key" if revocation.found else None
 
@@ -287,7 +287,7 @@ class SecretAlert(APIView):
 
             elif item["type"] == GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN:
                 more_info = f"This token was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_ACCESS_TOKEN, more_info, trusted=True)
+                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_ACCESS_TOKEN, more_info)
                 local_found = revocation.found
 
                 pending_events.append(
@@ -306,7 +306,7 @@ class SecretAlert(APIView):
 
             elif item["type"] == GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN:
                 more_info = f"This token was detected by GitHub at {item['url']}."
-                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_REFRESH_TOKEN, more_info, trusted=True)
+                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_REFRESH_TOKEN, more_info)
                 local_found = revocation.found
 
                 pending_events.append(

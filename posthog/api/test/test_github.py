@@ -1034,11 +1034,11 @@ class TestOAuthTokenSecretAlert(APIBaseTest):
     @patch("posthog.api.github.verify_github_signature")
     @patch("posthog.api.secret_revocation.send_oauth_token_exposed")
     def test_expired_oauth_access_token_report_still_revokes_and_notifies(self, mock_send_email, mock_verify):
-        # GitHub's report is a signed, independently-verified claim, not a possession
-        # claim - unlike the anonymous public endpoint, a report for an already-expired
-        # access token still revokes the paired refresh token and notifies the owner.
-        # GitHub's scan-to-report latency for historical commits routinely exceeds the
-        # access token's own lifetime, so this is the common case, not an edge case.
+        # An already-expired access token can't authenticate on its own, but revoking
+        # still matters if the same exposure also affects the longer-lived paired
+        # refresh token - and GitHub's scan-to-report latency for historical commits
+        # routinely exceeds the access token's own lifetime, so a report for an
+        # already-expired token is the common case here, not an edge case.
         mock_verify.return_value = None
 
         oauth_app = self._create_oauth_app()
