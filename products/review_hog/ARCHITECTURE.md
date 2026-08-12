@@ -197,10 +197,12 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    re-researches only the pending ones. The keep/drop **criteria are pulled, not baked**: the prompt instructs the
    agent to `skill-get` the team's `review-hog-validation-criteria` skill (version pinned by
    `load_validation_skill_for_run`), so the bar for "this issue matters" is team-owned, like the perspectives.
-9. **Build report + finalize** — `build_review_body(chunks, issues, validations, pr_files)` renders the public body
-   in-process (verdicts sourced from the DB via `load_run_validations`, the same rows publish reads); chunks with
-   no validated finding are skipped, and valid `MUST_FIX`/`SHOULD_FIX` findings whose line isn't on the diff are
-   appended as an **"Other findings (outside the changed lines)"** section so they aren't silently dropped at publish.
+9. **Build report + finalize** — `build_review_body(issues, validations, pr_files)` renders the public body
+   in-process (verdicts sourced from the DB via `load_run_validations`, the same rows publish reads). The body is
+   **one line: how many findings this turn publishes, by severity** ("Found **2 must fix**, **1 consider**.") —
+   no chunk walk, no file inventory, no summary of the diff, because nobody reads one. Valid `MUST_FIX`/`SHOULD_FIX`
+   findings whose line isn't on the diff are still appended as an **"Other findings (outside the changed lines)"**
+   section so they aren't silently dropped at publish.
    `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark.
 10. **Publish** — `publish_review` (GitHub REST via the gated egress transport, **DB-driven**) reads the body from
     `ReviewReport.report_markdown` and the inline comments from the valid finding/verdict rows (`load_valid_findings`),
@@ -346,17 +348,16 @@ All Pydantic. `models/__init__.py` is the authoritative registry that generates 
 `schema.json` files from `Model.model_json_schema()` — **`schema.json` files are generated artifacts; edit
 the model and regenerate, never hand-edit.**
 
-| Model                                                                        | File                                    | Schema-backed?                    | Role                                                                                                                                       |
-| ---------------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ChunksList` / `Chunk` / `FileInfo`                                          | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                                                                       |
-| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PerspectiveType` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of the dedup → validate → publish stages; `Issue.source_perspective` records which perspective found it |
-| `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                                                                      |
-| `IssueValidation`                                                            | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` (+ optional `adjusted_priority`) per issue                                                                         |
-| `ValidationMarkdownReport*`                                                  | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Issue)                                                                                                                |
-| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                                                                       |
+| Model                                                                        | File                             | Schema-backed?                    | Role                                                                                                                                       |
+| ---------------------------------------------------------------------------- | -------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ChunksList` / `Chunk` / `FileInfo`                                          | `models/split_pr_into_chunks.py` | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                                                                       |
+| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PerspectiveType` | `models/issues_review.py`        | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of the dedup → validate → publish stages; `Issue.source_perspective` records which perspective found it |
+| `IssueDeduplication` / `DuplicateIssue`                                      | `models/issue_deduplicator.py`   | ✅ issue_deduplicator             | ids of issues to drop                                                                                                                      |
+| `IssueValidation`                                                            | `models/issue_validation.py`     | ✅ issue_validation               | `is_valid` + `category` (+ optional `adjusted_priority`) per issue                                                                         |
+| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                       | `models/github_meta.py`          | — internal                        | raw GitHub ingestion                                                                                                                       |
 
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout
-the pipeline to route validations and group the report. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
+the pipeline to route validations. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
 `CONSIDER`. The validator may override a finding's priority via `adjusted_priority` (validator-wins, resolved at
 read time by `effective_priority`); see [DECISIONS.md](./DECISIONS.md).
 
