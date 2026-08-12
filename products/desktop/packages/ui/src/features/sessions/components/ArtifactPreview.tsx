@@ -23,7 +23,7 @@ import {
 } from "@posthog/ui/features/auth/store";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
-import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { useOpenArtifact } from "@posthog/ui/features/panels/useOpenArtifact";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
@@ -95,7 +95,7 @@ export function ArtifactPreview({
   name: string;
 }): ReactElement {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
-  const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const openArtifact = useOpenArtifact();
   const [showRendered, setShowRendered] = useState(true);
   // Every version of this file across the task's runs, newest first - the
   // same grouping the artifact list shows. Stepping through them swaps what
@@ -189,7 +189,7 @@ export function ArtifactPreview({
     runId: displayedRunId,
     name,
     authIdentity,
-    openArtifactTab,
+    openArtifactTab: openArtifact,
   });
   const comments = commentsQuery.data ?? EMPTY_COMMENTS;
   const commentLoadError = commentsQuery.isError && (

@@ -41,7 +41,7 @@ import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
-import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { useOpenArtifact } from "@posthog/ui/features/panels/useOpenArtifact";
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
 import { buildCommentThreads } from "@posthog/ui/features/sessions/components/commentViewTypes";
@@ -278,7 +278,7 @@ function FileRow({
   commentCount: number;
   currentUser: CurrentUser | undefined;
 }) {
-  const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const openArtifact = useOpenArtifact();
   const { download, downloadingId } = useArtifactDownload();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const pickedIndex = group.versions.findIndex(
@@ -293,7 +293,7 @@ function FileRow({
   const canOpen = !!selected.id;
   const onOpen = canOpen
     ? () => {
-        openArtifactTab(taskId, {
+        openArtifact(taskId, {
           runId: selected.runId,
           artifactId: selected.id as string,
           name: group.name,
