@@ -1329,6 +1329,8 @@ class ExternalDataSourceType(models.TextChoices):
     IMPACTPARTNER = "ImpactPartner", "ImpactPartner"
     CLOUDINARY = "Cloudinary", "Cloudinary"
     UPLOADCARE = "Uploadcare", "Uploadcare"
+    WHMCS = "WHMCS", "WHMCS"
+    MSG91 = "MSG91", "MSG91"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
