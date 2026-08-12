@@ -298,9 +298,7 @@ export function getDefaultCdpConfig(): CdpConfig {
               : undefined,
 
         // SES
-        // No local SES emulator: local email goes through the maildev provider, and a dev who
-        // wants real SES sets credentials rather than an endpoint.
-        SES_ENDPOINT: '',
+        SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',
         SES_ACCESS_KEY_ID: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_SECRET_ACCESS_KEY: isTestEnv() || isDevEnv() ? 'test' : '',
         SES_REGION: isTestEnv() || isDevEnv() ? 'us-east-1' : '',
