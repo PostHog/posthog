@@ -24,6 +24,7 @@ import structlog
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.team.team import Team
 
 from .models.feature_flag import FeatureFlag

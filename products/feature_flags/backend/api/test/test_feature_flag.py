@@ -14092,7 +14092,7 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
         # must not pay for that events query at all.
         FeatureFlag.objects.create(
             team=self.team,
-            key="banner-test",
+            key="example-flag",
             bucketing_identifier=bucketing_identifier,
         )
         _create_person(team=self.team, distinct_ids=["user-1"])
