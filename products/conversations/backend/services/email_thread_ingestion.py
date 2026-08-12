@@ -19,6 +19,7 @@ from products.conversations.backend.models import (
     EmailThreadParticipant,
     EmailThreadParticipantKind,
 )
+from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -266,13 +267,16 @@ def ingest_customer_email(
 ) -> EmailThreadIngestionResult:
     try:
         with transaction.atomic():
-            return _ingest_customer_email_once(team_id=team_id, channel=channel, email=email)
+            result = _ingest_customer_email_once(team_id=team_id, channel=channel, email=email)
     except IntegrityError:
         existing_message = _find_existing_message(team_id=team_id, email=email)
         if existing_message is None:
             raise
-        return EmailThreadIngestionResult(
+        result = EmailThreadIngestionResult(
             thread_id=existing_message.thread_id,
             message_id=existing_message.id,
             created=False,
         )
+
+    recalculate_email_thread_links(team_id, thread_ids=[str(result.thread_id)])
+    return result
