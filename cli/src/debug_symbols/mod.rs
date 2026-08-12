@@ -121,6 +121,7 @@ impl DebugSymbolFile {
             chunk_id: self.debug_id,
             release_id,
             data: wrapped,
+            content_hash: None,
         })
     }
 }

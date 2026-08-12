@@ -1,4 +1,4 @@
-import socket
+import ipaddress
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -17,7 +17,7 @@ from products.warehouse_sources.backend.models.util import (
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-PUBLIC_ADDRINFO = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))]
+PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
 
 class TestReconstructOrderedColumns(SimpleTestCase):
@@ -95,13 +95,110 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
             # A PostHog bucket name used as a key prefix in someone else's bucket is theirs, not ours.
             ("our_bucket_name_as_a_key_prefix", "https://acme-exports.s3.amazonaws.com/ph-warehouse/*.csv"),
             ("non_storage_host", "https://files.acme.example/exports/*.csv"),
+            # Percent-encoding is fine in the object key, only the bucket segment of a path-style
+            # URL rejects it.
+            ("percent_encoding_in_the_key", "https://s3.us-east-1.amazonaws.com/acme-exports/my%20file.csv"),
         ]
     )
     def test_allows_a_customers_own_bucket(self, _name: str, url_pattern: str) -> None:
-        with patch("products.warehouse_sources.backend.models.util.socket.getaddrinfo", return_value=PUBLIC_ADDRINFO):
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+        ):
             is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
 
         assert is_valid, error_message
+
+    @parameterized.expand(
+        [
+            (
+                "path_style_encoded_slash_in_bucket_position",
+                "https://s3.us-east-1.amazonaws.com/ph-warehouse%2Ffile_uploads/team_2/x.csv",
+            ),
+            ("path_style_encoded_char_in_bucket_position", "https://s3.us-east-1.amazonaws.com/acme%2dexports/x.csv"),
+        ]
+    )
+    def test_rejects_percent_encoding_in_the_bucket_position(self, _name: str, url_pattern: str) -> None:
+        # A request client that decodes %2F before splitting the path could resolve a different
+        # bucket than this parser sees, so any percent-encoding there is rejected outright rather
+        # than trusted to agree with whatever library ClickHouse uses.
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid
+        assert "percent-encoded" in error_message
+
+    @parameterized.expand(
+        [
+            ("dot_segment_as_bucket", "https://s3.us-east-1.amazonaws.com/./ph-warehouse/x.csv"),
+            ("dot_dot_segment_as_bucket", "https://s3.us-east-1.amazonaws.com/../ph-warehouse/x.csv"),
+            # bucket resolves to "attacker" here, but a client that normalizes ".." before
+            # connecting would resolve "ph-warehouse" instead - the exact case the percent-encoding
+            # check above exists for, just via a different parser-vs-client disagreement.
+            ("dot_dot_segment_later_in_the_path", "https://s3.us-east-1.amazonaws.com/attacker/../ph-warehouse/x.csv"),
+        ]
+    )
+    def test_rejects_dot_segments_in_the_path(self, _name: str, url_pattern: str) -> None:
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid
+        assert "'.' or '..'" in error_message
+
+    def test_allows_a_dot_within_a_path_segment(self) -> None:
+        # Only a segment that IS exactly "." or ".." is rejected - a normal filename containing a
+        # dot must not be caught by the same check.
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+        ):
+            is_valid, error_message = validate_warehouse_table_url_pattern(
+                "https://s3.us-east-1.amazonaws.com/acme-exports/reports/q1.2026/data.csv"
+            )
+
+        assert is_valid, error_message
+
+    # Each of these is a hostname the old bespoke IP/DNS check did not reliably reject: it had no
+    # domain-suffix or authority-parsing checks at all, and metadata.google.internal was only
+    # caught if DNS actually resolved it in whatever environment the check ran in. All four are
+    # checked by posthog.security.url_validation before DNS resolution, so none need
+    # resolve_host_ips mocked - only is_dev_mode, to exercise the real check instead of the
+    # local-dev bypass.
+    @parameterized.expand(
+        [
+            ("metadata_domain", "https://metadata.google.internal/computeMetadata/v1/"),
+            ("internal_tld_suffix", "https://data.corp/team_1/x.csv"),
+            ("kubernetes_service_suffix", "https://minio.storage.svc.cluster.local/team_1/x.csv"),
+            # \ before @ is parsed as part of the authority by urlparse but as a path separator by
+            # the client that actually connects, so the host each of them sees can disagree.
+            ("authority_bypass_backslash", "https://acme-exports.s3.amazonaws.com\\@169.254.169.254/x.csv"),
+            ("authority_bypass_encoded_backslash", "https://acme-exports.s3.amazonaws.com%5c@169.254.169.254/x.csv"),
+        ]
+    )
+    def test_rejects_ssrf_targets_gained_from_the_shared_url_validator(self, _name: str, url_pattern: str) -> None:
+        with patch("posthog.security.url_validation.is_dev_mode", return_value=False):
+            is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid, error_message
+
+    def test_rejects_a_private_ip_literal(self) -> None:
+        # The old bespoke check's core case: a raw internal IP, blocked without any DNS lookup.
+        with patch("posthog.security.url_validation.is_dev_mode", return_value=False):
+            is_valid, error_message = validate_warehouse_table_url_pattern("https://10.0.0.5/team_1/x.csv")
+
+        assert not is_valid, error_message
+
+    def test_rejects_a_hostname_that_resolves_to_a_private_ip(self) -> None:
+        # Same case, but through DNS - catches a hostname pointed at an internal address rather
+        # than one supplied as a literal.
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch(
+                "posthog.security.url_validation.resolve_host_ips",
+                return_value={ipaddress.ip_address("10.0.0.5")},
+            ),
+        ):
+            is_valid, error_message = validate_warehouse_table_url_pattern("https://internal-alias.example/x.csv")
+
+        assert not is_valid, error_message
 
 
 class TestGetViewOrTableByName(BaseTest):

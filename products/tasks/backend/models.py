@@ -454,6 +454,7 @@ class Task(DeletedMetaFields, models.Model):
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
+            queued_at=django_timezone.now(),
             **({"environment": environment} if environment else {}),
             state=state,
             branch=branch,
@@ -466,6 +467,10 @@ class Task(DeletedMetaFields, models.Model):
                 "run_id": str(task_run.id),
                 "mode": mode,
                 "environment": task_run.environment,
+                # The bare `environment` property gets clobbered by the analytics client's
+                # deployment-environment super-property, so ship the run's local/cloud value
+                # under an unclobbered name too — as TaskRun.capture_event already does.
+                "run_environment": task_run.environment,
                 "is_resume": is_resume,
                 "has_pending_message": has_pending,
                 # Loop attribution: this event uses Task.capture_event (not TaskRun's),
@@ -1872,6 +1877,12 @@ class TaskRun(models.Model):
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    # When the run last entered QUEUED. `created_at` can't stand in for it because
+    # `prepare_for_cloud_handoff` re-queues an existing run without resetting it, and
+    # `updated_at` can't either because any unrelated write to a still-queued run would
+    # move it. Null on rows queued before this field existed; readers fall back to
+    # `created_at`, which is exact for a run that was only ever queued once.
+    queued_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task_run"
@@ -1948,6 +1959,7 @@ class TaskRun(models.Model):
         """
         self.status = self.Status.QUEUED
         self.environment = self.Environment.CLOUD
+        self.queued_at = django_timezone.now()
         self.completed_at = None
         self.error_message = None
 
@@ -1958,6 +1970,7 @@ class TaskRun(models.Model):
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
+        state.pop("pending_user_artifact_ids", None)
         state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
         state.pop("sandbox_id", None)
@@ -1978,6 +1991,7 @@ class TaskRun(models.Model):
             update_fields=[
                 "status",
                 "environment",
+                "queued_at",
                 "completed_at",
                 "error_message",
                 "state",

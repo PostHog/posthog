@@ -91,6 +91,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
+    featureFlagsList,
 } from 'products/feature_flags/frontend/generated/api'
 import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
@@ -2898,6 +2899,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 "You don't have permission to edit this feature flag. Contact your administrator to request editing rights."
                         )
                     }
+                    // Duplicate-key (`unique`/`key`) is toasted in the saveFeatureFlagFailure listener so
+                    // the throw runs immediately and the form doesn't stay skeletoned during the lookup.
                     throw error
                 }
             },
@@ -3512,7 +3515,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Set all completed tasks at once to avoid conflicts
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(completedTasks)
         },
-        saveFeatureFlagFailure: ({ errorObject }) => {
+        saveFeatureFlagFailure: async ({ errorObject }) => {
             if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
                 if (isOnFeatureFlagPage(props.id)) {
                     // Redirect to detail page so user can see the CR banner
@@ -3520,6 +3523,32 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.editFeatureFlag(false)
                 }
                 return
+            }
+
+            if (errorObject?.code !== 'unique' || errorObject?.attr !== 'key') {
+                return
+            }
+            const message = `Save feature flag failed: ${errorObject.detail}`
+            const key = values.featureFlag.key
+            if (!key) {
+                lemonToast.error(message)
+                return
+            }
+            // The backend rejects on an exact key match, so pick the exact match out of the
+            // case-insensitive list rather than trusting its newest-first ordering.
+            const existing = await featureFlagsList(String(values.currentProjectId), { key }).catch(() => null)
+            const existingFlagId = existing?.results?.find((flag) => flag.key === key)?.id ?? null
+            if (existingFlagId) {
+                lemonToast.error(message, {
+                    button: {
+                        label: 'View existing flag',
+                        action: () => {
+                            window.open(urls.featureFlag(existingFlagId), '_blank')
+                        },
+                    },
+                })
+            } else {
+                lemonToast.error(message)
             }
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
