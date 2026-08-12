@@ -20,23 +20,43 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     surfacing_score_predicate,
 )
 
-# A pathological filter must not be able to hang the estimate request.
-_ESTIMATE_MAX_EXECUTION_TIME_SECONDS = 30
-
-# Interactive saves get a tighter budget and fail soft; the batch refresher can afford the full cap.
-ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS = 10
-
 # The estimate always projects to a calendar month.
 ESTIMATE_WINDOW_DAYS = 30
-# Scan a week and extrapolate: a 30-day scan of event-filtered queries reads billions of rows and blows the budget.
-_ESTIMATE_SCAN_WINDOW_DAYS = 7
-# The editor's cost preview re-estimates on every filter tweak, so it gets an order-of-magnitude answer from a
-# single day; the durable per-scanner number still comes from the batch refresher's full window.
-ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS = 1
 # Events subqueries additionally SAMPLE users at 10%; matched counts are corrected back up.
 _ESTIMATE_EVENTS_SAMPLE_FACTOR = 0.1
-# When sampling is off (OR-operand filters), a full-width scan is the only option, so bound its window instead.
-_ESTIMATE_UNSAMPLED_SCAN_WINDOW_DAYS = 2
+
+
+@dataclass(frozen=True, kw_only=True)
+class EstimateBudget:
+    """What a single estimate may spend. Keyword-only because the fields are plain counts, so
+    positional arguments would let a call site swap them without any type error.
+
+    Only windows that are whole weeks are safe to persist. A shorter one inherits whichever weekdays
+    it happened to land on, which biases the monthly projection instead of merely adding noise.
+    """
+
+    # A pathological filter must not be able to hang the caller.
+    max_execution_seconds: int
+    # Scanning a slice and extrapolating: a 30-day scan of event-filtered queries reads billions of rows.
+    scan_window_days: int
+    # Used when the operand rules out sampling, which makes the scan full price. None keeps one window
+    # for both cases, which is what any estimate that gets persisted needs.
+    unsampled_scan_window_days: int | None = None
+
+    def window_days(self, *, unsampled: bool) -> int:
+        if unsampled and self.unsampled_scan_window_days is not None:
+            return self.unsampled_scan_window_days
+        return self.scan_window_days
+
+
+# The refresher recomputes at most daily per scanner, so it can afford the full window.
+BATCH_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=30, scan_window_days=7)
+# A save blocks the request, so it gets a tighter clock and fails soft. It still writes the persisted
+# number, so the window stays a whole week.
+SAVE_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7)
+# The editor's cost preview and Max both re-estimate freely and neither result is persisted, so where
+# sampling is unavailable they take an order-of-magnitude answer from a shorter window.
+PREVIEW_ESTIMATE_BUDGET = EstimateBudget(max_execution_seconds=10, scan_window_days=7, unsampled_scan_window_days=2)
 
 # Persisted per-scanner estimates older than this are recomputed by the sweep.
 ESTIMATE_STALE_AFTER = dt.timedelta(hours=24)
@@ -54,9 +74,8 @@ def estimate_scanner_session_volume(
     team: Team,
     query: RecordingsQuery,
     sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
-    max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
     ch_user: ClickHouseUser = ClickHouseUser.APP,
-    scan_window_days: int = _ESTIMATE_SCAN_WINDOW_DAYS,
+    budget: EstimateBudget = BATCH_ESTIMATE_BUDGET,
 ) -> ScannerVolumeEstimate:
     """Count sessions matching `query` over a recent window, for the scanner cost preview.
 
@@ -67,10 +86,11 @@ def estimate_scanner_session_volume(
     cost-preview widget never pays for two sequential HogQL queries.
     """
     # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
-    # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the correction.
-    sample_factor = None if query.operand == FilterLogicalOperator.OR_ else _ESTIMATE_EVENTS_SAMPLE_FACTOR
-    if sample_factor is None:
-        scan_window_days = min(scan_window_days, _ESTIMATE_UNSAMPLED_SCAN_WINDOW_DAYS)
+    # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the
+    # correction. Without sampling the scan is full price, so bound its window instead.
+    unsampled = query.operand == FilterLogicalOperator.OR_
+    sample_factor = None if unsampled else _ESTIMATE_EVENTS_SAMPLE_FACTOR
+    scan_window_days = budget.window_days(unsampled=unsampled)
 
     now = dt.datetime.now(dt.UTC)
     window_start = now - dt.timedelta(days=scan_window_days)
@@ -133,7 +153,7 @@ def estimate_scanner_session_volume(
         query=combined_query,
         team=team,
         query_type="ReplayVisionScannerEstimateQuery",
-        settings=HogQLGlobalSettings(max_execution_time=max_execution_seconds),
+        settings=HogQLGlobalSettings(max_execution_time=budget.max_execution_seconds),
         ch_user=ch_user,
     )
     results = response.results or []
@@ -156,7 +176,7 @@ def project_monthly_observations(estimate: ScannerVolumeEstimate, sampling_rate:
 def refresh_scanner_estimate(
     scanner: ReplayScanner,
     *,
-    max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
+    budget: EstimateBudget = BATCH_ESTIMATE_BUDGET,
     ch_user: ClickHouseUser = ClickHouseUser.APP,
 ) -> None:
     """Recompute and persist the scanner's projected monthly volume. Raises on failure; callers decide severity."""
@@ -164,7 +184,7 @@ def refresh_scanner_estimate(
         team=scanner.team,
         query=scanner.recordings_query(),
         sampling_mode=scanner.sampling_mode,
-        max_execution_seconds=max_execution_seconds,
+        budget=budget,
         ch_user=ch_user,
     )
     projection = project_monthly_observations(estimate, scanner.sampling_rate)

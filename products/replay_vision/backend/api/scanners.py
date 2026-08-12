@@ -68,10 +68,10 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import (
-    ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
-    ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS,
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
+    PREVIEW_ESTIMATE_BUDGET,
+    SAVE_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -141,7 +141,7 @@ def _scanner_lifecycle_properties(scanner: ReplayScanner) -> dict[str, Any]:
 def _refresh_estimate_fail_soft(scanner: ReplayScanner) -> None:
     # The estimate is advisory — never fail a scanner save over it, and keep the save's latency tail short.
     try:
-        refresh_scanner_estimate(scanner, max_execution_seconds=ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS)
+        refresh_scanner_estimate(scanner, budget=SAVE_ESTIMATE_BUDGET)
     except Exception:
         logger.exception("replay_vision.estimate_refresh_failed", scanner_id=str(scanner.id))
 
@@ -1628,13 +1628,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        # The preview re-runs on every filter tweak, so it trades window width for cost; the persisted
-        # per-scanner estimate keeps the full window via the batch refresher.
         estimate = estimate_scanner_session_volume(
             team=self.team,
             query=recordings_query,
             sampling_mode=body.validated_data["sampling_mode"],
-            scan_window_days=ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS,
+            budget=PREVIEW_ESTIMATE_BUDGET,
         )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])
