@@ -69,8 +69,10 @@ MAX_MARKDOWN_COMPONENT_BLOCK_CHARS = 1_000_000
 
 _MARKDOWN_COMPONENT_START_REGEX = re.compile(r"^<[A-Z][A-Za-z0-9]*(\s|>|/)")
 _MARKDOWN_COMPONENT_TAG_NAME_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)")
-_MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)")
-_MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX = re.compile(r"^([^\s/>]+)")
+# Anchored by the `pos` argument of `.match()` rather than by `^`, so the prop loop can scan from
+# an offset instead of slicing a fresh suffix per prop. `^` would never match at a non-zero `pos`.
+_MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"([A-Za-z_][A-Za-z0-9_-]*)")
+_MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX = re.compile(r"([^\s/>]+)")
 _MARKDOWN_COMPONENT_NUMBER_REGEX = re.compile(r"^-?\d+(\.\d+)?$")
 
 
@@ -445,12 +447,12 @@ def _parse_markdown_component_props(raw: str) -> dict[str, Any]:
         if index >= len(source):
             break
 
-        name_match = _MARKDOWN_COMPONENT_PROP_NAME_REGEX.match(source[index:])
+        name_match = _MARKDOWN_COMPONENT_PROP_NAME_REGEX.match(source, index)
         if not name_match:
             break
 
         name = name_match.group(1)
-        index += len(name)
+        index = name_match.end()
         while index < len(source) and source[index].isspace():
             index += 1
 
@@ -502,9 +504,10 @@ def _read_markdown_component_prop_value(source: str, index: int) -> tuple[Any, i
         value, next_index = balanced
         return _parse_markdown_expression_value(value), next_index
 
-    raw_match = _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX.match(source[index:])
-    raw = raw_match.group(1) if raw_match else ""
-    return _parse_markdown_expression_value(raw), index + len(raw)
+    raw_match = _MARKDOWN_COMPONENT_RAW_PROP_VALUE_REGEX.match(source, index)
+    if not raw_match:
+        return _parse_markdown_expression_value(""), index
+    return _parse_markdown_expression_value(raw_match.group(1)), raw_match.end()
 
 
 def _read_balanced_markdown_expression(source: str, index: int) -> tuple[str, int] | None:

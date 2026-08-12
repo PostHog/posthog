@@ -12,6 +12,7 @@ from posthog.models import SharingConfiguration
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.util import (
     MAX_MARKDOWN_COMPONENT_BLOCK_CHARS,
+    _parse_markdown_component_props,
     extract_inline_query_nodes,
     extract_referenced_insight_short_ids,
     filter_notebook_content_for_sharing,
@@ -390,6 +391,26 @@ class TestFilterNotebookContentForSharing(TestCase):
         self.assertEqual(original, snapshot)
 
 
+class _SliceCountingStr(str):
+    """A string that reports how many characters slicing has copied out of it and its slices."""
+
+    def __new__(cls, value: str, counter: list[int] | None = None) -> "_SliceCountingStr":
+        instance = super().__new__(cls, value)
+        instance._counter = [0] if counter is None else counter
+        return instance
+
+    @property
+    def copied_chars(self) -> int:
+        return self._counter[0]
+
+    def __getitem__(self, key: Any) -> Any:
+        result = str.__getitem__(self, key)
+        if not isinstance(key, slice):
+            return result
+        self._counter[0] += len(result)
+        return _SliceCountingStr(result, self._counter)
+
+
 class TestMarkdownComponentBlockParsing(TestCase):
     def _filtered_markdown(self, markdown: str) -> Any:
         return filter_notebook_content_for_sharing(_markdown_doc(markdown))["content"][0]["attrs"]["markdown"]
@@ -429,6 +450,16 @@ class TestMarkdownComponentBlockParsing(TestCase):
     def test_oversized_unsupported_block_is_still_redacted(self) -> None:
         code = "SECRET" * MAX_MARKDOWN_COMPONENT_BLOCK_CHARS
         self.assertEqual(self._filtered_markdown(f'<Python code="{code}" />'), "<Python />")
+
+    def test_prop_parsing_does_not_copy_the_block_once_per_prop(self) -> None:
+        block = _SliceCountingStr("<Image " + " ".join(f"p{index}" for index in range(2000)) + " />")
+
+        props = _parse_markdown_component_props(block)
+
+        self.assertEqual(len(props), 2000)
+        # One copy separates the props from the tag; a per-prop copy would make this quadratic, and
+        # anonymous share rendering parses every block in a stored notebook.
+        self.assertLessEqual(block.copied_chars, 2 * len(block))
 
 
 class TestNotebookSharingConfiguration(APIBaseTest):
