@@ -1,3 +1,4 @@
+import type { WorkspaceMode } from "@posthog/shared";
 import {
   type TaskInputReportAssociation,
   useTaskInputPrefillStore,
@@ -32,6 +33,7 @@ export interface AppView {
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
+  initialWorkspaceMode?: WorkspaceMode;
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
 }
@@ -151,6 +153,7 @@ export function useAppView(): AppView {
         initialCloudRepository: prefill.initialCloudRepository,
         initialModel: prefill.initialModel,
         initialMode: prefill.initialMode,
+        initialWorkspaceMode: prefill.initialWorkspaceMode,
         folderRunEnvironment: prefill.folderRunEnvironment,
         reportAssociation: prefill.reportAssociation,
         taskInputRequestId: prefill.requestId,

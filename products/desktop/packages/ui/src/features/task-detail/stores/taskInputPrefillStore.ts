@@ -1,3 +1,4 @@
+import type { WorkspaceMode } from "@posthog/shared";
 import { create } from "zustand";
 
 export interface TaskInputReportAssociation {
@@ -14,6 +15,7 @@ export interface TaskInputPrefill {
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
+  initialWorkspaceMode?: WorkspaceMode;
   folderRunEnvironment?: "local" | "cloud";
   reportAssociation?: TaskInputReportAssociation;
 }

@@ -1,10 +1,13 @@
 import {
   ArchiveIcon,
+  ArrowsSplit,
   CaretLeftIcon,
   CaretRightIcon,
   ChartLine,
+  Cloud,
   EnvelopeSimple,
   GitDiffIcon,
+  Laptop,
   SquaresFourIcon,
 } from "@phosphor-icons/react";
 import { workspaceIdSet } from "@posthog/core/command-center/eligibility";
@@ -63,6 +66,7 @@ import {
 import { TaskIcon } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
+import { useCloudModeEnabled } from "@posthog/ui/features/task-detail/hooks/useCloudModeEnabled";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
@@ -80,6 +84,7 @@ import { openTask, openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { track } from "@posthog/ui/shell/analytics";
 import { showLogFolder } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import {
   DesktopIcon,
   FileTextIcon,
@@ -154,6 +159,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     (state) => state.getReviewMode,
   );
   const { data: tasks = [] } = useTasks();
+  const { localWorkspaces } = useHostCapabilities();
+  const cloudModeEnabled = useCloudModeEnabled();
   const archivedTaskIds = useArchivedTaskIds();
   const { data: workspaces, isFetched: workspacesFetched } = useWorkspaces();
   const provisioningTaskIds = useProvisioningStore(
@@ -379,6 +386,49 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           openTaskInput();
         },
       },
+      ...(localWorkspaces
+        ? [
+            {
+              id: "new-local-task",
+              label: "New local task",
+              keywords: "create workspace local",
+              icon: <Laptop size={12} className="text-gray-11" />,
+              action: "new-task" as CommandMenuAction,
+              onRun: () => {
+                closeSettingsDialog();
+                openTaskInput({ initialWorkspaceMode: "local" });
+              },
+            },
+            {
+              id: "new-worktree-task",
+              label: "New worktree task",
+              keywords: "create workspace worktree",
+              icon: (
+                <ArrowsSplit size={12} className="rotate-270 text-gray-11" />
+              ),
+              action: "new-task" as CommandMenuAction,
+              onRun: () => {
+                closeSettingsDialog();
+                openTaskInput({ initialWorkspaceMode: "worktree" });
+              },
+            },
+          ]
+        : []),
+      ...(cloudModeEnabled
+        ? [
+            {
+              id: "new-cloud-task",
+              label: "New cloud task",
+              keywords: "create workspace cloud",
+              icon: <Cloud size={12} className="text-gray-11" />,
+              action: "new-task" as CommandMenuAction,
+              onRun: () => {
+                closeSettingsDialog();
+                openTaskInput({ initialWorkspaceMode: "cloud" });
+              },
+            },
+          ]
+        : []),
     ];
 
     if (canSearchFiles) {
@@ -487,6 +537,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
+    localWorkspaces,
+    cloudModeEnabled,
   ]);
 
   const taskSections = useMemo<CommandSection[]>(() => {

@@ -1,5 +1,5 @@
 import { resolveService, resolveServiceOptional } from "@posthog/di/container";
-import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { ANALYTICS_EVENTS, type WorkspaceMode } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import {
@@ -74,6 +74,7 @@ export interface TaskInputNavigationOptions {
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
+  initialWorkspaceMode?: WorkspaceMode;
   /**
    * Environment ("local" | "cloud") of the folder's most recent visible run,
    * used to prefill the workspace mode when starting a task scoped to a folder.
@@ -113,6 +114,7 @@ export function openTaskInput(
     !!options.initialCloudRepository ||
     !!options.initialModel ||
     !!options.initialMode ||
+    !!options.initialWorkspaceMode ||
     !!options.reportAssociation;
 
   useTaskInputPrefillStore.setState({
@@ -123,6 +125,7 @@ export function openTaskInput(
       initialCloudRepository: options.initialCloudRepository,
       initialModel: options.initialModel,
       initialMode: options.initialMode,
+      initialWorkspaceMode: options.initialWorkspaceMode,
       folderRunEnvironment: options.folderRunEnvironment,
       reportAssociation: options.reportAssociation,
       requestId: hasTransientState

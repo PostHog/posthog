@@ -100,6 +100,18 @@ describe("openTaskInput channel scoping", () => {
     expect(prefill.initialPrompt).toBeUndefined();
     expect(prefill.requestId).not.toBe(stale);
   });
+
+  it("refreshes the prefill when selecting the same workspace mode twice", () => {
+    openTaskInput({ initialWorkspaceMode: "cloud" });
+    const firstRequestId =
+      useTaskInputPrefillStore.getState().prefill.requestId;
+
+    openTaskInput({ initialWorkspaceMode: "cloud" });
+
+    const { prefill } = useTaskInputPrefillStore.getState();
+    expect(prefill.initialWorkspaceMode).toBe("cloud");
+    expect(prefill.requestId).not.toBe(firstRequestId);
+  });
 });
 
 describe("taskInputPrefillStore.consumePrompt", () => {

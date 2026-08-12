@@ -109,7 +109,10 @@ import {
 import { usePreviewConfig } from "../hooks/usePreviewConfig";
 import { useTaskCreation } from "../hooks/useTaskCreation";
 import { useWarmTask } from "../hooks/useWarmTask";
-import { resolveWorkspaceModePreference } from "../hooks/workspaceModePreference";
+import {
+  resolveInitialWorkspaceMode,
+  resolveWorkspaceModePreference,
+} from "../hooks/workspaceModePreference";
 import { ChannelContextChip } from "./ChannelContextChip";
 import { CloudGithubMissingNotice } from "./CloudGithubMissingNotice";
 import { NewTaskSuggestions } from "./ContinueCliSessions";
@@ -127,6 +130,7 @@ interface TaskInputProps {
   initialCloudRepository?: string;
   initialModel?: string;
   initialMode?: string;
+  initialWorkspaceMode?: WorkspaceMode;
   reportAssociation?: TaskInputReportAssociation;
   /** Optional channel CONTEXT.md, appended to the initial prompt as background. */
   channelContext?: string;
@@ -184,6 +188,7 @@ export function TaskInput({
   initialCloudRepository,
   initialModel,
   initialMode,
+  initialWorkspaceMode,
   reportAssociation,
   channelContext,
   channelName,
@@ -415,6 +420,11 @@ export function TaskInput({
   // Force cloud mode on cloud-only hosts (web).
   const { localWorkspaces } = useHostCapabilities();
   const cloudModeEnabled = useCloudModeEnabled();
+  const resolvedInitialWorkspaceMode = resolveInitialWorkspaceMode({
+    mode: initialWorkspaceMode,
+    localWorkspaces,
+    cloudModeEnabled,
+  });
   const piHarnessEnabled = useFeatureFlag("pi-harness");
   const flagsLoaded = useFeatureFlagsLoaded();
   const reposReady = areReposReady({
@@ -435,6 +445,7 @@ export function TaskInput({
 
   const [workspaceMode, setWorkspaceModeState] = useState<WorkspaceMode>(() => {
     if (initialCloudRepository) return "cloud";
+    if (resolvedInitialWorkspaceMode) return resolvedInitialWorkspaceMode;
     if (!localWorkspaces) return "cloud";
     return resolveWorkspaceModePreference({
       preferredMode: lastUsedWorkspaceMode || DEFAULT_WORKSPACE_MODE,
@@ -452,10 +463,13 @@ export function TaskInput({
     (hasGithubIntegration || !isLoadingRepos);
 
   const didResolveWorkspaceModeRef = useRef(false);
+  const appliedWorkspaceModeRequestIdRef = useRef<string | undefined>(
+    undefined,
+  );
   useEffect(() => {
     if (didResolveWorkspaceModeRef.current) return;
     if (!settingsHydrated) return;
-    if (initialCloudRepository) {
+    if (initialCloudRepository || resolvedInitialWorkspaceMode) {
       didResolveWorkspaceModeRef.current = true;
       return;
     }
@@ -475,12 +489,22 @@ export function TaskInput({
     settingsHydrated,
     lastUsedWorkspaceMode,
     initialCloudRepository,
+    resolvedInitialWorkspaceMode,
     localWorkspaces,
     cloudSignalsSettled,
     cloudModeEnabled,
     hasGithubIntegration,
     lastUsedLocalWorkspaceMode,
   ]);
+
+  useEffect(() => {
+    if (!resolvedInitialWorkspaceMode || initialCloudRepository) return;
+    if (appliedWorkspaceModeRequestIdRef.current === initialPromptKey) return;
+
+    didResolveWorkspaceModeRef.current = true;
+    appliedWorkspaceModeRequestIdRef.current = initialPromptKey;
+    setWorkspaceModeState(resolvedInitialWorkspaceMode);
+  }, [resolvedInitialWorkspaceMode, initialCloudRepository, initialPromptKey]);
 
   const setWorkspaceMode = (mode: WorkspaceMode) => {
     didResolveWorkspaceModeRef.current = true;

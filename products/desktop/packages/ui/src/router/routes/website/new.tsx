@@ -21,6 +21,7 @@ function WebsiteNewTaskRoute() {
       initialCloudRepository={view.initialCloudRepository}
       initialModel={view.initialModel}
       initialMode={view.initialMode}
+      initialWorkspaceMode={view.initialWorkspaceMode}
       reportAssociation={view.reportAssociation}
       suggestions={CHANNEL_TASK_SUGGESTIONS}
     />

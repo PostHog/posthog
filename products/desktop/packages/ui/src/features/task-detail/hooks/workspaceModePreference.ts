@@ -8,6 +8,22 @@ export interface WorkspaceModePreferenceInput {
   lastUsedLocalWorkspaceMode: LocalWorkspaceMode;
 }
 
+export interface InitialWorkspaceModeInput {
+  mode: WorkspaceMode | undefined;
+  localWorkspaces: boolean;
+  cloudModeEnabled: boolean;
+}
+
+export function resolveInitialWorkspaceMode({
+  mode,
+  localWorkspaces,
+  cloudModeEnabled,
+}: InitialWorkspaceModeInput): WorkspaceMode | undefined {
+  if (!mode) return undefined;
+  if (mode === "cloud") return cloudModeEnabled ? mode : undefined;
+  return localWorkspaces ? mode : undefined;
+}
+
 // Cloud is only honoured when it works out of the box (flag on + GitHub
 // connected); otherwise the preference falls back to the last local mode so
 // users never start behind a connect-GitHub prompt.
