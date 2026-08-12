@@ -296,14 +296,14 @@ impl MergeEntrance {
             };
         }
 
-        // Nothing in the call resolves: birth the target person. An
-        // identify with only illegal sources still creates the target (the
-        // caller's event needs a person) but proves no identity, so it is
-        // born unidentified.
-        let any_legal_source = request
-            .sources
-            .iter()
-            .any(|s| !is_distinct_id_illegal(&s.source_distinct_id));
+        // Nothing in the call resolves: birth the target person. Born
+        // unidentified even when a legal source will settle: the leader's
+        // changelog is the downstream person feed and the leader only
+        // records changes, so the settlement flip is what writes the
+        // newborn's first changelog document. A stub born already
+        // identified would make that flip a no-op and leave the person
+        // invisible downstream; a crash before the flip self-heals, since
+        // the still-unidentified row re-arms it on the retry.
         let created_at = if request.created_at == 0 {
             Utc::now()
         } else {
@@ -317,7 +317,7 @@ impl MergeEntrance {
                 distinct_id: target_did.clone(),
                 extra_distinct_ids: Vec::new(),
                 created_at,
-                is_identified: any_legal_source,
+                is_identified: false,
             }])
             .await
             .map_err(|e| Status::internal(format!("target creation failed: {e}")))?;
