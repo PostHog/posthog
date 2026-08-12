@@ -492,4 +492,27 @@ export const ErrorTrackingIssueViews: Story = {
 export const LLMTraceViews: Story = { parameters: { pageUrl: urls.notebook('llm-trace-widget-views') } }
 export const DashboardViews: Story = { parameters: { pageUrl: urls.notebook('dashboard-widget-views') } }
 export const ActionViews: Story = { parameters: { pageUrl: urls.notebook('action-widget-views') } }
-export const WorkflowViews: Story = { parameters: { pageUrl: urls.notebook('workflow-widget-views') } }
+export const WorkflowViews: Story = {
+    parameters: { pageUrl: urls.notebook('workflow-widget-views') },
+    play: async ({ canvasElement }) => {
+        await waitFor(
+            () => {
+                const editor = canvasElement.querySelector<HTMLElement>('[data-attr="workflow-editor"]')
+                const canvas = editor?.querySelector<HTMLElement>('.react-flow')
+                const nodes = Array.from(editor?.querySelectorAll<HTMLElement>('.react-flow__node') || [])
+
+                expect(canvas).not.toBeNull()
+                expect(nodes).toHaveLength(2)
+
+                const canvasBounds = canvas!.getBoundingClientRect()
+                expect(
+                    nodes.every((node) => {
+                        const nodeBounds = node.getBoundingClientRect()
+                        return nodeBounds.top >= canvasBounds.top && nodeBounds.bottom <= canvasBounds.bottom
+                    })
+                ).toBe(true)
+            },
+            { timeout: 10000 }
+        )
+    },
+}
