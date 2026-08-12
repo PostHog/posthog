@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    BreakPointFunction,
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -31,6 +42,11 @@ const FILE_SYSTEM_PAGE_TIMEOUT_MS = 10000
 // Scopes projectTreeDataLogic's optional post-processing (selection clear, undo re-expand) for our reused delete
 // path; safely no-ops for our unmounted instance.
 const DASHBOARDS_TREE_PROJECT_LOGIC_KEY = 'dashboards-tree'
+// A bulk move emits one movedItem per item as each move lands, and the moves are issued together so they land
+// within a few hundred milliseconds of one another. Collapsing them into one refetch keeps a 30-dashboard move
+// from firing 30 concurrent full paginations, which is enough load to time a page out and raise a folder-load
+// error over a move that actually succeeded.
+const MOVE_REFETCH_DEBOUNCE_MS = 300
 
 // Page through every dashboard/folder FileSystem entry so large projects render their full tree instead of
 // being silently truncated to the first page — the experiment measures navigation, and big projects are
@@ -308,7 +324,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 buildFolderDashboardCounts(dashboards, entryByRef),
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, cache }) => ({
         // A duplicate (via the table) creates a dashboard server-side; refetch so the subtree reflects it
         // (the new dashboard syncs its own FileSystem entry via FileSystemSyncMixin).
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
@@ -318,11 +334,20 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         // shared move path). A dashboard move changes its own path; a folder move re-parents the dashboards
         // beneath it (and the folder rows). Other item types (insights, notebooks) don't affect this view,
         // so skip the refetch for them.
-        [projectTreeDataLogic.actionTypes.movedItem]: ({ item }: { item: FileSystemEntry }) => {
-            if (item.type === 'dashboard' || item.type === 'folder') {
-                actions.loadDashboardFileSystemEntries()
+        [projectTreeDataLogic.actionTypes.movedItem]: async (
+            { item }: { item: FileSystemEntry },
+            breakpoint: BreakPointFunction
+        ) => {
+            if (item.type !== 'dashboard' && item.type !== 'folder') {
+                return
             }
-            if (item.type === 'folder') {
+            // The breakpoint keeps only the last move of a burst, so remember across it whether any of the
+            // moves was a folder; otherwise a batch ending on a dashboard would skip the folder-row refetch.
+            cache.folderMovePending = cache.folderMovePending || item.type === 'folder'
+            await breakpoint(MOVE_REFETCH_DEBOUNCE_MS)
+            actions.loadDashboardFileSystemEntries()
+            if (cache.folderMovePending) {
+                cache.folderMovePending = false
                 actions.loadFolderEntries()
             }
         },

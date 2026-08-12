@@ -129,6 +129,38 @@ describe('dashboardsFileSystemLogic', () => {
         expect(logic.values.entryByRef['1']?.path).toEqual('Product/A')
     })
 
+    it('collapses a bulk move into one refetch, and still reloads folder rows when any item was a folder', async () => {
+        await expectLogic(logic).toDispatchActions([
+            'loadDashboardFileSystemEntriesSuccess',
+            'loadFolderEntriesSuccess',
+        ])
+        ;(api.fileSystem.list as jest.Mock).mockClear()
+
+        // A bulk move lands as one movedItem per item. Refetching per item would fire a full pagination each
+        // time, and the concurrent load is what surfaced a folder-load error over a move that succeeded.
+        // The folder is not last, so the run that survives the debounce is a dashboard's.
+        await expectLogic(logic, () => {
+            projectTreeDataLogic.actions.movedItem(
+                { id: 'fld', type: 'folder', path: 'Marketing' } as any,
+                'Marketing',
+                'Product/Marketing'
+            )
+            projectTreeDataLogic.actions.movedItem(
+                { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as any,
+                'Marketing/A',
+                'Product/A'
+            )
+            projectTreeDataLogic.actions.movedItem(
+                { id: 'fs-2', type: 'dashboard', ref: '2', path: 'Marketing/B' } as any,
+                'Marketing/B',
+                'Product/B'
+            )
+        }).toDispatchActions(['loadDashboardFileSystemEntriesSuccess', 'loadFolderEntriesSuccess'])
+
+        const listedTypes = (api.fileSystem.list as jest.Mock).mock.calls.map(([{ type }]) => type)
+        expect(listedTypes).toEqual(['dashboard', 'folder'])
+    })
+
     it('ignores moves of non-dashboard, non-folder items (no wasted refetch)', async () => {
         await expectLogic(logic).toDispatchActions([
             'loadDashboardFileSystemEntriesSuccess',
