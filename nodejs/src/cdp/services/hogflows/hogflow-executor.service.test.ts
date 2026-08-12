@@ -1467,6 +1467,12 @@ describe('Hogflow Executor', () => {
                     { properties: { $browser: 'Chrome' } }
                 )
 
+                // The flow was republished after this run started. The conversion belongs to the
+                // version the person was actually sent, which is the one pinned on the run's state,
+                // not the live one the worker re-reads on every dequeue.
+                invocation.state.flowVersion = hogFlow.version
+                hogFlow.version = hogFlow.version + 1
+
                 const result = await executor.execute(invocation)
                 // The run completes normally (no early exit) but the conversion is counted exactly once
                 expect(result.finished).toBe(true)
@@ -1489,7 +1495,7 @@ describe('Hogflow Executor', () => {
                         // Joins this conversion to the run's enrollment event, which is how a
                         // conversion is attributed to the run that earned it.
                         $workflow_run_id: invocation.id,
-                        $workflow_version: hogFlow.version,
+                        $workflow_version: invocation.state.flowVersion,
                         $workflow_conversion_type: 'property',
                     },
                 })
