@@ -7,9 +7,13 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.request import Request
+from rest_framework.test import APIClient, APIRequestFactory
 
+from posthog.auth import WidgetAuthentication
 from posthog.models.comment import Comment
+from posthog.models.team import Team
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer
 from products.conversations.backend.models import SigningSecret, Ticket
@@ -64,6 +68,19 @@ class TestWidgetAPI(BaseTest):
             **self._get_headers(),
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_authentication_fails_closed_when_two_teams_share_a_token(self):
+        Team.objects.create(
+            organization=self.organization,
+            name="Team sharing the token",
+            conversations_enabled=True,
+            conversations_settings={"widget_public_token": self.widget_token},
+        )
+
+        request = APIRequestFactory().post("/api/conversations/v1/widget/message", **self._get_headers())
+
+        with self.assertRaises(AuthenticationFailed):
+            WidgetAuthentication().authenticate(Request(request))
 
     def test_create_message_creates_ticket(self):
         response = self.client.post(

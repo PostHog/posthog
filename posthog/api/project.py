@@ -585,15 +585,6 @@ class ProjectBackwardCompatSerializer(
             return value
         return [domain for domain in value if domain]
 
-    def validate_conversations_settings(self, value: dict | None) -> dict | None:
-        if value is None:
-            return value
-        # Filter out None values from widget_domains if present
-        if "widget_domains" in value and value["widget_domains"] is not None:
-            value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
-            validate_authorized_url_wildcards(value["widget_domains"])
-        return value
-
     class Meta:
         model = Project
         fields = (
@@ -1031,6 +1022,12 @@ class ProjectBackwardCompatSerializer(
 
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
+
+    # Delegate rather than reimplement: this blob holds server-managed credentials (the widget
+    # public token, the Slack bot token) that TeamSerializer strips from user input, and a partial
+    # copy here silently reopens whichever strips it leaves out.
+    def validate_conversations_settings(self, value: dict | None) -> dict | None:
+        return TeamSerializer.validate_conversations_settings(cast(TeamSerializer, self), value)
 
     def validate(self, attrs: Any) -> Any:
         attrs = validate_team_attrs(attrs, self.context["view"], self.instance)

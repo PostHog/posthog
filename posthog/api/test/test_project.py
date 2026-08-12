@@ -639,6 +639,43 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(settings["widget_greeting_text"], "Hello!")
         self.assertEqual(settings["widget_color"], "#ff0000")
 
+    @parameterized.expand(
+        [
+            ("widget_public_token", "token_belonging_to_another_team"),
+            ("slack_bot_token", "xoxb-not-a-real-token"),
+            ("slack_enabled", True),
+            ("email_enabled", True),
+            ("teams_tenant_id", "tenant-of-another-team"),
+        ]
+    )
+    def test_conversations_settings_server_managed_keys_are_not_writable(self, key, injected_value):
+        self.team.conversations_settings = {"widget_greeting_text": "Hello!"}
+        self.team.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {key: injected_value, "widget_color": "#ff0000"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.team.refresh_from_db()
+        settings = self.team.conversations_settings
+        self.assertNotEqual(settings.get(key), injected_value)
+        self.assertEqual(settings["widget_color"], "#ff0000")
+
+    def test_conversations_settings_patch_cannot_replace_existing_widget_token(self):
+        self.team.conversations_settings = {"widget_public_token": "this_teams_own_token"}
+        self.team.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"widget_public_token": "token_belonging_to_another_team"}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.conversations_settings["widget_public_token"], "this_teams_own_token")
+
     def test_enabling_conversations_auto_generates_token(self):
         self.team.conversations_enabled = False
         self.team.conversations_settings = None

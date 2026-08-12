@@ -973,10 +973,12 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         if not token:
             return None  # Let other authenticators try
 
+        Team = apps.get_model(app_label="posthog", model_name="Team")
         try:
-            Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
-        except Team.DoesNotExist:
+        # An ambiguous match identifies no team any more than a miss does, so it fails the same way
+        # rather than authenticating the request as whichever colliding team the database returned.
+        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
         return (None, team)
