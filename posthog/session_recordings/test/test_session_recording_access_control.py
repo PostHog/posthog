@@ -9,6 +9,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.session_recording_api import RecordingsListingResult
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -114,7 +115,12 @@ class TestSessionRecordingAccessControl(APIBaseTest):
         )
 
         # Mock the ClickHouse query to return our test recordings
-        mock_list_recordings.return_value = ([self.recording, recording2], False, "", None)
+        mock_list_recordings.return_value = RecordingsListingResult(
+            recordings=[self.recording, recording2],
+            more_recordings_available=False,
+            timings_header="",
+            next_cursor=None,
+        )
 
         self._create_access_control(self.editor_user, access_level="editor")
 

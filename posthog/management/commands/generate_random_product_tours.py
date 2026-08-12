@@ -15,7 +15,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
-from posthog.persons_seed import PersonData, fetch_recent_persons_with_distinct_id
+from posthog.persons_seed import SeedPerson, fetch_recent_persons_with_distinct_id
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
@@ -201,7 +201,7 @@ class Command(BaseCommand):
         self,
         event_name: str,
         properties: dict[str, Any],
-        person_data: PersonData,
+        person_data: SeedPerson,
         timestamp: Any,
         team: Team,
         index: int,
@@ -271,7 +271,7 @@ class Command(BaseCommand):
         return insert, params
 
     def generate_tour_events(
-        self, tour: ProductTour, team: Team, num_events: int, days_back: int, persons_data: list[PersonData]
+        self, tour: ProductTour, team: Team, num_events: int, days_back: int, persons_data: list[SeedPerson]
     ) -> dict[str, int]:
         """Generate product tour events.
 
@@ -450,7 +450,7 @@ class Command(BaseCommand):
             return
 
         # Fetch real persons if events are requested
-        persons_data: list[PersonData] = []
+        persons_data: list[SeedPerson] = []
         if num_events > 0:
             persons_data = fetch_recent_persons_with_distinct_id(team.id, limit=100)
             if persons_data:

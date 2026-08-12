@@ -42,6 +42,10 @@ export const supportRouterLogic = kea<supportRouterLogicType>([
                 // than by position — positionally, an old link's area would land in its slot.
                 const [kind] = panelOptions
 
+                if (kind === 'ticket') {
+                    return
+                }
+
                 supportLogic.actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
                     isEmailFormOpen: panelOptions.includes('true') ? 'true' : 'false',

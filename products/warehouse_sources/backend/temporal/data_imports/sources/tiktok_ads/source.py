@@ -84,6 +84,15 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             "Integration not found": "The linked TikTok Ads integration no longer exists. Please reconnect your TikTok Ads integration.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        return {
+            # The paginator's `update_state` raises this exact prefix for every TikTok API code
+            # it already classifies as transient (rate limits, "System error", maintenance) — see
+            # `TikTokAdsPaginator.update_state`'s `retryable_codes`. Temporal retries the whole
+            # activity regardless, so this shouldn't page us as a bug.
+            "TikTok API error:",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

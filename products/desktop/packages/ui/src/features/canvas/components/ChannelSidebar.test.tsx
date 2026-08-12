@@ -1,6 +1,6 @@
 import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { Theme } from "@radix-ui/themes";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,8 +62,13 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     id: "task-1",
     title: "Investigate signup drop-off",
     ts: Date.parse("2026-07-17T12:00:00.000Z"),
+    createdAt: Date.parse("2026-07-16T12:00:00.000Z"),
     pinned: false,
     rawStatus: null,
+    environment: null,
+    source: null,
+    needsInput: false,
+    unread: false,
     authorUser: null,
     authorName: "Someone else",
     // Not the viewer, so filtering to "Me" leaves nothing.
@@ -131,15 +136,23 @@ describe("ChannelSidebar", () => {
   });
 
   it("doesn't call a cold load 'no matches' while a filter is active", async () => {
-    const user = userEvent.setup();
+    // A submenu is `pointer-events: none` until Base UI settles it, which never
+    // happens under jsdom's layout — the same setup the other menu suites use.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     mocks.items = [item()];
     const { rerender } = renderSidebar();
 
     // Filter down to the viewer's own items; this one is someone else's, so the
     // settled list really has no matches.
     await user.click(screen.getByRole("button", { name: "Filter" }));
-    await user.click(await screen.findByRole("menuitemradio", { name: "Me" }));
-    expect(screen.getByText("No matches")).toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("menuitem", { name: /Created by/ }),
+    );
+    // A pointer sequence inside an unsettled submenu never reaches Base UI's
+    // handler under jsdom; the reasoning-menu suite picks its radios this way
+    // for the same reason.
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: "Me" }));
+    expect(await screen.findByText("No matches")).toBeInTheDocument();
 
     // Reloading the space empties the list again — that isn't a verdict.
     mocks.items = [];

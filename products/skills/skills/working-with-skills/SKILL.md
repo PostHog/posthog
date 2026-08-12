@@ -142,6 +142,11 @@ posthog:skill-create
 - **`allowed_tools`** lists the MCP / built-in tools the skill expects to be
   callable. Be honest — under-declaring causes silent failures, over-declaring
   is a security smell.
+- **End with a `## Related skills` footer** when adjacent skills exist: a short
+  bullet list of `` `skill-name` `` entries, each with a one-line handoff reason
+  ("when to jump there"), so one skill invocation seeds discovery of the next.
+  Refer to skills by name only (no paths — related skills often live in other
+  products), and only list genuine next steps, not everything in the product.
 
 ## Updating an existing skill
 
