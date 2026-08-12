@@ -20,6 +20,10 @@ import { memo, useCallback } from "react";
 
 export type SignalSourceValues = Record<ToggleableSourceProduct, boolean>;
 
+const SORTED_EXTERNAL_INBOX_SOURCES = [...EXTERNAL_INBOX_SOURCES].sort((a, b) =>
+  a.label.localeCompare(b.label),
+);
+
 interface SignalSourceToggleCardProps {
   icon: React.ReactNode;
   label: string;
@@ -35,6 +39,7 @@ interface SignalSourceToggleCardProps {
   syncStatus?: string | null;
   docsUrl?: string;
   docsLabel?: string;
+  compact?: boolean;
 }
 
 function syncStatusLabel(status: string | null | undefined): {
@@ -69,99 +74,114 @@ const SignalSourceToggleCard = memo(function SignalSourceToggleCard({
   syncStatus,
   docsUrl,
   docsLabel,
+  compact,
 }: SignalSourceToggleCardProps) {
   const statusInfo = checked ? syncStatusLabel(syncStatus) : null;
+  const control = (() => {
+    if (loading) {
+      return <Spinner />;
+    }
+
+    if (requiresSetup) {
+      return (
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          onClick={onSetup}
+          disabled={disabled}
+        >
+          Enable
+        </Button>
+      );
+    }
+
+    return (
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        disabled={disabled}
+      />
+    );
+  })();
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: the card contains interactive controls
     <div
-      role="button"
-      tabIndex={disabled || loading ? -1 : 0}
-      onClick={
-        disabled || loading
-          ? undefined
-          : requiresSetup
-            ? onSetup
-            : () => onCheckedChange(!checked)
-      }
-      onKeyDown={(event) => {
-        if (
-          event.target !== event.currentTarget ||
-          (event.key !== "Enter" && event.key !== " ")
-        ) {
-          return;
-        }
-        event.preventDefault();
-        event.currentTarget.click();
-      }}
-      className={[
-        "rounded-(--radius-3) border bg-(--color-panel-solid) p-3 transition duration-150",
-        checked ? "border-(--accent-6)" : "border-border",
-        disabled || loading
-          ? "cursor-default"
-          : "cursor-pointer hover:border-(--gray-6) hover:bg-(--gray-2) hover:shadow-sm",
-      ].join(" ")}
+      className={`rounded-(--radius-3) border bg-(--color-panel-solid) transition duration-150 ${compact ? "p-2" : "p-3"} ${checked ? "border-(--accent-6)" : "border-border"}`}
     >
-      <div className="flex items-center justify-between gap-4">
+      {compact ? (
         <div className="flex items-center gap-3">
           <div className="shrink-0 text-gray-11">{icon}</div>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-gray-12 text-sm">{label}</span>
+          <div className="w-56 min-w-0 max-w-[60%]">
+            <div className="flex min-w-0 items-center gap-2">
+              <span
+                title={label}
+                className="min-w-0 flex-1 truncate font-medium text-gray-12 text-sm"
+              >
+                {label}
+              </span>
               {labelSuffix}
-              {statusInfo && (
-                <span
-                  style={{ color: statusInfo.color }}
-                  className="text-[13px]"
-                >
-                  {statusInfo.text}
-                </span>
-              )}
             </div>
-            <span className="text-[13px] text-gray-11">{description}</span>
-            {docsUrl && (
-              <span className="text-[13px] text-gray-11">
-                <a
-                  href={docsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    window.open(docsUrl, "_blank", "noopener");
-                  }}
-                  className="inline-flex items-center gap-[4px] text-(--accent-11) no-underline"
-                >
-                  Learn about {docsLabel ?? label}
-                  <ArrowSquareOutIcon size={11} />
-                </a>
+            {statusInfo && (
+              <span
+                style={{ color: statusInfo.color }}
+                className="mt-0.5 block text-[13px] leading-none"
+              >
+                {statusInfo.text}
               </span>
             )}
           </div>
-        </div>
-        {loading ? (
-          <Spinner size="2" />
-        ) : requiresSetup ? (
-          <Button
-            type="button"
-            variant="primary"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              onSetup?.();
-            }}
+          <span
+            title={description}
+            className="min-w-0 flex-1 truncate text-[13px] text-gray-11"
           >
-            Enable
-          </Button>
-        ) : (
-          <Switch
-            checked={checked}
-            onCheckedChange={onCheckedChange}
-            disabled={disabled}
-            onClick={(e) => e.stopPropagation()}
-          />
-        )}
-      </div>
+            {description}
+          </span>
+          <div className="flex w-16 shrink-0 justify-end">{control}</div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="shrink-0 text-gray-11">{icon}</div>
+            <div className="flex flex-col gap-1">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="font-medium text-gray-12 text-sm">
+                  {label}
+                </span>
+                {labelSuffix}
+                {statusInfo && (
+                  <span
+                    style={{ color: statusInfo.color }}
+                    className="text-[13px]"
+                  >
+                    {statusInfo.text}
+                  </span>
+                )}
+              </div>
+              <span className="text-[13px] text-gray-11">{description}</span>
+              {docsUrl && (
+                <span className="text-[13px] text-gray-11">
+                  <a
+                    href={docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      window.open(docsUrl, "_blank", "noopener");
+                    }}
+                    className="inline-flex items-center gap-[4px] text-(--accent-11) no-underline"
+                  >
+                    Learn about {docsLabel ?? label}
+                    <ArrowSquareOutIcon size={11} />
+                  </a>
+                </span>
+              )}
+            </div>
+          </div>
+          {control}
+        </div>
+      )}
       {statusSection && <div className="ml-[32px]">{statusSection}</div>}
     </div>
   );
@@ -217,6 +237,7 @@ const ExternalSourceCard = memo(function ExternalSourceCard({
       onSetup={handleSetup}
       loading={state?.loading}
       syncStatus={state?.syncStatus}
+      compact
     />
   );
 });
@@ -352,8 +373,8 @@ export function SignalSourceToggles({
         <span className="font-medium text-(--gray-9) text-[13px]">
           External sources
         </span>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {EXTERNAL_INBOX_SOURCES.map((source) => {
+        <div className="flex flex-col gap-3">
+          {SORTED_EXTERNAL_INBOX_SOURCES.map((source) => {
             const product = source.product;
             return (
               <ExternalSourceCard
@@ -375,7 +396,20 @@ export function SignalSourceToggles({
   );
 }
 
-function SignalSourceToggleCardSkeleton() {
+function SignalSourceToggleCardSkeleton({ compact }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="rounded-(--radius-3) border border-border bg-(--color-panel-solid) p-2">
+        <div className="flex items-center gap-3">
+          <div className="size-[20px] shrink-0 animate-pulse rounded bg-gray-4" />
+          <div className="h-[12px] w-56 max-w-[60%] animate-pulse rounded bg-gray-4" />
+          <div className="h-[11px] min-w-0 flex-1 animate-pulse rounded bg-gray-3" />
+          <div className="h-[18px] w-16 shrink-0 animate-pulse rounded-full bg-gray-3" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="rounded-(--radius-3) border border-border bg-(--color-panel-solid) p-3">
       <div className="flex items-center justify-between gap-4">
@@ -410,11 +444,13 @@ export function SignalSourceTogglesSkeleton() {
         <span className="font-medium text-(--gray-9) text-[13px]">
           External sources
         </span>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, index) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
-            <SignalSourceToggleCardSkeleton key={index} />
-          ))}
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: SORTED_EXTERNAL_INBOX_SOURCES.length }).map(
+            (_, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: static loading placeholders
+              <SignalSourceToggleCardSkeleton key={index} compact />
+            ),
+          )}
         </div>
       </section>
     </div>
