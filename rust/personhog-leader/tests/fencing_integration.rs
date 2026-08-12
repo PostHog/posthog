@@ -236,6 +236,46 @@ async fn a_failed_preconnect_releases_its_claim() {
     );
 }
 
+/// A dial whose claim was removed mid-flight must not resolve the
+/// replacement claim that took its place: releasing another dial's
+/// claim lets convergence start yet more dials, recreating the churn
+/// single-flight exists to stop.
+#[tokio::test]
+async fn a_stale_dials_failure_leaves_the_replacements_claim() {
+    let mut kafka = test_kafka_config();
+    // An unroutable broker holds the dial open until its 2s bound, so
+    // the mid-flight claim churn below happens while it is in flight.
+    kafka.kafka_hosts = "127.0.0.1:1".to_string();
+    let producers = Arc::new(FencedChangelogProducers::new(FencedProducerConfig {
+        kafka,
+        topic: "fence_unroutable".to_string(),
+        init_timeout: Duration::from_secs(2),
+        commit_timeout: Duration::from_secs(2),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        settle_budget: Duration::from_secs(5),
+    }));
+
+    let dial = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.preconnect(0).await })
+    };
+    while !producers.has_connecting_claim_for_test(0) {
+        tokio::task::yield_now().await;
+    }
+    // Ownership churn mid-dial: the claim is discarded and a
+    // replacement dial claims the slot.
+    producers.release(0);
+    producers.stage_connecting_for_test(0, Duration::ZERO);
+
+    dial.await.unwrap();
+
+    assert!(
+        producers.has_connecting_claim_for_test(0),
+        "the stale dial's failure must not release the replacement's claim"
+    );
+}
+
 /// The sweep clears a claim only past the dial bound: an old claim has
 /// no live owner (its task died), and leaving it would silently disable
 /// preconnect for the partition, while a young claim is a live dial

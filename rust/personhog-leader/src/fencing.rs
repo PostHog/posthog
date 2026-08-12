@@ -25,7 +25,7 @@
 
 #[cfg(any(test, feature = "test-support"))]
 use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fmt, mem};
@@ -438,7 +438,14 @@ enum Prepared {
     /// the trigger fires on every convergence pass through a drain
     /// window, and without it those passes stack concurrent dials
     /// until the pod runs out of memory.
-    Connecting { since: Instant },
+    ///
+    /// The token identifies the owning dial. A dial resolves only its
+    /// own claim: a stale dial whose claim was removed mid-flight (by
+    /// an acquire, a release, or the sweep) must neither usurp a
+    /// replacement dial's claim on success nor release it on failure —
+    /// either would let convergence start extra dials, which is the
+    /// churn the claim exists to prevent.
+    Connecting { token: u64, since: Instant },
     /// A finished dial, parked for the next acquire to consume.
     Ready(ConnectedTransactionalProducer),
 }
@@ -475,6 +482,9 @@ pub struct FencedChangelogProducers {
     /// transition; `init_transactions` — the fencing action — still
     /// happens only inside `acquire`.
     prepared: DashMap<u32, Prepared>,
+    /// Distinguishes dials, so each resolves only its own claim.
+    dial_token: AtomicU64,
+
     /// Dials attempted, so tests can pin single-flight: the storm this
     /// guards against is invisible through public behavior until the
     /// pod is already dying.
@@ -528,6 +538,7 @@ impl FencedChangelogProducers {
             partitions: DashMap::new(),
             repair_nudge: None,
             prepared: DashMap::new(),
+            dial_token: AtomicU64::new(0),
             #[cfg(any(test, feature = "test-support"))]
             connect_attempts: AtomicUsize::new(0),
             #[cfg(any(test, feature = "test-support"))]
@@ -660,6 +671,7 @@ impl FencedChangelogProducers {
     pub async fn preconnect(&self, partition: u32) {
         // The claim must precede the dial, and the entry guard must not
         // be held across it: the guard holds a shard lock.
+        let token = self.dial_token.fetch_add(1, Ordering::Relaxed);
         match self.prepared.entry(partition) {
             Entry::Occupied(_) => {
                 // Another preconnect is dialing or already parked a
@@ -670,6 +682,7 @@ impl FencedChangelogProducers {
             }
             Entry::Vacant(slot) => {
                 slot.insert(Prepared::Connecting {
+                    token,
                     since: Instant::now(),
                 });
             }
@@ -680,33 +693,34 @@ impl FencedChangelogProducers {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
                 histogram!("personhog_leader_fence_preconnect_ms")
                     .record(start.elapsed().as_secs_f64() * 1000.0);
-                self.park(partition, connected);
+                self.park(partition, token, connected);
             }
             Err(e) => {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
                     .increment(1);
                 warn!(partition, error = %e, "fence preconnect failed; acquisition will connect cold");
-                // Release the claim so a later preconnect can retry.
-                // Only a Connecting marker comes off here, never a
-                // parked connection.
-                self.prepared.remove_if(&partition, |_, slot| {
-                    matches!(slot, Prepared::Connecting { .. })
-                });
+                // Release the claim so a later preconnect can retry —
+                // but only this dial's own claim. A replacement dial's
+                // claim, or a parked connection, stays.
+                self.prepared.remove_if(
+                    &partition,
+                    |_, slot| matches!(slot, Prepared::Connecting { token: t, .. } if *t == token),
+                );
             }
         }
     }
 
-    /// Park a finished dial, unless the claim was discarded while it
-    /// ran (a release, a sweep, or an acquire that went cold): a
-    /// discarded partition must not resurrect, so the late connection
-    /// is dropped instead. Finding another dial's claim or connection
-    /// here is possible when this dial's claim was discarded and a
-    /// later preconnect re-claimed; one connection is as good as
-    /// another, so the slot keeps whichever parks last and the other
-    /// is dropped by its own park.
-    fn park(&self, partition: u32, connected: ConnectedTransactionalProducer) {
+    /// Park a finished dial, unless its claim is gone (a release, a
+    /// sweep, or an acquire that went cold discarded it): a discarded
+    /// partition must not resurrect, so the late connection is dropped
+    /// instead. The token check makes ownership exact — a stale dial
+    /// finding a replacement dial's claim here must not usurp it, or
+    /// the replacement's own park would discard the newer connection
+    /// while later convergence passes see whatever raced in.
+    fn park(&self, partition: u32, token: u64, connected: ConnectedTransactionalProducer) {
         match self.prepared.entry(partition) {
-            Entry::Occupied(mut slot) if matches!(slot.get(), Prepared::Connecting { .. }) => {
+            Entry::Occupied(mut slot) if matches!(slot.get(), Prepared::Connecting { token: t, .. } if *t == token) =>
+            {
                 slot.insert(Prepared::Ready(connected));
             }
             _ => {
@@ -776,7 +790,9 @@ impl FencedChangelogProducers {
             // swept as a stale claim.
             match self.prepared.remove_if(&partition, |_, slot| match slot {
                 Prepared::Ready(_) => true,
-                Prepared::Connecting { since } => now.duration_since(*since) > stale_claim_bound,
+                Prepared::Connecting { since, .. } => {
+                    now.duration_since(*since) > stale_claim_bound
+                }
             }) {
                 Some((_, Prepared::Ready(connected))) => {
                     counter!("personhog_leader_fence_preconnect_total", "outcome" => "swept")
@@ -815,12 +831,22 @@ impl FencedChangelogProducers {
     /// whose task died without resolving it.
     #[cfg(any(test, feature = "test-support"))]
     pub fn stage_connecting_for_test(&self, partition: u32, age: Duration) {
+        let token = self.dial_token.fetch_add(1, Ordering::Relaxed);
         self.prepared.insert(
             partition,
             Prepared::Connecting {
+                token,
                 since: Instant::now() - age,
             },
         );
+    }
+
+    /// Whether a Connecting claim holds the partition's slot.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn has_connecting_claim_for_test(&self, partition: u32) -> bool {
+        self.prepared
+            .get(&partition)
+            .is_some_and(|slot| matches!(*slot, Prepared::Connecting { .. }))
     }
 
     /// Whether this pod holds a *usable* fence for the partition.
