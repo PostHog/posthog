@@ -58,6 +58,8 @@ You can authenticate with PostHog interactively for using the CLI locally, but i
 
 These variables can also be loaded from a dotenv-style file via `--dotenv-file <PATH>` (e.g. `posthog-cli --dotenv-file .env query ...`) or the `POSTHOG_CLI_DOTENV_FILE` environment variable. The process environment always wins; the file is only consulted if the required variables aren't set. `POSTHOG_CLI_HOST` is only read from the same source that supplied the rest, so a stray host in the file cannot redirect a key supplied by the process env.
 
+Callers that wrap `posthog-cli api` can preserve their origin in API activity by setting `POSTHOG_CLI_ORIGIN_USER_AGENT`. Wizard callers should also set `POSTHOG_CLI_WIZARD_RUN_ID` to their run ID. PostHog records both values only for requests identified as coming from Wizard.
+
 Full precedence: CLI args → process env → `--dotenv-file` → `~/.posthog/credentials.json` (from `posthog-cli login`).
 
 ## Uploading native debug symbols
