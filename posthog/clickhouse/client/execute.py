@@ -19,6 +19,7 @@ from clickhouse_driver import Client as SyncClient
 from opentelemetry import trace
 from prometheus_client import Counter
 
+from posthog.api_queries_quota import increment_api_queries_bytes
 from posthog.clickhouse.client.connection import (
     ClickHouseUser,
     Workload,
@@ -508,6 +509,8 @@ def sync_execute(
                 and client.last_query.progress.written_rows > 0
             ):
                 result = client.last_query.progress.written_rows
+            if tags.chargeable and tags.org_id and hasattr(client, "last_query") and client.last_query.progress:
+                increment_api_queries_bytes(str(tags.org_id), client.last_query.progress.bytes)
     except Exception as e:
         exception_type = clickhouse_error_type(e)
         QUERY_ERROR_COUNTER.labels(
