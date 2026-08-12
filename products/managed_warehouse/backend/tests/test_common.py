@@ -295,3 +295,42 @@ class TestValidateDuckgresIdentifier:
 
         with pytest.raises(ValueError):
             validate_duckgres_identifier(ident)
+
+
+class TestLogDuckgresServerAccess:
+    def test_emits_the_access_event_with_caller_and_org(self) -> None:
+        from structlog.testing import capture_logs
+
+        from products.managed_warehouse.backend.common import _log_duckgres_server_access
+
+        with capture_logs() as cap_logs:
+            _log_duckgres_server_access("common.get_duckgres_server_for_organization", "org-123")
+
+        [event] = [entry for entry in cap_logs if entry.get("event") == "duckgres_server_model_access"]
+        assert event["caller"] == "common.get_duckgres_server_for_organization"
+        assert event["organization_id"] == "org-123"
+        assert event["log_level"] == "info"
+
+    def test_never_raises_and_allows_a_missing_org(self) -> None:
+        from structlog.testing import capture_logs
+
+        from products.managed_warehouse.backend.common import _log_duckgres_server_access
+
+        with (
+            capture_logs() as cap_logs,
+            patch(
+                "products.managed_warehouse.backend.common._structlog_logger.info",
+                side_effect=RuntimeError("logging backend down"),
+            ),
+        ):
+            # A logging failure must be swallowed: the touched path keeps working.
+            _log_duckgres_server_access("common.upsert_duckgres_server_for_org:write", "org-9")
+
+        assert not [entry for entry in cap_logs if entry.get("event") == "duckgres_server_model_access"]
+
+        with capture_logs() as cap_logs:
+            _log_duckgres_server_access("admin._get_server_or_404")
+
+        [event] = [entry for entry in cap_logs if entry.get("event") == "duckgres_server_model_access"]
+        assert event["caller"] == "admin._get_server_or_404"
+        assert event["organization_id"] is None

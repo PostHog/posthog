@@ -64,6 +64,7 @@ __all__ = [
 
 
 def _to_stored_server_config(server: DuckgresServer) -> DuckgresStoredServerConfig:
+    common._log_duckgres_server_access("facade.api._to_stored_server_config", str(server.organization_id))
     catalog = None
     if server.catalog_host:
         catalog = DuckLakeCatalogConnectionConfig(
@@ -122,6 +123,7 @@ def get_warehouse_provision_status(organization_id: str) -> ManagedWarehouseProv
 def has_provisioned_warehouse(organization_id: str | UUID) -> bool:
     from products.managed_warehouse.backend.models import DuckgresServer  # noqa: PLC0415
 
+    common._log_duckgres_server_access("facade.api.has_provisioned_warehouse", str(organization_id))
     return DuckgresServer.objects.filter(organization_id=organization_id).exists()
 
 
@@ -175,6 +177,7 @@ def persist_duckgres_server_for_org(
 def reconcile_stored_bucket_config(organization_id: str | UUID, *, bucket: str, bucket_region: str) -> bool:
     from products.managed_warehouse.backend.models import DuckgresServer  # noqa: PLC0415
 
+    common._log_duckgres_server_access("facade.api.reconcile_stored_bucket_config:write", str(organization_id))
     return bool(
         DuckgresServer.objects.filter(organization_id=organization_id)
         .exclude(bucket=bucket, bucket_region=bucket_region)

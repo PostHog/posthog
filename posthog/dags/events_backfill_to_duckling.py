@@ -84,6 +84,7 @@ from products.data_warehouse.backend.facade.backfill_status import (
     stale_running_partitions,
 )
 from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.common import _log_duckgres_server_access
 from products.managed_warehouse.backend.facade.api import (
     DUCKGRES_BUCKET_REGION,
     NO_HISTORY_SENTINEL,
@@ -281,6 +282,7 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         )
 
     # CP couldn't answer — fall back to the stored row if it knows a bucket.
+    _log_duckgres_server_access("events_backfill.bucket_fallback", org_id)
     stored_bucket = get_stored_bucket_config(org_id)
     if stored_bucket is not None:
         bucket, bucket_region = stored_bucket.bucket, stored_bucket.region or DUCKGRES_BUCKET_REGION
@@ -1797,6 +1799,7 @@ def _ducklake_file_partition_value_fixup_enabled() -> bool:
 
 
 def _open_catalog_conn(target: DucklingTarget) -> psycopg.Connection[Any]:
+    _log_duckgres_server_access("events_backfill.catalog_connection", target.organization_id)
     catalog = get_catalog_connection_config(target.organization_id)
     if catalog is None:
         raise RuntimeError(

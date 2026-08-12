@@ -25,6 +25,8 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
+from products.managed_warehouse.backend.common import _log_duckgres_server_access
+
 logger = structlog.get_logger(__name__)
 
 DATA_WAREHOUSE_SCENE_FLAG = "data-warehouse-scene"
@@ -402,6 +404,7 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
 
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
+        _log_duckgres_server_access("views._persist_duckgres_server:write", str(organization_id))
         persist_duckgres_server_for_org(
             organization_id,
             host=connection["host"],
@@ -997,6 +1000,7 @@ def _update_direct_connection_password(organization_id: UUID | str, password: st
         update_managed_warehouse_root_password,  # noqa: PLC0415
     )
 
+    _log_duckgres_server_access("views.reset_password_flow:write", str(organization_id))
     update_managed_warehouse_root_password(organization_id=organization_id, password=password)
 
 

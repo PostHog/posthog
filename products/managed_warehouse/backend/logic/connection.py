@@ -38,6 +38,7 @@ from rest_framework import status
 from posthog.models.team.team import Team
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
+from products.managed_warehouse.backend.common import _log_duckgres_server_access
 from products.managed_warehouse.backend.facade.contracts import ServiceCredential
 from products.managed_warehouse.backend.models import DuckgresServer
 from products.managed_warehouse.backend.service_credentials import mint_service_credential
@@ -352,6 +353,7 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
     password and fails silently.
     """
     with transaction.atomic():
+        _log_duckgres_server_access("connection.update_managed_warehouse_root_password:write", str(organization_id))
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         server.password = password
         server.save(update_fields=["password", "updated_at"])
@@ -383,6 +385,7 @@ def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> Non
     """
     now = timezone.now()
     with transaction.atomic():
+        _log_duckgres_server_access("connection.soft_delete_managed_warehouse_sources", str(organization_id))
         DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
         sources = list(_managed_sources_for_org(organization_id).select_for_update().order_by("team_id"))
         DataWarehouseTable.raw_objects.filter(

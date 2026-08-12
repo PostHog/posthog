@@ -25,6 +25,7 @@ from uuid import UUID
 
 import duckdb
 import psycopg
+import structlog
 from psycopg import sql
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
@@ -47,6 +48,39 @@ DUCKLAKE_CATALOG_RESET_ENV_VAR = "POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET"
 DATA_MODELING_DUCKGRES_SHADOW_SCHEMA_PREFIX = "shadow"
 
 logger = logging.getLogger(__name__)
+_structlog_logger = structlog.get_logger(__name__)
+
+
+def _log_duckgres_server_access(caller: str, organization_id: str | None = None) -> None:
+    """Emit the DuckgresServer-model access event used to prove the model is unreadable.
+
+    Every remaining read/write touchpoint of the ``DuckgresServer`` Django model calls
+    this with a short self-describing caller tag. After this has baked in production
+    (~24h), an EMPTY query for ``duckgres_server_model_access`` is the evidence that
+    nothing reads the model anymore and a later PR can DROP it; any event that does
+    fire names the touchpoint that still needs migrating. The ``DuckgresServer``-free
+    paths (the CP-minted service-credential and direct-source flows) never emit it.
+
+    Behavior-neutral, must be negligible on hot paths, and must never break a caller,
+    so the body is fully defensive and only grabs the immediate caller's function name
+    as a cheap stack hint (no stack walks, no traces).
+    """
+    try:
+        import inspect
+
+        frame = inspect.currentframe()
+        caller_function = None
+        if frame is not None and frame.f_back is not None and frame.f_back.f_back is not None:
+            caller_function = frame.f_back.f_back.f_code.co_name
+        _structlog_logger.info(
+            "duckgres_server_model_access",
+            caller=caller,
+            organization_id=organization_id,
+            caller_function=caller_function,
+        )
+    except Exception:  # never let observability break the touched path
+        pass
+
 
 # Managed-warehouse buckets live in the deployment's home region: us-east-1 for
 # PostHog Cloud US, eu-central-1 for PostHog Cloud EU.
@@ -101,6 +135,7 @@ def get_config() -> dict[str, str]:
 
 
 def _server_to_catalog_config(server: DuckgresServer) -> dict[str, str]:
+    _log_duckgres_server_access("common._server_to_catalog_config", str(server.organization_id))
     config = server.to_catalog_public_config()
     config["DUCKLAKE_RDS_PASSWORD"] = server.catalog_password or ""
     return config
@@ -164,6 +199,7 @@ def get_duckgres_server_by_team_org(team_id: int) -> DuckgresServer | None:
     if is_dev_mode():
         return None
     org_id = _get_org_id_for_team(team_id)
+    _log_duckgres_server_access("common.get_duckgres_server_by_team_org", org_id)
     return get_duckgres_server_for_organization(org_id)
 
 
@@ -178,6 +214,7 @@ DUCKGRES_DEFAULTS: dict[str, str] = {
 
 
 def _server_to_config(server: DuckgresServer) -> dict[str, str]:
+    _log_duckgres_server_access("common._server_to_config", str(server.organization_id))
     return {
         "DUCKGRES_HOST": server.host,
         "DUCKGRES_PORT": str(server.port),
@@ -210,6 +247,7 @@ def get_duckgres_server_for_organization(organization_id: str) -> DuckgresServer
 
     from products.managed_warehouse.backend.models import DuckgresServer
 
+    _log_duckgres_server_access("common.get_duckgres_server_for_organization", organization_id)
     try:
         return DuckgresServer.objects.get(organization_id=organization_id)
     except DuckgresServer.DoesNotExist:
@@ -236,6 +274,7 @@ def upsert_duckgres_server_for_org(
     """
     from products.managed_warehouse.backend.models import DuckgresServer
 
+    _log_duckgres_server_access("common.upsert_duckgres_server_for_org:write", str(organization_id))
     defaults: dict[str, object] = {
         "host": host,
         "port": port,

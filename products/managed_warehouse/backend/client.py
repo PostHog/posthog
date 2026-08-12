@@ -8,6 +8,7 @@ from psycopg import sql as psql
 from psycopg.conninfo import make_conninfo
 
 from products.managed_warehouse.backend.common import (
+    _log_duckgres_server_access,
     get_duckgres_config_for_org,
     is_dev_mode,
     sanitize_ducklake_identifier,
@@ -84,6 +85,7 @@ def make_duckgres_conninfo(
         config = _duckgres_dev_config()
     else:
         org_id = organization_id or _get_org_id_for_team(team_id)
+        _log_duckgres_server_access("client.make_duckgres_conninfo", org_id)
         config = get_duckgres_config_for_org(org_id)
     return make_conninfo(
         host=config["DUCKGRES_HOST"],

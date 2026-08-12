@@ -10,6 +10,7 @@ import structlog
 
 from posthog.models import Organization, Team, User
 
+from products.managed_warehouse.backend.common import _log_duckgres_server_access
 from products.managed_warehouse.backend.models import DuckgresServer
 
 logger = structlog.get_logger(__name__)
@@ -255,6 +256,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         return redirect(reverse("admin:managed_warehouse_duckgresserver_change", args=[object_id]))
 
     def _get_server_or_404(self, object_id: str) -> DuckgresServer:
+        _log_duckgres_server_access("admin._get_server_or_404")
         try:
             return get_object_or_404(DuckgresServer, pk=object_id)
         except ValidationError as exc:
