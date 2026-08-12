@@ -2720,6 +2720,17 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateExperimentMetrics: async () => {
+            // Metric results are positional. Once the metric list changes, keeping the previous arrays
+            // around can briefly pair a result with the wrong metric (and gives no feedback while the
+            // updated results are computed). Clear both result stores up front so every metric in the
+            // optimistic, updated list renders its existing per-variant loading skeleton.
+            actions.clearMetricsResults()
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
             await asyncActions.updateExperiment({
                 metrics: values.experiment.metrics,
                 metrics_secondary: values.experiment.metrics_secondary,
