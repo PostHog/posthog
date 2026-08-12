@@ -366,6 +366,8 @@ class TestGoogleAdsSourceResumableBinding:
         fake_inputs.team_id = 1
         fake_inputs.job_id = "test-google-ads-job"
         fake_inputs.logger = mock.MagicMock()
+        # Resume only applies to non-reset runs; a reset never loads or saves a checkpoint.
+        fake_inputs.reset_pipeline = False
 
         manager = source.get_resumable_source_manager(fake_inputs)
 

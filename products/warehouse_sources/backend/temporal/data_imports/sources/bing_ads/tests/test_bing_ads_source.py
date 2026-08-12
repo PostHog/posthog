@@ -415,6 +415,8 @@ class TestBingAdsSource:
         inputs.team_id = self.team_id
         inputs.job_id = "test-job-id"
         inputs.logger = mock.MagicMock()
+        # Resume only applies to non-reset runs; a reset never loads or saves a checkpoint.
+        inputs.reset_pipeline = False
 
         manager = self.source.get_resumable_source_manager(inputs)
 

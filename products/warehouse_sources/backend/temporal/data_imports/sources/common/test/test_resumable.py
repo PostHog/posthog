@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class _Cursor:
     cursor: str
 
