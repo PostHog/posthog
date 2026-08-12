@@ -848,16 +848,20 @@ fn prompt_detection_is_what_makes_the_read_gate_hold() {
 /// Rollout quota mode: pod-0 is a departing-generation Hold member and
 /// the incoming pods are capped at their final share, the membership
 /// the coordinator derives mid-rollout. The checker drives the quota
-/// planner through every interleaving with a crash available — pinning
-/// that quota-mode plans never double-plan a partition, never strand
-/// one, and converge (the frozen-placement failure shape is a liveness
-/// violation here).
+/// planner through every interleaving with a crash and a rejoin
+/// available — pinning that quota-mode plans never double-plan a
+/// partition, never strand one, and converge (the frozen-placement
+/// failure shape is a liveness violation here). The rejoin covers the
+/// capped pod that comes back at zero partitions and must be leveled
+/// from its siblings, including when the crashed-and-returned pod is
+/// the Hold member and phase-4 forcing pushed a survivor over cap.
 #[test]
 fn rollout_quota_mode_is_safe_and_live() {
     HandoffModel {
         pods: 3,
         partitions: 2,
         crashes: 1,
+        rejoins: 1,
         hold_pods: 1,
         ..base()
     }

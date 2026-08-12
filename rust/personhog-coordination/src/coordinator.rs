@@ -1325,6 +1325,8 @@ fn record_cluster_gauges(handoffs: &[HandoffState], pods: &[RegisteredPod], rout
 /// coordinator's live values.
 fn reset_coordinator_gauges() {
     gauge!("personhog_coordination_is_coordinator").set(0.0);
+    gauge!("personhog_coordination_generation_hold_pods").set(0.0);
+    gauge!("personhog_coordination_generation_capped_pods").set(0.0);
     record_cluster_gauges(&[], &[], 0);
 }
 
@@ -1339,6 +1341,10 @@ fn active_pod_names(pods: &[RegisteredPod]) -> Vec<String> {
     active.sort_by(|a, b| a.pod_name.cmp(&b.pod_name));
     active.iter().map(|p| p.pod_name.clone()).collect()
 }
+
+/// How long a first evaluation waits for a just-started controller
+/// watch's initial intent (a healthy watch reports well under a second).
+const FIRST_INTENT_WAIT: Duration = Duration::from_secs(3);
 
 /// Derive assignment members and placement policies from pod
 /// registrations and K8s controller intent.
@@ -1374,19 +1380,31 @@ async fn members_for_k8s(
         // Lazily start the controller watch from the registration's own
         // ref — the coordinator has no pod of its own to discover from,
         // and without a watch `classify_departure` has no intent to
-        // consult. Idempotent, so calling per evaluation is cheap; the
-        // first evaluation after a watch starts may still have no intent,
-        // which safely leaves the pod on its status-only policy until
-        // intent arrives.
-        if let Err(e) = k8s.watch_controller(controller).await {
-            tracing::warn!(
-                controller = %controller,
-                error = %e,
-                "failed to start controller watch; using status-only policy"
-            );
-            continue;
-        }
-        if let Some(intent) = k8s.cluster_intent(controller).await {
+        // consult. Idempotent, so calling per evaluation is cheap.
+        let newly_watched = match k8s.watch_controller(controller).await {
+            Ok(newly_watched) => newly_watched,
+            Err(e) => {
+                tracing::warn!(
+                    controller = %controller,
+                    error = %e,
+                    "failed to start controller watch; using status-only policy"
+                );
+                continue;
+            }
+        };
+        // A just-started watch reports no intent yet, and a freshly
+        // elected coordinator would otherwise deterministically plan its
+        // first evaluation policy-free — mid-rollout, that's a balanced
+        // plan moving partitions the rollout already placed. Bound-wait
+        // for the first report; on timeout (API server down) fall back
+        // to status-only membership, availability over placement.
+        let intent = if newly_watched {
+            k8s.cluster_intent_within(controller, FIRST_INTENT_WAIT)
+                .await
+        } else {
+            k8s.cluster_intent(controller).await
+        };
+        if let Some(intent) = intent {
             intents.insert(controller.clone(), intent);
         }
     }

@@ -71,12 +71,39 @@ impl K8sAwareness {
     /// rather than pod-name discovery (the coordinator sees each pod's
     /// self-reported controller ref and has no pod of its own to
     /// discover from). Idempotent: an already-watched controller is a
-    /// no-op.
+    /// no-op. Returns whether this call started a new watch, so callers
+    /// that need intent can bound-wait for the first report instead of
+    /// planning without it.
     pub async fn watch_controller(
         &self,
         controller: &ControllerRef,
-    ) -> Result<(), K8sAwarenessError> {
+    ) -> Result<bool, K8sAwarenessError> {
         self.ensure_watching(controller).await
+    }
+
+    /// Like [`Self::cluster_intent`], but polls up to `deadline` for a
+    /// just-started watcher's first report. A freshly elected
+    /// coordinator's first evaluation otherwise plans deterministically
+    /// without intent — and mid-rollout, planning without placement
+    /// policies means a balanced plan that moves partitions the rollout
+    /// has already placed. `None` after the deadline (API server down,
+    /// or controller genuinely unwatched) degrades exactly like
+    /// [`Self::cluster_intent`] returning `None`.
+    pub async fn cluster_intent_within(
+        &self,
+        controller: &ControllerRef,
+        deadline: Duration,
+    ) -> Option<ClusterIntent> {
+        let start = tokio::time::Instant::now();
+        loop {
+            if let Some(intent) = self.cluster_intent(controller).await {
+                return Some(intent);
+            }
+            if start.elapsed() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
     }
 
     /// Classify why a member is departing based on its controller's current intent.
@@ -122,11 +149,12 @@ impl K8sAwareness {
         self.controllers.read().await.get(controller).cloned()
     }
 
-    /// Start watching a controller if not already watching.
-    async fn ensure_watching(&self, controller: &ControllerRef) -> Result<(), K8sAwarenessError> {
+    /// Start watching a controller if not already watching. Returns
+    /// whether a new watch was started.
+    async fn ensure_watching(&self, controller: &ControllerRef) -> Result<bool, K8sAwarenessError> {
         let mut watching = self.watching.write().await;
         if watching.contains_key(controller) {
-            return Ok(());
+            return Ok(false);
         }
 
         let child_cancel = self.cancel.child_token();
@@ -168,7 +196,7 @@ impl K8sAwareness {
             }
         });
 
-        Ok(())
+        Ok(true)
     }
 }
 

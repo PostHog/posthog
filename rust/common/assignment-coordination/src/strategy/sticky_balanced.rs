@@ -131,9 +131,10 @@ fn balanced_assignments(
 /// Rollout placement: capped active members fill to their cap, Hold
 /// members shed toward them and absorb only what nobody else can take.
 ///
-/// A cap never forces shedding: a member already above its cap (the cap
-/// shrank under it) keeps what it has and simply receives nothing new —
-/// shedding would move partitions the rollout is about to move again.
+/// A cap alone never forces shedding — a member above its cap keeps its
+/// partitions unless a capped sibling sits below cap, in which case the
+/// excess levels toward that sibling. With everyone at or above cap,
+/// over-cap members simply receive nothing new.
 ///
 /// Most partitions move once, straight to their final owner, but not
 /// all: orphans that overflow onto Hold members (phase 3, when no capped
@@ -211,9 +212,13 @@ fn quota_assignments(
         assignments.insert(partition, name.to_string());
     }
 
-    // Phase 2: capped active members below cap steal from Hold members,
-    // fullest donor first. Uncapped members never steal — without a cap
-    // there is no bound on how much they would strip from holders.
+    // Phase 2: capped active members below cap steal — from Hold members
+    // first (the departing generation sheds before anything levels), then
+    // from actives above their own cap, which phase 4 forcing and cap
+    // shrinks create: without that second donor pool a member rejoining
+    // after a crash starves at zero while its siblings sit over cap.
+    // Uncapped members never steal — without a cap there is no bound on
+    // how much they would strip from holders.
     loop {
         let Some(&(recipient, _)) = actives
             .iter()
@@ -222,11 +227,19 @@ fn quota_assignments(
         else {
             break;
         };
-        let Some(&donor) = holds
+        let donor = holds
             .iter()
             .filter(|n| !owned[*n].is_empty())
             .max_by_key(|n| owned[*n].len())
-        else {
+            .copied()
+            .or_else(|| {
+                actives
+                    .iter()
+                    .filter(|&&(n, cap)| matches!(cap, Some(c) if owned[n].len() as u32 > c))
+                    .max_by_key(|&&(n, _)| owned[n].len())
+                    .map(|&(n, _)| n)
+            });
+        let Some(donor) = donor else {
             break;
         };
         let partition = owned.get_mut(donor).unwrap().pop().unwrap();
@@ -507,6 +520,32 @@ mod tests {
         assert_eq!(result.len(), 8);
         assert_eq!(counts(&result, "new-0"), 4);
         assert_eq!(counts(&result, "new-1"), 4);
+    }
+
+    /// A capped member rejoining after a crash is leveled from siblings
+    /// sitting above cap: with no Hold donors and no orphan pool,
+    /// nothing else can feed it. (Over-cap siblings are what phase 4
+    /// forcing leaves behind when the rejoiner was down.)
+    #[test]
+    fn below_cap_member_steals_from_over_cap_siblings() {
+        let strategy = StickyBalancedStrategy;
+        let mut current = HashMap::new();
+        for p in 0..4 {
+            current.insert(p, "new-0".to_string());
+        }
+        for p in 4..8 {
+            current.insert(p, "new-1".to_string());
+        }
+        let members = vec![
+            Member::active_capped("new-0", 3),
+            Member::active_capped("new-1", 3),
+            Member::active_capped("new-2", 3),
+        ];
+        let result = strategy.compute_assignments(&current, &members, 8);
+        assert_eq!(result.len(), 8);
+        assert_eq!(counts(&result, "new-0"), 3);
+        assert_eq!(counts(&result, "new-1"), 3);
+        assert_eq!(counts(&result, "new-2"), 2);
     }
 
     /// A member already above a shrunken cap keeps its partitions — the
