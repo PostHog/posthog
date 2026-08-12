@@ -1423,6 +1423,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             actions.setSetupSection(section as SetupSection)
         }
 
+        const section = searchParams.get('section') as SetupSection | null
+        if (section && Object.values(SetupSection).includes(section)) {
+            actions.setSetupSection(section)
+        }
+
         const dateFrom = searchParams.get('date_from')
         if (dateFrom) {
             params.dateFrom = dateFrom

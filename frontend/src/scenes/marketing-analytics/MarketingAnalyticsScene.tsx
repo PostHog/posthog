@@ -268,15 +268,23 @@ const MarketingAnalyticsContent = (): JSX.Element => {
               : []),
     ]
 
+    // A stored tab can still name one no flag is rendering — a key persisted from before
+    // a flag was turned off. Normalising the state rather than just what LemonTabs
+    // highlights: `activeTab` also feeds the scene description and `?tab=`, so leaving it
+    // invalid describes a tab you aren't on and writes it back into the URL on the next
+    // filter change. Above the early return, since hooks run on every render.
+    const tabIsRendered = tabs.some((tab) => tab.key === activeTab)
+    useEffect(() => {
+        if (!tabIsRendered && !absorbed) {
+            setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+        }
+    }, [tabIsRendered, absorbed, setActiveTab])
+    const selectedTab = tabIsRendered ? activeTab : MarketingAnalyticsTab.DASHBOARD
+
     // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
     if (tabs.length === 1) {
         return dashboard
     }
-
-    // A stored tab can still name one no flag is rendering — a key persisted from before
-    // a flag was turned off. LemonTabs would show nothing selected and no content, so
-    // fall back to the tab that always exists.
-    const selectedTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     return (
         <LemonTabs activeKey={selectedTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
