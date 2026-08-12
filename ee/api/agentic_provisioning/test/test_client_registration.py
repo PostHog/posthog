@@ -164,6 +164,25 @@ class TestClientRegistration(ProvisioningTestBase):
         assert app.client_type == OAuthApplication.CLIENT_CONFIDENTIAL
         assert app.is_provisioning_partner
 
+    def test_kill_switched_client_is_not_promoted_to_confidential(self):
+        # An admin can disable a client before it ever becomes a partner. The document fetch
+        # still stores the declared private_key_jwt provisionally, so this checks that
+        # apply_provisioning_defaults declining (because of the kill switch) demotes the
+        # client back to public rather than leaving it confidential with a self-declared
+        # jwks_uri and no partner status behind it.
+        self._make_partner(
+            is_provisioning_partner=False,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            jwks_uri=None,
+            _provisioning_config=provisioning_config(disabled=True, active=False, can_create_accounts=False),
+        )
+
+        self._register({"client_id": CIMD_URL})
+
+        app = OAuthApplication.objects.get(cimd_metadata_url=CIMD_URL)
+        assert app.client_type == OAuthApplication.CLIENT_PUBLIC
+        assert app.is_provisioning_partner is False
+
     def test_partner_registered_by_an_admin_can_use_github_grants(self):
         self._make_partner(_provisioning_config=provisioning_config(can_use_github_grants=True))
 
