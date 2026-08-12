@@ -335,6 +335,12 @@ pub struct TrafficArgs {
     #[arg(long, env = "TRAFFIC_ROUTER_URL")]
     pub router_url: String,
 
+    /// Identity service under test: the epoch pool is created through
+    /// get-or-create and rotated through the lifecycle delete saga, both
+    /// served on this address.
+    #[arg(long, env = "TRAFFIC_IDENTITY_URL")]
+    pub identity_url: String,
+
     /// Master toggle. When false the process starts fully (guard, metrics,
     /// liveness) but idles instead of driving traffic — so a deployed-but-
     /// disabled harness is observably "off on purpose" rather than absent.

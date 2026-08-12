@@ -20,6 +20,7 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
+    leaked_key,
     playwright_setup,
     report,
     router,
@@ -476,6 +477,7 @@ urlpatterns = [
     # api
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
+    opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),
     path(
         "api/legal_documents/pandadoc",
         csrf_exempt(legal_document_pandadoc_webhook),

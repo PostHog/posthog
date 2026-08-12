@@ -1,4 +1,5 @@
 import posthog from 'posthog-js'
+import type { CaptureOptions } from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -35,6 +36,7 @@ export const INBOX_EVENTS = {
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
     RUN_OPENED: 'Inbox run opened',
+    ONBOARDING_DECIDED: 'Inbox onboarding decided',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -45,8 +47,11 @@ export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_r
 /** How a report detail was opened. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
 
-/** How a report detail was closed. */
-export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount'
+/**
+ * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
+ * never unmounts, so it flushes on `pagehide` instead of the `unmount` path.
+ */
+export type InboxReportCloseMethod = 'next_report' | 'deselected' | 'unmount' | 'page_unload'
 
 /** Sentiment captured by the report feedback thumbs. */
 export type InboxReportFeedbackSentiment = 'positive' | 'negative'
@@ -114,8 +119,8 @@ export type ScoutActionType =
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
-function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>): void {
-    posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties })
+function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
+    posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
 }
 
 /** Whole hours since the report was created, rounded to one decimal. Mirrors desktop `report_age_hours`. */
@@ -259,16 +264,24 @@ export function captureInboxReportOpened(params: {
     })
 }
 
-export function captureInboxReportClosed(params: {
-    report: SignalReport
-    timeSpentMs: number
-    closeMethod: InboxReportCloseMethod
-}): void {
-    captureInboxEvent(INBOX_EVENTS.REPORT_CLOSED, {
-        ...baseReportProperties(params.report),
-        time_spent_ms: params.timeSpentMs,
-        close_method: params.closeMethod,
-    })
+export function captureInboxReportClosed(
+    params: {
+        report: SignalReport
+        timeSpentMs: number
+        closeMethod: InboxReportCloseMethod
+    },
+    /** The unload flush passes `{ send_instantly: true }` so the event leaves before the page goes. */
+    options?: CaptureOptions
+): void {
+    captureInboxEvent(
+        INBOX_EVENTS.REPORT_CLOSED,
+        {
+            ...baseReportProperties(params.report),
+            time_spent_ms: params.timeSpentMs,
+            close_method: params.closeMethod,
+        },
+        options
+    )
 }
 
 export function captureInboxReportAction(params: {
@@ -558,6 +571,24 @@ export function captureInboxRunOpened(params: {
         run_kind: params.kind,
         run_status: params.status,
         has_report: params.hasReport,
+    })
+}
+
+/**
+ * What the inbox decided to do about self-driving onboarding, and when it decided nothing, why.
+ *
+ * The takeover and banner are the only prompt to run the wizard, and several inputs can hold them
+ * back — a run already in flight, loaders still settling, a wizard verdict that hasn't landed. None
+ * of that left a trace, so a drop in wizard runs was indistinguishable from a drop in intent: the
+ * inbox pageview fires either way. `reason` separates "we chose not to ask" from "nobody wanted it".
+ */
+export function captureInboxOnboardingDecided(params: {
+    mode: 'takeover' | 'banner' | 'none'
+    reason: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.ONBOARDING_DECIDED, {
+        mode: params.mode,
+        suppression_reason: params.reason,
     })
 }
 
