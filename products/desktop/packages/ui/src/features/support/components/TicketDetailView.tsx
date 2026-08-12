@@ -20,6 +20,7 @@ import {
   isTicketNotFoundError,
   supportTicketQuery,
 } from "@posthog/ui/features/support/supportQueries";
+import { useSupportQueueStore } from "@posthog/ui/features/support/supportQueueStore";
 import {
   formatSlaCountdown,
   SLA_TEXT_CLASSES,
@@ -29,10 +30,9 @@ import {
   ticketRequesterName,
   ticketStatusLabel,
 } from "@posthog/ui/features/support/ticketPresentation";
+import { ResizableSidebar } from "@posthog/ui/primitives/ResizableSidebar";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
-
-const TICKET_SIDEBAR_WIDTH_CLASS = "w-[340px]";
+import { useEffect, useState } from "react";
 
 export function TicketDetailView({
   ticketId,
@@ -52,6 +52,10 @@ export function TicketDetailView({
 
   const { data: thread } = useSupportTicketMessages(ticketId);
   const messages = thread?.results ?? [];
+
+  const sidebarWidth = useSupportQueueStore((state) => state.sidebarWidth);
+  const { setSidebarWidth } = useSupportQueueStore.getState();
+  const [isResizing, setIsResizing] = useState(false);
 
   const queryClient = useQueryClient();
   const readTicketId = ticket?.id;
@@ -100,14 +104,16 @@ export function TicketDetailView({
         <TicketThread messages={messages} />
         <TicketComposer key={ticket.id} ticket={ticket} />
       </div>
-      <div
-        className={cn(
-          "shrink-0 border-border border-l",
-          TICKET_SIDEBAR_WIDTH_CLASS,
-        )}
+      <ResizableSidebar
+        open
+        width={sidebarWidth}
+        setWidth={setSidebarWidth}
+        isResizing={isResizing}
+        setIsResizing={setIsResizing}
+        side="right"
       >
         <TicketSidebar key={ticket.id} ticket={ticket} messages={messages} />
-      </div>
+      </ResizableSidebar>
     </div>
   );
 }

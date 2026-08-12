@@ -47,10 +47,10 @@ describe("ticket presentation", () => {
       {
         id: "1",
         type: "user",
-        user: { first_name: "Kim" },
+        user: { email: "kim@example.com" },
         role: null,
       },
-      "Kim",
+      "kim@example.com",
     ],
     [
       "a role, which is an unclaimed pool",

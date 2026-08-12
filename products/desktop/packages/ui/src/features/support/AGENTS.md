@@ -16,6 +16,7 @@ The agent thread is an ordinary Desktop task created through `TaskService`, rend
 - `GET .../tickets/{id}/messages/` has no side effects, so the thread poll is what carries liveness while a ticket is open.
 - `POST .../tickets/{id}/reply/` replays an identical reply from the same author for 120s instead of posting twice, and is throttled at 10/minute. Resending after a failure is therefore safe, which is why there is no client-side reconciliation.
 - `PATCH .../tickets/{id}/` takes `assignee` as `{type, id}` despite the serializer marking it read-only. Omit `status` and the backend applies its own snooze transitions; the response is authoritative.
+- Assignment reads and writes are not the same shape. A write needs an integer user id; a read returns the user id on `assignee.id` and gives `assignee.user` only an `email` — no id and no name. Compare identity through `assignee.id`, and never expect a field on `assignee.user` that the generated `Record<string, string>` will happily let you write.
 - List params are flat and unevenly shaped: statuses and assignees comma-separated, tags a JSON array, channel as `channel_source`, and `view` as a saved view's short_id.
 
 ## Rules worth keeping

@@ -17,6 +17,8 @@ import {
   Text,
 } from "@posthog/quill";
 import { readPrUrls } from "@posthog/shared";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { PRBadgeLink } from "@posthog/ui/features/git-interaction/components/PRBadgeLink";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
@@ -43,6 +45,13 @@ const PRIORITY_OPTIONS = Object.keys(
 
 export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
   const updateTicket = useUpdateSupportTicket();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const currentUserId = currentUser?.id;
+  const assignedToMe =
+    currentUserId !== undefined &&
+    ticket.assignee?.type === "user" &&
+    String(ticket.assignee.id) === String(currentUserId);
   const snoozed = isTicketSnoozed(ticket, Date.now());
   const labelTags = (ticket.tags ?? []).filter((tag) => !isTicketTaskTag(tag));
 
@@ -102,9 +111,24 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
         </Row>
 
         <Row label="Assignee">
-          <Text className="font-medium text-[12px]">
-            {ticketAssigneeName(ticket)}
-          </Text>
+          <PickerMenu
+            trigger={
+              <Text className="text-[12px]">{ticketAssigneeName(ticket)}</Text>
+            }
+            value={assignedToMe ? "me" : ticket.assignee ? "other" : "none"}
+            options={[
+              ...(currentUserId ? [{ value: "me", label: "Me" }] : []),
+              { value: "none", label: "Unassigned" },
+            ]}
+            onSelect={(value) =>
+              write({
+                assignee:
+                  value === "me" && currentUserId
+                    ? { type: "user", id: currentUserId }
+                    : null,
+              })
+            }
+          />
         </Row>
 
         <Row label="Snooze">

@@ -13,6 +13,8 @@ interface SupportQueueState {
   viewShortId: string | null;
   sidebarTab: SupportSidebarTab;
   composerMode: SupportComposerMode;
+  listWidth: number;
+  sidebarWidth: number;
 }
 
 interface SupportQueueActions {
@@ -22,6 +24,8 @@ interface SupportQueueActions {
   setViewShortId(viewShortId: string | null): void;
   setSidebarTab(tab: SupportSidebarTab): void;
   setComposerMode(mode: SupportComposerMode): void;
+  setListWidth(width: number): void;
+  setSidebarWidth(width: number): void;
 }
 
 type SupportQueueStore = SupportQueueState & SupportQueueActions;
@@ -33,6 +37,8 @@ const DEFAULT_STATE: SupportQueueState = {
   viewShortId: null,
   sidebarTab: "ticket",
   composerMode: "reply",
+  listWidth: 280,
+  sidebarWidth: 340,
 };
 
 export const useSupportQueueStore = create<SupportQueueStore>()(
@@ -45,12 +51,16 @@ export const useSupportQueueStore = create<SupportQueueStore>()(
       setViewShortId: (viewShortId) => set({ viewShortId }),
       setSidebarTab: (sidebarTab) => set({ sidebarTab }),
       setComposerMode: (composerMode) => set({ composerMode }),
+      setListWidth: (listWidth) => set({ listWidth }),
+      setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
     }),
     {
       name: "support-queue-storage",
       partialize: (state) => ({
         orderBy: state.orderBy,
         sidebarTab: state.sidebarTab,
+        listWidth: state.listWidth,
+        sidebarWidth: state.sidebarWidth,
       }),
     },
   ),

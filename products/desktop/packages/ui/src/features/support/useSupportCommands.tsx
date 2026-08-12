@@ -3,10 +3,13 @@ import {
   ClockIcon,
   LifebuoyIcon,
   RobotIcon,
+  UserIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
 import type { Schemas } from "@posthog/api-client";
 import type { CommandMenuAction } from "@posthog/shared/analytics-events";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
 import { useSupportQueueStore } from "@posthog/ui/features/support/supportQueueStore";
@@ -39,6 +42,9 @@ export function useSupportCommands(closeSettingsDialog: () => void) {
   const supportEnabled = useSupportFlag();
   const view = useAppView();
   const updateTicket = useUpdateSupportTicket();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const currentUserId = currentUser?.id;
 
   const ticketId = view.type === "support" ? view.ticketId : undefined;
 
@@ -98,6 +104,17 @@ export function useSupportCommands(closeSettingsDialog: () => void) {
       });
     }
 
+    if (currentUserId) {
+      commands.push({
+        id: "support-assign-me",
+        label: "Assign ticket to me",
+        keywords: "ticket assign take mine owner",
+        icon: <UserIcon size={12} className="text-gray-11" />,
+        action: "support-assign-ticket",
+        onRun: () => write({ assignee: { type: "user", id: currentUserId } }),
+      });
+    }
+
     commands.push({
       id: "support-snooze",
       label: "Snooze ticket for a day",
@@ -123,5 +140,11 @@ export function useSupportCommands(closeSettingsDialog: () => void) {
     });
 
     return commands;
-  }, [supportEnabled, ticketId, updateTicket, closeSettingsDialog]);
+  }, [
+    supportEnabled,
+    ticketId,
+    currentUserId,
+    updateTicket,
+    closeSettingsDialog,
+  ]);
 }

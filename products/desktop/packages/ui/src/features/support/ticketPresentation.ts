@@ -86,15 +86,8 @@ export function ticketAssigneeName(ticket: SupportTicket): string {
   if (!assignee) {
     return "Unassigned";
   }
-  const user = assignee.user as
-    | { first_name?: string; email?: string }
-    | null
-    | undefined;
-  if (user) {
-    return user.first_name || user.email || "Assigned";
-  }
-  const role = assignee.role as { name?: string } | null | undefined;
-  return role?.name ? `${role.name} (pool)` : "Assigned";
+  const roleName = assignee.role?.name;
+  return assignee.user?.email ?? (roleName ? `${roleName} (pool)` : "Assigned");
 }
 
 export function messageAuthorLabel(message: SupportTicketMessage): string {
