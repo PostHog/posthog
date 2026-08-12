@@ -267,73 +267,6 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
 
         return dict(schema_list)
 
-    def get_primary_keys(
-        self,
-        conn: Any,
-        config: DatabricksSourceConfig,
-        tables: list[str],
-    ) -> dict[str, list[str] | None]:
-        """Detect informational primary-key constraints for the given tables.
-
-        One batched query over the catalog's `information_schema` joins
-        `table_constraints` to `key_column_usage`, so a blank-namespace
-        discovery over a wide catalog stays a single round trip.
-
-        Unity Catalog PK constraints are informational and optional — most
-        tables won't have one, and legacy `hive_metastore` has no
-        `information_schema` at all. Swallow and log failures so schema
-        discovery keeps working without PKs (the base falls back to an `id`
-        column when present).
-        """
-        result: dict[str, list[str] | None] = dict.fromkeys(tables)
-        if not tables:
-            return result
-
-        default_schema = normalize_namespace(config.schema)
-        display_by_pair: dict[tuple[str, str], str] = {}
-        for display_name in tables:
-            schema, table = _split_display_name(display_name, default_schema)
-            if schema is None:
-                continue
-            display_by_pair[(schema, table)] = display_name
-
-        table_constraints = _IDENTIFIER_QUOTER.quote_qualified(
-            config.catalog, DATABRICKS_SYSTEM_SCHEMA, "table_constraints"
-        )
-        key_column_usage = _IDENTIFIER_QUOTER.quote_qualified(
-            config.catalog, DATABRICKS_SYSTEM_SCHEMA, "key_column_usage"
-        )
-
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    f"""
-                    SELECT kcu.table_schema, kcu.table_name, kcu.column_name, kcu.ordinal_position
-                    FROM {table_constraints} AS tc
-                    JOIN {key_column_usage} AS kcu
-                      ON tc.constraint_catalog = kcu.constraint_catalog
-                     AND tc.constraint_schema = kcu.constraint_schema
-                     AND tc.constraint_name = kcu.constraint_name
-                    WHERE tc.constraint_type = 'PRIMARY KEY'
-                    """
-                )
-
-                keys_by_pair: dict[tuple[str, str], list[tuple[int, str]]] = collections.defaultdict(list)
-                for table_schema, table_name, column_name, ordinal_position in cursor.fetchall():
-                    keys_by_pair[(table_schema, table_name)].append((ordinal_position or 0, column_name))
-
-                for pair, ordered in keys_by_pair.items():
-                    display_key = display_by_pair.get(pair)
-                    if display_key is None:
-                        continue
-                    keys = [column for _position, column in sorted(ordered, key=lambda item: item[0])]
-                    if keys:
-                        result[display_key] = keys
-        except Exception as e:
-            structlog.get_logger().warning("Failed to detect primary keys for Databricks tables", exc_info=e)
-
-        return result
-
     def get_source_metadata(
         self,
         conn: Any,
@@ -367,51 +300,6 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
     # ------------------------------------------------------------------
     # Per-cursor metadata — used during `build_pipeline`
     # ------------------------------------------------------------------
-
-    def get_primary_keys_for_table(
-        self,
-        cursor: Any,
-        catalog: str,
-        schema: str,
-        table_name: str,
-    ) -> list[str] | None:
-        """Return the primary-key column names for a single table, or None.
-
-        Permission-sensitive like the schema-level `get_primary_keys` — swallow
-        a failing lookup and return None so the pipeline falls back to a
-        persisted or `id`-column primary key instead of crashing a merge.
-        """
-        table_constraints = _IDENTIFIER_QUOTER.quote_qualified(catalog, DATABRICKS_SYSTEM_SCHEMA, "table_constraints")
-        key_column_usage = _IDENTIFIER_QUOTER.quote_qualified(catalog, DATABRICKS_SYSTEM_SCHEMA, "key_column_usage")
-
-        try:
-            cursor.execute(
-                f"""
-                SELECT kcu.column_name, kcu.ordinal_position
-                FROM {table_constraints} AS tc
-                JOIN {key_column_usage} AS kcu
-                  ON tc.constraint_catalog = kcu.constraint_catalog
-                 AND tc.constraint_schema = kcu.constraint_schema
-                 AND tc.constraint_name = kcu.constraint_name
-                WHERE tc.constraint_type = 'PRIMARY KEY'
-                  AND kcu.table_schema = :schema
-                  AND kcu.table_name = :table_name
-                ORDER BY kcu.ordinal_position ASC
-                """,
-                {"schema": schema, "table_name": table_name},
-            )
-            keys = [row[0] for row in cursor.fetchall()]
-        except Exception as e:
-            structlog.get_logger().warning(
-                "Failed to detect primary key for Databricks table",
-                catalog=catalog,
-                schema=schema,
-                table_name=table_name,
-                exc_info=e,
-            )
-            return None
-
-        return keys if len(keys) > 0 else None
 
     def fetch_table_stats(
         self,
@@ -477,7 +365,6 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
 
         with self.connect(config) as connection:
             with connection.cursor() as cursor:
-                primary_keys = self.get_primary_keys_for_table(cursor, config.catalog, schema, table_name)
                 # The session catalog is pinned at connect time, so two-part `schema.table`
                 # references always resolve inside `config.catalog`.
                 query = _QUERY_BUILDER.select_all(
@@ -487,7 +374,7 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
                     incremental_field_type=incremental_field_type,
                     incremental_last_value=inputs.db_incremental_field_last_value,
                     enabled_columns=inputs.enabled_columns,
-                    primary_keys=primary_keys,
+                    primary_keys=None,
                     row_filters=inputs.row_filters,
                 )
                 rows_to_sync = self.get_rows_to_sync(cursor, query.sql, query.params, logger)
@@ -511,10 +398,16 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
                             break
                         yield table
 
+        # Unity Catalog PRIMARY KEY constraints are informational — Databricks never enforces
+        # them, so a declared key can be non-unique in the data. Reporting one as row identity
+        # makes the writer dedupe each batch and merge on it, silently dropping every row that
+        # collides and landing far fewer rows than the source holds while the sync still finishes
+        # as Completed. Report no key: `resolve_primary_keys` still falls back to a user-set
+        # primary key or an `id` column, and a keyless incremental table fails loudly instead.
         return SourceResponse(
             name=location.response_name,
             items=get_rows,
-            primary_keys=primary_keys,
+            primary_keys=None,
             partition_count=partition_settings.partition_count if partition_settings else None,
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,

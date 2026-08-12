@@ -282,37 +282,6 @@ class TestGetColumns:
         assert result == {"analytics.users": [("id", "BIGINT", False)]}
 
 
-class TestGetPrimaryKeys:
-    def test_orders_composite_key_by_ordinal_position(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = [
-            ("analytics", "users", "tenant_id", 2),
-            ("analytics", "users", "id", 1),
-        ]
-        out = impl.get_primary_keys(_conn_with_cursor(cursor), _make_config(), tables=["users"])
-        assert out["users"] == ["id", "tenant_id"]
-        # One batched information_schema query, not one per table.
-        assert cursor.execute.call_count == 1
-
-    def test_multi_schema_routes_keys_to_qualified_display_names(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = [
-            ("analytics", "users", "id", 1),
-            ("sales", "users", "uuid", 1),
-        ]
-        out = impl.get_primary_keys(
-            _conn_with_cursor(cursor), _make_config(schema=""), tables=["analytics.users", "sales.users"]
-        )
-        assert out == {"analytics.users": ["id"], "sales.users": ["uuid"]}
-
-    def test_swallows_failure_and_returns_none_placeholders(self, impl):
-        # `hive_metastore` catalogs have no information_schema — discovery must keep working without PKs.
-        cursor = _cursor()
-        cursor.execute.side_effect = Exception("[TABLE_OR_VIEW_NOT_FOUND] information_schema")
-        out = impl.get_primary_keys(_conn_with_cursor(cursor), _make_config(), tables=["users"])
-        assert out == {"users": None}
-
-
 class TestGetSourceMetadata:
     def test_single_schema_pins_configured_namespace(self, impl):
         meta = impl.get_source_metadata(MagicMock(), _make_config(schema="analytics"), tables=["users"])
@@ -324,29 +293,6 @@ class TestGetSourceMetadata:
         meta = impl.get_source_metadata(MagicMock(), _make_config(schema=""), tables=["analytics.users", "sales.users"])
         assert meta.schema_by_table == {"analytics.users": "analytics", "sales.users": "sales"}
         assert meta.table_name_by_table == {"analytics.users": "users", "sales.users": "users"}
-
-
-class TestGetPrimaryKeysForTable:
-    def test_returns_ordered_keys_scoped_to_table(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = [("id", 1), ("tenant_id", 2)]
-        keys = impl.get_primary_keys_for_table(cursor, "main", "analytics", "users")
-        assert keys == ["id", "tenant_id"]
-        sql, params = cursor.execute.call_args.args
-        assert params == {"schema": "analytics", "table_name": "users"}
-        assert "`main`.`information_schema`.`table_constraints`" in sql
-
-    def test_returns_none_when_lookup_fails(self, impl):
-        # A permission/missing-information_schema failure must degrade to None so the pipeline falls
-        # back to a persisted or `id`-column PK instead of crashing the sync.
-        cursor = _cursor()
-        cursor.execute.side_effect = Exception("PERMISSION_DENIED")
-        assert impl.get_primary_keys_for_table(cursor, "main", "analytics", "users") is None
-
-    def test_returns_none_when_no_pk_defined(self, impl):
-        cursor = _cursor()
-        cursor.fetchall.return_value = []
-        assert impl.get_primary_keys_for_table(cursor, "main", "analytics", "users") is None
 
 
 class TestFetchTableStats:
@@ -379,10 +325,9 @@ class TestFetchTableStats:
 # ---------------------------------------------------------------------------
 
 
-def _pipeline_mocks(pk_rows: list[tuple], row_count: int, arrow_batches: list[pa.Table]):
+def _pipeline_mocks(row_count: int, arrow_batches: list[pa.Table]):
     """Two connections (metadata pass + streaming pass), each with one cursor."""
     metadata_cursor = _cursor()
-    metadata_cursor.fetchall.return_value = pk_rows
     metadata_cursor.fetchone.return_value = (row_count,)
 
     streaming_cursor = _cursor()
@@ -400,14 +345,14 @@ def _pipeline_mocks(pk_rows: list[tuple], row_count: int, arrow_batches: list[pa
 class TestBuildPipeline:
     def test_builds_source_response_and_streams_until_empty_batch(self, impl):
         batch = pa.table({"id": [1, 2, 3]})
-        metadata_cursor, streaming_cursor, connections = _pipeline_mocks(
-            pk_rows=[("id", 1)], row_count=3, arrow_batches=[batch]
-        )
+        metadata_cursor, streaming_cursor, connections = _pipeline_mocks(row_count=3, arrow_batches=[batch])
 
         with patch(_CONNECT_PATH, side_effect=connections):
             response = impl.build_pipeline(_make_config(), _make_inputs(schema_name="users"))
             assert response.name == "users"
-            assert response.primary_keys == ["id"]
+            # Unity Catalog primary keys are unenforced, so the driver reports no row identity —
+            # the writer must not dedupe or merge on a key that can be non-unique in the data.
+            assert response.primary_keys is None
             assert response.rows_to_sync == 3
             # Full refresh rewrites the whole table — the partition probes must be skipped.
             assert response.partition_count is None
@@ -421,7 +366,7 @@ class TestBuildPipeline:
 
     def test_incremental_query_filters_and_orders(self, impl):
         metadata_cursor, streaming_cursor, connections = _pipeline_mocks(
-            pk_rows=[("id", 1)], row_count=1, arrow_batches=[pa.table({"id": [1]})]
+            row_count=1, arrow_batches=[pa.table({"id": [1]})]
         )
         # Incremental syncs also probe table stats: rows_to_sync COUNT, DESCRIBE DETAIL, stats COUNT.
         metadata_cursor.description = [("sizeInBytes",)]
@@ -446,10 +391,11 @@ class TestBuildPipeline:
         assert "ORDER BY `updated_at` ASC" in sql
         assert params == {"incremental_value": "2025-01-01T00:00:00"}
 
-    def test_enabled_columns_projection_retains_primary_key(self, impl):
-        # Dropping the PK from the projection would break the Delta merge on every later sync.
+    def test_projection_does_not_inject_unenforced_primary_key(self, impl):
+        # The driver reports no primary key, so a restricted projection must stay exactly the
+        # enabled columns — it must not pull an unenforced Unity Catalog key column back in.
         metadata_cursor, streaming_cursor, connections = _pipeline_mocks(
-            pk_rows=[("id", 1)], row_count=1, arrow_batches=[pa.table({"id": [1]})]
+            row_count=1, arrow_batches=[pa.table({"id": [1]})]
         )
         inputs = _make_inputs(schema_name="users", enabled_columns=["email"])
 
@@ -458,12 +404,12 @@ class TestBuildPipeline:
             list(response.items())
 
         sql, _ = streaming_cursor.execute.call_args.args
-        assert sql.startswith("SELECT `email`, `id` FROM `analytics`.`users`")
+        assert sql.startswith("SELECT `email` FROM `analytics`.`users`")
 
     def test_multi_schema_row_routes_to_qualified_namespace(self, impl):
         # A blank-namespace source pins each row's schema via the dotted schema_name.
         metadata_cursor, streaming_cursor, connections = _pipeline_mocks(
-            pk_rows=[("id", 1)], row_count=1, arrow_batches=[pa.table({"id": [1]})]
+            row_count=1, arrow_batches=[pa.table({"id": [1]})]
         )
 
         with patch(_CONNECT_PATH, side_effect=connections):
@@ -474,9 +420,6 @@ class TestBuildPipeline:
 
         sql, _ = streaming_cursor.execute.call_args.args
         assert "FROM `sales`.`users`" in sql
-        # PK probe targets the resolved schema too.
-        pk_params = metadata_cursor.execute.call_args_list[0].args[1]
-        assert pk_params == {"schema": "sales", "table_name": "users"}
 
 
 # ---------------------------------------------------------------------------
