@@ -139,6 +139,7 @@ rules:
                               |EmailMessageMapping
                               |EmailChannelSetup
                               |EmailThread
+                              |EmailThreadAccountLink
                               |EmailThreadMessage
                               |EmailThreadParticipant
                               |EmailReputationSnapshot
@@ -501,6 +502,7 @@ rules:
                         |EmailMessageMapping
                         |EmailChannelSetup
                         |EmailThread
+                        |EmailThreadAccountLink
                         |EmailThreadMessage
                         |EmailThreadParticipant
                         |EmailReputationSnapshot
