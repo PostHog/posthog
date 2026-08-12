@@ -150,9 +150,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             sandbox_task_id = self._sandbox_task_id(self.request)
             if sandbox_task_id is None:
                 return queryset.none()
-            queryset = queryset.filter(
-                Q(generation_task_id=sandbox_task_id) | Q(source_versions__task_id=sandbox_task_id)
-            ).distinct()
+            task_creator_id = tasks_facade.task_creator_id(sandbox_task_id, self.team_id)
+            task_link_q = Q(generation_task_id=sandbox_task_id) | Q(source_versions__task_id=sandbox_task_id)
+            if task_creator_id is not None:
+                task_link_q |= Q(created_by_id=task_creator_id)
+            queryset = queryset.filter(task_link_q).distinct()
         elif self.action in self._CREATOR_ONLY_ACTIONS:
             if user is None:
                 return queryset.none()
