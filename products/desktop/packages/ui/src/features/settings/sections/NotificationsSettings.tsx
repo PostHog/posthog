@@ -848,12 +848,6 @@ function TestSection({
                     Notification that opens the latest task
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => notifications?.setBadgeCount(1)}
-                    disabled={nativeUnavailable}
-                  >
-                    Dock badge
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
                     onClick={() => notifications?.requestAttention()}
                     disabled={nativeUnavailable}
                   >

@@ -13,9 +13,11 @@ import {
   IMPERATIVE_QUERY_CLIENT,
   type ImperativeQueryClient,
 } from "@posthog/ui/shell/queryClient";
-import type { InfiniteData } from "@tanstack/react-query";
+import { hashKey, type InfiniteData } from "@tanstack/react-query";
 import { inject, injectable } from "inversify";
 import { TASK_ACTIVITY_QUERY_KEY } from "./taskActivityQuery";
+
+const TASK_ACTIVITY_QUERY_HASH = hashKey(TASK_ACTIVITY_QUERY_KEY);
 
 // Keeps the native dock/taskbar badge equal to the same unread count the
 // sidebar Activity badge shows, so the two never disagree. Reads the cache
@@ -36,11 +38,13 @@ export class DockBadgeContribution implements Contribution {
 
   start(): void {
     this.sync();
-    // Not filtered to the task-activity key: query identity is keyed by value
-    // (see TaskActivityContribution.apply's `find`), not by array reference,
-    // so a subscribe-time reference check on `event.query.queryKey` would be
-    // fragile. `sync` itself is a cheap cache lookup plus a number compare.
-    this.queryClient.getQueryCache().subscribe(() => this.sync());
+    // queryHash compares by value (unlike the queryKey array reference), so
+    // this only reacts to the task-activity query instead of scanning the
+    // whole cache on every unrelated query event in the app.
+    this.queryClient.getQueryCache().subscribe((event) => {
+      if (event.query.queryHash !== TASK_ACTIVITY_QUERY_HASH) return;
+      this.sync();
+    });
     // INotificationSettings only exposes a snapshot getter, with no way to
     // learn a setting changed, so toggling "dock badge notifications" here
     // wouldn't otherwise resync until the next unrelated cache write.
@@ -52,10 +56,9 @@ export class DockBadgeContribution implements Contribution {
   }
 
   private sync(): void {
-    const query = this.queryClient.getQueryCache().find({
-      queryKey: TASK_ACTIVITY_QUERY_KEY,
-      exact: true,
-    });
+    const query = this.queryClient
+      .getQueryCache()
+      .get(TASK_ACTIVITY_QUERY_HASH);
     const data = query?.state.data as
       | InfiniteData<TaskActivityPage>
       | undefined;
