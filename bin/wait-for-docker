@@ -134,6 +134,11 @@ print_service_diagnostics() {
     echo "TIMEOUT: ${TIMEOUT}s waiting for $svc"
     echo "Last observed state after ${elapsed}s: ${status}"
     echo "=========================================="
+    case "$svc" in
+        objectstorage*)
+            echo "Note: objectstorage answers InvalidAccessKeyId until its bootstrap loop registers credentials, so it becomes healthy later than the other services."
+            ;;
+    esac
     if [ -z "$container_id" ]; then
         echo "Container for '$svc' does not exist yet."
         echo ""
@@ -267,6 +272,13 @@ while [ ${#pending[@]} -gt 0 ]; do
 done
 
 if [ ${#timed_out[@]} -gt 0 ]; then
+    timed_out_names=()
+    for entry in "${timed_out[@]}"; do
+        IFS='|' read -r svc _status _container_id <<< "$entry"
+        timed_out_names+=("$svc")
+    done
+    echo ""
+    echo "Services that never became ready after ${TIMEOUT}s: ${timed_out_names[*]}"
     for entry in "${timed_out[@]}"; do
         IFS='|' read -r svc status container_id <<< "$entry"
         print_service_diagnostics "$svc" "$SECONDS" "$status" "$container_id"

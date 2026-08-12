@@ -22,6 +22,12 @@ COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-1}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
 
+# Pin the compose project so launch, down, missing-service checks, and retries
+# all target the same stack that bin/wait-for-docker polls. Without -p, compose
+# derives the project from COMPOSE_PROJECT_NAME or the folder name, which can
+# drift from "posthog" and make the two helpers address different projects.
+PROJECT="${COMPOSE_PROJECT_NAME:-posthog}"
+
 usage() {
     cat <<'EOF'
 Usage:
@@ -49,9 +55,9 @@ compose() {
                 compose_args+=(-f "$compose_file")
             fi
         done
-        env -u COMPOSE_FILE docker compose "${compose_args[@]}" "$@"
+        env -u COMPOSE_FILE docker compose -p "$PROJECT" "${compose_args[@]}" "$@"
     else
-        docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
+        docker compose -p "$PROJECT" -f "$DEFAULT_COMPOSE_FILE" "$@"
     fi
 }
 
@@ -325,8 +331,12 @@ run_wait() {
             continue
         fi
         if [ "$launch_wait_status" -eq 2 ]; then
-            echo "Background docker compose launch is still running. Skipping compose retry to avoid colliding with the in-flight launch."
-            return 1
+            # The launch still owns the stack, so a compose retry would collide
+            # with it. Rather than fail, keep waiting for it to finish and re-run
+            # readiness with a fresh timeout. The job-level timeout bounds this.
+            echo "Background docker compose launch is still running after the readiness timeout. Waiting for it to finish before retrying instead of failing."
+            current_timeout="$initial_timeout"
+            continue
         fi
 
         if [ "$attempt" -ge "$WAIT_RETRIES" ]; then
