@@ -14805,7 +14805,7 @@ export namespace Schemas {
     }
 
     export interface CapabilityReadiness {
-      /** cost/attribution/roas/cac/retention_by_channel/ltv_by_channel */
+      /** cost/attribution/roas/cac */
       capability: string;
       /** unlocked/partial/blocked */
       status: string;
@@ -68909,7 +68909,7 @@ export namespace Schemas {
       title: string;
       /** The concrete numbers behind the suggestion, so a user can sanity-check it without taking it on faith */
       evidence: string;
-      /** Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel */
+      /** Capabilities this unblocks: cost, attribution, roas, cac */
       unlocks: string[];
       /** The operation that applies this suggestion, or null when there's nothing to automate. An object with an 'op' discriminator — see the ApplyOp union in setup_types. Pass it verbatim to apply_setup_ops; never hand-craft one. */
       apply: unknown;
