@@ -601,78 +601,78 @@ function VoiceSection() {
                 triggerClassName="w-[220px]"
               />
             </SettingsCardRow>
-
-            <SettingsCardRow
-              label="ElevenLabs voice"
-              description={
-                elevenLabsKeyConfigured
-                  ? "Key saved. The expressive Eleven v3 voice is on."
-                  : "Optional. Add an API key for an expressive voice; otherwise your system voice is used."
-              }
-            >
-              {elevenLabsKeyConfigured ? (
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    className="h-7 w-[140px] text-[12px]"
-                    placeholder="Default voice"
-                    aria-label="ElevenLabs voice id"
-                    value={elevenLabsVoiceId}
-                    onChange={(e) =>
-                      setElevenLabsVoiceId(e.currentTarget.value)
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={testVoice}
-                    disabled={!speech}
-                  >
-                    <Play weight="fill" size={11} /> Test
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="link-muted"
-                    size="sm"
-                    onClick={clearKey}
-                    disabled={!keyStore}
-                  >
-                    Remove key
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <Input
-                    type="password"
-                    placeholder="xi-…"
-                    aria-label="ElevenLabs API key"
-                    className="h-7 w-[140px] text-[12px]"
-                    value={keyDraft}
-                    onChange={(e) => setKeyDraft(e.currentTarget.value)}
-                    disabled={!keyStore}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => void saveKey()}
-                    disabled={!keyStore || !keyDraft.trim() || savingKey}
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={testVoice}
-                    disabled={!speech}
-                  >
-                    <Play weight="fill" size={11} /> Test
-                  </Button>
-                </div>
-              )}
-            </SettingsCardRow>
           </>
+        )}
+
+        {(spokenNotifications || elevenLabsKeyConfigured) && (
+          <SettingsCardRow
+            label="ElevenLabs voice"
+            description={
+              elevenLabsKeyConfigured
+                ? "Key saved. The expressive Eleven v3 voice is on."
+                : "Optional. Add an API key for an expressive voice; otherwise your system voice is used."
+            }
+          >
+            {elevenLabsKeyConfigured ? (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  className="h-7 w-[140px] text-[12px]"
+                  placeholder="Default voice"
+                  aria-label="ElevenLabs voice id"
+                  value={elevenLabsVoiceId}
+                  onChange={(e) => setElevenLabsVoiceId(e.currentTarget.value)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={testVoice}
+                  disabled={!speech}
+                >
+                  <Play weight="fill" size={11} /> Test
+                </Button>
+                <Button
+                  type="button"
+                  variant="link-muted"
+                  size="sm"
+                  onClick={clearKey}
+                  disabled={!keyStore}
+                >
+                  Remove key
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="password"
+                  placeholder="xi-…"
+                  aria-label="ElevenLabs API key"
+                  className="h-7 w-[140px] text-[12px]"
+                  value={keyDraft}
+                  onChange={(e) => setKeyDraft(e.currentTarget.value)}
+                  disabled={!keyStore}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void saveKey()}
+                  disabled={!keyStore || !keyDraft.trim() || savingKey}
+                >
+                  Save
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={testVoice}
+                  disabled={!speech}
+                >
+                  <Play weight="fill" size={11} /> Test
+                </Button>
+              </div>
+            )}
+          </SettingsCardRow>
         )}
       </SettingsCard>
     </SettingsSection>
