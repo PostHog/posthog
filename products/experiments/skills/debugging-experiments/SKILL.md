@@ -3,16 +3,13 @@ name: debugging-experiments
 description: >-
   Debug and support PostHog Experiments (A/B tests) for a customer looking at
   their own results. Use whenever an experiment support ticket is pasted or a
-  customer asks a results question — most commonly "why aren't my exposures
+  customer asks a results question, most commonly "why aren't my exposures
   even?", "why is one variant getting no traffic?", "why am I missing / seeing
   too few exposures?", "why does the bias banner show?", or "why don't PostHog's
   numbers match my SQL?". Pulls the experiment's real data read-only, matches it
   to a known-cause catalog, and produces a customer-facing explanation, fix, and
   review of the pertinent numbers. Loads diagnosing-experiment-results as its
   deep diagnostic library.
-  TRIGGER when: a customer/ticket asks why their experiment exposures are uneven
-  or missing, why a variant has no traffic, why the bias banner appeared, or why
-  results look wrong — and you need to explain it back to them.
   DO NOT TRIGGER when: creating an experiment (use creating-experiments),
   only configuring rollout (configuring-experiment-rollout) or metrics
   (configuring-experiment-analytics), or asking lifecycle questions
@@ -157,8 +154,9 @@ Full detail in
 
 - **Wrong SDK method.** Only single-flag accessors (`getFeatureFlag()`, `isFeatureEnabled()`)
   fire the `$feature_flag_called` exposure event. Payload/bulk accessors
-  (`getFeatureFlagPayload()`, `getAllFlags()`) don't — the flag works but no exposure is
-  recorded. Fix: read the flag with a single-flag accessor, or wire a custom exposure event.
+  (`getFeatureFlagPayload()`, `getFlags()` in posthog-js / `getAllFlags()` in posthog-node) don't — the
+  flag works but no exposure is recorded. Fix: read the flag with a single-flag accessor, or wire a
+  custom exposure event.
 - **Capture disabled (`send_feature_flag_events: false`).** The right accessor can still emit no
   exposure if the SDK is told not to — the `send_feature_flag_events` init/per-call option (or
   local/bulk evaluation with events off). The flag works; `$feature_flag_called` never fires, so it
@@ -231,16 +229,17 @@ Prefer **read-only** paths, in this order:
 
 1. **PostHog MCP tools** — `experiment-get`, `experiment-results-get`,
    `feature-flag-get-definition`, `execute-sql`, `feature-flags-activity-retrieve`,
-   `advanced-activity-logs-list`, `cohorts`, `persons`. Read-only by default and the safest way to
-   inspect config and run queries. Use this first.
+   `advanced-activity-logs-list`, `cohorts-list`, `persons-list`, `persons-retrieve`. Read-only by
+   default and the safest way to inspect config and run queries. Use this first.
 2. **Experiment/flag API reads** while impersonating (staff) — for raw JSON the MCP may not
    surface verbatim.
 3. **Django admin** only when 1 and 2 can't answer it. Treat it as read-only by discipline:
    never edit a customer's experiment, flag, or cohort without explicit customer consent.
 
 **Mind the instance.** An MCP session is bound to one region (US or EU) and can't query a project on
-the other — an EU project (e.g. 33402) is unreachable from a US-bound session. When you're blocked
-that way, the read-only fallbacks are the ticket's own session recording (pull the rrweb DOM/canvas
-snapshots to see exactly what the customer saw) and PostHog's own product telemetry, which the EU app
-reports into a US project — together enough to reconstruct the flag/experiment edit history and the
-exposure trajectory without direct access to the customer's instance.
+the other: an EU project is unreachable from a US-bound session. When you're blocked that way, the
+read-only fallback is the ticket's own session recording (pull the rrweb DOM/canvas snapshots to see
+exactly what the customer saw). PostHog's own product telemetry, which both regions report into a US
+project, carries org-level experiment and flag metadata but not the exposure counts or edit diffs, so
+it won't reconstruct a specific experiment's trajectory or change history. If you query it, scope to
+the requester's organization or team group, since that project holds every organization's data.

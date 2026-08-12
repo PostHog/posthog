@@ -73,7 +73,8 @@ Returns per-variant exposure totals and metric results in one call:
 - `exposures.total_exposures[variant]` — including the `$multiple` bucket (users exposed to
   more than one variant). **`$multiple` share = `total_exposures["$multiple"] / sum(all)`.**
 - `exposures.timeseries[]` — daily `exposure_counts` per variant, for trajectory/flat-tail.
-- `metrics.primary` / `metrics.secondary` — each row's `data`; a `data: null` row is
+- `metrics.primary.results[]` / `metrics.secondary.results[]` — each row carries `index`, a `metric`
+  summary, and `data` (the primary/secondary object itself also has a `count`); a `data: null` row is
   failed-or-not-yet-computed, not necessarily broken. Re-pull, or force one recompute with
   `experiment-results-get { refresh: true }`, before reporting a metric as failing (see the
   transient-vs-real protocol in `diagnostic-snapshot.md`).
