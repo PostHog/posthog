@@ -652,7 +652,8 @@ def _validate_url_pattern_is_not_posthog_storage(
         return True, ""
 
     if _PATH_STYLE_STORAGE_HOST.match(normalized_hostname):
-        bucket = path.lstrip("/").split("/", 1)[0]
+        segments = path.lstrip("/").split("/")
+        bucket = segments[0]
         # A glob here expands across buckets rather than within one, so it can reach ours whatever
         # it looks like. No source needs to pattern-match a bucket name.
         if any(character in _GLOB_METACHARACTERS for character in bucket):
@@ -663,6 +664,11 @@ def _validate_url_pattern_is_not_posthog_storage(
         # depend on this parser agreeing with ClickHouse's about where it splits.
         if "%" in bucket:
             return False, "The bucket name in a URL pattern can't contain percent-encoded characters."
+        # Same reasoning as the percent-encoding check: a literal "." or ".." segment is opaque to
+        # this parser (bucket is just the first segment), but would let a path-normalizing client
+        # resolve a different bucket than the one checked below. No object key legitimately needs one.
+        if any(segment in (".", "..") for segment in segments):
+            return False, "The path in a URL pattern can't contain '.' or '..' segments."
         if bucket in owned_buckets:
             return False, _NOT_OUR_STORAGE
 

@@ -127,6 +127,35 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
         assert not is_valid
         assert "percent-encoded" in error_message
 
+    @parameterized.expand(
+        [
+            ("dot_segment_as_bucket", "https://s3.us-east-1.amazonaws.com/./ph-warehouse/x.csv"),
+            ("dot_dot_segment_as_bucket", "https://s3.us-east-1.amazonaws.com/../ph-warehouse/x.csv"),
+            # bucket resolves to "attacker" here, but a client that normalizes ".." before
+            # connecting would resolve "ph-warehouse" instead - the exact case the percent-encoding
+            # check above exists for, just via a different parser-vs-client disagreement.
+            ("dot_dot_segment_later_in_the_path", "https://s3.us-east-1.amazonaws.com/attacker/../ph-warehouse/x.csv"),
+        ]
+    )
+    def test_rejects_dot_segments_in_the_path(self, _name: str, url_pattern: str) -> None:
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid
+        assert "'.' or '..'" in error_message
+
+    def test_allows_a_dot_within_a_path_segment(self) -> None:
+        # Only a segment that IS exactly "." or ".." is rejected - a normal filename containing a
+        # dot must not be caught by the same check.
+        with (
+            patch("posthog.security.url_validation.is_dev_mode", return_value=False),
+            patch("posthog.security.url_validation.resolve_host_ips", return_value=PUBLIC_IP),
+        ):
+            is_valid, error_message = validate_warehouse_table_url_pattern(
+                "https://s3.us-east-1.amazonaws.com/acme-exports/reports/q1.2026/data.csv"
+            )
+
+        assert is_valid, error_message
+
     # Each of these is a hostname the old bespoke IP/DNS check did not reliably reject: it had no
     # domain-suffix or authority-parsing checks at all, and metadata.google.internal was only
     # caught if DNS actually resolved it in whatever environment the check ran in. All four are
