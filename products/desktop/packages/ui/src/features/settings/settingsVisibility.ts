@@ -9,7 +9,6 @@ const LOCAL_ONLY_CATEGORIES: ReadonlySet<SettingsCategory> = new Set([
   "terminal",
   "harness",
   "discord",
-  "updates",
 ]);
 
 interface SettingsVisibility {
