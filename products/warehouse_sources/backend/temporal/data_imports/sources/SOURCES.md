@@ -1162,6 +1162,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - motion
 - moxie
+- msg91
 - mycase
 - nager_date
 - nasa
@@ -1422,6 +1423,7 @@ doesn't conflict with concurrent PRs.
 - wayfair
 - whatsapp_business_management
 - when_i_work
+- whmcs
 - who_gho
 - wikipedia_pageviews
 - windsor_ai
