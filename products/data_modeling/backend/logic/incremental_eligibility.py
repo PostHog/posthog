@@ -171,7 +171,7 @@ def _check_shape(select: ast.SelectQuery, blockers: list[str]) -> None:
             "A top-level ORDER BY has no effect on a materialized table and cannot be incremental. "
             "Sort when you query the view instead."
         )
-    if select.distinct and not select.group_by:
+    if select.distinct and not _is_grouped(select):
         blockers.append(
             "SELECT DISTINCT cannot be incremental without a GROUP BY. Deduplicating one window "
             "says nothing about rows in other windows. Group by the same columns instead."
@@ -204,7 +204,7 @@ def _check_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: lis
         )
         return
 
-    if select.group_by:
+    if _is_grouped(select):
         grouping = _grouping_key_names(select)
         if config.incremental_key not in grouping:
             blockers.append(
@@ -230,7 +230,7 @@ def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blocke
         )
         return
 
-    if select.group_by:
+    if _is_grouped(select):
         grouping = _grouping_key_names(select)
         uncovered = sorted(grouping - set(config.unique_key))
         if uncovered:
@@ -256,13 +256,29 @@ def _check_nullable_unique_key(
             )
 
 
+def _is_grouped(select: ast.SelectQuery) -> bool:
+    """``GROUP BY ALL`` carries no explicit entries, so a check that only reads ``group_by`` would
+    treat an aggregating query as ungrouped and pass every grouping rule vacuously."""
+    return bool(select.group_by) or select.group_by_mode == "all"
+
+
 def _grouping_key_names(select: ast.SelectQuery) -> set[str]:
     """GROUP BY entries as output-column names.
 
     A grouping entry is usually a reference to a select alias (``GROUP BY day``), but it can repeat
     the expression instead (``GROUP BY toStartOfDay(timestamp)``). Match the second form back to
     its alias so both spellings behave the same.
+
+    ``GROUP BY ALL`` groups by every non-aggregate output column, which is what it expands to.
     """
+    if not select.group_by and select.group_by_mode == "all":
+        return {
+            name
+            for item in select.select
+            if (name := _output_name(item)) is not None
+            and not has_aggregation(item.expr if isinstance(item, ast.Alias) else item)
+        }
+
     # Locations are cleared on both sides so an inline entry matches the alias structurally,
     # rather than only when the two happen to sit at the same offsets.
     alias_by_expr = {

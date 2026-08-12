@@ -221,6 +221,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         table_uri=materialize_result.table_uri,
                         file_uris=materialize_result.file_uris,
                         row_count=materialize_result.row_count,
+                        incremental=materialize_result.incremental,
                     ),
                     start_to_close_timeout=dt.timedelta(minutes=5),
                     retry_policy=temporalio.common.RetryPolicy(

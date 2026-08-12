@@ -327,7 +327,8 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        # The run endpoint returns an empty body, so the id has to come from the path params.
+        enrich_url: ?open_view={params.id}
         title: Run saved query
         description: >
             Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table

@@ -60,6 +60,28 @@ class TestSavedQueryIncremental(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert DataWarehouseSavedQuery.objects.get(id=saved_query_id).incremental_state is None
 
+    @patch(
+        "products.data_warehouse.backend.presentation.views.saved_query.saved_query_workflow_exists", return_value=False
+    )
+    def test_changing_the_query_alone_is_checked_against_the_stored_config(self, _workflow_exists):
+        """Otherwise a query incremental cannot serve saves while the view stays incremental, and
+        only fails at the next run."""
+        created = self._create(incremental=CONFIG)
+
+        response = self.client.patch(
+            self._url(f"{created.json()['id']}/"),
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT toStartOfDay(timestamp) AS day, event, count() AS c "
+                    "FROM events GROUP BY day, event",
+                }
+            },
+        )
+
+        assert response.status_code == 400
+        assert "GROUP BY" in response.json()["detail"]
+
     def test_check_incremental_reports_candidates_without_a_config(self):
         response = self.client.post(self._url("check_incremental/"), {"query": GROUPED})
 

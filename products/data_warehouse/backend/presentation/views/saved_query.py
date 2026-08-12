@@ -492,8 +492,9 @@ class DataWarehouseSavedQuerySerializer(
     )
     incremental_state = IncrementalStateSerializer(
         read_only=True,
-        help_text="How far incremental materialization has progressed. Written by the materialization "
-        "run, not by this API.",
+        allow_null=True,
+        help_text="How far incremental materialization has progressed. Null until the first run "
+        "records any. Written by the materialization run, not by this API.",
     )
 
     class Meta:
@@ -976,12 +977,19 @@ class DataWarehouseSavedQuerySerializer(
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+
+        # Falls back to the stored config so editing the query of an already-incremental view is
+        # checked too. Otherwise a query that incremental cannot serve would save while the view
+        # stays incremental, and only fail at the next run.
         config = attrs.get("incremental_config")
-        if not config or not config.get("enabled"):
+        if config is None and self.instance is not None:
+            config = self.instance.incremental_config
+        if not isinstance(config, dict) or not config.get("enabled"):
+            return attrs
+        if not config.get("incremental_key") or not config.get("unique_key"):
             return attrs
 
-        # Checked against the query being saved, or the stored one when only the config changed,
-        # so enabling incremental on an ineligible query fails here rather than at the next run.
+        query_changed = "query" in attrs
         query = attrs.get("query") or (self.instance.query if self.instance is not None else None)
         sql = (query or {}).get("query")
         if not isinstance(sql, str):
@@ -989,7 +997,9 @@ class DataWarehouseSavedQuerySerializer(
 
         from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
 
-        column_types = self.instance.columns if self.instance is not None else None
+        # The stored column types describe the stored query, so they say nothing about a query being
+        # replaced. The runtime guard still catches a nullable key on the first incremental run.
+        column_types = None if query_changed or self.instance is None else self.instance.columns
         result = check_incremental_eligibility(
             sql,
             IncrementalConfig(

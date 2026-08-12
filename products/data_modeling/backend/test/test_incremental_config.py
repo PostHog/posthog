@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from posthog.test.base import BaseTest
 
@@ -90,6 +90,19 @@ class TestIncrementalConfig(BaseTest):
         assert deserialize_watermark(state.watermark) == watermark
         assert state.definition_fingerprint == "abc"
         assert state.last_run_mode == "incremental"
+
+    def test_state_round_trips_a_date_watermark(self) -> None:
+        """A Date incremental key yields a plain date, which the JSON field cannot store, and which
+        must come back as a date rather than a midnight datetime so it compares against a Date
+        column as the right type."""
+        saved_query = self._saved_query()
+
+        set_incremental_state(saved_query, watermark=date(2026, 8, 1), fingerprint="abc", mode="incremental")
+
+        saved_query.refresh_from_db()
+        restored = deserialize_watermark(get_incremental_state(saved_query).watermark)
+        assert restored == date(2026, 8, 1)
+        assert not isinstance(restored, datetime)
 
     def test_setting_state_leaves_a_concurrent_config_edit_alone(self) -> None:
         """The API writes config while a run writes state. Losing the config edit would silently

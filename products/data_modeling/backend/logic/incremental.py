@@ -15,7 +15,7 @@ including non-associative ones that other systems have to reject.
 import json
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from django.db import transaction
@@ -182,21 +182,25 @@ def watermark_now() -> datetime:
 
 
 def _serialize_watermark(value: Any) -> Any:
-    if isinstance(value, datetime):
+    # `date` covers `datetime` too, since datetime subclasses it. A Date incremental key yields a
+    # plain date, which the JSON field cannot store on its own.
+    if isinstance(value, date):
         return _isoformat(value)
     return value
 
 
-def _isoformat(value: datetime) -> str:
+def _isoformat(value: date) -> str:
     return value.isoformat()
 
 
 def deserialize_watermark(value: Any) -> Any:
-    """Rehydrate a JSON-stored watermark. Datetimes round-trip through ISO strings; every other
-    key type (integers, strings) is stored and compared as-is."""
+    """Rehydrate a JSON-stored watermark. Dates and datetimes round-trip through ISO strings;
+    every other key type (integers, strings) is stored and compared as-is."""
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value)
+            # A bare YYYY-MM-DD came from a Date key, so give the filter back a date rather than a
+            # midnight datetime, which would compare against a Date column as the wrong type.
+            return date.fromisoformat(value) if len(value) == 10 else datetime.fromisoformat(value)
         except ValueError:
             return value
     return value

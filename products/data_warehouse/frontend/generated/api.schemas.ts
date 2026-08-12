@@ -1147,8 +1147,8 @@ export interface DataWarehouseSavedQueryApi {
     query: DataWarehouseSavedQueryApiQuery
     /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
     incremental?: IncrementalConfigApi | null
-    /** How far incremental materialization has progressed. Written by the materialization run, not by this API. */
-    readonly incremental_state: IncrementalStateApi
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state: IncrementalStateApi | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     /**
@@ -1276,8 +1276,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     query?: PatchedDataWarehouseSavedQueryApiQuery
     /** Update the materialized table in place instead of rebuilding it. Null or absent means every run rebuilds the whole table. */
     incremental?: IncrementalConfigApi | null
-    /** How far incremental materialization has progressed. Written by the materialization run, not by this API. */
-    readonly incremental_state?: IncrementalStateApi
+    /** How far incremental materialization has progressed. Null until the first run records any. Written by the materialization run, not by this API. */
+    readonly incremental_state?: IncrementalStateApi | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     /**

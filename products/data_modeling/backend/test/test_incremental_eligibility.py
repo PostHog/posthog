@@ -36,6 +36,11 @@ class TestIncrementalEligibility(BaseTest):
                 "SELECT uuid, timestamp FROM events",
                 IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",)),
             ),
+            (
+                "group_by_all_with_a_covering_unique_key",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY ALL",
+                DAY_EVENT_KEY,
+            ),
         ]
     )
     def test_eligible(self, _name: str, query: str, config: IncrementalConfig) -> None:
@@ -91,6 +96,14 @@ class TestIncrementalEligibility(BaseTest):
                 "Window functions",
             ),
             ("unparseable", "SELECT FROM WHERE", DAY_KEY, "could not be parsed"),
+            (
+                # GROUP BY ALL carries no explicit entries, so a check reading only `group_by`
+                # would treat this as ungrouped and let an uncovered key through.
+                "group_by_all_unique_key_misses_a_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY ALL",
+                DAY_KEY,
+                "must include every GROUP BY column",
+            ),
         ]
     )
     def test_blocked(self, _name: str, query: str, config: IncrementalConfig, expected: str) -> None:

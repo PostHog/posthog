@@ -184,6 +184,9 @@ export interface dataWarehouseViewsLogicActions {
         fullRefresh: boolean | undefined
         viewId: string
     }
+    runDataWarehouseSavedQueryFailure: (viewId: string) => {
+        viewId: string
+    }
     updateDataWarehouseSavedQuery: (
         view: Partial<DataWarehouseSavedQuery> & {
             edited_history_id?: string
@@ -324,6 +327,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
     }),
     actions({
         runDataWarehouseSavedQuery: (viewId: string, fullRefresh?: boolean) => ({ viewId, fullRefresh }),
+        runDataWarehouseSavedQueryFailure: (viewId: string) => ({ viewId }),
         cancelDataWarehouseSavedQuery: (viewId: string) => ({ viewId }),
         materializeDataWarehouseSavedQuery: (viewId: string, syncFrequency?: DataModelingSyncInterval) => ({
             viewId,
@@ -513,6 +517,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(fullRefresh ? 'Failed to start rebuild' : 'Failed to run materialization')
+                actions.runDataWarehouseSavedQueryFailure(viewId)
             }
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {

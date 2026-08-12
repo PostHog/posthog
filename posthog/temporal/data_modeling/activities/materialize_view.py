@@ -187,6 +187,9 @@ class MaterializeViewResult:
     table_uri: str
     file_uris: list[str]
     saved_query_id: str
+    # Whether this run upserted a window rather than rebuilding. Defaulted so old workflow
+    # histories decode without it.
+    incremental: bool = False
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
@@ -831,4 +834,5 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         table_uri=table_uri,
         file_uris=file_uris,
         saved_query_id=str(objects.saved_query.id),
+        incremental=plan.incremental,
     )
