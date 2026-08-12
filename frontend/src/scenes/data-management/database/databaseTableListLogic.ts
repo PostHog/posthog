@@ -579,6 +579,11 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 if (!databaseTableListLogic.isMounted()) {
                     return
                 }
+                // Same staleness guard as the success path: a rejection from a superseded request
+                // must not stamp errors onto the schema that replaced it.
+                if (epoch !== latestDatabaseLoadEpoch || (values.connectionId ?? undefined) !== requestConnectionId) {
+                    return
+                }
                 actions.hydrateTableFieldsFailure(toLoad)
             }
         },
