@@ -41,6 +41,20 @@ describe("buildCanvasGenerationPrompt", () => {
     expect(buildCanvasGenerationPrompt({ ...base, isEdit })).toContain(header);
   });
 
+  // Guards the draft-by-default contract: an edit to a live canvas must stage
+  // a draft the user promotes, never publish straight to the head.
+  it.each([
+    [false, "`canvas-publish-create`", "`canvas-draft-create`"],
+    [true, "`canvas-draft-create`", "`canvas-publish-create`"],
+  ])("isEdit=%s saves with the right tool", (isEdit, expected, absent) => {
+    const prompt = buildCanvasGenerationPrompt({ ...base, isEdit });
+    expect(prompt).toContain(expected);
+    expect(prompt).not.toContain(absent);
+    if (isEdit) {
+      expect(prompt).toContain("promotes it to live");
+    }
+  });
+
   it.each([
     ["first build with starter", false, true, true],
     ["first build without starter", false, false, false],

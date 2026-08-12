@@ -304,6 +304,31 @@ describe("PiAgentServer", () => {
     });
   });
 
+  it("preserves the native Pi user prompt when auto-publish is enabled", async () => {
+    const sendCommand = vi.fn(
+      async (_command: Record<string, unknown>) => ({}),
+    );
+    const server = new PiAgentServer(
+      config({ autoPublish: true, createPr: true }),
+    ) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: { getState: vi.fn(async () => ({ isStreaming: false })) },
+        sendCommand,
+      },
+    };
+
+    await server.executeCommand("user_message", { content: "fix it" });
+
+    expect(sendCommand.mock.calls[0]?.[0].message).toBe("fix it");
+  });
+
   it("hydrates cloud artifacts into native Pi prompt inputs", async () => {
     const repositoryPath = await mkdtemp(join(tmpdir(), "pi-attachments-"));
     const sendCommand = vi.fn(

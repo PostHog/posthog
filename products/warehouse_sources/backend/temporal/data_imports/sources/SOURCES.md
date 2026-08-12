@@ -499,7 +499,8 @@ the row lists both.
 | pipedrive                        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | pipeliner                        | HTTP                        | requests                                                        | ✅                          |
 | plain                            | HTTP                        | requests                                                        | ✅                          |
-| planetscale                      | DB protocol                 | pymysql (delegates to MySQLSource)                              | ➖                          |
+| planetscale_mysql                | DB protocol                 | pymysql (delegates to MySQLSource)                              | ➖                          |
+| planetscale_postgres             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | planhat                          | HTTP                        | requests                                                        | ✅                          |
 | platform_sh                      | HTTP                        | requests                                                        | ✅                          |
 | plausible                        | HTTP                        | requests                                                        | ✅                          |
@@ -896,6 +897,7 @@ doesn't conflict with concurrent PRs.
 - clip
 - cloudability
 - cloudbeds
+- cloudinary
 - clover
 - coassemble
 - cockroachdb
@@ -1396,6 +1398,7 @@ doesn't conflict with concurrent PRs.
 - uk_ons
 - umami
 - un_comtrade
+- uploadcare
 - uppromote
 - uptick
 - us_bea

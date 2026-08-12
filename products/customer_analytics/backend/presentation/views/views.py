@@ -34,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
+from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes, is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -1041,6 +1042,8 @@ class AccountViewSet(
         serializer = AccountSerializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        membership_level = self.user_permissions.current_team.effective_membership_level
+        allow_matching_updates = membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
         try:
             account = api.update_account_for_view(
                 team_id=self.team_id,
@@ -1062,6 +1065,7 @@ class AccountViewSet(
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                allow_matching_updates=allow_matching_updates,
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

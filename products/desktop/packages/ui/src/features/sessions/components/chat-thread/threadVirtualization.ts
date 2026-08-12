@@ -84,6 +84,8 @@ export interface FlatThreadRow {
   isTrailingInTurn: boolean;
   /** Set on the last row of a completed turn; renders the turn's hover timestamp under it. */
   turnTimestamp?: number;
+  /** Set alongside {@link turnTimestamp}: identifies the turn its footer actions act on. */
+  turnId?: string;
   /** Set alongside {@link turnTimestamp}: the agent response as plain text, for its copy button. */
   turnCopyText?: string;
 }
@@ -123,6 +125,7 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
           inTurn: true,
           isTrailingInTurn: isTrailing,
           turnTimestamp: isTrailing ? timestamp : undefined,
+          turnId: isTrailing ? row.id : undefined,
           turnCopyText: isTrailing ? copyText : undefined,
         });
       }
@@ -136,6 +139,59 @@ export function flattenTurnRows(rows: TurnRow[]): FlatThreadRow[] {
     });
   }
   return out;
+}
+
+/** A top-level thread row paired with the list key the non-virtualized body renders it under. */
+export interface KeyedTurnRow {
+  key: string;
+  item: TurnRow;
+}
+
+/** Key prefix per top-level row kind, or null for a kind turn grouping never emits as its own row. */
+function turnRowKeyPrefix(row: TurnRow): string | null {
+  switch (row.type) {
+    case "user_message":
+      return "user-turn";
+    case "agent_turn":
+      return "agent-turn";
+    case "git_action":
+      return "git-action";
+    case "skill_button_action":
+      return "skill-action";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Assign list keys to the non-virtualized body's top-level rows.
+ *
+ * Every row is keyed by ordinal rather than by id, because a row's id moves while the row itself
+ * stays in place. A user message and a skill-button action each swap an optimistic id for the real
+ * one when the prompt echoes back, in the single commit that drops the optimistic item and appends
+ * the event. An agent turn takes the id of its first item, and that item is replaced whenever tool
+ * grouping reshapes the head of the turn: a turn that opens with a thought and then makes a second
+ * tool call folds thought plus tools into one `tool_group`, so the turn's id moves from the thought
+ * to the first tool call.
+ *
+ * Keying on those ids remounts the row. The scroller engine watches its content element for child
+ * list changes, and a remount that neither adds nor removes a row reads to it as "the row count is
+ * unchanged but here is a scroll-anchor element I have never scrolled to", which it answers by
+ * scrolling that anchor to the top of the viewport. User messages are the anchors, so the thread
+ * jumps to the oldest one the engine has not already scrolled to, which on the first such remount
+ * is the start of the conversation.
+ *
+ * Rows are only ever appended, so an ordinal is stable for the life of the row.
+ */
+export function keyTurnRows(rows: TurnRow[]): KeyedTurnRow[] {
+  const ordinals = new Map<string, number>();
+  return rows.map((item) => {
+    const prefix = turnRowKeyPrefix(item);
+    if (prefix === null) return { key: item.id, item };
+    const ordinal = ordinals.get(prefix) ?? 0;
+    ordinals.set(prefix, ordinal + 1);
+    return { key: `${prefix}-${ordinal}`, item };
+  });
 }
 
 /** Number of rows {@link flattenTurnRows} would produce, without building them. */

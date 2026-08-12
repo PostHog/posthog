@@ -11,6 +11,13 @@ export type MlAnonymizeRoute = 'stream' | 'tree' | ''
 
 export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed'
 
+/** Stages of the URL lane. Deliberately the same vocabulary as {@link MlImageLaneStage}, so the two
+ *  lanes read the same way on a dashboard even though only `collected` exists until the fetch lane
+ *  ships. */
+export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
+
+const URL_BYTES_SAMPLE_RATE = 16
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -83,6 +90,30 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['outcome'],
     })
 
+    private static readonly mlUrlsCollected = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_urls_collected',
+        help: 'Remote image URLs through the fetch lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed)',
+        labelNames: ['outcome'],
+    })
+
+    private static readonly mlUrlsDeclined = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_urls_declined',
+        help: 'Remote image URLs the anonymizer refused to collect, by reason. A decline is invisible in the collected count, so without this the lane looks like traffic carries fewer images than it does',
+        labelNames: ['reason'],
+    })
+
+    private static readonly mlUrlDomainsPerMessage = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_domains_per_message',
+        help: 'Distinct registrable domains among the URLs collected from one message, observed for every message including those with none. The fetch topic is keyed by that domain, so this is how many Kafka messages one replay message becomes, and how concentrated a page is on one operator',
+        buckets: [0, 1, 2, 3, 5, 8, 13, 21, 34, 55],
+    })
+
+    private static readonly mlUrlsPerMessage = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_urls_per_message',
+        help: 'URLs collected from one message that carried at least one. The counter alone gives a mean; sizing the fetch lane needs the tail',
+        buckets: [1, 2, 5, 10, 25, 50, 100, 256, 512],
+    })
+
     private static readonly mlImageBytesProduced = new Counter({
         name: 'recording_blob_ingestion_v2_ml_image_bytes_produced',
         help: 'Bytes of collected images delivered to the scrub topic (acked)',
@@ -140,6 +171,54 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
         this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    private static readonly mlUrlBytes = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_bytes',
+        help: 'Bytes in one collected remote image URL, sampled. The tail sizes the per-record packing budget, because a record is filled by bytes rather than by a fixed number of URLs. Read the shape, not the count: one URL in URL_BYTES_SAMPLE_RATE is observed',
+        buckets: [64, 128, 256, 512, 1024, 2048],
+    })
+    /**
+     * A message can carry hundreds of URLs, and an observation costs several allocations, so
+     * observing each one puts the size of the payload on the mirror's hot path.
+     */
+    private static urlBytesSeen = 0
+    private static readonly mlUrlsPerRecord = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_urls_per_record',
+        help: 'URLs packed into one record on the fetch topic. Bounded in practice by the collector cap per message, since a record holds one domain from one message',
+        buckets: [1, 8, 32, 64, 128, 256, 512],
+    })
+    private static readonly mlUrlRecordBytes = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_record_bytes',
+        help: 'Serialized bytes of one record on the fetch topic. Read against librdkafka message.max.bytes, which this producer leaves at its 1,000,000 byte default: the packing budget is what keeps a record under it',
+        buckets: [1024, 8192, 65536, 262144, 524288, 1_000_000],
+    })
+
+    public static observeMlUrlBytes(bytes: number): void {
+        if (this.urlBytesSeen++ % URL_BYTES_SAMPLE_RATE === 0) {
+            this.mlUrlBytes.observe(bytes)
+        }
+    }
+    public static observeMlUrlRecord(urls: number, bytes: number): void {
+        this.mlUrlsPerRecord.observe(urls)
+        this.mlUrlRecordBytes.observe(bytes)
+    }
+    public static incrementMlUrlsCollected(outcome: MlUrlLaneStage, count: number): void {
+        this.mlUrlsCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlUrlsDeclined(reason: string, count: number): void {
+        if (count > 0) {
+            this.mlUrlsDeclined.inc({ reason }, count)
+        }
+    }
+
+    public static observeMlUrlDomainsPerMessage(domains: number): void {
+        this.mlUrlDomainsPerMessage.observe(domains)
+    }
+
+    public static observeMlUrlsPerMessage(urls: number): void {
+        this.mlUrlsPerMessage.observe(urls)
     }
 
     public static incrementMlImageBytesProduced(bytes: number): void {
