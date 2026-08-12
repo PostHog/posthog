@@ -643,6 +643,15 @@ _TRANSIENT_GRPC_STATUS_CODES = frozenset(
 # receive limit, not retrying, is what addresses it.
 _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 
+# Google's own token-verification backend occasionally returns a bare ``UNKNOWN`` gRPC status
+# carrying this message when it has a momentary internal hiccup — a genuinely rejected credential
+# instead comes back as ``UNAUTHENTICATED`` / ``PERMISSION_DENIED`` (handled as non-retryable in
+# ``GoogleAdsSource.get_non_retryable_errors``). Reports of this exact message on the Google Ads API
+# support forum have been confirmed by Google as backend-side incidents, not request problems, and a
+# retry after backoff typically succeeds. Matched on this specific message rather than the bare
+# ``UNKNOWN`` status, which covers far too broad a range of unrelated failures to retry blindly.
+_AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE = "Authentication backend unknown error"
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -656,6 +665,8 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
+    if isinstance(exc, google_api_exceptions.Unknown):
+        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in str(exc)
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
     # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
     # gapic-wrapped form is matched by type rather than via the ``code()`` check below.
