@@ -137,7 +137,7 @@ def estimate_scanner_session_volume(
         ClickHouseEstimatedQueryExecutionTimeTooLong,
         ClickHouseQueryMemoryLimitExceeded,
     ):
-        # The fallback keeps the full budget so teams whose sampled count needs more than half still succeed.
+        # Full budget: halving it fails teams whose sampled count needs more than half.
         return _execute_estimate_query(
             sampled_plan, team=team, max_execution_seconds=max_execution_seconds, ch_user=ch_user
         )

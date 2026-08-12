@@ -210,7 +210,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         {scannerEstimate.sampled ? '~' : ''}
                         {scannerEstimate.matched_sessions_in_window.toLocaleString()}
                     </strong>{' '}
-                    matching recordings in the last {scannerEstimate.window_days} days
+                    recent matching recordings
                     {scannerEstimate.sampled ? ', estimated from a sample of your traffic' : ''}.
                 </div>
             ) : scannerEstimateError ? (

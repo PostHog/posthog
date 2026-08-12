@@ -69,11 +69,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.queries import (
-<<<<<<< HEAD
-=======
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
-    ESTIMATE_SCAN_WINDOW_DAYS,
->>>>>>> f88f150d77d (fix(replay-vision): incorrect projection in estimates)
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
     PREVIEW_ESTIMATE_BUDGET,
@@ -974,8 +970,8 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
     window_days = serializers.IntegerField(
         help_text=(
-            f"Lookback window the estimate scanned, extrapolated to 30 days for the monthly projection. "
-            f"Normally {ESTIMATE_SCAN_WINDOW_DAYS}; smaller when the team has fewer days of recordings."
+            "Days of recordings the estimate scanned, capped by the team's available recordings. "
+            "The monthly projection extrapolates this window to 30 days."
         ),
     )
     sampled = serializers.BooleanField(

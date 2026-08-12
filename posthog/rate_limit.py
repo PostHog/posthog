@@ -613,11 +613,8 @@ class SessionEventDeltasSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "100/hour"
 
 
-# The scanner volume estimate wraps the recordings-list query in a COUNT and may run it twice
-# (an exact attempt, then a sampled fallback), holding ClickHouse for up to the query budget per
-# call. Its primary caller is the session-authenticated scanner editor, which the
-# ClickHouse*RateThrottle pair deliberately does not cover; the editor debounces client-side, so
-# these rates clear active editing while capping a scripted loop of cold estimates.
+# The scanner volume estimate can run two ClickHouse queries per call, and its primary caller is
+# the session-authenticated editor, which the ClickHouse*RateThrottle pair does not cover.
 class ReplayVisionEstimateBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_estimate_burst"
     rate = "20/minute"

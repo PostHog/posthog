@@ -28726,7 +28726,7 @@ export namespace Schemas {
     export interface EstimateResponse {
       /** Distinct sessions matching the query within the `window_days` lookback, after the sampling_mode quality filter but before random sampling. Approximate when `sampled` is true. */
       matched_sessions_in_window: number;
-      /** Lookback window the estimate scanned, extrapolated to 30 days for the monthly projection. Normally 7; smaller when the team has fewer days of recordings. */
+      /** Days of recordings the estimate scanned, capped by the team's available recordings. The monthly projection extrapolates this window to 30 days. */
       window_days: number;
       /** True when the exact session count timed out and `matched_sessions_in_window` was instead extrapolated from a sample of users, making it approximate. */
       sampled: boolean;
