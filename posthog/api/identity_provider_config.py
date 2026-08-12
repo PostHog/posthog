@@ -31,6 +31,10 @@ def _capture_idp_config_event(
 
 
 class IdentityProviderConfigSerializer(serializers.ModelSerializer):
+    saml_relay_state = serializers.CharField(
+        read_only=True,
+        help_text="Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration.",
+    )
     scim_bearer_token = serializers.SerializerMethodField(
         help_text="Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise."
     )
@@ -56,6 +60,7 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "has_saml",
+            "saml_relay_state",
             "saml_entity_id",
             "saml_acs_url",
             "saml_x509_cert",

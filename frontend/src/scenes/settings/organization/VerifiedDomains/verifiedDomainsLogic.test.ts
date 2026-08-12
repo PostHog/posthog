@@ -50,6 +50,23 @@ describe('verifiedDomainsLogic', () => {
                     is_verified: false,
                     verified_at: '',
                 },
+                '/api/organizations/:organization/identity_provider_configs/': {
+                    id: '4aa1f0dc-a0ab-490a-9037-14f3358a81bc',
+                    name: 'my.posthog.com',
+                    saml_relay_state: '6969b120-a0ab-490a-9037-14f3358a81bc',
+                    scim_enabled: false,
+                },
+            },
+            patch: {
+                '/api/organizations/:organization/domains/:id/': {
+                    id: '8db3b0c2-a0ab-490a-9037-14f3358a81bc',
+                    domain: 'my.posthog.com',
+                    jit_provisioning_enabled: true,
+                    sso_enforcement: 'google-oauth2',
+                    is_verified: true,
+                    verified_at: '2022-01-01T23:59:59',
+                    identity_provider_config: '4aa1f0dc-a0ab-490a-9037-14f3358a81bc',
+                },
             },
             delete: {
                 '/api/organizations/:organization/domains/:id/': {},
@@ -90,6 +107,23 @@ describe('verifiedDomainsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values).toMatchSnapshot()
         })
+
+        it.each(['setConfigureSAMLModalId', 'setConfigureSCIMModalId', 'setConfigureIdJagModalId'] as const)(
+            'creates and links an IdP config when %s opens',
+            async (openModal) => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                logic.actions[openModal]('8db3b0c2-a0ab-490a-9037-14f3358a81bc')
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.verifiedDomains[0].identity_provider_config).toEqual(
+                    '4aa1f0dc-a0ab-490a-9037-14f3358a81bc'
+                )
+                if (openModal === 'setConfigureSAMLModalId') {
+                    expect(logic.values.samlConfig.saml_relay_state).toEqual('6969b120-a0ab-490a-9037-14f3358a81bc')
+                }
+            }
+        )
 
         it('creates domain correctly', async () => {
             await expectLogic(logic).toFinishAllListeners()
