@@ -126,6 +126,13 @@ from posthog.models.exchange_rate.sql import (
     EXCHANGE_RATE_DICTIONARY_SQL,
     EXCHANGE_RATE_TABLE_SQL,
 )
+from posthog.models.flag_evaluations.sql import (
+    DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
+    DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL,
+    DROP_FLAG_EVALUATIONS_TABLE_SQL,
+    FLAG_EVALUATIONS_TABLE_SQL,
+    WRITABLE_FLAG_EVALUATIONS_TABLE_SQL,
+)
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
@@ -2057,6 +2064,8 @@ def reset_clickhouse_database() -> None:
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
             TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
             TRUNCATE_AI_EVENTS_TABLE_SQL(),
+            DROP_FLAG_EVALUATIONS_TABLE_SQL(),
+            *DROP_FLAG_EVALUATIONS_PROXY_TABLES_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -2064,6 +2073,9 @@ def reset_clickhouse_database() -> None:
             CHANNEL_DEFINITION_TABLE_SQL(),
             EXCHANGE_RATE_TABLE_SQL(),
             *clickhouse_events_data_table_sqls(),
+            FLAG_EVALUATIONS_TABLE_SQL(),
+            WRITABLE_FLAG_EVALUATIONS_TABLE_SQL(),
+            DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
             PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
