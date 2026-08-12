@@ -1,5 +1,6 @@
 import json
 import uuid
+import secrets
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +17,7 @@ from products.logs.backend.temporal.volume_tick.activities import (
     VolumeTickInput,
     VolumeTickOutput,
     count_teams_with_logs,
+    due_bucket_bounds,
 )
 from products.logs.backend.temporal.volume_tick.constants import WORKFLOW_NAME
 from products.logs.backend.temporal.volume_tick.workflow import LogsVolumeTickWorkflow
@@ -31,7 +33,12 @@ async def test_schedule_shaped_invocation_runs_the_tick() -> None:
     # plumbing, not the query.
     @activity.defn(name="volume_tick_heartbeat_activity")
     async def fake_heartbeat(_input: VolumeTickInput) -> VolumeTickOutput:
-        return VolumeTickOutput(ticked_at="2026-08-12T00:00:00+00:00", teams_with_logs=3)
+        return VolumeTickOutput(
+            ticked_at="2026-08-12T00:16:00+00:00",
+            teams_with_logs=3,
+            due_bucket_start="2026-08-12T00:00:00+00:00",
+            due_bucket_end="2026-08-12T00:05:00+00:00",
+        )
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -51,9 +58,29 @@ async def test_schedule_shaped_invocation_runs_the_tick() -> None:
     assert result["teams_with_logs"] == 3
 
 
+@pytest.mark.parametrize(
+    "now,expected_start",
+    [
+        # 10:16:30 - 10min allowance = 10:06:30; newest closed grid end is 10:05.
+        (datetime(2026, 8, 12, 10, 16, 30, tzinfo=UTC), datetime(2026, 8, 12, 10, 0, tzinfo=UTC)),
+        # Exactly on the boundary: at 10:20:00 the 10:05-10:10 bucket becomes due.
+        (datetime(2026, 8, 12, 10, 20, 0, tzinfo=UTC), datetime(2026, 8, 12, 10, 5, tzinfo=UTC)),
+        # One second before the boundary, the previous bucket is still the due one.
+        (datetime(2026, 8, 12, 10, 19, 59, tzinfo=UTC), datetime(2026, 8, 12, 10, 0, tzinfo=UTC)),
+        # Day boundary: just past midnight, the due bucket is yesterday's 23:45-23:50.
+        (datetime(2026, 8, 13, 0, 0, 30, tzinfo=UTC), datetime(2026, 8, 12, 23, 45, tzinfo=UTC)),
+    ],
+)
+def test_due_bucket_bounds(now: datetime, expected_start: datetime) -> None:
+    due = due_bucket_bounds(now)
+    assert due.start == expected_start
+    assert due.end == expected_start + timedelta(minutes=5)
+
+
 class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
-    # Fixed historical window so rows inserted by other tests (which write around
-    # their own base times or now()) can never leak into the count.
+    # The test ClickHouse keeps rows across runs and Postgres team ids repeat per
+    # run, so neither a fixed window nor self.team gives isolation. Random team
+    # ids plus delta assertions stay exact under any accumulated data.
     WINDOW_START = datetime(2031, 3, 1, 12, 0, tzinfo=UTC)
     WINDOW_END = WINDOW_START + timedelta(minutes=5)
 
@@ -72,11 +99,18 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
             }
             for team_id, ts in rows
         ]
-        sync_execute("INSERT INTO logs_distributed FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in payload))
+        # Foreground insert: the async distributed-insert queue would race the
+        # SELECT below and make the count flaky.
+        sync_execute(
+            "INSERT INTO logs_distributed FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in payload),
+            settings={"distributed_foreground_insert": 1},
+        )
 
     def test_counts_distinct_teams_inside_the_half_open_window(self) -> None:
         inside = self.WINDOW_START + timedelta(minutes=1)
-        team_a, team_b, team_c = self.team.pk, self.team.pk + 1, self.team.pk + 2
+        team_a, team_b, team_c = (secrets.randbelow(2**31 - 4) + 1 for _ in range(3))
+        before = count_teams_with_logs(self.WINDOW_START, self.WINDOW_END)
+
         self._insert_log_rows(
             [
                 (team_a, inside),
@@ -87,4 +121,6 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        assert count_teams_with_logs(self.WINDOW_START, self.WINDOW_END) == 2
+        # +2, not +3: team_a counts once despite two rows, and team_c's rows sit
+        # exactly on the outside of both half-open window edges.
+        assert count_teams_with_logs(self.WINDOW_START, self.WINDOW_END) == before + 2
