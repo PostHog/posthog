@@ -11,8 +11,15 @@ describe("sanitizeDomain", () => {
   it("passes through valid domains", () => {
     expect(sanitizeDomain("example.com")).toBe("example.com");
     expect(sanitizeDomain("*.example.com")).toBe("*.example.com");
-    // CSP domains don't include protocol slashes - slashes are stripped
     expect(sanitizeDomain("example.com:8080")).toBe("example.com:8080");
+  });
+
+  it("keeps a full origin intact", () => {
+    // Stripping the slashes here left 'https:cdn.example.com', which a browser
+    // rejects as an invalid source and ignores — blocking the whole domain.
+    expect(sanitizeDomain("https://cdn.example.com")).toBe(
+      "https://cdn.example.com",
+    );
   });
 
   it("strips injection characters", () => {

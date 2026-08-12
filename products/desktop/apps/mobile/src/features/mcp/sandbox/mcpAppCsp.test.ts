@@ -12,6 +12,9 @@ describe("sanitizeDomain", () => {
     ["example.com", "example.com"],
     ["*.example.com", "*.example.com"],
     ["example.com:8080", "example.com:8080"],
+    // A stripped origin ('https:cdn.example.com') is an invalid source that a
+    // browser ignores, taking the whole domain's permission with it.
+    ["https://cdn.example.com", "https://cdn.example.com"],
     ["' unsafe-eval; script-src *;", "unsafe-evalscript-src*"],
     ['" onload=alert(1)', "onloadalert1"],
     ["example.com; frame-ancestors *", "example.comframe-ancestors*"],

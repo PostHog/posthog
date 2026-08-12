@@ -3,8 +3,12 @@ import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps/app-bridge
 const DEFAULT_CSP =
   "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; connect-src 'none'; object-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'";
 
+// Sources arrive as full origins (`https://mcp.us.posthog.com`), so `/` has to
+// survive: `https:mcp.us.posthog.com` is not a source expression, and a browser
+// drops the whole entry as invalid. Spaces, semicolons and quotes are still
+// stripped, which is what stops a declared domain from injecting a directive.
 export function sanitizeDomain(domain: string): string {
-  return domain.replace(/[^a-zA-Z0-9.*:-]/g, "");
+  return domain.replace(/[^a-zA-Z0-9.*:/-]/g, "");
 }
 
 export function buildCspString(csp?: McpUiResourceCsp): string {
