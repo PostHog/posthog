@@ -144,7 +144,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]) {
         tabs.push({
             key: 'feature_requests',
-            label: 'Requests',
+            label: 'Feature requests',
             content: <FeatureRequestsTabContent />,
             link: combineUrl(urls.customerAnalyticsFeatureRequests(), searchParams).url,
         })
