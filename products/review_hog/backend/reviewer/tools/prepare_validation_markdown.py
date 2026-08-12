@@ -1,9 +1,11 @@
 """Render the PR-facing review body (stored as `ReviewReport.report_markdown` and posted to GitHub).
 
-The body is a one-line severity tally of the findings this turn publishes. The findings themselves go
-out as inline comments from `publish_review` (read from the durable finding/verdict rows), so the body
-only says how many there are and how urgent they are — nobody reads a summary of the diff they just
-wrote.
+The body opens with a one-line severity tally of the findings this turn publishes. The findings
+themselves go out as inline comments from `publish_review` (read from the durable finding/verdict
+rows), so the tally is all the body says about them — nobody reads a summary of the diff they just
+wrote. The one exception is a finding GitHub can't take an inline comment on: those are written out
+in full in the "Other findings" section below the tally, because the body is the only place they can
+appear at all.
 """
 
 from products.review_hog.backend.reviewer.constants import PRIORITIES_BY_URGENCY, PRIORITY_LABELS, effective_priority
