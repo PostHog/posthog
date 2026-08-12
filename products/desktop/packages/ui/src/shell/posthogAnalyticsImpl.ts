@@ -13,6 +13,7 @@ import {
   type UserIdentifyProperties,
 } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
+import type { CspViolationReport } from "@posthog/ui/features/csp-reporting/schemas";
 import type { FeatureFlags } from "@posthog/ui/features/feature-flags/identifiers";
 import type { PermissionRequest } from "@posthog/ui/features/sessions/sessionLogTypes";
 import type {
@@ -337,6 +338,73 @@ export function captureException(
   });
 }
 
+/**
+ * Ingestion route for browser-style violation reports, and the payload version
+ * its parser expects. Matches what PostHog's own web app points `report-uri` at.
+ */
+const CSP_REPORT_PATH = "/report/";
+const CSP_REPORT_VERSION = "2";
+
+interface CspReportUrlParams {
+  apiHost?: string;
+  token?: string;
+  distinctId?: string;
+  sessionId?: string;
+}
+
+/**
+ * Builds the `/report/` URL on the configured ingestion host. `distinct_id` and
+ * `session_id` ride along so a violation lands on the same person and session as
+ * the replay of the frame that failed to render — the endpoint mints random ones
+ * otherwise, leaving the report unattributable.
+ */
+export function buildCspReportUrl({
+  apiHost,
+  token,
+  distinctId,
+  sessionId,
+}: CspReportUrlParams): string | null {
+  if (!apiHost || !token) return null;
+
+  const url = new URL(CSP_REPORT_PATH, apiHost);
+  url.searchParams.set("token", token);
+  url.searchParams.set("v", CSP_REPORT_VERSION);
+  if (distinctId) url.searchParams.set("distinct_id", distinctId);
+  if (sessionId) url.searchParams.set("session_id", sessionId);
+  return url.toString();
+}
+
+/**
+ * Post CSP violations as a Reporting API bundle. The reports are already in the
+ * shape a browser would have sent, so the endpoint normalizes them into
+ * `$csp_violation` events without any client-side mapping.
+ */
+export function reportCspViolations(reports: CspViolationReport[]): void {
+  if (!isInitialized || reports.length === 0) {
+    return;
+  }
+
+  const url = buildCspReportUrl({
+    apiHost: posthog.config.api_host,
+    token: posthog.config.token,
+    distinctId: posthog.get_distinct_id(),
+    sessionId: posthog.get_session_id(),
+  });
+  if (!url) {
+    return;
+  }
+
+  // Fire and forget: a dropped report must never disturb the app that produced it.
+  void fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/reports+json" },
+    body: JSON.stringify(reports),
+    keepalive: true,
+  }).catch((error: unknown) => {
+    log.warn("Failed to send CSP violation reports", error);
+  });
+}
+
 // ============================================================================
 // Feature Flags
 // ============================================================================
@@ -410,6 +478,7 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
   setUserGroups,
   resetUser,
   captureSurveyResponse,
+  reportCspViolations,
 };
 
 /**

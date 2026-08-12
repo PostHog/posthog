@@ -4,6 +4,7 @@ import type {
   UserIdentifyProperties,
 } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
+import type { CspViolationReport } from "../features/csp-reporting/schemas";
 
 type TrackArgs<K extends keyof EventPropertyMap> =
   EventPropertyMap[K] extends never
@@ -34,6 +35,12 @@ export interface AnalyticsTracker {
     surveyId: string;
     responses: Array<{ questionId: string; response: string }>;
   }): void;
+  /**
+   * Forwards CSP violations collected from sandboxed frames. Reports go to
+   * PostHog's `/report/` ingestion endpoint rather than through `capture`, so
+   * they land as `$csp_violation` events like any browser-sent report.
+   */
+  reportCspViolations(reports: CspViolationReport[]): void;
 }
 
 export const ANALYTICS_TRACKER = Symbol.for("posthog.ui.AnalyticsTracker");

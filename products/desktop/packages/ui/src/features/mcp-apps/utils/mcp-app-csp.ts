@@ -10,6 +10,7 @@
  */
 
 import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps/app-bridge";
+import { CSP_VIOLATION_NOTIFICATION } from "../../csp-reporting/identifiers";
 
 // Per MCP Apps spec, the default CSP includes 'self' in script/style/img/media-src.
 // 'self' is effectively inert in our sandbox model because the inner iframe runs
@@ -94,18 +95,46 @@ export function buildCspMetaTag(
   return `<meta http-equiv="Content-Security-Policy" content="${escapeAttr(cspString)}">`;
 }
 
+/**
+ * Inline script that ships the frame's own CSP violations back out to the host.
+ *
+ * A policy delivered in a `<meta>` element cannot report: `report-uri` and
+ * `report-to` are ignored there, and `report-to` would need a
+ * `Reporting-Endpoints` response header the frame never gets. The frame also
+ * has an opaque origin, so the sandbox proxy cannot read its reports from the
+ * outside either. That leaves collecting them in-document and posting them to
+ * the parent, which relays to the host.
+ *
+ * The payload is the Reporting API's own JSON, so the host can forward it to
+ * PostHog's `/report/` endpoint unchanged, exactly as a browser would.
+ */
+export function buildCspViolationReporterScript(
+  scriptNonce?: string | null,
+): string {
+  // script-src 'none' — no script runs in the frame, including this one.
+  if (scriptNonce === null) return "";
+
+  const nonceAttr = scriptNonce ? ` nonce="${escapeAttr(scriptNonce)}"` : "";
+  // `buffered: true` also delivers violations from before this script ran.
+  return `<script${nonceAttr}>(function(){var send=function(report){try{window.parent.postMessage({jsonrpc:"2.0",method:"${CSP_VIOLATION_NOTIFICATION}",params:{report:report}},"*")}catch(err){}};try{if(typeof ReportingObserver==="function"){new ReportingObserver(function(reports){for(var i=0;i<reports.length;i++){send(reports[i].toJSON())}},{types:["csp-violation"],buffered:true}).observe();return}}catch(err){}document.addEventListener("securitypolicyviolation",function(event){send({type:"csp-violation",url:event.documentURI,body:{documentURL:event.documentURI,referrer:event.referrer,blockedURL:event.blockedURI,effectiveDirective:event.effectiveDirective,originalPolicy:event.originalPolicy,disposition:event.disposition,sourceFile:event.sourceFile,lineNumber:event.lineNumber,columnNumber:event.columnNumber,statusCode:event.statusCode,sample:event.sample}})})})()</script>`;
+}
+
 // After any doctype, which must stay first or the frame enters quirks mode.
 export function applyCspToHtml(
   html: string,
   csp?: McpUiResourceCsp,
   scriptNonce?: string | null,
 ): string {
-  const meta = buildCspMetaTag(csp, scriptNonce);
+  const preamble =
+    buildCspMetaTag(csp, scriptNonce) +
+    buildCspViolationReporterScript(scriptNonce);
   const doctype = html.match(/^\s*<!doctype[^>]*>/i);
   if (doctype) {
     return (
-      html.slice(0, doctype[0].length) + meta + html.slice(doctype[0].length)
+      html.slice(0, doctype[0].length) +
+      preamble +
+      html.slice(doctype[0].length)
     );
   }
-  return meta + html;
+  return preamble + html;
 }

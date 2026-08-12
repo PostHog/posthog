@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPosthog = {
   init: vi.fn(),
+  config: {
+    api_host: "https://internal-c.posthog.com",
+    token: "test-key",
+  } as Record<string, string>,
+  get_distinct_id: vi.fn(() => "distinct-1"),
+  get_session_id: vi.fn(() => "session-1"),
   register: vi.fn(),
   unregister: vi.fn(),
   onFeatureFlags: vi.fn(),
@@ -34,6 +40,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("onFeatureFlagsLoaded", () => {
@@ -228,5 +235,73 @@ describe("initializePostHog", () => {
       "test-key",
       expect.not.objectContaining({ bootstrap: expect.anything() }),
     );
+  });
+});
+
+describe("buildCspReportUrl", () => {
+  it("targets /report/ on the ingestion host with the session's ids", async () => {
+    const { buildCspReportUrl } = await loadAnalytics();
+
+    const url = buildCspReportUrl({
+      apiHost: "https://internal-c.posthog.com",
+      token: "phc_test",
+      distinctId: "distinct-1",
+      sessionId: "session-1",
+    });
+
+    expect(url).toBe(
+      "https://internal-c.posthog.com/report/?token=phc_test&v=2&distinct_id=distinct-1&session_id=session-1",
+    );
+  });
+
+  it.each([
+    ["no host", { token: "phc_test" }],
+    ["no token", { apiHost: "https://internal-c.posthog.com" }],
+  ])("returns null with %s to report to", async (_name, params) => {
+    const { buildCspReportUrl } = await loadAnalytics();
+
+    expect(buildCspReportUrl(params)).toBeNull();
+  });
+});
+
+describe("reportCspViolations", () => {
+  const report = {
+    type: "csp-violation" as const,
+    url: "mcp-sandbox://proxy/",
+    body: { blockedURL: "https://mcp.us.posthog.com/a.css" },
+  };
+
+  it("posts the reports as a Reporting API bundle", async () => {
+    const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { initializePostHog, reportCspViolations } = await loadAnalytics();
+    initializePostHog();
+
+    reportCspViolations([report]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain("/report/?token=test-key&v=2");
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({
+      "Content-Type": "application/reports+json",
+    });
+    expect(JSON.parse(init.body as string)).toEqual([report]);
+  });
+
+  it.each([
+    ["posthog has no project to report to yet", false, [report]],
+    ["the batch is empty", true, []],
+  ])("sends no request when %s", async (_name, initialized, reports) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { initializePostHog, reportCspViolations } = await loadAnalytics();
+    if (initialized) initializePostHog();
+
+    reportCspViolations(reports);
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

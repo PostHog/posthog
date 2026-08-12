@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { CSP_VIOLATION_NOTIFICATION } from "../../csp-reporting/identifiers";
 import {
   applyCspToHtml,
   buildCspMetaTag,
   buildCspString,
+  buildCspViolationReporterScript,
   escapeAttr,
   sanitizeDomain,
 } from "./mcp-app-csp";
@@ -174,7 +176,7 @@ describe("applyCspToHtml", () => {
     const out = applyCspToHtml("<!doctype html><html><head></head></html>");
     expect(out.startsWith("<!doctype html>")).toBe(true);
     expect(out).toBe(
-      `<!doctype html>${buildCspMetaTag()}<html><head></head></html>`,
+      `<!doctype html>${buildCspMetaTag()}${buildCspViolationReporterScript()}<html><head></head></html>`,
     );
   });
 
@@ -183,6 +185,43 @@ describe("applyCspToHtml", () => {
     expect(out.startsWith("  <!DOCTYPE html>")).toBe(true);
     expect(out.indexOf("<!DOCTYPE html>")).toBeLessThan(
       out.indexOf(buildCspMetaTag()),
+    );
+  });
+});
+
+describe("buildCspViolationReporterScript", () => {
+  // The reporter is a string until a frame runs it, so these assert its shape
+  // rather than its behavior. Each covers a way it goes silently dead: blocked
+  // by the very nonce policy it reports on, self-blocked where no script may
+  // run, or missing the buffering that catches the first violations.
+  it.each([
+    [
+      "posts out over the namespaced channel",
+      undefined,
+      CSP_VIOLATION_NOTIFICATION,
+    ],
+    ["collects violations from before it ran", undefined, "buffered:true"],
+    [
+      "carries the nonce the policy requires",
+      "abc123",
+      '<script nonce="abc123">',
+    ],
+  ])("%s", (_name, nonce, expected) => {
+    expect(buildCspViolationReporterScript(nonce)).toContain(expected);
+  });
+
+  it("is omitted where the frame runs no scripts at all", () => {
+    expect(buildCspViolationReporterScript(null)).toBe("");
+  });
+});
+
+describe("applyCspToHtml reporter injection", () => {
+  it("injects the reporter ahead of the content it has to observe", () => {
+    const out = applyCspToHtml(
+      '<!doctype html><html><head><link rel="stylesheet" href="https://cdn.example.com/a.css"></head></html>',
+    );
+    expect(out.indexOf(CSP_VIOLATION_NOTIFICATION)).toBeLessThan(
+      out.indexOf("a.css"),
     );
   });
 });

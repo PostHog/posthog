@@ -16,6 +16,7 @@ import { browserTabsUiModule } from "@posthog/ui/features/browser-tabs/browser-t
 import { taskActivityUiModule } from "@posthog/ui/features/canvas/task-activity/taskActivity.module";
 import { cloneUiModule } from "@posthog/ui/features/clone/clone.module";
 import { connectivityUiModule } from "@posthog/ui/features/connectivity/connectivity.module";
+import { cspReportingUiModule } from "@posthog/ui/features/csp-reporting/cspReporting.module";
 import { discordPresenceUiModule } from "@posthog/ui/features/discord-presence/discordPresence.module";
 import { fileWatcherUiModule } from "@posthog/ui/features/file-watcher/file-watcher.module";
 import { focusUiModule } from "@posthog/ui/features/focus/focus.module";
@@ -43,6 +44,7 @@ export function registerDesktopContributions(): void {
     browserTabsUiModule,
     cloneUiModule,
     connectivityUiModule,
+    cspReportingUiModule,
     discordPresenceUiModule,
     fileWatcherUiModule,
     focusUiModule,
