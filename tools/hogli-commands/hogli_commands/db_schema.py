@@ -271,8 +271,8 @@ def find_newest_compatible_artifact(
     max_pages: int = MAX_ARTIFACT_PAGES,
 ) -> SchemaArtifact | None:
     # The listing is newest-first, so the first page holding a candidate holds the
-    # newest one and the walk stops there. max_pages bounds the walk when no page
-    # yields one, which otherwise pages through the full retention window.
+    # newest one and the walk stops there. max_pages caps the miss case at a fixed
+    # number of requests instead of paging through the whole retention window.
     http = session or requests.Session()
     fetched: list[SchemaArtifact] = []
 

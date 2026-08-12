@@ -87,27 +87,30 @@ def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) ->
     assert db_schema.select_newest_compatible_artifact([artifact]) is None
 
 
+class _FakeArtifactPage:
+    def __init__(self, artifacts: list[dict[str, Any]], *, has_next: bool) -> None:
+        self._artifacts = artifacts
+        self.links = {"next": {"url": "next"}} if has_next else {}
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict[str, Any]:
+        return {"artifacts": self._artifacts}
+
+
 class _FakeArtifactPagesSession:
     def __init__(self, pages: list[list[dict[str, Any]]]) -> None:
         self._pages = pages
         self.get_count = 0
 
-    def get(self, url: str, *, params: dict[str, Any], headers: dict[str, str], timeout: int) -> Any:
+    def get(self, url: str, *, params: dict[str, Any], headers: dict[str, str], timeout: int) -> _FakeArtifactPage:
         self.get_count += 1
         page = params["page"]
-        payload = {"artifacts": self._pages[page - 1] if page <= len(self._pages) else []}
-        links = {"next": {"url": "next"}} if page < len(self._pages) else {}
-
-        class _Response:
-            def raise_for_status(self) -> None:
-                pass
-
-            def json(self) -> dict[str, Any]:
-                return payload
-
-        response = _Response()
-        response.links = links  # type: ignore[attr-defined]
-        return response
+        return _FakeArtifactPage(
+            self._pages[page - 1] if page <= len(self._pages) else [],
+            has_next=page < len(self._pages),
+        )
 
 
 def _raw_artifact(artifact_id: int, head_branch: str) -> dict[str, Any]:
@@ -165,7 +168,7 @@ def test_download_fails_when_no_compatible_artifact(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(db_schema, "github_token", lambda: "token")
     monkeypatch.setattr(db_schema, "find_newest_compatible_artifact", lambda **kwargs: None)
 
-    result = CliRunner().invoke(db_schema.db_download_schema, [])
+    result = runner.invoke(db_schema.db_download_schema, [])
 
     assert result.exit_code != 0
 
