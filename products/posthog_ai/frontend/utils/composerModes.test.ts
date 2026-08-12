@@ -15,12 +15,23 @@ describe('composerModes', () => {
     // Each runtime validates against its own vocabulary, so the picker must offer that runtime's modes —
     // sending Claude's `bypassPermissions` to Codex, or Codex's `read-only` to Claude, is rejected.
     it.each([
-        [RuntimeAdapterEnumApi.Claude, ClaudeMode.BypassPermissions, true],
+        [RuntimeAdapterEnumApi.Claude, ClaudeMode.AcceptEdits, true],
         [RuntimeAdapterEnumApi.Claude, CodexMode.ReadOnly, false],
         [RuntimeAdapterEnumApi.Codex, CodexMode.ReadOnly, true],
-        [RuntimeAdapterEnumApi.Codex, ClaudeMode.BypassPermissions, false],
+        [RuntimeAdapterEnumApi.Codex, ClaudeMode.AcceptEdits, false],
     ])('%s offers %s: %s', (adapter, mode, offered) => {
         expect(getModesForRuntimeAdapter(adapter).includes(mode)).toBe(offered)
+    })
+
+    // Never-ask modes stay out of the picker while the web surface has no equivalent of desktop's
+    // `allowBypassPermissions` setting — but each runtime still accepts one, so a run already launched on
+    // it keeps resolving instead of degrading.
+    it.each([
+        [RuntimeAdapterEnumApi.Claude, ClaudeMode.BypassPermissions],
+        [RuntimeAdapterEnumApi.Codex, CodexMode.FullAccess],
+    ])('%s gates %s out of the picker but still accepts it', (adapter, mode) => {
+        expect(getModesForRuntimeAdapter(adapter)).not.toContain(mode)
+        expect(resolveModeForRuntimeAdapter(adapter, mode)).toBe(mode)
     })
 
     // A mode carried across harnesses — switching model, or opening a run started from another surface —

@@ -74,7 +74,22 @@ const CODEX_MODES: PermissionMode[] = [
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
 ]
 
+// Hidden from the picker, exactly as the desktop app hides them: its `allowBypassPermissions` setting
+// defaults to off and filters these two out of the menu (ModeSelector.tsx). Uncomment them here once the
+// web surface has the equivalent setting. They stay in the vocabularies above on purpose — a run already
+// launched on one must still render its label and coerce across runtimes, it just can't be picked.
+const GATED_MODES: PermissionMode[] = [
+    InitialPermissionModeEnumApi.BypassPermissions,
+    CodexTaskRunCreateSchemaInitialPermissionModeEnumApi.FullAccess,
+]
+
+/** The modes the picker offers for a runtime — its vocabulary minus anything gated. */
 export function getModesForRuntimeAdapter(runtimeAdapter: string): PermissionMode[] {
+    return getRuntimeModeVocabulary(runtimeAdapter).filter((mode) => !GATED_MODES.includes(mode))
+}
+
+/** Every mode a runtime accepts, gated or not — what coercion and label lookup resolve against. */
+export function getRuntimeModeVocabulary(runtimeAdapter: string): PermissionMode[] {
     return runtimeAdapter === RuntimeAdapterEnumApi.Codex ? CODEX_MODES : CLAUDE_MODES
 }
 
@@ -102,7 +117,7 @@ const CLAUDE_FALLBACKS: Record<string, PermissionMode> = {
 
 /** Coerce a mode into the vocabulary the given runtime validates against. */
 export function resolveModeForRuntimeAdapter(runtimeAdapter: string, mode: PermissionMode): PermissionMode {
-    const native = getModesForRuntimeAdapter(runtimeAdapter)
+    const native = getRuntimeModeVocabulary(runtimeAdapter)
     if (native.includes(mode)) {
         return mode
     }

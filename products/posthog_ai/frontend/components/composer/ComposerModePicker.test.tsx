@@ -22,6 +22,8 @@ describe('ComposerModePicker', () => {
         expect(screen.getByText('Accept edits')).toBeInTheDocument()
         expect(screen.queryByText('Read only')).not.toBeInTheDocument()
         expect(screen.queryByText('Full access')).not.toBeInTheDocument()
+        // Never-ask modes are gated out, as they are in the desktop app by default.
+        expect(screen.queryByText('Full auto')).not.toBeInTheDocument()
 
         // The footer describes the selected mode on open; the other descriptions stay out of the menu.
         expect(
@@ -30,25 +32,25 @@ describe('ComposerModePicker', () => {
             )
         ).toBeInTheDocument()
         expect(
-            screen.queryByText('Never asks. The agent can change or delete live data on its own.')
+            screen.queryByText('Plans the work first. Nothing runs until you approve the plan.')
         ).not.toBeInTheDocument()
 
         // Hovering another option swaps the footer to its description. This breaks if ModeItemRow
         // stops forwarding Base UI's ref — the item then never registers for hover highlighting.
-        const fullAutoOption = screen.getByText('Full auto').closest('[role="option"]')
-        expect(fullAutoOption).not.toBeNull()
-        fireEvent.mouseMove(fullAutoOption!)
-        expect(screen.getByText('Never asks. The agent can change or delete live data on its own.')).toBeInTheDocument()
+        const planOption = screen.getByText('Plan').closest('[role="option"]')
+        expect(planOption).not.toBeNull()
+        fireEvent.mouseMove(planOption!)
+        expect(screen.getByText('Plans the work first. Nothing runs until you approve the plan.')).toBeInTheDocument()
         expect(
             screen.queryByText(
                 'Accepts file edits and shell commands automatically. Always asks before PostHog tools that change live data. Creating or publishing content asks only while you watch the run.'
             )
         ).not.toBeInTheDocument()
 
-        fireEvent.pointerDown(fullAutoOption!, { pointerType: 'mouse' })
-        fireEvent.click(fullAutoOption!)
+        fireEvent.pointerDown(planOption!, { pointerType: 'mouse' })
+        fireEvent.click(planOption!)
 
-        expect(onModeChange).toHaveBeenCalledWith(InitialPermissionModeEnumApi.BypassPermissions)
+        expect(onModeChange).toHaveBeenCalledWith(InitialPermissionModeEnumApi.Plan)
     })
 
     it('never describes a mode the narrowed menu does not offer', () => {
