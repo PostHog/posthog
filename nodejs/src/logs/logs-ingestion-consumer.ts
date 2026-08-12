@@ -430,7 +430,7 @@ export class LogsIngestionConsumer {
           }
         | {
               outcome: 'all_dropped'
-              reason: 'sampling_all_dropped' | 'transformations_all_dropped'
+              reason: 'sampling_all_dropped' | 'transformations_all_dropped' | 'empty_batch'
               pii: PiiScrubStats
               recordsDropped: number
               recordsDroppedByRuleId: Map<string, number>
@@ -510,9 +510,17 @@ export class LogsIngestionConsumer {
         }
 
         if (value === null) {
+            // `droppedBy` tells us which filter emptied the batch; its absence means the batch decoded
+            // to zero records to begin with, so attribute it to an empty batch rather than sampling.
+            const reason =
+                drops.droppedBy === 'transformations'
+                    ? 'transformations_all_dropped'
+                    : drops.droppedBy === 'sampling'
+                      ? 'sampling_all_dropped'
+                      : 'empty_batch'
             return {
                 outcome: 'all_dropped',
-                reason: drops.droppedBy === 'transformations' ? 'transformations_all_dropped' : 'sampling_all_dropped',
+                reason,
                 pii,
                 recordsDropped: drops.recordsDropped,
                 recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
@@ -1101,7 +1109,7 @@ export class LogsIngestionConsumer {
                     const token = headers.token
 
                     if (!token) {
-                        logger.error('missing_token')
+                        logger.warn('missing_token')
                         logMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
                         recordLogMessageDropped('missing_token', 'unknown')
                         return
@@ -1123,7 +1131,11 @@ export class LogsIngestionConsumer {
                     }
 
                     if (!team) {
-                        logger.error('team_not_found', { token_with_no_team: token })
+                        // A well-formed but unknown or rotated token is a client-input problem, not a
+                        // service fault. capture-logs accepts any well-formed token shape and defers team
+                        // resolution to here because it has no Postgres access, so this fires on every
+                        // dropped message for a bad token. Already tracked via the metrics below.
+                        logger.warn('team_not_found', { token_with_no_team: token })
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return

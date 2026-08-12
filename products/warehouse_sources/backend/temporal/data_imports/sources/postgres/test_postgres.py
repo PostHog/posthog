@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -427,6 +428,21 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: server closed the connection unexpectedly',
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: SSL connection has been closed unexpectedly',
+        ],
+    )
+    def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
+        # These transient drops are retried in-process, then re-raised once that budget is exhausted.
+        # If they drop out of get_retryable_errors, _handle_import_error logs the self-recovering
+        # failure as a tracked exception again instead of a warning. They must also stay out of
+        # get_non_retryable_errors so the sync keeps retrying rather than being disabled.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)) when require_ssl=False
             # leaves the OperationalError unwrapped. The host/port are volatile; the alert text is stable.
             'connection failed: connection to server at "37.16.27.102", port 6432 failed: SSL error: tlsv1 alert no application protocol',
@@ -767,6 +783,23 @@ class TestPostgresSourceNonRetryableErrors:
         assert is_non_retryable, (
             f"Password auth failure without 'for user' wording should be non-retryable: {error_msg}"
         )
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed for user "u"',
+            'connection to server at "203.0.113.30", port 5432 failed: FATAL:  password authentication failed\nuser "u"',
+            "connection failed: error received from server in SCRAM exchange: Wrong password",
+        ],
+    )
+    def test_password_authentication_failure_surfaces_a_host_free_message(self, source, error_msg):
+        # The raw driver string embeds the host/IP and port; the surfaced message must be actionable
+        # and carry neither. Guards a regression back to the raw error (value `None`).
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "A rejected password should surface an actionable message"
+        assert "username or password" in friendly[0]
+        assert "203.0.113.30" not in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",

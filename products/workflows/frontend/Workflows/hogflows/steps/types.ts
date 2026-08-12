@@ -24,12 +24,12 @@ const DURATION_STRING = z.string().superRefine((v, ctx) => {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
         return
     }
-    if (!/^\d+[dhm]$/.test(v)) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a whole number followed by d, h, or m' })
+    if (!/^\d*\.?\d+[dhms]$/.test(v)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be a number followed by s, m, h, or d' })
         return
     }
-    if (parseInt(v, 10) < 1) {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be at least 1' })
+    if (parseFloat(v) <= 0) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Duration must be greater than 0' })
     }
 })
 

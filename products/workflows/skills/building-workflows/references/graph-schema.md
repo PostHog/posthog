@@ -158,10 +158,10 @@ Retrieve `template-native-push` with `cdp-function-templates-retrieve` for the f
 
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
-Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: `30m`, `2h`, `1d`, `0.5m` (=30s).
+Must match `^\d*\.?\d+[dhms]$` — a number plus unit `s` | `m` | `h` | `d`. Examples: `30s`, `30m`, `2h`, `1d`, `1.5d` (=36h).
 
-- **No seconds, no ISO-8601.** For sub-minute, use a fraction of a minute.
-- Per-unit caps are **silently clamped**: `m`≤60, `h`≤24, `d`≤30. Max total 30d. Use the larger unit (`90m` → use `1.5h`) to avoid surprise clamping.
+- **No ISO-8601.** Fractions are allowed in every unit.
+- Per-unit caps are **silently clamped**: `s`≤60, `m`≤60, `h`≤24, `d`≤30. Max total 30d. Use the larger unit (`90m` → use `1.5h`) to avoid surprise clamping.
 
 ## Conversion & exit condition
 
@@ -182,5 +182,5 @@ Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: 
 - [ ] That trigger's `inputs.event` / `inputs.distinct_id` match its own type: `{request.body.*}` for `webhook`, `$workflow_triggered` + `{request.body.user_id}` for `manual`, `{request.query.ph_*}` for `tracking_pixel`. The wrong pair saves fine and then fails at trigger time.
 - [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
 - [ ] Every `conditional_branch` / `wait_until_condition` condition is wrapped: `{filters: {properties: [...]}}`, not `{properties: [...]}`.
-- [ ] All durations match `^\d*\.?\d+[dhm]$` and dodge the silent per-unit clamp.
+- [ ] All durations match `^\d*\.?\d+[dhms]$` and dodge the silent per-unit clamp.
 - [ ] Function inputs are `{key: {value: ...}}`; no hand-written `bytecode` anywhere; no top-level `trigger` field set.
