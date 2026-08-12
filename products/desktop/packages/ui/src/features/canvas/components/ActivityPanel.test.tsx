@@ -58,12 +58,6 @@ vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { ActivityPanel } from "./ActivityPanel";
 
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
-}));
-
 const task = { id: "task-1", title: "Ship it" } as unknown as Task;
 
 function renderPanel(taskId = "task-1") {
@@ -81,7 +75,6 @@ describe("ActivityPanel", () => {
   let scrollTo: MockInstance;
 
   beforeEach(() => {
-    commentsFlag.enabled = true;
     scrollTo = vi.spyOn(Element.prototype, "scrollTo");
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -103,13 +96,6 @@ describe("ActivityPanel", () => {
     expect(screen.getByText("comments body")).toBeTruthy();
     // The composer belongs to the conversation, not to a list of threads.
     expect(screen.queryByText("composer")).toBeNull();
-  });
-
-  it("hides the comments tab while comments are disabled", () => {
-    commentsFlag.enabled = false;
-    renderPanel();
-
-    expect(screen.queryByRole("tab", { name: "Comments" })).toBeNull();
   });
 
   // A thread picked on the artifact itself lands in this tab, so the pick has

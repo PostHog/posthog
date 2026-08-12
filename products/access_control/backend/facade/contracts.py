@@ -31,6 +31,7 @@ class PropertyAccessControlRule:
     """A single access control rule for a property definition."""
 
     id: UUID
+    property_definition_id: UUID
     access_level: PropertyAccessLevel
     organization_member_id: UUID | None
     role_id: UUID | None

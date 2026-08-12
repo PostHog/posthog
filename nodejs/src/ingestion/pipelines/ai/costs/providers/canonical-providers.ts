@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-11 10:18:23 UTC
+// Generated at: 2026-08-11 20:13:08 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -17,9 +17,9 @@ export type CanonicalProvider =
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-east-2'
+    | 'ambient'
     | 'ambient-fp4'
     | 'ambient-fp8'
-    | 'ambient-int4'
     | 'anthropic'
     | 'anthropic-2'
     | 'anthropic-claude-on-aws'
@@ -114,6 +114,7 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
+    | 'nex-agi'
     | 'nex-agi-fp8'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
@@ -126,6 +127,7 @@ export type CanonicalProvider =
     | 'novita-int4'
     | 'nvidia'
     | 'nvidia-bf16'
+    | 'nvidia-nvfp4'
     | 'open-inference-bf16'
     | 'openai'
     | 'openai-default'
@@ -164,9 +166,7 @@ export type CanonicalProvider =
     | 'streamlake-fp8'
     | 'tencent-fp8'
     | 'together'
-    | 'together-fp8'
-    | 'upstage-bf16'
-    | 'upstage-fp4'
+    | 'upstage'
     | 'venice'
     | 'venice-bf16'
     | 'venice-fp16'
