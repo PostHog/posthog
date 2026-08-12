@@ -413,7 +413,8 @@ export class IngestionApiServer implements NodeServer {
                 this.personsStore,
                 this.personhogStore,
                 personsStoreMode,
-                teams.size > 0 ? teams : null
+                teams.size > 0 ? teams : null,
+                personRepository
             )
         }
 

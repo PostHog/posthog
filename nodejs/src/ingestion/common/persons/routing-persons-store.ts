@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { personhogStoreShadowErrorsCounter, personhogStoreShadowSkipsCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
@@ -56,26 +57,25 @@ export function assertPersonsStoreModeConfig(
  *
  * Two verb families do not route:
  *
- * - Merge execution — including deleting its losing persons — runs on
- *   Postgres in every mode (the merge saga will own it on personhog), as
- *   does any verb invoked under a Postgres transaction (see `route`).
+ * - Merge execution has no personhog support until the merge saga
+ *   lands: pg and shadow teams run it on Postgres as before, and a
+ *   personhog-routed team fails loudly at the first merge mutation —
+ *   its reads and writes live in the personhog world, whose row ids
+ *   mean nothing to Postgres, so quietly running the merge there would
+ *   mutate whatever rows happen to share the numbers. Any non-merge
+ *   verb invoked under a Postgres transaction still goes to Postgres
+ *   (see `route`).
  * - `personPropertiesSize` routes by mode but is not shadowed: the
  *   personhog store answers it with a constant because the leader
  *   enforces the size ceiling at admission.
  */
 export class RoutingPersonsStore implements PersonsStore {
-    /**
-     * Batches with personhog lanes that may hold unflushed folds. The
-     * personhog store flushes per batch, so the store-level flush needs
-     * the live set.
-     */
-    private activeBatches = new Set<number>()
-
     constructor(
         private pg: PersonsStore,
         private personhog: PersonhogPersonsStore,
         private mode: 'personhog' | 'shadow',
-        private teams: ReadonlySet<number> | null
+        private teams: ReadonlySet<number> | null,
+        private personRepository: Pick<PersonRepository, 'inTransaction'>
     ) {}
 
     private modeFor(teamId: number): PersonsStoreMode {
@@ -145,12 +145,21 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     forBatch(batchId: number): PersonsStoreForBatch {
-        this.activeBatches.add(batchId)
         return new BatchBoundPersonsStore(this, batchId)
     }
 
+    /**
+     * The transaction wrapper is built around this store, not the
+     * Postgres one, so every verb inside a merge transaction re-enters
+     * routing with the transaction attached. Delegating to the Postgres
+     * store here would hand the callback a wrapper around that store,
+     * and nothing inside the transaction would route again — which is
+     * how personhog-world person ids could reach Postgres row keys.
+     */
     inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
-        return this.pg.inTransaction(description, transaction)
+        return this.personRepository.inTransaction(description, (tx: PersonRepositoryTransaction) =>
+            transaction(new PersonsStoreTransaction(this, tx))
+        )
     }
 
     fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
@@ -224,6 +233,7 @@ export class RoutingPersonsStore implements PersonsStore {
                     uuid,
                     primaryDistinctId,
                     extraDistinctIds,
+                    tx,
                     batchId
                 ),
             { tx }
@@ -281,7 +291,9 @@ export class RoutingPersonsStore implements PersonsStore {
                     propertiesToUnset,
                     otherUpdates,
                     distinctId,
-                    forceUpdate
+                    batchId,
+                    forceUpdate,
+                    tx
                 ),
             {
                 tx,
@@ -298,6 +310,7 @@ export class RoutingPersonsStore implements PersonsStore {
                                 propertiesToUnset,
                                 otherUpdates,
                                 distinctId,
+                                batchId,
                                 forceUpdate
                             )
                     ),
@@ -305,16 +318,26 @@ export class RoutingPersonsStore implements PersonsStore {
         )
     }
 
-    // Merge execution runs on Postgres in every mode, deletes included:
-    // they exist only to destroy a merge's losing persons, which the
-    // merge saga will own on personhog.
+    /**
+     * Merge execution routes to the team's world and nowhere else: pg
+     * and shadow teams run it on Postgres, and a personhog-routed team
+     * reaches the personhog store, whose members are the merge saga's
+     * loud placeholders until it lands. Shadowing is deliberately absent
+     * — a merge mirrored into the other world would key on foreign row
+     * ids. Transaction context is no exemption: the transaction wrapper
+     * re-enters this store, and a routed team's merge must fail before
+     * any Postgres mutation, not run inside one.
+     */
+    private mergeWorld(teamId: number): PersonsStore {
+        return this.modeFor(teamId) === 'personhog' ? this.personhog : this.pg
+    }
 
     deletePerson(
         person: InternalPerson,
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
-        return this.pg.deletePerson(person, distinctId, tx)
+        return this.mergeWorld(person.team_id).deletePerson(person, distinctId, tx)
     }
 
     claimLifecycleMarks(
@@ -324,7 +347,7 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.pg.claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
+        return this.mergeWorld(teamId).claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
     }
 
     releaseLifecycleMarks(
@@ -333,11 +356,11 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.pg.releaseLifecycleMarks(opId, teamId, distinctId, tx)
+        return this.mergeWorld(teamId).releaseLifecycleMarks(opId, teamId, distinctId, tx)
     }
 
     isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
-        return this.pg.isPersonLive(person, distinctId, tx)
+        return this.mergeWorld(person.team_id).isPersonLive(person, distinctId, tx)
     }
 
     updatePersonForMerge(
@@ -347,7 +370,7 @@ export class RoutingPersonsStore implements PersonsStore {
         batchId: number,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return this.pg.updatePersonForMerge(person, update, distinctId, batchId, tx)
+        return this.mergeWorld(person.team_id).updatePersonForMerge(person, update, distinctId, batchId, tx)
     }
 
     addDistinctId(
@@ -357,7 +380,7 @@ export class RoutingPersonsStore implements PersonsStore {
         tx: PersonRepositoryTransaction | undefined,
         batchId: number
     ): Promise<PersonMessage[]> {
-        return this.pg.addDistinctId(person, distinctId, version, tx, batchId)
+        return this.mergeWorld(person.team_id).addDistinctId(person, distinctId, version, tx, batchId)
     }
 
     moveDistinctIds(
@@ -368,7 +391,7 @@ export class RoutingPersonsStore implements PersonsStore {
         tx: PersonRepositoryTransaction,
         batchId: number
     ): Promise<MoveDistinctIdsResult> {
-        return this.pg.moveDistinctIds(source, target, distinctId, limit, tx, batchId)
+        return this.mergeWorld(source.team_id).moveDistinctIds(source, target, distinctId, limit, tx, batchId)
     }
 
     moveDistinctIdsFromPersons(
@@ -378,7 +401,7 @@ export class RoutingPersonsStore implements PersonsStore {
         tx: PersonRepositoryTransaction,
         batchId: number
     ): Promise<MoveDistinctIdsResult> {
-        return this.pg.moveDistinctIdsFromPersons(sources, target, distinctId, tx, batchId)
+        return this.mergeWorld(target.team_id).moveDistinctIdsFromPersons(sources, target, distinctId, tx, batchId)
     }
 
     deletePersons(
@@ -386,7 +409,10 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
-        return this.pg.deletePersons(persons, distinctId, tx)
+        if (persons.length === 0) {
+            return this.pg.deletePersons(persons, distinctId, tx)
+        }
+        return this.mergeWorld(persons[0].team_id).deletePersons(persons, distinctId, tx)
     }
 
     countDistinctIdsForPersons(
@@ -395,7 +421,7 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx: PersonRepositoryTransaction
     ): Promise<Map<string, number>> {
-        return this.pg.countDistinctIdsForPersons(teamId, personIds, distinctId, tx)
+        return this.mergeWorld(teamId).countDistinctIdsForPersons(teamId, personIds, distinctId, tx)
     }
 
     updateCohortsAndFeatureFlagsForMerge(
@@ -405,7 +431,13 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.pg.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, distinctId, tx)
+        return this.mergeWorld(teamID).updateCohortsAndFeatureFlagsForMerge(
+            teamID,
+            sourcePersonID,
+            targetPersonID,
+            distinctId,
+            tx
+        )
     }
 
     updateCohortsAndFeatureFlagsForMergeBatch(
@@ -415,7 +447,7 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.pg.updateCohortsAndFeatureFlagsForMergeBatch(
+        return this.mergeWorld(teamID).updateCohortsAndFeatureFlagsForMergeBatch(
             teamID,
             sourcePersonIDs,
             targetPersonID,
@@ -430,15 +462,12 @@ export class RoutingPersonsStore implements PersonsStore {
         limit: number | undefined,
         tx: PersonRepositoryTransaction
     ): Promise<string[]> {
-        return this.pg.fetchPersonDistinctIds(person, distinctId, limit, tx)
+        return this.mergeWorld(person.team_id).fetchPersonDistinctIds(person, distinctId, limit, tx)
     }
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {
-        // The personhog world has no size query: the leader enforces the
-        // ceiling at admission, so a personhog-mode team reports zero,
-        // mirroring the personhog store's own batch-bound answer.
         return this.modeFor(teamId) === 'personhog'
-            ? Promise.resolve(0)
+            ? this.personhog.personPropertiesSize(personId, teamId)
             : this.pg.personPropertiesSize(personId, teamId)
     }
 
@@ -476,19 +505,12 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     async flush(): Promise<FlushResult[]> {
-        // Flushes every active batch's personhog lanes; assumes the
-        // consumer processes one batch at a time, as it does today —
-        // concurrent batches would ship each other's half-folded lanes
-        // early (correct, just less folded).
         const results = await this.pg.flush()
-        for (const batchId of this.activeBatches) {
-            await this.shadowedOrDirect('flush', () => this.personhog.flush(batchId))
-        }
+        await this.shadowedOrDirect('flush', () => this.personhog.flush())
         return results
     }
 
     releaseBatch(batchId: number): void {
-        this.activeBatches.delete(batchId)
         this.pg.releaseBatch(batchId)
         this.personhog.releaseBatch(batchId)
     }

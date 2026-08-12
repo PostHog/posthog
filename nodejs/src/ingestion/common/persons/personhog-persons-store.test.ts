@@ -361,13 +361,9 @@ describe('PersonhogPersonsStore', () => {
         expect(results).toEqual([])
     })
 
-    it('runs transactions as a passthrough over the store itself', async () => {
+    it('has no transactions of its own; the routing store owns them', () => {
         const bound = store.forBatch(0)
-        const result = await bound.inTransaction('test', (tx) => {
-            expect(tx).toBe(bound)
-            return Promise.resolve('done')
-        })
-        expect(result).toBe('done')
+        expect(() => bound.inTransaction('test', () => Promise.resolve('done'))).toThrow('no personhog RPC')
     })
 
     it.each([
