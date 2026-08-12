@@ -11,6 +11,8 @@ import { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 
 export { TASK_ACTIVITY_QUERY_KEY } from "../task-activity/taskActivityQuery";
 
+const TASK_ACTIVITY_REFETCH_INTERVAL_MS = 60_000;
+
 /**
  * Task lifecycle and comment activity for the current user, newest first. Task
  * lifecycle rows collapse per task while comment notifications remain separate.
@@ -40,7 +42,9 @@ export function useTaskActivity(options?: { enabled?: boolean }): {
         ? { before: page.next_before, beforeId: page.next_before_id }
         : undefined,
     enabled: !!client && (options?.enabled ?? true),
-    staleTime: Number.POSITIVE_INFINITY,
+    staleTime: TASK_ACTIVITY_REFETCH_INTERVAL_MS,
+    refetchInterval: TASK_ACTIVITY_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: "always",
     meta: AUTH_SCOPED_QUERY_META,
   });
   const items = useMemo(
