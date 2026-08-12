@@ -60,6 +60,45 @@ class TestIdentityProviderConfig(BaseTest):
         assert config.saml_relay_state == str(domain.pk)
         assert config.scim_slug == str(domain.pk)
 
+    def test_linking_config_preserves_identifiers_on_stale_partial_save(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        stale_config = IdentityProviderConfig.objects.get(pk=config.pk)
+        domain = self._create_domain(identity_provider_config=config)
+
+        stale_config.saml_entity_id = "entity-id"
+        stale_config.save(update_fields=["saml_entity_id"])
+        stale_config.refresh_from_db()
+
+        assert stale_config.saml_relay_state == str(domain.pk)
+        assert stale_config.scim_slug == str(domain.pk)
+
+    def test_linking_config_preserves_identifiers_on_stale_full_save(self):
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        stale_config = IdentityProviderConfig.objects.get(pk=config.pk)
+        domain = self._create_domain(identity_provider_config=config)
+
+        stale_config.scim_enabled = True
+        stale_config.save()
+        stale_config.refresh_from_db()
+
+        assert stale_config.saml_relay_state == str(domain.pk)
+        assert stale_config.scim_slug == str(domain.pk)
+
+    def test_explicitly_clearing_identifiers_persists_null(self):
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            saml_relay_state="relay-state",
+            scim_slug="scim-slug",
+        )
+
+        config.saml_relay_state = None
+        config.scim_slug = None
+        config.save()
+        config.refresh_from_db()
+
+        assert config.saml_relay_state is None
+        assert config.scim_slug is None
+
     def test_saving_legacy_idp_columns_does_not_create_or_link_config(self):
         # The domain<->config dual-write mirror has been removed: writing the legacy underscore
         # columns must no longer auto-create or link an IdentityProviderConfig.

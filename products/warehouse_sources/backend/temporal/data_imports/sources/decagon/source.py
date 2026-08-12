@@ -22,11 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.de
     decagon_source,
     validate_credentials as validate_decagon_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.settings import (
-    DECAGON_ENDPOINTS,
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.decagon.settings import DECAGON_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.decagon import (
     DecagonSourceConfig,
 )
@@ -85,8 +81,8 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
                 "Decagon dashboard and reconnect."
             ),
             "403 Client Error: Forbidden": (
-                "The Decagon API key does not have access to the conversation export. Check the key "
-                "on the Developer page of the Decagon dashboard and reconnect."
+                "The Decagon API key does not have access to the endpoint behind this table. Check "
+                "the key on the Developer page of the Decagon dashboard and reconnect."
             ),
         }
 
@@ -102,12 +98,15 @@ You can find your API key on the **Developer** page of the [Decagon dashboard](h
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                supports_append=DECAGON_ENDPOINTS[endpoint].supports_append
-                and len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                # Incremental writes merge on the primary key, so a keyless stream can
+                # only offer append (gated per endpoint) or full refresh.
+                supports_incremental=endpoint_config.primary_keys is not None
+                and len(endpoint_config.incremental_fields) > 0,
+                supports_append=endpoint_config.supports_append and len(endpoint_config.incremental_fields) > 0,
+                incremental_fields=endpoint_config.incremental_fields,
+                should_sync_default=endpoint_config.should_sync_default,
             )
-            for endpoint in ENDPOINTS
+            for endpoint, endpoint_config in DECAGON_ENDPOINTS.items()
         ]
 
         if names is not None:

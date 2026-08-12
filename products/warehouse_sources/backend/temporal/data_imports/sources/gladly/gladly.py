@@ -5,9 +5,9 @@ import json
 import time
 import hashlib
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Buffer, Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import IO, Any, Optional, cast
+from typing import Any, Optional
 from urllib.parse import quote, urlencode
 
 import requests
@@ -28,6 +28,8 @@ REQUEST_TIMEOUT_SECONDS = 300
 MAX_RETRY_ATTEMPTS = 5
 # Yield JSONL rows in chunks so big files don't build one giant list.
 CHUNK_SIZE = 5000
+# Pull the report CSV off the wire in 64 KiB reads.
+REPORT_CHUNK_BYTES = 1 << 16
 # Gladly caps report CSVs (100k rows for most reports) and truncates silently,
 # so a window this full is likely missing rows.
 REPORT_ROW_WARNING_THRESHOLD = 90_000
@@ -35,9 +37,46 @@ REPORT_ROW_WARNING_THRESHOLD = 90_000
 # windows are paced instead of riding the 429 backoff.
 REPORT_REQUEST_INTERVAL_SECONDS = 6.0
 
+# Gladly serves production on gladly.com and the testing sandbox on gladly.qa. The
+# config field is typed as a Literal, but nothing validates Literal membership at
+# runtime, so the domain is checked against this tuple before it reaches a URL. An
+# unchecked value would send the Basic-auth credentials to an arbitrary host.
+ALLOWED_DOMAINS = ("gladly.com", "gladly.qa")
+DEFAULT_DOMAIN = "gladly.com"
+
 
 class GladlyRetryableError(Exception):
     pass
+
+
+class _ResponseByteStream(io.RawIOBase):
+    """Read a streaming response body through ``iter_content`` as a binary file.
+
+    Wrapping ``response.raw`` directly crashes on an empty report body: urllib3
+    closes the connection the moment it reads EOF, and a ``TextIOWrapper`` over
+    the now-closed raw stream raises ``ValueError: I/O operation on closed file``.
+    ``iter_content`` yields nothing for an empty body and turns a dropped
+    connection into a retryable ``requests`` error mid-stream.
+    """
+
+    def __init__(self, response: requests.Response, chunk_size: int) -> None:
+        self._chunks = response.iter_content(chunk_size=chunk_size)
+        self._buffer = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, target: Buffer) -> int:
+        while not self._buffer:
+            try:
+                self._buffer = next(self._chunks)
+            except StopIteration:
+                return 0
+        view = memoryview(target).cast("B")
+        take = min(len(view), len(self._buffer))
+        view[:take] = self._buffer[:take]
+        self._buffer = self._buffer[take:]
+        return take
 
 
 @dataclasses.dataclass
@@ -72,12 +111,19 @@ def _clean_organization(organization: str) -> str:
     return org
 
 
-def _host(organization: str) -> str:
-    return f"{_clean_organization(organization)}.gladly.com"
+def _clean_domain(domain: str) -> str:
+    value = domain.strip().lower()
+    if value not in ALLOWED_DOMAINS:
+        raise ValueError(f"Invalid Gladly domain. Choose one of: {', '.join(ALLOWED_DOMAINS)}.")
+    return value
 
 
-def _base_url(organization: str) -> str:
-    return f"https://{_host(organization)}/api/v1"
+def _host(organization: str, domain: str = DEFAULT_DOMAIN) -> str:
+    return f"{_clean_organization(organization)}.{_clean_domain(domain)}"
+
+
+def _base_url(organization: str, domain: str = DEFAULT_DOMAIN) -> str:
+    return f"https://{_host(organization, domain)}/api/v1"
 
 
 def _format_timestamp(value: Any) -> str:
@@ -145,7 +191,9 @@ def _report_start_date(
     return min(start, today)
 
 
-def validate_credentials(organization: str, agent_email: str, api_token: str) -> tuple[bool, str | None]:
+def validate_credentials(
+    organization: str, agent_email: str, api_token: str, domain: str = DEFAULT_DOMAIN
+) -> tuple[bool, str | None]:
     """Confirm the credentials are valid with a cheap agents probe.
 
     A wrong subdomain, an agent missing the API User permission, and a bad token each
@@ -154,8 +202,8 @@ def validate_credentials(organization: str, agent_email: str, api_token: str) ->
     unreachable host or a Gladly outage behind a credentials error.
     """
     try:
-        base_url = _base_url(organization)
-        host = _host(organization)
+        base_url = _base_url(organization, domain)
+        host = _host(organization, domain)
     except ValueError as e:
         return False, str(e)
 
@@ -192,10 +240,11 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    domain: str = DEFAULT_DOMAIN,
 ) -> Iterator[list[dict[str, Any]]]:
     config = GLADLY_ENDPOINTS[endpoint]
     session = _get_session(agent_email, api_token)
-    base_url = _base_url(organization)
+    base_url = _base_url(organization, domain)
 
     if config.report_metric_set is not None:
         yield from _report_rows(
@@ -354,10 +403,11 @@ def _report_rows(
             }
         )
 
-        response.raw.decode_content = True
-        # Wrap the raw stream rather than iterating lines: CSV values can contain
+        # Wrap the byte stream rather than iterating lines: CSV values can contain
         # newlines inside quoted fields, which line-splitting would tear apart.
-        text_stream = io.TextIOWrapper(cast(IO[bytes], response.raw), encoding="utf-8-sig", newline="")
+        text_stream = io.TextIOWrapper(
+            io.BufferedReader(_ResponseByteStream(response, REPORT_CHUNK_BYTES)), encoding="utf-8-sig", newline=""
+        )
         reader = csv.DictReader(text_stream)
         columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
 
@@ -402,6 +452,7 @@ def gladly_source(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    domain: str = DEFAULT_DOMAIN,
 ) -> SourceResponse:
     config = GLADLY_ENDPOINTS[endpoint]
 
@@ -416,6 +467,7 @@ def gladly_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            domain=domain,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,

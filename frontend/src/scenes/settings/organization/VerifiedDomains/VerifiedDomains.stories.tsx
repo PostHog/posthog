@@ -117,7 +117,11 @@ const meta: Meta<typeof App> = {
         }),
     ],
     render: () => {
+        // Navigate synchronously before <App /> mounts so it renders the settings scene directly,
+        // never the project homepage. A useEffect push fires after the first paint, so the snapshot
+        // can race and capture the homepage frame instead.
         router.actions.push(urls.settings('organization-authentication'))
+
         return <App />
     },
 }

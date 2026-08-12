@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass, field
 
 from temporalio import activity
@@ -25,6 +26,22 @@ from products.tasks.backend.temporal.process_task.utils import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
+
+
+def _with_current_authorship(ctx: TaskProcessingContext) -> TaskProcessingContext:
+    """Re-read the run's PR authorship, which `ctx.state` can no longer be trusted for.
+
+    The context is captured once at workflow start, but a run is promoted from bot to user
+    authorship mid-run when its creator connects GitHub. Reading the stale value here resolves
+    the run as bot-authored and re-applies the team installation token over the personal one —
+    handing the creator every repo that installation covers. Only this key is overlaid: the rest
+    of the snapshot (sandbox id, actor) is what the sandbox being refreshed was built against.
+    """
+    persisted = TaskRun.objects.filter(id=ctx.run_id).values_list("state", flat=True).first()
+    mode = (persisted or {}).get("pr_authorship_mode")
+    if not mode or mode == (ctx.state or {}).get("pr_authorship_mode"):
+        return ctx
+    return dataclasses.replace(ctx, state={**(ctx.state or {}), "pr_authorship_mode": mode})
 
 
 def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refreshed_kinds: list[str]) -> None:
@@ -102,6 +119,7 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
                     id=ctx.task_id
                 )
             )
+            ctx = _with_current_authorship(ctx)
         except Task.DoesNotExist:
             logger.info(
                 "sandbox_credentials_refresh_stopped_task_gone",

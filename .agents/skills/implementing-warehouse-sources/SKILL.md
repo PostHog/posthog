@@ -265,7 +265,7 @@ the name already obviously matches; don't add noise.
 ## Self-driving Inbox candidacy (issues / tickets / conversations)
 
 Some sources are also candidates for the **Self-driving Inbox** — the feature that watches a synced
-table of _actionable records_ and emits findings into the PostHog Code Inbox. Shipped today: GitHub,
+table of _actionable records_ and emits findings into the PostHog Desktop Inbox. Shipped today: GitHub,
 Linear, Zendesk, pganalyze, and Jira.
 
 The signal is the **table you sync**, not the vendor: a source is an inbox candidate when one of its

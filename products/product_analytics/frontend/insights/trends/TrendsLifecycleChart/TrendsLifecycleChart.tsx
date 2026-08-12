@@ -110,7 +110,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
                 buildMeta: buildTrendsSeriesMeta,
-                labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+                // Bands are keyed by these strings, so they must be unique per point. Display
+                // labels are not (week and hour labels omit the year, so multi-year ranges
+                // repeat them); use the ISO days, which ticks and tooltips format from.
+                labels: currentPeriodResult?.days?.length
+                    ? currentPeriodResult.days
+                    : (currentPeriodResult?.labels ?? EMPTY_LABELS),
                 isStacked,
                 trendsFilter,
                 baseCurrency,
