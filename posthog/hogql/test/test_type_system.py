@@ -187,6 +187,22 @@ class TestHogQLTypeSystem:
             assert exc_info.value.start is not None, query
             assert exc_info.value.end is not None, query
 
+    def test_resolver_allows_boolean_branches_beside_property_accesses(self) -> None:
+        # A property access reads as the parent JSON column's type whenever no property-definition
+        # metadata is loaded, so treating that as a real conflict rejects queries ClickHouse runs.
+        for query in (
+            "SELECT coalesce(properties.blocked, false) FROM events",
+            "SELECT ifNull(properties.blocked, false) FROM events",
+            "SELECT if(1, false, properties.blocked) FROM events",
+            "SELECT multiIf(1, false, 2, true, properties.blocked) FROM events",
+            "SELECT coalesce(properties.blocked, properties.plan = 'paid') FROM events",
+            "SELECT coalesce(person.properties.blocked, false) FROM events",
+        ):
+            node = cast(ast.SelectQuery, resolve_types(self._select(query), self.context, dialect="clickhouse"))
+            column_type = node.select[0].type
+            assert column_type is not None
+            assert column_type.resolve_constant_type(self.context) == ast.UnknownType(), query
+
     def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...
         for query in ("SELECT ifNull(throwIf(0, 'x'), 1)", "SELECT if(1, throwIf(0, 'x'), 1)"):
