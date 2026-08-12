@@ -372,7 +372,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'llms-txt-sync',
-        definition: { name: 'llms-txt-sync', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'llms-txt-sync' },
+        definition: {
+            name: 'llms-txt-sync',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'llms-txt-sync',
+        },
     },
     {
         pattern: 'PromptingBot',
@@ -380,7 +385,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'llm-code-docs-scraper',
-        definition: { name: 'LLM code docs scraper', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'llm-code-docs-scraper' },
+        definition: {
+            name: 'LLM code docs scraper',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'llm-code-docs-scraper',
+        },
     },
     {
         pattern: 'whichapi-bot',
@@ -388,11 +398,21 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'Codex-YCB2B',
-        definition: { name: 'Codex public research', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'OpenAI' },
+        definition: {
+            name: 'Codex public research',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'OpenAI',
+        },
     },
     {
         pattern: 'PostHog-BusinessKnowledge',
-        definition: { name: 'PostHog BusinessKnowledge', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'PostHog' },
+        definition: {
+            name: 'PostHog BusinessKnowledge',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'PostHog',
+        },
     },
     {
         pattern: 'LlmsTxtBot',
@@ -404,7 +424,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'RightAIChoiceBot',
-        definition: { name: 'Right AI Choice', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'Right AI Choice' },
+        definition: {
+            name: 'Right AI Choice',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'Right AI Choice',
+        },
     },
     // Search / index crawlers
     {
@@ -417,7 +442,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'PersimmonDesignResearch',
-        definition: { name: 'Persimmon Design Research', category: 'search_crawler', trafficType: 'Bot', operator: 'Persimmon Software' },
+        definition: {
+            name: 'Persimmon Design Research',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Persimmon Software',
+        },
     },
     {
         pattern: 'barkReleasesBot',
@@ -429,11 +459,21 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'YandexRenderResourcesBot',
-        definition: { name: 'Yandex Render Resources', category: 'search_crawler', trafficType: 'Bot', operator: 'Yandex' },
+        definition: {
+            name: 'Yandex Render Resources',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Yandex',
+        },
     },
     {
         pattern: 'YandexAccessibilityBot',
-        definition: { name: 'Yandex Accessibility', category: 'search_crawler', trafficType: 'Bot', operator: 'Yandex' },
+        definition: {
+            name: 'Yandex Accessibility',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Yandex',
+        },
     },
     {
         pattern: 'rewebbot',
@@ -445,7 +485,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'ImpactVibeDesignResearch',
-        definition: { name: 'ImpactVibe Design Research', category: 'search_crawler', trafficType: 'Bot', operator: 'ImpactVibe' },
+        definition: {
+            name: 'ImpactVibe Design Research',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'ImpactVibe',
+        },
     },
     {
         pattern: 'crawl-engine',
@@ -453,11 +498,21 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'CompanyFeedServer',
-        definition: { name: 'CompanyFeedServer', category: 'search_crawler', trafficType: 'Bot', operator: 'company-feed-server' },
+        definition: {
+            name: 'CompanyFeedServer',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'company-feed-server',
+        },
     },
     {
         pattern: 'BranchenbuchBot',
-        definition: { name: 'BranchenbuchBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Branchenbuch' },
+        definition: {
+            name: 'BranchenbuchBot',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Branchenbuch',
+        },
     },
     {
         pattern: 'ReachBot',
@@ -489,7 +544,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'ForgeYourPathAiJobCrawler',
-        definition: { name: 'ForgeYourPath Job Crawler', category: 'search_crawler', trafficType: 'Bot', operator: 'ForgeYourPath' },
+        definition: {
+            name: 'ForgeYourPath Job Crawler',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'ForgeYourPath',
+        },
     },
     {
         pattern: 'OkaraBot',
@@ -517,7 +577,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'bne.es_bot',
-        definition: { name: 'Biblioteca Nacional de España', category: 'search_crawler', trafficType: 'Bot', operator: 'Biblioteca Nacional de España' },
+        definition: {
+            name: 'Biblioteca Nacional de España',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Biblioteca Nacional de España',
+        },
     },
     {
         pattern: 'Zetlyn',
@@ -525,7 +590,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'algorand-platform-newspaper',
-        definition: { name: 'Algorand platform newspaper', category: 'search_crawler', trafficType: 'Bot', operator: 'algorand.pxke.me' },
+        definition: {
+            name: 'Algorand platform newspaper',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'algorand.pxke.me',
+        },
     },
     {
         pattern: 'VendiditBot',
@@ -533,7 +603,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'Zee Company Intelligence',
-        definition: { name: 'Zee Company Intelligence', category: 'search_crawler', trafficType: 'Bot', operator: 'Lazyweb' },
+        definition: {
+            name: 'Zee Company Intelligence',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Lazyweb',
+        },
     },
     {
         pattern: 'NicheStuffBot',
@@ -565,11 +640,21 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'EfficientRustCrawler',
-        definition: { name: 'Efficient Rust Crawler', category: 'search_crawler', trafficType: 'Bot', operator: 'Xape' },
+        definition: {
+            name: 'Efficient Rust Crawler',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Xape',
+        },
     },
     {
         pattern: 'DatalenkCreatorResearch',
-        definition: { name: 'Datalenk Creator Research', category: 'search_crawler', trafficType: 'Bot', operator: 'Datalenk' },
+        definition: {
+            name: 'Datalenk Creator Research',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Datalenk',
+        },
     },
     {
         pattern: 'Wrzutka-Bot',
@@ -589,24 +674,49 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'PolycoreSupabaseDetector',
-        definition: { name: 'Polycore Supabase Detector', category: 'search_crawler', trafficType: 'Bot', operator: 'Polycore' },
+        definition: {
+            name: 'Polycore Supabase Detector',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Polycore',
+        },
     },
     {
         pattern: 'UnboundCompute-PublicSnapshot',
-        definition: { name: 'UnboundCompute Public Snapshot', category: 'search_crawler', trafficType: 'Bot', operator: 'UnboundCompute' },
+        definition: {
+            name: 'UnboundCompute Public Snapshot',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'UnboundCompute',
+        },
     },
     {
         pattern: 'swissAItalentBot',
-        definition: { name: 'swissAItalentBot', category: 'search_crawler', trafficType: 'Bot', operator: 'swissaitalent.ch' },
+        definition: {
+            name: 'swissAItalentBot',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'swissaitalent.ch',
+        },
     },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
-        definition: { name: 'LaunchReadyCodeBot', category: 'seo_crawler', trafficType: 'Bot', operator: 'LaunchReadyCode' },
+        definition: {
+            name: 'LaunchReadyCodeBot',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'LaunchReadyCode',
+        },
     },
     {
         pattern: 'PricingArchiveBot',
-        definition: { name: 'PricingArchiveBot', category: 'seo_crawler', trafficType: 'Bot', operator: 'pricing-archive' },
+        definition: {
+            name: 'PricingArchiveBot',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'pricing-archive',
+        },
     },
     {
         pattern: 'SEOMasterBot',
@@ -614,7 +724,12 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'CanICancelIt-LinkCheck',
-        definition: { name: 'CanICancelIt LinkCheck', category: 'seo_crawler', trafficType: 'Bot', operator: 'CanICancelIt' },
+        definition: {
+            name: 'CanICancelIt LinkCheck',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'CanICancelIt',
+        },
     },
     {
         pattern: 'serpstatbot',
@@ -630,15 +745,30 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     },
     {
         pattern: 'NoFluffGraderBot',
-        definition: { name: 'NoFluff Grader', category: 'seo_crawler', trafficType: 'Bot', operator: 'NoFluff Marketing' },
+        definition: {
+            name: 'NoFluff Grader',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'NoFluff Marketing',
+        },
     },
     {
         pattern: 'PagePilot-SiteAudit',
-        definition: { name: 'PagePilot Site Audit', category: 'seo_crawler', trafficType: 'Bot', operator: 'PagePilot' },
+        definition: {
+            name: 'PagePilot Site Audit',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'PagePilot',
+        },
     },
     {
         pattern: 'double-ats-customer-discoverer',
-        definition: { name: 'Double ATS Customer Discoverer', category: 'seo_crawler', trafficType: 'Bot', operator: 'Double' },
+        definition: {
+            name: 'Double ATS Customer Discoverer',
+            category: 'seo_crawler',
+            trafficType: 'Bot',
+            operator: 'Double',
+        },
     },
     {
         pattern: 'BenchRankBot',
