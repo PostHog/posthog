@@ -7385,7 +7385,7 @@
         "required_scopes": ["notebook:write"],
         "feature_flag": "revamped-py-notebooks",
         "annotations": {
-            "destructiveHint": true,
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
