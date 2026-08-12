@@ -25,6 +25,16 @@ from products.logs.backend.temporal.volume_tick.metrics import (
 
 logger = structlog.get_logger(__name__)
 
+# The Temporal activity timeout cannot kill a ClickHouse query already running in
+# the thread pool, so without server-side bounds each retry stacks another live
+# scan. Timeout stays under half of ACTIVITY_TIMEOUT to leave retry room; the
+# bytes cap is ~25x the expected read of the two narrow columns over the window,
+# so it only trips on runaway volume, never on organic growth.
+_DISCOVERY_QUERY_SETTINGS = {
+    "max_execution_time": 25,
+    "max_bytes_to_read": 5_000_000_000,
+}
+
 
 # Temporal payload dataclasses stay on the stdlib form (the sibling alerting
 # convention); @frozen's kw_only/slots buy nothing across the serialization boundary.
@@ -82,6 +92,7 @@ def count_teams_with_logs(begin: datetime, end: datetime, shard: int) -> TeamsWi
             """,
             {"begin": begin, "end": end, "shards": BUCKET_MINUTES, "shard": shard},
             workload=Workload.LOGS,
+            settings=_DISCOVERY_QUERY_SETTINGS,
         )
     return TeamsWithLogs(total=int(rows[0][0]), due_in_shard=int(rows[0][1]))
 
