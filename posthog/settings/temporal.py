@@ -212,7 +212,7 @@ LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Defaults to the logs-alerting queue name so the volume tick merges into that fleet;
 # setting the env var moves it to a dedicated queue with no code change.
 LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
-    os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", "logs-alerting-task-queue")
+    os.getenv("LOGS_VOLUME_TICK_TASK_QUEUE", LOGS_ALERTING_TASK_QUEUE)
 )
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 

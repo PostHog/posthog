@@ -11,8 +11,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
-from products.apm.backend.facade.api import BUCKET_MINUTES
 from products.logs.backend.temporal.volume_tick.constants import (
+    BUCKET_MINUTES,
     BUCKET_SECONDS,
     FINALIZATION_ALLOWANCE,
     TEAMS_WITH_LOGS_WINDOW,
@@ -26,6 +26,8 @@ from products.logs.backend.temporal.volume_tick.metrics import (
 logger = structlog.get_logger(__name__)
 
 
+# Temporal payload dataclasses stay on the stdlib form (the sibling alerting
+# convention); @frozen's kw_only/slots buy nothing across the serialization boundary.
 @dataclasses.dataclass(frozen=True)
 class VolumeTickInput:
     pass
@@ -84,11 +86,14 @@ def count_teams_with_logs(begin: datetime, end: datetime, shard: int) -> TeamsWi
     return TeamsWithLogs(total=int(rows[0][0]), due_in_shard=int(rows[0][1]))
 
 
+_count_teams_with_logs_async = database_sync_to_async_pool(count_teams_with_logs)
+
+
 @temporalio.activity.defn
 async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOutput:
-    # Scheduling skeleton for the log volume rollup: proves the every-minute
-    # schedule and the worker's path to the logs ClickHouse cluster end to end.
-    # No aggregation runs yet; the rollup writer replaces this body.
+    # Skeleton for the log volume rollup tick: proves the schedule and the
+    # worker's path to the logs ClickHouse cluster, and observes (never writes)
+    # what the real tick would do. The rollup writer replaces this body.
     ticked_at = datetime.now(UTC)
     due = due_bucket_bounds(ticked_at)
     # One team cohort per minute of the bucket: the every-minute schedule smears
@@ -97,9 +102,7 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     minute_shard = ticked_at.minute % BUCKET_MINUTES
     started = time.monotonic()
     try:
-        counts = await database_sync_to_async_pool(count_teams_with_logs)(
-            ticked_at - TEAMS_WITH_LOGS_WINDOW, ticked_at, minute_shard
-        )
+        counts = await _count_teams_with_logs_async(ticked_at - TEAMS_WITH_LOGS_WINDOW, ticked_at, minute_shard)
     except Exception:
         increment_tick_runs("error")
         raise
@@ -108,17 +111,7 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     record_clickhouse_duration(duration_ms)
     record_teams_with_logs(counts.total)
     increment_tick_runs("ok")
-    logger.info(
-        "logs_volume_tick_heartbeat",
-        ticked_at=ticked_at.isoformat(),
-        teams_with_logs=counts.total,
-        minute_shard=minute_shard,
-        teams_due_in_shard=counts.due_in_shard,
-        clickhouse_duration_ms=duration_ms,
-        due_bucket_start=due.start.isoformat(),
-        due_bucket_end=due.end.isoformat(),
-    )
-    return VolumeTickOutput(
+    output = VolumeTickOutput(
         ticked_at=ticked_at.isoformat(),
         teams_with_logs=counts.total,
         minute_shard=minute_shard,
@@ -126,3 +119,5 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
         due_bucket_start=due.start.isoformat(),
         due_bucket_end=due.end.isoformat(),
     )
+    logger.info("logs_volume_tick_heartbeat", clickhouse_duration_ms=duration_ms, **dataclasses.asdict(output))
+    return output

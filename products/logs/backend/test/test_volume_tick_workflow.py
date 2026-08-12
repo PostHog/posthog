@@ -13,14 +13,13 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 
-from products.apm.backend.facade.api import BUCKET_MINUTES
 from products.logs.backend.temporal.volume_tick.activities import (
     VolumeTickInput,
     VolumeTickOutput,
     count_teams_with_logs,
     due_bucket_bounds,
 )
-from products.logs.backend.temporal.volume_tick.constants import WORKFLOW_NAME
+from products.logs.backend.temporal.volume_tick.constants import BUCKET_MINUTES, WORKFLOW_NAME
 from products.logs.backend.temporal.volume_tick.workflow import LogsVolumeTickWorkflow
 
 TASK_QUEUE = "logs-volume-tick-test"

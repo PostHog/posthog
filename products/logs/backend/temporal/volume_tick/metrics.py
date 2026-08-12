@@ -3,7 +3,7 @@
 import typing
 import datetime as dt
 
-from products.logs.backend.temporal.metrics import get_metric_meter
+from posthog.temporal.common.metrics import get_metric_meter
 
 # Consumed by `posthog/temporal/common/worker.py` to override Prometheus default
 # buckets per-metric. Keep in sync with the histograms emitted below.

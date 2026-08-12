@@ -15,28 +15,24 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.logs.backend.facade.temporal import (
-    VOLUME_TICK_SCHEDULE_CRON,
-    VOLUME_TICK_SCHEDULE_ID,
-    VOLUME_TICK_WORKFLOW_NAME,
-    VolumeTickInput,
-)
+from products.logs.backend.temporal.volume_tick.activities import VolumeTickInput
+from products.logs.backend.temporal.volume_tick.constants import SCHEDULE_CRON, SCHEDULE_ID, WORKFLOW_NAME
 
 
 async def create_logs_volume_tick_schedule(client: Client) -> None:
     """Create or update the logs volume tick schedule."""
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            VOLUME_TICK_WORKFLOW_NAME,
+            WORKFLOW_NAME,
             asdict(VolumeTickInput()),
-            id=VOLUME_TICK_SCHEDULE_ID,
+            id=SCHEDULE_ID,
             task_queue=settings.LOGS_VOLUME_TICK_TASK_QUEUE,
         ),
-        spec=ScheduleSpec(cron_expressions=[VOLUME_TICK_SCHEDULE_CRON]),
+        spec=ScheduleSpec(cron_expressions=[SCHEDULE_CRON]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
-    if await a_schedule_exists(client, VOLUME_TICK_SCHEDULE_ID):
-        await a_update_schedule(client, VOLUME_TICK_SCHEDULE_ID, schedule)
+    if await a_schedule_exists(client, SCHEDULE_ID):
+        await a_update_schedule(client, SCHEDULE_ID, schedule)
     else:
-        await a_create_schedule(client, VOLUME_TICK_SCHEDULE_ID, schedule, trigger_immediately=False)
+        await a_create_schedule(client, SCHEDULE_ID, schedule, trigger_immediately=False)

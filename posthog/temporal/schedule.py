@@ -55,7 +55,6 @@ from posthog.temporal.experiments.schedule import (
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
-from posthog.temporal.logs_volume.schedule import create_logs_volume_tick_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -97,6 +96,7 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (

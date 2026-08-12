@@ -18,8 +18,9 @@ from products.logs.backend.temporal.volume_tick.constants import ACTIVITY_RETRY_
 
 @temporalio.workflow.defn(name=WORKFLOW_NAME)
 class LogsVolumeTickWorkflow(PostHogWorkflow):
-    """One tick of the log volume rollup. Currently a heartbeat-only skeleton:
-    it exists to run the every-minute schedule end to end before any
+    """One tick of the log volume rollup. A skeleton that writes nothing: it runs
+    the every-minute schedule end to end and observes what the real tick would do
+    (teams with logs, the due bucket, the minute-shard cohort) before any
     aggregation logic lands."""
 
     @staticmethod
