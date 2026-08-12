@@ -1159,6 +1159,26 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
+    def test_switching_organization_skips_projects_the_user_cannot_access(self):
+        from ee.models.rbac.access_control import AccessControl
+
+        accessible_project = Team.objects.create(name="Accessible", organization=self.new_org)
+        # self.new_project sorts first by id, so an unscoped fallback would land on it.
+        AccessControl.objects.create(team=self.new_project, resource="project", access_level="none")
+        # User.teams reads the feature list off whichever of the user's orgs comes back first.
+        for org in (self.organization, self.new_org):
+            org.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            org.save()
+
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(self.new_org.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["team"]["id"], accessible_project.id)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team, accessible_project)
+
     @patch("posthoganalytics.capture")
     def test_can_update_current_project(self, mock_capture):
         team = Team.objects.create(name="Local Team", organization=self.new_org)

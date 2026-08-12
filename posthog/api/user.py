@@ -764,7 +764,11 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+            # instance.teams is RBAC-aware; organization.teams is not, and would drop the user into
+            # a project they cannot open.
+            validated_data["current_team"] = (
+                current_team if current_team else instance.teams.filter(organization=current_organization).first()
+            )
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
