@@ -207,10 +207,13 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
 # Retrying cluster memory pressure in place matters because the fallback is not a prompt second
 # attempt: a failed check records the error and advances next_check_at to the alert's normal cadence
 # slot, so an hourly alert stays silent for an hour over a blip that cleared in seconds.
-_TRANSIENT_MEMORY_LIMIT_MAX_ATTEMPTS = 2
-_TRANSIENT_MEMORY_LIMIT_RETRY_DELAY_SECONDS = 5.0
+# Two retries with a widening wait, because the pressure can outlast a single short pause, and a
+# query rejected under it costs almost nothing: ClickHouse can refuse the allocation for the
+# connection itself, before the query reads anything.
+_TRANSIENT_MEMORY_LIMIT_MAX_ATTEMPTS = 3
+_TRANSIENT_MEMORY_LIMIT_BASE_DELAY_SECONDS = 5.0
 # Only retry a query that aborted well inside the shortest evaluate budget (3 minutes for real-time
-# alerts), so a second attempt cannot push the activity past its start_to_close timeout and turn a
+# alerts), so a later attempt cannot push the activity past its start_to_close timeout and turn a
 # recorded error into a workflow failure.
 _TRANSIENT_MEMORY_LIMIT_RETRY_MAX_ELAPSED_SECONDS = 60.0
 
@@ -236,9 +239,8 @@ def _check_alert_for_insight_with_retry(alert: AlertConfiguration) -> AlertEvalu
             ):
                 raise
             # Jitter so alerts that lost the same sweep to cluster pressure don't retry in lockstep.
-            delay = random.uniform(
-                _TRANSIENT_MEMORY_LIMIT_RETRY_DELAY_SECONDS / 2, _TRANSIENT_MEMORY_LIMIT_RETRY_DELAY_SECONDS
-            )
+            max_delay = _TRANSIENT_MEMORY_LIMIT_BASE_DELAY_SECONDS * 2 ** (attempt - 1)
+            delay = random.uniform(max_delay / 2, max_delay)
             logger.warning(
                 "alerts.transient_memory_limit_retry",
                 alert_id=str(alert.id),

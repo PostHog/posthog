@@ -465,29 +465,47 @@ class TestEvaluateAlert:
         count = await sync_to_async(AlertCheck.objects.filter(alert_configuration=alert).count)()
         assert count == 0
 
-    async def test_evaluate_retries_when_cluster_ran_out_of_memory(self, alert) -> None:
-        # A memory limit raised against the server-wide ceiling clears on its own, so the check has
-        # to be retried in place. Recording it as an error instead sends the alert silent until its
-        # next cadence slot, which for an hourly alert is an hour.
-        with (
-            patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=[
+    # The first case guards the alert going silent until its next cadence slot, which for an hourly
+    # alert is an hour, over pressure that cleared on its own. The second pins the attempts as
+    # bounded, so pressure that never clears cannot spin the activity until its timeout.
+    @pytest.mark.parametrize(
+        "side_effect,expected_calls,expected_state",
+        [
+            pytest.param(
+                [
                     _memory_limit_error(is_per_query_limit=False),
                     AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
                 ],
+                2,
+                AlertState.FIRING,
+                id="pressure_clears_on_the_retry",
+            ),
+            pytest.param(
+                [_memory_limit_error(is_per_query_limit=False) for _ in range(3)],
+                3,
+                AlertState.ERRORED,
+                id="pressure_outlasts_every_attempt",
+            ),
+        ],
+    )
+    async def test_evaluate_retries_when_the_cluster_ran_out_of_memory(
+        self, alert, side_effect, expected_calls, expected_state
+    ) -> None:
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=side_effect,
             ) as mock_check,
-            patch("posthog.temporal.alerts.activities._TRANSIENT_MEMORY_LIMIT_RETRY_DELAY_SECONDS", 0),
+            patch("posthog.temporal.alerts.activities._TRANSIENT_MEMORY_LIMIT_BASE_DELAY_SECONDS", 0),
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
-        assert mock_check.call_count == 2
-        assert result.new_state == AlertState.FIRING
+        assert mock_check.call_count == expected_calls
+        assert result.new_state == expected_state
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
-        assert check.state == AlertState.FIRING
-        assert check.error is None
+        assert check.state == expected_state
 
     async def test_evaluate_does_not_retry_when_the_query_ran_out_of_memory(self, alert) -> None:
         # The query hit its own memory ceiling, so a second attempt fails identically and only adds
