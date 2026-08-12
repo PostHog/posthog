@@ -231,6 +231,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
     SLACK_APP_ASSISTANT: 'slack-app-assistant', // owner: @VojtechBartos #team-platform-features
+    SLACK_APP_LOOP_TRIGGERS: 'slack-app-loop-triggers', // owner: @VojtechBartos #team-platform-features
     SLACK_APP_OAUTH: 'slack-app-oauth', // owner: @VojtechBartos #team-platform-features
     SLOPE_GRAPH_INSIGHT: 'slope-graph-insight', // owner: @pauldambra #team-product-analytics
     STARTS_WITH_ENDS_WITH_OPERATORS: 'starts-with-ends-with-operators', // owner: @haacked #team-feature-flags, gates the starts_with/ends_with property filter operators in the UI until SDK local evaluation supports them, see `OperatorValueSelect.tsx`
