@@ -74,6 +74,7 @@ from .rudderstack.template_rudderstack import (
 )
 from .salesforce.template_salesforce import (
     template_create as salesforce_create,
+    template_lookup as salesforce_lookup,
     template_update as salesforce_update,
 )
 from .sendgrid.template_sendgrid import (
@@ -127,6 +128,7 @@ HOG_FUNCTION_TEMPLATES = [
     reddit_pixel,
     rudderstack,
     salesforce_create,
+    salesforce_lookup,
     salesforce_update,
     sendgrid,
     snapchat_pixel,
