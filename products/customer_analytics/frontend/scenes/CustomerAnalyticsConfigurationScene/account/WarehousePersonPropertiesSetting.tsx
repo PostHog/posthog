@@ -8,6 +8,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -50,7 +51,23 @@ const LABELS_BY_TARGET: Record<'person' | 'group', ProfileLabels> = {
 }
 
 function RunCount({ value }: { value: number }): JSX.Element {
-    return <span className={value ? 'font-medium' : 'text-secondary'}>{value}</span>
+    return <span className={value ? 'font-medium' : 'text-secondary'}>{humanFriendlyNumber(value)}</span>
+}
+
+// The updated share, as a whole percent. 100% has to mean every changed row landed, so a near-miss
+// stays at 99% instead of rounding up, and a tiny share reads as <1% instead of collapsing to 0%.
+function updatedShare(existing: number, changed: number): string | null {
+    if (changed <= 0) {
+        return null
+    }
+    if (existing >= changed) {
+        return '100%'
+    }
+    const share = existing / changed
+    if (share < 0.01) {
+        return '<1%'
+    }
+    return percentage(Math.min(share, 0.99), 0)
 }
 
 // The bound table's sync history in the data warehouse. Null when the source has no warehouse
@@ -121,18 +138,26 @@ function ProfilePropertyRuns({
             title: 'Updated',
             tooltip: `How many ${labels.entityPlural} this run updated, out of the rows whose mapped values changed. Rows that already hold the values last sent are skipped, even on a full refresh.`,
             align: 'right',
-            render: (_, run) => (
-                <span className="whitespace-nowrap">
-                    <RunCount value={run.existing} />
-                    <span className="text-secondary"> of {run.changed} changed</span>
-                </span>
-            ),
+            render: (_, run) => {
+                const share = updatedShare(run.existing, run.changed)
+                return (
+                    <span className="whitespace-nowrap">
+                        <RunCount value={run.existing} />
+                        <span className="text-secondary">
+                            {' '}
+                            of {humanFriendlyNumber(run.changed)} changed{share ? ` (${share})` : ''}
+                        </span>
+                    </span>
+                )
+            },
         },
         {
             title: `Skipped (no ${labels.entity})`,
             tooltip: `Changed rows dropped because their key column value matched no existing ${labels.entity}. The most common reason a property never shows up.`,
             align: 'right',
-            render: (_, run) => <span className="text-secondary">{run.skipped_missing_person}</span>,
+            render: (_, run) => (
+                <span className="text-secondary">{humanFriendlyNumber(run.skipped_missing_person)}</span>
+            ),
         },
         {
             title: 'Started',
@@ -264,7 +289,9 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                 const tooltipTitle =
                     [
                         status.tooltip,
-                        affected != null ? `${affected} ${labels.entityPlural} affected on the last run` : null,
+                        affected != null
+                            ? `${humanFriendlyNumber(affected)} ${labels.entityPlural} affected on the last run`
+                            : null,
                     ]
                         .filter(Boolean)
                         .join(' — ') || undefined

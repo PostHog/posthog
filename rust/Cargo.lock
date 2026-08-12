@@ -8486,6 +8486,7 @@ dependencies = [
  "envconfig",
  "futures",
  "lifecycle",
+ "metrics-exporter-prometheus",
  "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
