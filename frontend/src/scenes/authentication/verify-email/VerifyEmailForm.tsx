@@ -9,10 +9,10 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { urls } from 'scenes/urls'
 
-import { verifyEmailLogic } from '../../verifyEmailLogic'
+import { verifyEmailLogic } from './verifyEmailLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -51,7 +51,7 @@ function NotSeeingIt(): JSX.Element {
                 Not seeing it?
             </button>
             {open && (
-                <div className="PaperDesk__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                <div className="AuthScene__note mt-3 w-full py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
                     <p className="m-0 mb-2.5 font-semibold text-primary">Before we resend, three quick checks:</p>
                     <div className="flex flex-col gap-2">
                         {CHECKLIST.map((item, i) => (
@@ -105,7 +105,7 @@ function NotSeeingIt(): JSX.Element {
     )
 }
 
-function VerifyEmail(): JSX.Element {
+export function VerifyEmailForm(): JSX.Element {
     const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -114,30 +114,30 @@ function VerifyEmail(): JSX.Element {
 
     if (view === 'success') {
         return (
-            <PaperDeskScene notes={notes}>
-                <PaperDeskCard>
+            <AuthScene notes={notes}>
+                <AuthSceneCard>
                     <div className="flex flex-col items-center text-center">
                         <ExplorerHog className="block w-auto mx-auto h-32" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                             You're verified, go explore!
                         </h1>
-                        <p className="PaperDesk__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
+                        <p className="AuthScene__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
                             Email confirmed. Next up: a quick setup. Your org, your team, your first events.
                         </p>
-                        <div className="PaperDesk__progress mb-4 w-full h-1.5 overflow-hidden bg-[#e0e1d9] rounded-sm">
-                            <div className="PaperDesk__progress-fill w-full h-full bg-warning rounded-sm" />
+                        <div className="AuthScene__progress mb-4 w-full h-1.5 overflow-hidden bg-[#e0e1d9] rounded-sm">
+                            <div className="AuthScene__progress-fill w-full h-full bg-warning rounded-sm" />
                         </div>
                         <p className="m-0 text-sm text-secondary text-center">Taking you to PostHog…</p>
                     </div>
-                </PaperDeskCard>
-            </PaperDeskScene>
+                </AuthSceneCard>
+            </AuthScene>
         )
     }
 
     if (view === 'invalid') {
         return (
-            <PaperDeskScene notes={notes}>
-                <PaperDeskCard
+            <AuthScene notes={notes}>
+                <AuthSceneCard
                     footer={
                         <p className="mt-5 mb-0 text-sm text-secondary text-center">
                             Already verified?{' '}
@@ -155,7 +155,7 @@ function VerifyEmail(): JSX.Element {
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                             This link fell asleep
                         </h1>
-                        <p className="PaperDesk__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
+                        <p className="AuthScene__sub mt-2 mb-5 text-sm text-secondary text-center text-pretty">
                             Verification links last 24 hours, and this one's past its bedtime. Request a fresh one and
                             we'll get you in.
                         </p>
@@ -186,30 +186,30 @@ function VerifyEmail(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
-                </PaperDeskCard>
-            </PaperDeskScene>
+                </AuthSceneCard>
+            </AuthScene>
         )
     }
 
     if (view === 'verify') {
         return (
-            <PaperDeskScene notes={notes}>
-                <PaperDeskCard>
+            <AuthScene notes={notes}>
+                <AuthSceneCard>
                     <div className="flex flex-col items-center gap-4 text-center">
                         <Spinner className="text-4xl" />
-                        <p className="PaperDesk__sub m-0 text-sm text-secondary text-center text-pretty">
+                        <p className="AuthScene__sub m-0 text-sm text-secondary text-center text-pretty">
                             Verifying your email address…
                         </p>
                     </div>
-                </PaperDeskCard>
-            </PaperDeskScene>
+                </AuthSceneCard>
+            </AuthScene>
         )
     }
 
     // pending — check inbox
     return (
-        <PaperDeskScene notes={notes}>
-            <PaperDeskCard
+        <AuthScene notes={notes}>
+            <AuthSceneCard
                 footer={
                     <p className="mt-5 mb-0 text-sm text-secondary text-center">
                         Wrong address?{' '}
@@ -227,14 +227,12 @@ function VerifyEmail(): JSX.Element {
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                         Check your inbox
                     </h1>
-                    <p className="PaperDesk__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
+                    <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
                         We sent you a verification link. Click the link inside and you're in. It's valid for 24 hours.
                     </p>
                     <NotSeeingIt />
                 </div>
-            </PaperDeskCard>
-        </PaperDeskScene>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
-
-export { VerifyEmail as PaperDeskVerifyEmail }

@@ -48,7 +48,7 @@ export function DevLoginPanel(): JSX.Element | null {
     }
 
     return (
-        <div className="PaperDesk__card fixed top-4 right-4 z-50 flex flex-col w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)]">
+        <div className="AuthScene__card fixed top-4 right-4 z-50 flex flex-col w-72 max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)]">
             <div className="flex items-center justify-between gap-2 pl-3 pr-1.5 py-1.5 border-b border-[#e0e1d9]">
                 <span className="text-xs font-semibold text-muted">Login tools</span>
                 <LemonButton
