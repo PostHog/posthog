@@ -48,6 +48,23 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS: int = max(
     1,
     get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_MAX_LOOKBACK_HOURS", 6, type_cast=int),
 )
+# The sync reads distributed_events_recent, which either replica of the batch-export shard can
+# answer, so rows inserted moments ago may be missing from whichever one serves a given query.
+# Ending the scan window this far before now keeps the checkpoint from advancing past those
+# rows, so a row still missing at read time is picked up by the next run instead of being
+# skipped for good.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS: int = max(
+    0,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS", 60, type_cast=int),
+)
+# Per-chunk ClickHouse execution cap. sync_execute sets no max_execution_time of its own, so
+# without this a hung query is bounded only by the server profile, and a run can outlive the
+# 30-minute lock that stops two of these from overlapping. Prod chunks take a few seconds each
+# and whole runs peak under two minutes, so this only trips on a genuine hang.
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS: int = max(
+    1,
+    get_from_env("FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS", 120, type_cast=int),
+)
 
 # Feature flag cache refresh settings
 FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS: int = get_from_env(

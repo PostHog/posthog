@@ -2,6 +2,7 @@ import type {
   AgentSideConnection,
   RequestPermissionRequest,
   RequestPermissionResponse,
+  ToolCallContent,
 } from "@agentclientprotocol/sdk";
 import type {
   PermissionRuleValue,
@@ -231,6 +232,29 @@ async function validatePlanContent(
   return { valid: true };
 }
 
+async function publishResolvedPlan(
+  context: ToolHandlerContext,
+  updatedInput: Record<string, unknown>,
+  toolInfo: { content?: ToolCallContent[] },
+): Promise<void> {
+  if (
+    updatedInput === context.toolInput ||
+    !context.emittedToolCalls?.has(context.toolUseID)
+  ) {
+    return;
+  }
+
+  await context.client.sessionUpdate({
+    sessionId: context.sessionId,
+    update: {
+      sessionUpdate: "tool_call_update",
+      toolCallId: context.toolUseID,
+      rawInput: updatedInput,
+      content: toolInfo.content,
+    },
+  });
+}
+
 async function requestPlanApproval(
   context: ToolHandlerContext,
   updatedInput: Record<string, unknown>,
@@ -242,7 +266,11 @@ async function requestPlanApproval(
     input: updatedInput,
   });
 
-  return await requestPermissionFromClient(context, {
+  await publishResolvedPlan(context, updatedInput, toolInfo);
+
+  const resolvedPlanContext = { ...context, toolInput: updatedInput };
+
+  return await requestPermissionFromClient(resolvedPlanContext, {
     options: buildExitPlanModePermissionOptions(session.modeBeforePlan),
     sessionId,
     toolCall: {

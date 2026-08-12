@@ -1556,9 +1556,16 @@ class TestVersionDeclaration:
         assert source.default_version == "v25"
         assert set(source.supported_versions) == {"v23", "v24", "v25"}
 
+    def test_v23_deprecated_with_sunset_date(self):
+        # v23 is sunsetting (February 2027), so it must carry both the deprecation flag and the sunset
+        # date — the in-product banner shows the date and the v23→v25 repin migration is justified by it.
+        v23_deprecation = GoogleAdsSource().get_version_deprecation("v23")
+        assert v23_deprecation is not None
+        assert v23_deprecation.sunset_at == dt.date(2027, 2, 1)
+
     def test_v24_deprecated_default_is_not(self):
-        # v24 is the version the vendor is retiring, so it must carry the deprecation flag that drives
-        # the in-product warning; the current default (v25) must never be deprecated.
+        # v24 is also deprecated but has no announced sunset date yet, so it must carry the flag with a
+        # None sunset; the current default (v25) must never be deprecated.
         source = GoogleAdsSource()
         v24_deprecation = source.get_version_deprecation("v24")
         assert v24_deprecation is not None

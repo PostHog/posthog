@@ -119,7 +119,7 @@ def resolve_review_arm(
 # Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
 # default effort (the behavior before this knob existed); set all three to pin, like the review pins.
 VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-4-8"
+VALIDATION_MODEL: str | None = "claude-opus-5"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
@@ -157,6 +157,17 @@ _PRIORITY_RANK = {IssuePriority.CONSIDER: 0, IssuePriority.SHOULD_FIX: 1, IssueP
 
 # The threshold applied when no per-user setting is available (matches `ReviewUserSettings`' default).
 DEFAULT_URGENCY_THRESHOLD = IssuePriority.CONSIDER
+
+# Severities most urgent first — the order every count breakdown is read in.
+PRIORITIES_BY_URGENCY = (IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER)
+
+# Human-readable severity labels, shared by the PR-facing renderers (the review body and the status
+# comment) so their count lines read the same.
+PRIORITY_LABELS = {
+    IssuePriority.MUST_FIX: "must fix",
+    IssuePriority.SHOULD_FIX: "should fix",
+    IssuePriority.CONSIDER: "consider",
+}
 
 
 def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
