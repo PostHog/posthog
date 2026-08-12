@@ -459,6 +459,10 @@ def commit_billing_alert_check(
     destination_ids: list[str] | None = None,
 ) -> BillingAlertEvent:
     notification_requested = check.outcome.notification != NotificationAction.NONE
+    # A user notification only counts when a real destination target received it. The internal
+    # event can be "delivered" to Kafka with no destinations configured, which advances the
+    # lifecycle and claim but must not start the notification cooldown.
+    targets_delivered = notification_delivered and bool(destination_ids)
     committed_outcome = check.outcome
     if notification_requested and not notification_delivered:
         committed_outcome = replace(
@@ -490,7 +494,7 @@ def commit_billing_alert_check(
         event.team_id = locked_alert.team_id or event.team_id
 
         event.state_after = committed_outcome.new_state.value
-        if notification_requested and notification_delivered:
+        if notification_requested and targets_delivered:
             event.notification_sent_at = check.now
             event.targets_notified = {"hog_functions": destination_ids or []}
 
@@ -514,7 +518,7 @@ def commit_billing_alert_check(
             claim.next_retry_at = None
         update_fields.extend(["next_check_at", "pending_evaluation_date", "retry_attempt_count"])
 
-        if notification_requested and notification_delivered and check.outcome.update_last_notified_at:
+        if notification_requested and targets_delivered and check.outcome.update_last_notified_at:
             locked_alert.last_notified_at = check.now
             update_fields.append("last_notified_at")
 

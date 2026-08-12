@@ -20,21 +20,21 @@ class TestBillingAlertDestinations(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-    def _alert(self, name: str = "Daily spend spike") -> BillingAlertConfiguration:
+    def _alert(self, name: str = "Period spend cap") -> BillingAlertConfiguration:
         return BillingAlertConfiguration.objects.create(
             organization_id=self.organization.id,
             team_id=self.team.id,
             name=name,
             metric=BillingAlertConfiguration.Metric.SPEND,
-            threshold_type=BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
-            threshold_percentage=Decimal("50"),
+            threshold_type=BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
+            threshold_value=Decimal("100"),
         )
 
     def _alert_payload(self, **overrides) -> dict:
         payload = {
-            "name": "Daily spend spike",
-            "threshold_type": "relative_increase",
-            "threshold_percentage": "50",
+            "name": "Period spend cap",
+            "threshold_type": "absolute_value",
+            "threshold_value": "100",
         }
         payload.update(overrides)
         return payload

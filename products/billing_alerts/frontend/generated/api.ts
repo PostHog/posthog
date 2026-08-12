@@ -153,7 +153,7 @@ export const getBillingAlertsCheckNowCreateUrl = (organizationId: string, id: st
 }
 
 /**
- * Evaluate this billing alert immediately against real billing spend data. Manual checks can send notifications when the evaluation records a dispatchable event.
+ * Evaluate this billing alert immediately against real billing spend data. An enabled alert can send notifications when the evaluation records a dispatchable event. A paused alert is evaluated as a preview only: it reports the current spend and would-be outcome without sending notifications or recording an evaluation.
  */
 export const billingAlertsCheckNowCreate = async (
     organizationId: string,

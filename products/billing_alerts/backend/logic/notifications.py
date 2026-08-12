@@ -19,10 +19,15 @@ from products.billing_alerts.backend.alert_destinations import (
     EventKind,
     destination_groups_for_alerts,
 )
+from products.billing_alerts.backend.logic.evaluator import BillingAlertEvaluation, evaluate_billing_alert
 from products.billing_alerts.backend.logic.state_machine import (
+    AlertCheckOutcome,
     BillingAlertAlreadyEvaluated,
     BillingAlertCheck,
+    NotificationAction,
+    billing_alert_snapshot,
     commit_billing_alert_check,
+    evaluate_alert_check,
     lock_and_validate_billing_alert_claim,
     prepare_billing_alert_check,
     prepare_billing_alert_failure,
@@ -37,6 +42,38 @@ _EVENT_KIND_BY_MODEL_KIND: dict[str, EventKind] = {
     BillingAlertEvent.Kind.RESOLVED: "resolved",
     BillingAlertEvent.Kind.ERRORED: "errored",
 }
+
+
+@dataclass(frozen=True)
+class BillingAlertPreview:
+    """Read-only evaluation of a paused alert: what a check would find, nothing persisted."""
+
+    evaluation: BillingAlertEvaluation
+    outcome: AlertCheckOutcome
+
+    @property
+    def would_notify(self) -> bool:
+        return self.outcome.notification != NotificationAction.NONE
+
+
+def preview_billing_alert(
+    alert: BillingAlertConfiguration,
+    *,
+    now: datetime | None = None,
+    billing_response: dict | None = None,
+    query_duration_ms: int | None = None,
+) -> BillingAlertPreview:
+    """Evaluate an alert without claiming, persisting, or dispatching.
+
+    Paused alerts use this so a manual check reports the current spend and would-be
+    outcome without sending notifications or completing the day's evaluation claim.
+    """
+    now = now or timezone.now()
+    evaluation = evaluate_billing_alert(
+        alert, now=now, billing_response=billing_response, query_duration_ms=query_duration_ms
+    )
+    outcome = evaluate_alert_check(billing_alert_snapshot(alert), evaluation, now)
+    return BillingAlertPreview(evaluation=evaluation, outcome=outcome)
 
 
 @dataclass(frozen=True)

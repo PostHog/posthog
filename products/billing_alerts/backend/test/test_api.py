@@ -2,7 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -14,7 +14,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
 from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG
-from products.billing_alerts.backend.facade.api import BillingAlertDispatchResult
+from products.billing_alerts.backend.facade.api import BillingAlertDispatchResult, BillingAlertPreview
+from products.billing_alerts.backend.logic.evaluator import BillingAlertEvaluation
 from products.billing_alerts.backend.models import (
     BillingAlertConfiguration,
     BillingAlertEvaluationClaim,
@@ -36,12 +37,11 @@ class TestBillingAlertAPI(APIBaseTest):
 
     def _payload(self, **overrides) -> dict:
         payload = {
-            "name": "Daily spend spike",
+            "name": "Period spend cap",
             "metric": "spend",
-            "threshold_type": "relative_increase",
-            "threshold_percentage": "50.00",
+            "threshold_type": "absolute_value",
+            "threshold_value": "100.00",
             "minimum_value": "0",
-            "baseline_window_days": 7,
             "evaluation_delay_hours": 6,
             "cooldown_hours": 24,
         }
@@ -52,10 +52,10 @@ class TestBillingAlertAPI(APIBaseTest):
         defaults = {
             "organization_id": self.organization.id,
             "team_id": self.team.id,
-            "name": "Daily spend spike",
+            "name": "Period spend cap",
             "metric": BillingAlertConfiguration.Metric.SPEND,
-            "threshold_type": BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
-            "threshold_percentage": Decimal("50"),
+            "threshold_type": BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
+            "threshold_value": Decimal("100"),
         }
         defaults.update(overrides)
         return BillingAlertConfiguration.objects.create(**defaults)
@@ -90,14 +90,31 @@ class TestBillingAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         data = response.json()
-        assert data["name"] == "Daily spend spike"
+        assert data["name"] == "Period spend cap"
         assert data["organization_id"] == str(self.organization.id)
         assert data["execution_team_id"] == self.team.id
         assert data["created_by_id"] == self.user.id
         assert data["state"] == BillingAlertConfiguration.State.NOT_FIRING
 
         alert = BillingAlertConfiguration.objects.get(id=data["id"])
-        assert alert.threshold_percentage == Decimal("50.00")
+        assert alert.threshold_value == Decimal("100.00")
+
+    def test_create_rejects_non_absolute_threshold_in_v1(self) -> None:
+        response = self.client.post(
+            self.url,
+            self._payload(threshold_type="relative_increase", threshold_percentage="50.00", threshold_value=None),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "threshold_type"
+
+    def test_create_accepts_projected_spend_metric(self) -> None:
+        response = self.client.post(self.url, self._payload(metric="projected_spend"), format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        alert = BillingAlertConfiguration.objects.get(id=response.json()["id"])
+        assert alert.metric == BillingAlertConfiguration.Metric.PROJECTED_SPEND
 
     def test_create_snoozed_alert_applies_snooze_transition(self) -> None:
         snoozed_until = timezone.now() + timedelta(hours=2)
@@ -185,13 +202,13 @@ class TestBillingAlertAPI(APIBaseTest):
 
         response = self.client.patch(
             f"{self.url}{alert.id}/",
-            {"threshold_percentage": "75.00"},
+            {"threshold_value": "150.00"},
             format="json",
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         alert.refresh_from_db()
-        assert alert.threshold_percentage == Decimal("75.00")
+        assert alert.threshold_value == Decimal("150.00")
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
         assert alert.consecutive_failures == 0
         assert alert.configuration_revision == 2
@@ -327,12 +344,12 @@ class TestBillingAlertAPI(APIBaseTest):
 
         updated = self.client.patch(
             f"{self.url}{alert_id}/",
-            {"threshold_percentage": "75.00"},
+            {"threshold_value": "150.00"},
             format="json",
         )
 
         assert updated.status_code == status.HTTP_200_OK, updated.json()
-        assert updated.json()["threshold_percentage"] == "75.00"
+        assert updated.json()["threshold_value"] == "150.000000"
         assert updated.json()["configuration_revision"] == 2
 
     def test_organization_read_key_cannot_create(self) -> None:
@@ -423,6 +440,42 @@ class TestBillingAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json()["event"]["id"] == str(event.id)
 
+    def test_check_now_on_paused_alert_previews_without_dispatching(self) -> None:
+        alert = self._alert(enabled=False)
+        evaluation = BillingAlertEvaluation(
+            evaluation_date=timezone.now().date(),
+            period_start=timezone.now(),
+            period_end=timezone.now(),
+            current_value=Decimal("120"),
+            baseline_value=None,
+            absolute_delta=None,
+            relative_delta_percentage=None,
+            threshold_breached=True,
+            reason="preview",
+            payload={},
+        )
+        outcome = MagicMock(notification=MagicMock())
+
+        with (
+            patch(
+                "products.billing_alerts.backend.presentation.views.billing_alerts_api.preview_alert",
+                return_value=BillingAlertPreview(evaluation=evaluation, outcome=outcome),
+            ) as preview,
+            patch(
+                "products.billing_alerts.backend.presentation.views.billing_alerts_api.evaluate_and_dispatch_alert",
+            ) as dispatch,
+        ):
+            response = self.client.post(f"{self.url}{alert.id}/check_now/", format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert body["preview"] is True
+        assert body["event"] is None
+        assert body["threshold_breached"] is True
+        assert body["current_value"] == "120"
+        preview.assert_called_once()
+        dispatch.assert_not_called()
+
     @patch(
         "products.billing_alerts.backend.presentation.throttles.BillingAlertCheckNowThrottle.rate",
         new="2/minute",
@@ -461,7 +514,7 @@ class TestBillingAlertAPI(APIBaseTest):
             first_check = self.client.post(f"{self.url}{first.id}/check_now/", format="json")
             edit = self.client.patch(
                 f"{self.url}{first.id}/",
-                {"threshold_percentage": "75.00"},
+                {"threshold_value": "150.00"},
                 format="json",
             )
             second_check = self.client.post(f"{self.url}{first.id}/check_now/", format="json")

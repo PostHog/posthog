@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -10,11 +9,18 @@ from typing import Any
 from django.utils import timezone
 
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.models import Organization, Team
+from posthog.models import Organization
 
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 
 from ee.billing.billing_manager import BillingManager
+
+# Billing period totals the evaluator reads for each supported metric. Both are
+# after-discount amounts so alerts fire on what the customer actually owes.
+_METRIC_AMOUNT_FIELD: dict[str, str] = {
+    BillingAlertConfiguration.Metric.SPEND: "current_total_amount_usd_after_discount",
+    BillingAlertConfiguration.Metric.PROJECTED_SPEND: "projected_total_amount_usd_with_limit_after_discount",
+}
 
 
 @dataclass(frozen=True)
@@ -38,48 +44,33 @@ class BillingAlertEvaluationError(Exception):
 
 
 def _validate_supported_metric(alert: BillingAlertConfiguration) -> None:
-    if alert.metric != BillingAlertConfiguration.Metric.SPEND or alert.currency != "USD":
+    if alert.metric not in _METRIC_AMOUNT_FIELD or alert.currency != "USD":
         raise BillingAlertEvaluationError("Billing alerts currently support USD spend only.")
+    if alert.threshold_type != BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE:
+        raise BillingAlertEvaluationError(
+            "Billing alerts currently support absolute value thresholds only. "
+            "Increase-over-baseline thresholds are not available for billing-period totals."
+        )
 
 
-def _decimal(value: Any, *, date_value: Any, series_id: Any) -> Decimal:
+def _decimal(value: Any, *, field: str) -> Decimal:
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
-        raise BillingAlertEvaluationError(f"Invalid billing value for {date_value} in series {series_id}: {value!r}.")
+        raise BillingAlertEvaluationError(f"Billing status returned an invalid amount for {field}: {value!r}.")
     if not parsed.is_finite():
-        raise BillingAlertEvaluationError(f"Invalid billing value for {date_value} in series {series_id}: {value!r}.")
+        raise BillingAlertEvaluationError(f"Billing status returned an invalid amount for {field}: {value!r}.")
     return parsed
 
 
-def _daily_totals(response: dict[str, Any]) -> dict[date, Decimal]:
-    totals: dict[date, Decimal] = defaultdict(Decimal)
-    for series in response.get("results", []):
-        dates = series.get("dates", [])
-        values = series.get("data", [])
-        series_id = series.get("id") or series.get("label") or "unknown"
-        if len(dates) != len(values):
-            raise BillingAlertEvaluationError(
-                f"Billing series {series_id} returned {len(dates)} dates and {len(values)} values."
-            )
-        for date_value, value in zip(dates, values):
-            try:
-                parsed_date = date.fromisoformat(str(date_value)[:10])
-            except (TypeError, ValueError):
-                raise BillingAlertEvaluationError(f"Invalid billing date in series {series_id}: {date_value!r}.")
-            totals[parsed_date] += _decimal(value, date_value=date_value, series_id=series_id)
-    return dict(totals)
-
-
-def validate_billing_response(response: dict[str, Any]) -> None:
-    if isinstance(response.get("results"), list) and response.get("status") in (None, "ok"):
-        return
-
-    detail = (
-        response.get("detail") or response.get("error") or response.get("message") or "No billing timeseries returned."
-    )
-    code = response.get("code") or response.get("type") or response.get("status") or "invalid_billing_response"
-    raise BillingAlertEvaluationError(f"Billing service returned {code}: {detail}")
+def _parse_period_boundary(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed.astimezone(UTC) if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def expected_evaluation_date(alert: BillingAlertConfiguration, now: datetime | None = None) -> date:
@@ -90,30 +81,6 @@ def expected_evaluation_date(alert: BillingAlertConfiguration, now: datetime | N
     return delayed_now.date() - timedelta(days=1)
 
 
-def _teams_map(organization: Organization) -> dict[int, str]:
-    return {team.id: team.name for team in Team.objects.filter(organization=organization).only("id", "name")}
-
-
-def billing_params(
-    alert: BillingAlertConfiguration,
-    organization: Organization,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    evaluation_date = expected_evaluation_date(alert, now)
-    evaluation_start = evaluation_date - timedelta(days=alert.baseline_window_days)
-    params: dict[str, Any] = {
-        "start_date": evaluation_start.isoformat(),
-        "end_date": evaluation_date.isoformat(),
-        "interval": "day",
-        "teams_map": _teams_map(organization),
-    }
-    # TODO: This first version evaluates organization-level totals only. If billing alerts
-    # grow to project, product, or usage-type rules, persist those filters on the alert,
-    # pass them into BillingManager here, and include request-shaping fields in the
-    # Temporal grouping key so alerts with different scopes never share cached data.
-    return params
-
-
 def fetch_billing_data(
     alert: BillingAlertConfiguration,
     organization: Organization,
@@ -122,10 +89,16 @@ def fetch_billing_data(
     now: datetime | None = None,
 ) -> tuple[dict[str, Any], int]:
     manager = manager or BillingManager(get_cached_instance_license())
-    params = billing_params(alert, organization, now)
     start = perf_counter()
-    response = manager.get_spend_data(organization, params)
+    response = manager.get_billing_status_for_alerts(organization)
     return response, int((perf_counter() - start) * 1000)
+
+
+def _customer(billing_response: dict[str, Any]) -> dict[str, Any]:
+    customer = billing_response.get("customer")
+    if not isinstance(customer, dict):
+        raise BillingAlertEvaluationError("Billing status did not include customer data.")
+    return customer
 
 
 def evaluate_billing_alert(
@@ -139,21 +112,30 @@ def evaluate_billing_alert(
     _validate_supported_metric(alert)
     now = now or timezone.now()
     expected_date = expected_evaluation_date(alert, now)
-    period_start = datetime.combine(expected_date, datetime.min.time(), tzinfo=UTC)
-    period_end = period_start + timedelta(days=1)
 
     if billing_response is None:
         organization = Organization.objects.get(id=alert.organization_id)
         billing_response, query_duration_ms = fetch_billing_data(alert, organization, manager=manager, now=now)
 
-    validate_billing_response(billing_response)
-    totals = _daily_totals(billing_response)
+    customer = _customer(billing_response)
+    billing_period = customer.get("billing_period") or {}
+    # Fall back to the evaluation date's UTC day when the billing period is absent (e.g. a
+    # customer with no active subscription), so the recorded event still has a period window.
+    default_start = datetime.combine(expected_date, datetime.min.time(), tzinfo=UTC)
+    period_start = _parse_period_boundary(billing_period.get("current_period_start")) or default_start
+    period_end = _parse_period_boundary(billing_period.get("current_period_end")) or (default_start + timedelta(days=1))
+
+    amount_field = _METRIC_AMOUNT_FIELD[alert.metric]
+    raw_amount = customer.get(amount_field)
+
     payload: dict[str, Any] = {
         "expected_evaluation_date": expected_date.isoformat(),
-        "available_dates": [day.isoformat() for day in sorted(totals)],
         "metric": alert.metric,
         "threshold_type": alert.threshold_type,
-        "status": billing_response.get("status"),
+        "amount_field": amount_field,
+        "period_start": billing_period.get("current_period_start"),
+        "period_end": billing_period.get("current_period_end"),
+        "has_active_subscription": customer.get("has_active_subscription"),
     }
 
     def result(*, reason: str, **overrides: Any) -> BillingAlertEvaluation:
@@ -172,13 +154,13 @@ def evaluate_billing_alert(
         }
         return BillingAlertEvaluation(reason=reason, **values)
 
-    if expected_date not in totals:
+    if raw_amount is None:
         return result(
-            reason=f"Billing data for {expected_date.isoformat()} was not available yet.",
+            reason="Billing status did not include a spend total for this billing period yet.",
             is_inconclusive=True,
         )
 
-    current_value = totals[expected_date]
+    current_value = _decimal(raw_amount, field=amount_field)
 
     if current_value < alert.minimum_value:
         return result(
@@ -186,75 +168,10 @@ def evaluate_billing_alert(
             current_value=current_value,
         )
 
-    if alert.threshold_type == BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE:
-        threshold_value = alert.threshold_value or Decimal("0")
-        breached = current_value >= threshold_value
-        return result(
-            reason=f"Current value {current_value} {'met' if breached else 'did not meet'} threshold {threshold_value}.",
-            current_value=current_value,
-            threshold_breached=breached,
-        )
-
-    baseline_dates = [expected_date - timedelta(days=offset) for offset in range(alert.baseline_window_days, 0, -1)]
-    available_baseline_dates = [day for day in baseline_dates if day in totals]
-    missing_baseline_dates = [day for day in baseline_dates if day not in totals]
-    payload["baseline_dates"] = [day.isoformat() for day in baseline_dates]
-    payload["available_baseline_dates"] = [day.isoformat() for day in available_baseline_dates]
-    payload["missing_baseline_dates"] = [day.isoformat() for day in missing_baseline_dates]
-
-    if missing_baseline_dates:
-        return result(
-            reason=(
-                f"Baseline data for {len(available_baseline_dates)} of {len(baseline_dates)} days was available "
-                f"before {expected_date.isoformat()}."
-            ),
-            current_value=current_value,
-            is_inconclusive=True,
-        )
-
-    baseline_value = sum((totals[day] for day in available_baseline_dates), Decimal("0")) / Decimal(
-        len(available_baseline_dates)
-    )
-    absolute_delta = current_value - baseline_value
-    relative_delta_percentage = None
-    if baseline_value > 0:
-        relative_delta_percentage = (absolute_delta / baseline_value) * Decimal("100")
-
-    if alert.threshold_type == BillingAlertConfiguration.ThresholdType.ABSOLUTE_INCREASE:
-        threshold_value = alert.threshold_value or Decimal("0")
-        breached = absolute_delta >= threshold_value
-        reason = (
-            f"Current value {current_value} changed by {absolute_delta} from baseline {baseline_value}; "
-            f"threshold is {threshold_value}."
-        )
-    else:
-        if baseline_value <= 0:
-            return result(
-                reason="Baseline value is zero, so a relative increase cannot be calculated.",
-                current_value=current_value,
-                baseline_value=baseline_value,
-                absolute_delta=absolute_delta,
-                is_inconclusive=True,
-            )
-        threshold_percentage = alert.threshold_percentage or Decimal("0")
-        threshold_value = baseline_value * (Decimal("1") + (threshold_percentage / Decimal("100")))
-        # current_value >= minimum_value was checked above, so max(minimum_value, threshold_value)
-        # reduces to threshold_value.
-        breached = current_value >= threshold_value
-        # baseline_value > 0 here; reassigning narrows the Optional for the type checker.
-        relative_delta_percentage = (absolute_delta / baseline_value) * Decimal("100")
-        direction = "above" if relative_delta_percentage >= 0 else "below"
-        reason = (
-            f"Current value {current_value} was {abs(relative_delta_percentage).quantize(Decimal('0.01'))}% "
-            f"{direction} baseline {baseline_value.quantize(Decimal('0.000001'))}; "
-            f"threshold is {threshold_percentage}%."
-        )
-
+    threshold_value = alert.threshold_value or Decimal("0")
+    breached = current_value >= threshold_value
     return result(
-        reason=reason,
+        reason=f"Current value {current_value} {'met' if breached else 'did not meet'} threshold {threshold_value}.",
         current_value=current_value,
-        baseline_value=baseline_value,
-        absolute_delta=absolute_delta,
-        relative_delta_percentage=relative_delta_percentage,
         threshold_breached=breached,
     )

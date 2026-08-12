@@ -26,17 +26,18 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
 
-def _billing_response(values: list[int]) -> dict:
+def _billing_response(current: int) -> dict:
     return {
-        "status": "ok",
-        "results": [
-            {
-                "id": 1,
-                "label": "Total",
-                "dates": ["2026-06-20", "2026-06-21", "2026-06-22"],
-                "data": values,
-            }
-        ],
+        "customer": {
+            "has_active_subscription": True,
+            "billing_period": {
+                "current_period_start": "2026-06-01T00:00:00Z",
+                "current_period_end": "2026-07-01T00:00:00Z",
+                "interval": "month",
+            },
+            "current_total_amount_usd_after_discount": str(current),
+            "projected_total_amount_usd_with_limit_after_discount": str(current),
+        }
     }
 
 
@@ -46,11 +47,10 @@ class TestBillingAlertNotifications(BaseTest):
             "organization_id": self.organization.id,
             "team_id": self.team.id,
             "created_by_id": self.user.id,
-            "name": "Daily spend spike",
+            "name": "Period spend cap",
             "metric": BillingAlertConfiguration.Metric.SPEND,
-            "threshold_type": BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
-            "threshold_percentage": Decimal("50"),
-            "baseline_window_days": 2,
+            "threshold_type": BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
+            "threshold_value": Decimal("100"),
         }
         defaults.update(overrides)
         return BillingAlertConfiguration.objects.create(**defaults)
@@ -99,7 +99,7 @@ class TestBillingAlertNotifications(BaseTest):
             event, dispatched = evaluate_and_dispatch_billing_alert(
                 alert,
                 now=NOW,
-                billing_response=_billing_response([60, 60, 100]),
+                billing_response=_billing_response(100),
             )
 
         alert.refresh_from_db()
@@ -120,7 +120,7 @@ class TestBillingAlertNotifications(BaseTest):
             event_name=EVENT_KIND_CONFIG["firing"].event_id,
         )
 
-    def test_no_destination_still_commits_the_shared_event(self) -> None:
+    def test_no_destination_commits_event_without_starting_cooldown(self) -> None:
         alert = self._alert()
         produce_result = MagicMock()
 
@@ -138,14 +138,18 @@ class TestBillingAlertNotifications(BaseTest):
             event, dispatched = evaluate_and_dispatch_billing_alert(
                 alert,
                 now=NOW,
-                billing_response=_billing_response([60, 60, 100]),
+                billing_response=_billing_response(100),
             )
 
         alert.refresh_from_db()
+        # The internal event is still emitted and the alert transitions to firing, but with no
+        # destination target nothing was delivered: cooldown must not start, so a destination
+        # added later is not suppressed.
         assert dispatched == 0
         assert alert.state == BillingAlertConfiguration.State.FIRING
-        assert event.notification_sent_at == NOW
-        assert event.targets_notified == {"hog_functions": []}
+        assert event.notification_sent_at is None
+        assert event.targets_notified == {}
+        assert alert.last_notified_at is None
         produce.assert_called_once()
         delivered.assert_called_once_with(
             produce_result,
@@ -245,7 +249,7 @@ class TestBillingAlertNotifications(BaseTest):
             event, dispatched = evaluate_and_dispatch_billing_alert(
                 alert,
                 now=NOW,
-                billing_response=_billing_response([60, 60, 70]),
+                billing_response=_billing_response(70),
             )
 
         assert dispatched == 0
@@ -258,7 +262,7 @@ class TestBillingAlertNotifications(BaseTest):
             alert,
             source=BillingAlertEvent.Source.SCHEDULED,
             now=NOW,
-            billing_response=_billing_response([60, 60, 100]),
+            billing_response=_billing_response(100),
         )
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             enabled=False,
@@ -282,7 +286,7 @@ class TestBillingAlertNotifications(BaseTest):
             alert,
             source=BillingAlertEvent.Source.SCHEDULED,
             now=NOW,
-            billing_response=_billing_response([60, 60, 100]),
+            billing_response=_billing_response(100),
         )
         snoozed_until = NOW.replace(day=24)
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
@@ -306,7 +310,7 @@ class TestBillingAlertNotifications(BaseTest):
             alert,
             source=BillingAlertEvent.Source.SCHEDULED,
             now=NOW,
-            billing_response=_billing_response([60, 60, 100]),
+            billing_response=_billing_response(100),
         )
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             threshold_percentage=Decimal("75"),
@@ -329,7 +333,7 @@ class TestBillingAlertNotifications(BaseTest):
         dispatch = prepare_billing_alert_dispatch(
             alert,
             now=NOW,
-            billing_response=_billing_response([60, 60, 100]),
+            billing_response=_billing_response(100),
         )
         BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             configuration_revision=alert.configuration_revision + 1,
@@ -350,7 +354,7 @@ class TestBillingAlertNotifications(BaseTest):
             alert,
             source=BillingAlertEvent.Source.SCHEDULED,
             now=NOW,
-            billing_response=_billing_response([60, 60, 100]),
+            billing_response=_billing_response(100),
         )
         BillingAlertEvaluationClaim.objects.filter(pk=check.claim.pk).update(attempt_count=2)
 
@@ -377,18 +381,18 @@ class TestBillingAlertNotifications(BaseTest):
             first_event, first_dispatched = evaluate_and_dispatch_billing_alert(
                 alert,
                 now=NOW,
-                billing_response=_billing_response([60, 60, 100]),
+                billing_response=_billing_response(100),
             )
             with self.assertRaises(BillingAlertEvaluationInProgress):
                 evaluate_and_dispatch_billing_alert(
                     alert,
                     now=NOW.replace(minute=10),
-                    billing_response=_billing_response([60, 60, 100]),
+                    billing_response=_billing_response(100),
                 )
             second_event, second_dispatched = evaluate_and_dispatch_billing_alert(
                 alert,
                 now=NOW.replace(minute=16),
-                billing_response=_billing_response([60, 60, 100]),
+                billing_response=_billing_response(100),
             )
 
         claim = BillingAlertEvaluationClaim.objects.get(alert=alert)
@@ -421,7 +425,7 @@ class TestBillingAlertNotifications(BaseTest):
             event, dispatched = evaluate_and_dispatch_billing_alert(
                 alert,
                 now=NOW,
-                billing_response=_billing_response([60, 60, 100]),
+                billing_response=_billing_response(100),
             )
 
         assert dispatched == 0

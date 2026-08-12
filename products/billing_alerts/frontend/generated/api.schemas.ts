@@ -9,11 +9,13 @@
  */
 /**
  * * `spend` - Spend
+ * * `projected_spend` - Projected spend
  */
 export type BillingAlertMetricEnumApi = (typeof BillingAlertMetricEnumApi)[keyof typeof BillingAlertMetricEnumApi]
 
 export const BillingAlertMetricEnumApi = {
     Spend: 'spend',
+    ProjectedSpend: 'projected_spend',
 } as const
 
 /**
@@ -129,24 +131,25 @@ export interface BillingAlertConfigurationApi {
     description?: string
     /** Whether scheduled checks should evaluate this alert. */
     enabled?: boolean
-    /** Billing metric evaluated by this alert. The first version supports spend only.
+    /** Billing-period total to evaluate: current spend so far, or projected period-end spend.
      *
-     * * `spend` - Spend */
-    readonly metric: BillingAlertMetricEnumApi
+     * * `spend` - Spend
+     * * `projected_spend` - Projected spend */
+    metric?: BillingAlertMetricEnumApi
     /** Server-controlled currency for spend values.
      *
      * * `USD` - USD */
     readonly currency: CurrencyEnumApi
     /** Revision incremented whenever evaluation behavior changes. */
     readonly configuration_revision: number
-    /** Threshold rule type.
+    /** Threshold rule type. The first version supports absolute value only.
      *
      * * `relative_increase` - Relative increase
      * * `absolute_value` - Absolute value
      * * `absolute_increase` - Absolute increase */
     threshold_type?: ThresholdTypeEnumApi
     /**
-     * Percentage increase that triggers relative increase alerts.
+     * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @nullable
      * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
      */
@@ -163,7 +166,7 @@ export interface BillingAlertConfigurationApi {
      */
     minimum_value?: string
     /**
-     * Number of preceding UTC billing dates averaged for relative and absolute increase baselines.
+     * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @minimum 1
      * @maximum 90
      */
@@ -261,24 +264,25 @@ export interface PatchedBillingAlertConfigurationApi {
     description?: string
     /** Whether scheduled checks should evaluate this alert. */
     enabled?: boolean
-    /** Billing metric evaluated by this alert. The first version supports spend only.
+    /** Billing-period total to evaluate: current spend so far, or projected period-end spend.
      *
-     * * `spend` - Spend */
-    readonly metric?: BillingAlertMetricEnumApi
+     * * `spend` - Spend
+     * * `projected_spend` - Projected spend */
+    metric?: BillingAlertMetricEnumApi
     /** Server-controlled currency for spend values.
      *
      * * `USD` - USD */
     readonly currency?: CurrencyEnumApi
     /** Revision incremented whenever evaluation behavior changes. */
     readonly configuration_revision?: number
-    /** Threshold rule type.
+    /** Threshold rule type. The first version supports absolute value only.
      *
      * * `relative_increase` - Relative increase
      * * `absolute_value` - Absolute value
      * * `absolute_increase` - Absolute increase */
     threshold_type?: ThresholdTypeEnumApi
     /**
-     * Percentage increase that triggers relative increase alerts.
+     * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @nullable
      * @pattern ^-?\d{0,6}(?:\.\d{0,2})?$
      */
@@ -295,7 +299,7 @@ export interface PatchedBillingAlertConfigurationApi {
      */
     minimum_value?: string
     /**
-     * Number of preceding UTC billing dates averaged for relative and absolute increase baselines.
+     * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
      * @minimum 1
      * @maximum 90
      */
@@ -424,7 +428,8 @@ export interface BillingAlertEventApi {
     readonly period_end: string | null
     /** Billing metric evaluated by this event.
      *
-     * * `spend` - Spend */
+     * * `spend` - Spend
+     * * `projected_spend` - Projected spend */
     readonly metric: BillingAlertMetricEnumApi
     /**
      * Metric value for the evaluated billing date.
@@ -495,10 +500,19 @@ export interface BillingAlertEventApi {
 }
 
 export interface BillingAlertCheckNowResponseApi {
-    /** Evaluation event recorded by the manual check. */
-    event: BillingAlertEventApi
+    /** Evaluation event recorded by the manual check, or null for a paused preview. */
+    event?: BillingAlertEventApi | null
     /** Number of destination HogFunctions queued. */
     dispatched_destinations: number
+    /** True when the alert is paused: it was evaluated but no notifications were sent. */
+    preview: boolean
+    /** Whether the evaluated billing-period total breached the configured threshold. */
+    threshold_breached: boolean
+    /**
+     * Evaluated billing-period total, or null when billing data was not available.
+     * @nullable
+     */
+    current_value?: string | null
 }
 
 export interface BillingAlertDestinationResponseApi {

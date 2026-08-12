@@ -36,6 +36,13 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(billingAlertsCreateBodyNameMax).describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
+    metric: zod
+        .enum(['spend', 'projected_spend'])
+        .describe('\* `spend` - Spend\n\* `projected_spend` - Projected spend')
+        .optional()
+        .describe(
+            'Billing-period total to evaluate: current spend so far, or projected period-end spend.\n\n\* `spend` - Spend\n\* `projected_spend` - Projected spend'
+        ),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
@@ -43,12 +50,12 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'Threshold rule type.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+            'Threshold rule type. The first version supports absolute value only.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
         ),
     threshold_percentage: zod
         .stringFormat('decimal', billingAlertsCreateBodyThresholdPercentageRegExp)
         .nullish()
-        .describe('Percentage increase that triggers relative increase alerts.'),
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
     threshold_value: zod
         .stringFormat('decimal', billingAlertsCreateBodyThresholdValueRegExp)
         .nullish()
@@ -62,7 +69,7 @@ export const BillingAlertsCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(billingAlertsCreateBodyBaselineWindowDaysMax)
         .optional()
-        .describe('Number of preceding UTC billing dates averaged for relative and absolute increase baselines.'),
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
     evaluation_delay_hours: zod
         .number()
         .min(billingAlertsCreateBodyEvaluationDelayHoursMin)
@@ -152,6 +159,13 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Display name for this billing alert.'),
     description: zod.string().optional().describe('Optional internal description.'),
     enabled: zod.boolean().optional().describe('Whether scheduled checks should evaluate this alert.'),
+    metric: zod
+        .enum(['spend', 'projected_spend'])
+        .describe('\* `spend` - Spend\n\* `projected_spend` - Projected spend')
+        .optional()
+        .describe(
+            'Billing-period total to evaluate: current spend so far, or projected period-end spend.\n\n\* `spend` - Spend\n\* `projected_spend` - Projected spend'
+        ),
     threshold_type: zod
         .enum(['relative_increase', 'absolute_value', 'absolute_increase'])
         .describe(
@@ -159,12 +173,12 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         )
         .optional()
         .describe(
-            'Threshold rule type.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
+            'Threshold rule type. The first version supports absolute value only.\n\n\* `relative_increase` - Relative increase\n\* `absolute_value` - Absolute value\n\* `absolute_increase` - Absolute increase'
         ),
     threshold_percentage: zod
         .stringFormat('decimal', billingAlertsPartialUpdateBodyThresholdPercentageRegExp)
         .nullish()
-        .describe('Percentage increase that triggers relative increase alerts.'),
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
     threshold_value: zod
         .stringFormat('decimal', billingAlertsPartialUpdateBodyThresholdValueRegExp)
         .nullish()
@@ -178,7 +192,7 @@ export const BillingAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(billingAlertsPartialUpdateBodyBaselineWindowDaysMax)
         .optional()
-        .describe('Number of preceding UTC billing dates averaged for relative and absolute increase baselines.'),
+        .describe('Reserved for future increase-over-baseline rules. Not used by absolute value alerts.'),
     evaluation_delay_hours: zod
         .number()
         .min(billingAlertsPartialUpdateBodyEvaluationDelayHoursMin)

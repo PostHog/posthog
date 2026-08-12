@@ -26,6 +26,9 @@ const billingAlertCreate = (): ToolBase<typeof BillingAlertCreateSchema, Schemas
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
+        if (params.metric !== undefined) {
+            body['metric'] = params.metric
+        }
         if (params.threshold_type !== undefined) {
             body['threshold_type'] = params.threshold_type
         }
@@ -80,6 +83,9 @@ const billingAlertUpdate = (): ToolBase<typeof BillingAlertUpdateSchema, Schemas
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
+        }
+        if (params.metric !== undefined) {
+            body['metric'] = params.metric
         }
         if (params.threshold_type !== undefined) {
             body['threshold_type'] = params.threshold_type

@@ -907,7 +907,7 @@
         }
     },
     "billing-alert-create": {
-        "description": "Create a daily spend alert in the active organization. The caller must be an organization Admin or Owner. Billing owns the trigger configuration and evaluation; the shared alerting backend handles lifecycle, scheduling, destinations, and delivery. Choose exactly one threshold rule: relative_increase uses threshold_percentage, while absolute_value and absolute_increase use threshold_value. Values are USD in the first version. Optional destination_changes can create Slack, Microsoft Teams, or HTTPS webhook destinations atomically with the alert.",
+        "description": "Create a billing-period spend alert in the active organization. The caller must be an organization Admin or Owner. Billing owns the trigger configuration and evaluation; the shared alerting backend handles lifecycle, scheduling, destinations, and delivery. The metric picks the billing-period total to watch: spend (current period total so far) or projected_spend (projected period-end total). The first version supports only the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes can create Slack, Microsoft Teams, or HTTPS webhook destinations atomically with the alert.",
         "category": "Billing alerts",
         "feature": "billing_alerts",
         "summary": "Create billing alert",
@@ -922,7 +922,7 @@
         "feature_flag": "billing-alerts"
     },
     "billing-alert-update": {
-        "description": "Partially update a billing alert by ID in the active organization. The caller must be an organization Admin or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. Match threshold_percentage with relative_increase and threshold_value with absolute_value or absolute_increase. Optional destination_changes applies destination creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a request that creates a destination of the same type is rejected, because an alert allows one destination group per type.",
+        "description": "Partially update a billing alert by ID in the active organization. The caller must be an organization Admin or Owner. Change only the supplied trigger fields, alert copy, enabled state, snooze, or cooldown. The metric picks the billing-period total to watch (spend or projected_spend); the first version supports only the absolute_value threshold rule with threshold_value, in USD. Optional destination_changes applies destination creation or complete-group deletion in the same backend transaction as the configuration update. Repeating a request that creates a destination of the same type is rejected, because an alert allows one destination group per type.",
         "category": "Billing alerts",
         "feature": "billing_alerts",
         "summary": "Update billing alert",

@@ -33,7 +33,8 @@ from ..alert_destinations import (
     EventKind,
     destination_groups_for_alerts,
 )
-from ..logic.notifications import evaluate_and_dispatch_billing_alert
+from ..logic.evaluator import BillingAlertEvaluationError
+from ..logic.notifications import BillingAlertPreview, evaluate_and_dispatch_billing_alert, preview_billing_alert
 from ..logic.state_machine import (
     apply_disable,
     apply_enable,
@@ -141,6 +142,10 @@ def evaluate_and_dispatch_alert(alert: BillingAlertConfiguration) -> BillingAler
     return BillingAlertDispatchResult(event=event, dispatched_destinations=dispatched)
 
 
+def preview_alert(alert: BillingAlertConfiguration) -> BillingAlertPreview:
+    return preview_billing_alert(alert)
+
+
 def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
     with transaction.atomic():
         if alert.team_id is not None:
@@ -244,8 +249,10 @@ __all__ = [
     "EVENT_KINDS",
     "BillingAlertDispatchResult",
     "BillingAlertConfiguration",
+    "BillingAlertEvaluationError",
     "BillingAlertEvent",
     "BillingAlertExecutionTeamUnavailable",
+    "BillingAlertPreview",
     "EventKind",
     "apply_billing_alert_configuration_lifecycle",
     "apply_destination_changes",
@@ -254,6 +261,7 @@ __all__ = [
     "delete_destination",
     "destinations_for_alerts",
     "evaluate_and_dispatch_alert",
+    "preview_alert",
     "execution_team_for_organization",
     "initialize_billing_alert_lifecycle",
     "reschedule_billing_alert_configuration",

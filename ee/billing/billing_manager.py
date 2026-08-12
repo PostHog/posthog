@@ -42,6 +42,10 @@ BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestam
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
 
+# Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
+# on its read-only billing status path for tokens without a user role.
+BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
+
 
 class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
@@ -824,6 +828,20 @@ class BillingManager:
             headers=self.get_auth_headers(organization),
         )
 
+        handle_billing_service_error(res)
+        return res.json()
+
+    def get_billing_status_for_alerts(self, organization: Organization) -> dict[str, Any]:
+        """Read billing status for billing alert evaluation.
+
+        Evaluation runs as a backend job without an acting user, so the token carries the
+        billing alerts service_action claim instead of a user role claim.
+        """
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/billing",
+            headers=self.get_auth_headers(organization, service_action=BILLING_ALERTS_EVALUATION_SERVICE_ACTION),
+            timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
+        )
         handle_billing_service_error(res)
         return res.json()
 

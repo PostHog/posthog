@@ -65,7 +65,7 @@ def rehome_billing_alerts_before_team_delete(
             team_id=replacement_team_id,
             enabled=False,
             state=BillingAlertConfiguration.State.NOT_FIRING,
-            snooze_until=None,
+            snoozed_until=None,
             configuration_revision=F("configuration_revision") + 1,
             pending_evaluation_date=None,
             retry_attempt_count=0,

@@ -193,17 +193,22 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     name = serializers.CharField(max_length=160, help_text="Display name for this billing alert.")
     description = serializers.CharField(required=False, allow_blank=True, help_text="Optional internal description.")
     enabled = serializers.BooleanField(required=False, help_text="Whether scheduled checks should evaluate this alert.")
+    metric = serializers.ChoiceField(
+        choices=BillingAlertConfiguration.Metric.choices,
+        required=False,
+        help_text="Billing-period total to evaluate: current spend so far, or projected period-end spend.",
+    )
     threshold_type = serializers.ChoiceField(
         choices=BillingAlertConfiguration.ThresholdType.choices,
         required=False,
-        help_text="Threshold rule type.",
+        help_text="Threshold rule type. The first version supports absolute value only.",
     )
     threshold_percentage = serializers.DecimalField(
         max_digits=8,
         decimal_places=2,
         required=False,
         allow_null=True,
-        help_text="Percentage increase that triggers relative increase alerts.",
+        help_text="Reserved for future increase-over-baseline rules. Not used by absolute value alerts.",
     )
     threshold_value = serializers.DecimalField(
         max_digits=20,
@@ -222,7 +227,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         required=False,
         min_value=1,
         max_value=90,
-        help_text="Number of preceding UTC billing dates averaged for relative and absolute increase baselines.",
+        help_text="Reserved for future increase-over-baseline rules. Not used by absolute value alerts.",
     )
     evaluation_delay_hours = serializers.IntegerField(
         required=False,
@@ -283,7 +288,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = [
-            "metric",
             "currency",
             "configuration_revision",
             "state",
@@ -295,7 +299,6 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         extra_kwargs = {
-            "metric": {"help_text": "Billing metric evaluated by this alert. The first version supports spend only."},
             "currency": {"help_text": "Server-controlled currency for spend values."},
             "configuration_revision": {"help_text": "Revision incremented whenever evaluation behavior changes."},
             "state": {"help_text": "Current lifecycle state of this alert."},
@@ -350,6 +353,13 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         )
         if errors:
             raise ValidationError(errors)
+
+        # The first version evaluates a single billing-period total, so only absolute value
+        # thresholds are meaningful. Increase-over-baseline rules need daily buckets.
+        if threshold_type != BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE:
+            raise ValidationError(
+                {"threshold_type": "Billing alerts currently support the absolute value threshold only."}
+            )
 
         enabled = attrs.get("enabled", current.enabled if current else True)
         if attrs.get("snoozed_until") is not None and not enabled:
@@ -436,5 +446,20 @@ class BillingAlertDestinationResponseSerializer(serializers.Serializer):
 
 
 class BillingAlertCheckNowResponseSerializer(serializers.Serializer):
-    event = BillingAlertEventSerializer(help_text="Evaluation event recorded by the manual check.")
+    event = BillingAlertEventSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Evaluation event recorded by the manual check, or null for a paused preview.",
+    )
     dispatched_destinations = serializers.IntegerField(help_text="Number of destination HogFunctions queued.")
+    preview = serializers.BooleanField(
+        help_text="True when the alert is paused: it was evaluated but no notifications were sent.",
+    )
+    threshold_breached = serializers.BooleanField(
+        help_text="Whether the evaluated billing-period total breached the configured threshold.",
+    )
+    current_value = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Evaluated billing-period total, or null when billing data was not available.",
+    )

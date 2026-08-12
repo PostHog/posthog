@@ -91,7 +91,9 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: BillingAlertCheckNowResponseSerializer},
         description=(
             "Evaluate this billing alert immediately against real billing spend data. "
-            "Manual checks can send notifications when the evaluation records a dispatchable event."
+            "An enabled alert can send notifications when the evaluation records a dispatchable event. "
+            "A paused alert is evaluated as a preview only: it reports the current spend and would-be "
+            "outcome without sending notifications or recording an evaluation."
         ),
     )
     @action(
@@ -103,9 +105,41 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def check_now(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
+
+        def _amount(value: object) -> str | None:
+            return str(value) if value is not None else None
+
+        if not alert.enabled:
+            try:
+                preview = billing_alerts_api.preview_alert(alert)
+            except billing_alerts_api.BillingAlertEvaluationError as e:
+                raise ValidationError(str(e)) from e
+            response = BillingAlertCheckNowResponseSerializer(
+                {
+                    "event": None,
+                    "dispatched_destinations": 0,
+                    "preview": True,
+                    "threshold_breached": preview.evaluation.threshold_breached,
+                    "current_value": _amount(preview.evaluation.current_value),
+                }
+            )
+            report_user_action(
+                request.user,
+                "billing alert checked now",
+                {"alert_id": str(alert.id), "preview": True},
+                request=request,
+            )
+            return Response(response.data)
+
         result = billing_alerts_api.evaluate_and_dispatch_alert(alert)
         response = BillingAlertCheckNowResponseSerializer(
-            {"event": result.event, "dispatched_destinations": result.dispatched_destinations}
+            {
+                "event": result.event,
+                "dispatched_destinations": result.dispatched_destinations,
+                "preview": False,
+                "threshold_breached": result.event.threshold_breached,
+                "current_value": _amount(result.event.current_value),
+            }
         )
         report_user_action(request.user, "billing alert checked now", {"alert_id": str(alert.id)}, request=request)
         return Response(response.data)

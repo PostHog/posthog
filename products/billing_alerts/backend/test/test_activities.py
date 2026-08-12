@@ -21,17 +21,18 @@ from products.billing_alerts.backend.temporal.activities import (
 from products.billing_alerts.backend.temporal.types import EvaluateBillingAlertBatchActivityInputs
 
 
-def _billing_response(values: list[int]) -> dict:
+def _billing_response(current: int) -> dict:
     return {
-        "status": "ok",
-        "results": [
-            {
-                "id": 1,
-                "label": "Total",
-                "dates": ["2026-06-20", "2026-06-21", "2026-06-22"],
-                "data": values,
-            }
-        ],
+        "customer": {
+            "has_active_subscription": True,
+            "billing_period": {
+                "current_period_start": "2026-06-01T00:00:00Z",
+                "current_period_end": "2026-07-01T00:00:00Z",
+                "interval": "month",
+            },
+            "current_total_amount_usd_after_discount": str(current),
+            "projected_total_amount_usd_with_limit_after_discount": str(current),
+        }
     }
 
 
@@ -41,12 +42,11 @@ class TestBillingAlertActivities(BaseTest):
             "organization_id": self.organization.id,
             "team_id": self.team.id,
             "created_by_id": self.user.id,
-            "name": "Daily spend spike",
+            "name": "Period spend cap",
             "metric": BillingAlertConfiguration.Metric.SPEND,
-            "threshold_type": BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
-            "threshold_percentage": Decimal("50"),
+            "threshold_type": BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
+            "threshold_value": Decimal("100"),
             "minimum_value": Decimal("0"),
-            "baseline_window_days": 2,
             "evaluation_delay_hours": 6,
         }
         defaults.update(overrides)
@@ -64,7 +64,7 @@ class TestBillingAlertActivities(BaseTest):
         def fetch_for_alert(alert, _organization, *, now):
             if alert.id == failed_alert.id:
                 raise RuntimeError("billing unavailable")
-            return _billing_response([60, 60, 100]), 12
+            return _billing_response(100), 12
 
         mock_fetch_billing_data.side_effect = fetch_for_alert
 
@@ -184,7 +184,7 @@ class TestBillingAlertActivities(BaseTest):
     ) -> None:
         first = self._alert(name="First")
         second = self._alert(name="Second")
-        mock_fetch_billing_data.return_value = (_billing_response([60, 60, 100]), 12)
+        mock_fetch_billing_data.return_value = (_billing_response(100), 12)
         mock_prepare_dispatch.side_effect = RuntimeError("database unavailable")
 
         with self.assertRaisesRegex(RuntimeError, "database unavailable"):
