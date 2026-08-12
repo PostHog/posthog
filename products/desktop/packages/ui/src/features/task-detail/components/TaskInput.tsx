@@ -1,4 +1,4 @@
-import { X } from "@phosphor-icons/react";
+import { EyeIcon, EyeSlashIcon, X } from "@phosphor-icons/react";
 import type { AutoresearchService } from "@posthog/core/autoresearch/autoresearch";
 import { AUTORESEARCH_SERVICE } from "@posthog/core/autoresearch/identifiers";
 import { buildKickoffPreamble } from "@posthog/core/autoresearch/prompts";
@@ -13,13 +13,14 @@ import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
-import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
+import type { AgentRuntime } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   TaskRepositoryChip,
   TaskRepositoryDialog,
 } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
 import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
+import { useChannelSuggestionsStore } from "@posthog/ui/features/canvas/stores/channelSuggestionsStore";
 import {
   resolveTaskRepositoryDraft,
   useTaskRepositoryDraftStore,
@@ -29,7 +30,6 @@ import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detai
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
-import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
@@ -197,6 +197,14 @@ export function TaskInput({
   onContextChipClick,
   spaceSelector,
 }: TaskInputProps = {}) {
+  const suggestionCards = suggestions ?? [];
+  const hasSuggestions = suggestionCards.length > 0;
+  const suggestionsVisible = useChannelSuggestionsStore(
+    (s) => s.suggestionsVisible,
+  );
+  const setSuggestionsVisible = useChannelSuggestionsStore(
+    (s) => s.setSuggestionsVisible,
+  );
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
   const trpc = useHostTRPC();
   const hostClient = useHostTRPCClient();
@@ -1576,9 +1584,9 @@ export function TaskInput({
                   )}
               </Flex>
               <div className="absolute top-full right-0 left-0 z-10">
-                {suggestions ? (
+                {hasSuggestions && suggestionsVisible && (
                   <AnimatePresence>
-                    {suggestions.length > 0 && editorIsEmpty && (
+                    {hasSuggestions && editorIsEmpty && (
                       <motion.div
                         key="suggestions"
                         initial={{ opacity: 0 }}
@@ -1587,15 +1595,28 @@ export function TaskInput({
                         transition={{ duration: 0.2, ease: "easeInOut" }}
                         className="mt-6 flex flex-col gap-2"
                       >
-                        <Text
-                          size="1"
-                          weight="medium"
-                          className="px-2.5 text-(--gray-11)"
-                        >
-                          Suggestions
-                        </Text>
+                        <div className="flex items-center justify-between px-2.5">
+                          <Text
+                            size="1"
+                            weight="medium"
+                            className="text-(--gray-11)"
+                          >
+                            Suggestions
+                          </Text>
+                          <Tooltip content="Hide suggestions">
+                            <button
+                              type="button"
+                              aria-label="Hide suggestions"
+                              data-attr="hide-channel-suggestions"
+                              onClick={() => setSuggestionsVisible(false)}
+                              className="flex size-5 items-center justify-center rounded text-(--gray-10) hover:bg-(--gray-a3) hover:text-(--gray-12)"
+                            >
+                              <EyeSlashIcon size={13} />
+                            </button>
+                          </Tooltip>
+                        </div>
                         <div className="grid grid-cols-2 gap-2">
-                          {suggestions.map((suggestion) => (
+                          {suggestionCards.map((suggestion) => (
                             <SuggestedPromptCard
                               key={suggestion.label}
                               suggestion={suggestion}
@@ -1633,7 +1654,21 @@ export function TaskInput({
                       </motion.div>
                     )}
                   </AnimatePresence>
-                ) : (
+                )}
+                {hasSuggestions && !suggestionsVisible && editorIsEmpty && (
+                  <div className="mt-6 flex justify-center">
+                    <button
+                      type="button"
+                      data-attr="show-channel-suggestions"
+                      onClick={() => setSuggestionsVisible(true)}
+                      className="flex items-center gap-1 rounded px-2 py-1 text-(--gray-11) text-[12px] hover:bg-(--gray-a3) hover:text-(--gray-12)"
+                    >
+                      <EyeIcon size={13} />
+                      Show suggestions
+                    </button>
+                  </div>
+                )}
+                {!suggestions && (
                   <NewTaskSuggestions
                     repoPath={selectedDirectory || null}
                     workspaceMode={effectiveWorkspaceMode}
