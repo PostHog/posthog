@@ -88,6 +88,14 @@ _CRON_WINDOW_REFERENCE = datetime(2026, 1, 1, tzinfo=UTC)
 _CRON_WINDOW_HORIZON = timedelta(days=366)
 _CRON_WINDOW_MAX_SAMPLES = 20_000
 
+# Cron lanes hold wall-clock time in the project's timezone (see the coordinator's due-check),
+# so on the spring-forward night up to an hour more wall-clock schedule fits inside the same
+# absolute outage than this transition-free sample sees. Widening the sizing window by that
+# hour keeps the tolerance honest on that night in every zone, at the cost of at most one
+# extra tolerated failure the rest of the year. That is far cheaper than sizing per project
+# timezone, which would put DST fold/gap arithmetic and a per-team cache key on the failure path.
+_CRON_WINDOW_DST_SLACK_MINUTES = 60
+
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
 # the posture selection where the sandbox context is built). A baseline scout never carries that
@@ -124,6 +132,7 @@ def run_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
+    triggered_by: str = "schedule",
 ) -> RunResult:
     """Synchronous entrypoint: resolves config, spawns sandbox, persists the run row.
 
@@ -137,6 +146,7 @@ def run_signals_scout(
             skill_version=skill_version,
             repository=repository,
             verbose=verbose,
+            triggered_by=triggered_by,
         )
     )
 
@@ -148,8 +158,14 @@ async def arun_signals_scout(
     skill_version: int | None = None,
     repository: str | None = None,
     verbose: bool = False,
+    triggered_by: str = "schedule",
 ) -> RunResult:
-    """Async core. Safe to call from inside a running event loop (Temporal activity)."""
+    """Async core. Safe to call from inside a running event loop (Temporal activity).
+
+    `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes)
+    and `"manual"` for on-demand triggers (the `run` endpoint, the management command). Only
+    scheduled failures feed the failure-streak breaker; see the failure path below.
+    """
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
 
     # Honor the per-scout holdback denylist, resolved against the canonical project. Two effects:
@@ -331,7 +347,9 @@ async def arun_signals_scout(
         )
         # A run that got all the way through closes the breaker: the lane works, so any streak
         # it had accumulated is stale and a standing auto-pause is lifted (this is also how the
-        # half-open probe recovers a paused lane once its underlying cause is fixed).
+        # half-open probe recovers a paused lane once its underlying cause is fixed). Any
+        # trigger counts, since a manual success is the natural way to revive a lane right
+        # after fixing its skill.
         await database_sync_to_async(_clear_failure_streak, thread_sensitive=False)(config.pk)
         _capture_run_finished(
             team=team,
@@ -385,8 +403,15 @@ async def arun_signals_scout(
             else (0, None)
         )
         # Advance the breaker before the event so the failure that trips it is the one whose
-        # `error_message` explains the pause.
-        streak = await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
+        # `error_message` explains the pause. Scheduled failures only: the threshold is sized
+        # on the schedule's cadence, so counting off-schedule "run now" retries would let a
+        # burst of them reach a slow lane's threshold in minutes and impose the probe cooldown
+        # on a lane whose schedule never failed.
+        streak = (
+            await database_sync_to_async(_record_failure_streak, thread_sensitive=False)(config.pk)
+            if triggered_by == "schedule"
+            else None
+        )
         _capture_run_finished(
             team=team,
             config=config,
@@ -916,9 +941,10 @@ def _failure_streak_runs_in_window(config: SignalScoutConfig) -> int:
 
 @lru_cache(maxsize=256)
 def _cron_runs_in_window(cron_schedule: str) -> int:
-    """Fullest `FAILURE_STREAK_MIN_SPAN_MINUTES` window of occurrences anywhere in the schedule's
-    sampled cycle. Cached because it is a pure function of the schedule string given the fixed
-    reference, and the densest schedules cost a few hundred milliseconds to walk.
+    """Fullest tolerance window of occurrences (`FAILURE_STREAK_MIN_SPAN_MINUTES` plus the DST
+    slack) anywhere in the schedule's sampled cycle. Cached because it is a pure function of the
+    schedule string given the fixed reference, and the densest schedules cost a few hundred
+    milliseconds to walk.
 
     Each window's count is read at its last occurrence: the occurrences within `window` looking
     back from occurrence t are exactly the ones a window opened at its earliest member covers, so
@@ -926,7 +952,7 @@ def _cron_runs_in_window(cron_schedule: str) -> int:
     matches `interval_runs_in_tolerance_window`'s half-open count for a lane with no cron.
     """
     iterator = croniter(cron_schedule, _CRON_WINDOW_REFERENCE)
-    window = timedelta(minutes=FAILURE_STREAK_MIN_SPAN_MINUTES)
+    window = timedelta(minutes=FAILURE_STREAK_MIN_SPAN_MINUTES + _CRON_WINDOW_DST_SLACK_MINUTES)
     horizon = _CRON_WINDOW_REFERENCE + _CRON_WINDOW_HORIZON + window
     in_window: deque[datetime] = deque()
     # A schedule with no occurrence inside the horizon (e.g. February 29th) still runs once.

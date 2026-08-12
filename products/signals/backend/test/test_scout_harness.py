@@ -1109,8 +1109,10 @@ def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int
         ("daily_default", None, 1440, 5),
         ("monthly_interval", None, 43200, 5),
         # A cron wins at dispatch, but `run_interval_minutes` keeps whatever it held before —
-        # so reading the column alone would size an hourly lane as a daily one.
-        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 13),
+        # so reading the column alone would size an hourly lane as a daily one. One run wider
+        # than the hourly interval lane: cron lanes are wall-clock schedules, so the sizing
+        # window carries an hour of DST slack for the spring-forward night.
+        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 14),
         ("half_hourly_cron_hits_the_ceiling", "*/30 * * * *", 1440, 25),
         # Bursty: a 30-minute gap that repeats twice a day is not a lane that runs all day, and
         # must not be handed the tolerance of one — that is twelve days of leases on a wedge.
@@ -1450,7 +1452,7 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     # produce nothing. Nothing else in the harness notices, so the breaker has to.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam, "close-out")
 
-    async def _run_once(*, failing: bool, capture):
+    async def _run_once(*, failing: bool, capture, triggered_by: str = "schedule"):
         start = (
             AsyncMock(side_effect=RuntimeError("poll_for_turn: timed out after 900s"))
             if failing
@@ -1464,7 +1466,9 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
             patch("products.signals.backend.scout_harness.runner.sync_canonical_skills"),
             _stubbed_spawn_dependencies(),
         ):
-            return await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+            return await arun_signals_scout(
+                team_id=ateam.id, skill_name="signals-scout-errors", triggered_by=triggered_by
+            )
 
     def _paused_events(capture) -> list:
         return [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_config_auto_paused"]
@@ -1480,6 +1484,14 @@ async def test_failure_streak_pauses_scout_once_and_a_success_resumes_it(ateam, 
     # The breaker scales with the lane's schedule, so the streak this run has to reach is
     # derived from the config rather than fixed.
     threshold = failure_streak_pause_threshold(_failure_streak_runs_in_window(config))
+
+    # A failed manual "run now" is off-schedule evidence and must not advance the streak:
+    # the threshold is sized on the schedule's cadence, so counting rapid manual retries
+    # would let a burst of them pause a daily lane within minutes of a platform blip.
+    await _run_once(failing=True, capture=capture, triggered_by="manual")
+    config = await _reload()
+    assert config.consecutive_failure_count == 1
+
     for _ in range(threshold - 2):
         await _run_once(failing=True, capture=capture)
     config = await _reload()
