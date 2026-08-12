@@ -49,6 +49,7 @@ TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 # the field in facade/loops.py::update_loop either way.
 DISABLED_REASON_USAGE_LIMITED = "usage_limited"
 DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
+COMPUTE_BILLING_LIMIT_ERROR_TYPE = "ComputeBillingLimitError"
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
@@ -850,7 +851,7 @@ def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str, d
         )
 
 
-def handle_loop_run_terminal(task_run: TaskRun) -> None:
+def handle_loop_run_terminal(task_run: TaskRun, *, error_type: str | None = None) -> None:
     """Update loop bookkeeping when one of its runs reaches a terminal status.
 
     Resets `consecutive_failures` on success, increments it on failure/cancellation,
@@ -865,6 +866,7 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
         return
 
     is_success = task_run.status == TaskRun.Status.COMPLETED
+    is_billing_denial = error_type == COMPUTE_BILLING_LIMIT_ERROR_TYPE
     should_pause = False
 
     with transaction.atomic():
@@ -880,10 +882,21 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
 
         loop.last_run_at = task_run.completed_at or django_timezone.now()
         loop.last_run_status = task_run.status
-        loop.last_error = None if is_success else task_run.error_message
+        loop.last_error = (
+            None
+            if is_success
+            else "Your organization has reached its PostHog Desktop credit limit."
+            if is_billing_denial
+            else task_run.error_message
+        )
         loop.consecutive_failures = 0 if is_success else loop.consecutive_failures + 1
         update_fields = ["last_run_at", "last_run_status", "last_error", "consecutive_failures", "updated_at"]
-        if not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
+        if is_billing_denial and loop.enabled:
+            loop.enabled = False
+            loop.disabled_reason = DISABLED_REASON_USAGE_LIMITED
+            update_fields.extend(["enabled", "disabled_reason"])
+            should_pause = True
+        elif not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
             loop.enabled = False
             loop.disabled_reason = DISABLED_REASON_REPEATED_FAILURES
             update_fields.extend(["enabled", "disabled_reason"])

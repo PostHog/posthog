@@ -1101,6 +1101,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # the UI show the persisted message, so surface the cause instead.
             cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
             cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else None)
+            error_type = getattr(cause, "type", None) or type(e).__name__
             error_message = truncate_error_message(cause_message or str(e))
             if self._context:
                 if self._current_progress_step is not None:
@@ -1136,7 +1137,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     capture_analytics=False,
                 )
             await self._update_task_run_status(
-                "failed", error_message=error_message, run_id=run_id, error_type=type(e).__name__
+                "failed", error_message=error_message, run_id=run_id, error_type=error_type
             )
             if self._context:
                 await self._post_slack_update()

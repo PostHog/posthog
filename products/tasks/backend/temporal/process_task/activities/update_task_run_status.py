@@ -131,7 +131,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         )
 
         try:
-            handle_loop_run_terminal(task_run)
+            handle_loop_run_terminal(task_run, error_type=input.error_type)
         except Exception:
             activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
 
