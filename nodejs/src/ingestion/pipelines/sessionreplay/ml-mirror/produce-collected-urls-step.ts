@@ -19,10 +19,9 @@ const PRODUCED_REF_CACHE_MAX = 500_000
 /**
  * Records for one host per Kafka message.
  *
- * The Rust collector caps one replay message at 256 URLs of up to 2048 bytes each, which is about
- * 540 KB if they all share one host. That is under librdkafka's 1 MB default, but only just, and
- * the bound lives in another crate. This cap keeps the record size inside this file, where the
- * produce happens.
+ * The Rust collector caps one replay message at 512 URLs of up to 2048 bytes each, so one host's
+ * share of a message can exceed librdkafka's 1 MB default. This cap is what holds a record under
+ * it, and it lives in this file, where the produce happens, rather than in another crate.
  */
 const MAX_URLS_PER_RECORD = 64
 
