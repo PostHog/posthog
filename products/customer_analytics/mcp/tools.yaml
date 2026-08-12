@@ -875,6 +875,27 @@ tools:
     event-streams-update:
         operation: event_streams_update
         enabled: false
+    feature-request-product-areas-create:
+        operation: feature_request_product_areas_create
+        enabled: false
+    feature-request-product-areas-list:
+        operation: feature_request_product_areas_list
+        enabled: false
+    feature-request-product-areas-partial-update:
+        operation: feature_request_product_areas_partial_update
+        enabled: false
+    feature-request-product-areas-update:
+        operation: feature_request_product_areas_update
+        enabled: false
+    feature-requests-create:
+        operation: feature_requests_create
+        enabled: false
+    feature-requests-list:
+        operation: feature_requests_list
+        enabled: false
+    feature-requests-retrieve:
+        operation: feature_requests_retrieve
+        enabled: false
     usage-metrics-create:
         operation: groups_types_metrics_create
         enabled: true

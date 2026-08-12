@@ -36,6 +36,7 @@ import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJou
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
 import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
+import { FeatureRequestsTabContent } from './components/FeatureRequests/FeatureRequestsTabContent'
 import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
@@ -90,6 +91,10 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         return <NotFound object="page" />
     }
 
+    if (activeTab === 'feature_requests' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]) {
+        return <NotFound object="page" />
+    }
+
     const dashboardContent =
         businessType === 'b2b' && shouldShowGroupsIntroduction ? (
             <>
@@ -133,6 +138,15 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             label: 'Announcements',
             content: <AnnouncementsTabContent />,
             link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]) {
+        tabs.push({
+            key: 'feature_requests',
+            label: 'Requests',
+            content: <FeatureRequestsTabContent />,
+            link: combineUrl(urls.customerAnalyticsFeatureRequests(), searchParams).url,
         })
     }
 

@@ -98,6 +98,60 @@ export const B2BModeWithoutGroups: Story = {
     },
 }
 
+export const FeatureRequests: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                'api/projects/:team_id/feature_requests/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: '018f47de-7e12-7000-8000-000000000001',
+                            title: 'Export account-level retention data',
+                            description: 'The customer needs this export for their monthly reporting workflow.',
+                            request_status: 'requested',
+                            account: { id: '018f47de-7e12-7000-8000-000000000002', name: 'Acme' },
+                            product_areas: [
+                                {
+                                    id: '018f47de-7e12-7000-8000-000000000003',
+                                    name: 'Product analytics',
+                                    display_order: 1,
+                                    is_active: true,
+                                    created_at: '2024-01-10T10:00:00Z',
+                                    updated_at: '2024-01-10T10:00:00Z',
+                                },
+                                {
+                                    id: '018f47de-7e12-7000-8000-000000000004',
+                                    name: 'Data warehouse',
+                                    display_order: 2,
+                                    is_active: true,
+                                    created_at: '2024-01-10T10:00:00Z',
+                                    updated_at: '2024-01-10T10:00:00Z',
+                                },
+                            ],
+                            created_by: 1,
+                            updated_by: 1,
+                            created_at: '2024-01-12T10:00:00Z',
+                            updated_at: '2024-01-14T10:00:00Z',
+                        },
+                    ],
+                },
+                'api/projects/:team_id/feature_request_product_areas/': [],
+            },
+        })
+        return <App />
+    },
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.CUSTOMER_ANALYTICS, FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS],
+        pageUrl: urls.customerAnalyticsFeatureRequests(),
+        testOptions: {
+            waitForSelector: '[data-attr="new-feature-request"]',
+        },
+    },
+}
+
 export const GatedWithoutMatchingEarlyAccessFeature: Story = {
     render: () => <App />,
     parameters: {

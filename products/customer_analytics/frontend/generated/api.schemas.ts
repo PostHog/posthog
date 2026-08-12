@@ -1366,6 +1366,120 @@ export interface EventStreamTestMessageApi {
     readonly channel_id: string
 }
 
+export interface FeatureRequestProductAreaApi {
+    /** Stable product area ID. */
+    readonly id: string
+    /**
+     * Team-maintained product area name.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Position in product area selectors. Lower values appear first.
+     * @minimum 0
+     */
+    display_order?: number
+    /** Whether editors can select this product area for new requests. */
+    is_active?: boolean
+    /** When the product area was created. */
+    readonly created_at: string
+    /** When the product area was last updated. */
+    readonly updated_at: string
+}
+
+export interface PatchedFeatureRequestProductAreaApi {
+    /** Stable product area ID. */
+    readonly id?: string
+    /**
+     * Team-maintained product area name.
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * Position in product area selectors. Lower values appear first.
+     * @minimum 0
+     */
+    display_order?: number
+    /** Whether editors can select this product area for new requests. */
+    is_active?: boolean
+    /** When the product area was created. */
+    readonly created_at?: string
+    /** When the product area was last updated. */
+    readonly updated_at?: string
+}
+
+/**
+ * * `requested` - Requested
+ */
+export type RequestStatusEnumApi = (typeof RequestStatusEnumApi)[keyof typeof RequestStatusEnumApi]
+
+export const RequestStatusEnumApi = {
+    Requested: 'requested',
+} as const
+
+export interface FeatureRequestAccountApi {
+    /** ID of the affected Customer Analytics account. */
+    readonly id: string
+    /** Name of the affected account. */
+    readonly name: string
+}
+
+export interface FeatureRequestApi {
+    /** Stable feature request ID. */
+    readonly id: string
+    /** Customer-facing request title. */
+    readonly title: string
+    /** Customer-facing request description in Markdown. */
+    readonly description: string
+    /** Current customer-facing status. The first release always creates requests as requested.
+     *
+     * * `requested` - Requested */
+    readonly request_status: RequestStatusEnumApi
+    /** Affected account in the first release. */
+    readonly account: FeatureRequestAccountApi
+    /** Product areas affected by this request. */
+    readonly product_areas: readonly FeatureRequestProductAreaApi[]
+    /**
+     * ID of the user who created the request.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * ID of the last user to update the request.
+     * @nullable
+     */
+    readonly updated_by: number | null
+    /** When the request was created. */
+    readonly created_at: string
+    /** When the request was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedFeatureRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FeatureRequestApi[]
+}
+
+export interface FeatureRequestCreateApi {
+    /**
+     * Required customer-facing request title.
+     * @maxLength 400
+     */
+    title: string
+    /** Required customer-facing request description in Markdown. */
+    description: string
+    /** ID of the affected Customer Analytics account. */
+    account_id: string
+    /** One or more active product area IDs. Duplicate IDs are ignored. */
+    product_area_ids: string[]
+    /** Client-generated key that makes retries return the original request instead of creating a duplicate. */
+    idempotency_key: string
+}
+
 /**
  * * `numeric` - numeric
  * * `currency` - currency
@@ -1703,6 +1817,24 @@ export type CustomerJourneysListParams = {
 }
 
 export type CustomerProfileConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type FeatureRequestProductAreasListParams = {
+    /**
+     * Include inactive product areas. Defaults to false.
+     */
+    include_inactive?: boolean
+}
+
+export type FeatureRequestsListParams = {
     /**
      * Number of results to return per page.
      */

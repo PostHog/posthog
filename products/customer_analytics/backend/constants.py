@@ -7,6 +7,7 @@ SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
 
 # Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP`.
 CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
+CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG = "customer-analytics-feature-requests"
 
 # Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> person
 # properties feature: creating person-target custom property sources (API + UI), staging rows during

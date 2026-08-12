@@ -88,6 +88,7 @@ from products.customer_analytics.backend.logic import (
     announcements as _announcements_logic,
     channel_summaries as _channel_summaries_logic,
     custom_property_values as _custom_property_values_logic,
+    feature_requests as _feature_requests_logic,
     relationships as _relationships_logic,
 )
 from products.customer_analytics.backend.logic.custom_property_definitions import (
@@ -1958,6 +1959,82 @@ def list_custom_property_sync_runs(
     page = list(queryset[offset : offset + limit])
     _expire_stale_running_runs(team_id, page)
     return [_to_sync_run_view(run) for run in page], total_count
+
+
+FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError
+FeatureRequestProductAreaConflictError = _feature_requests_logic.FeatureRequestProductAreaConflictError
+
+
+def list_feature_request_product_areas(
+    team_id: int, *, include_inactive: bool = False
+) -> list[contracts.FeatureRequestProductAreaView]:
+    return _feature_requests_logic.list_product_areas(team_id, include_inactive=include_inactive)
+
+
+def create_feature_request_product_area(
+    *, team_id: int, name: str, display_order: int, actor_id: int
+) -> contracts.FeatureRequestProductAreaView:
+    return _feature_requests_logic.create_product_area(
+        team_id=team_id,
+        name=name,
+        display_order=display_order,
+        actor_id=actor_id,
+    )
+
+
+def update_feature_request_product_area(
+    *,
+    team_id: int,
+    product_area_id: UUID,
+    name: str | None,
+    display_order: int | None,
+    is_active: bool | None,
+    actor_id: int,
+) -> contracts.FeatureRequestProductAreaView | None:
+    return _feature_requests_logic.update_product_area(
+        team_id=team_id,
+        product_area_id=product_area_id,
+        name=name,
+        display_order=display_order,
+        is_active=is_active,
+        actor_id=actor_id,
+    )
+
+
+def list_feature_requests(
+    *, team_id: int, user_access_control: "UserAccessControl", offset: int, limit: int
+) -> tuple[list[contracts.FeatureRequestView], int]:
+    return _feature_requests_logic.list_feature_requests(
+        team_id=team_id,
+        user_access_control=user_access_control,
+        offset=offset,
+        limit=limit,
+    )
+
+
+def get_feature_request(
+    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+) -> contracts.FeatureRequestView | None:
+    return _feature_requests_logic.get_feature_request(
+        team_id=team_id,
+        feature_request_id=feature_request_id,
+        user_access_control=user_access_control,
+    )
+
+
+def create_feature_request(
+    *,
+    team_id: int,
+    input: contracts.CreateFeatureRequestInput,
+    actor_id: int,
+    user_access_control: "UserAccessControl",
+) -> contracts.FeatureRequestCreateOutcome:
+    return _feature_requests_logic.create_feature_request(
+        team_id=team_id,
+        input=input,
+        actor_id=actor_id,
+        user_access_control=user_access_control,
+    )
 
 
 # --- CustomerJourney ---
