@@ -34,9 +34,8 @@ const STRENGTH_WORD: Record<Exclude<ExperimentWatchCardStrengthEnumApi, 'only'>,
 }
 
 function otherVariants(card: ExperimentWatchCardApi, armKeys: string[]): string {
-    return armKeys.length > 2
-        ? 'the other variants'
-        : (armKeys.find((key) => key !== card.variant) ?? 'the other variant')
+    const named = armKeys.length === 2 ? armKeys.find((key) => key !== card.variant) : undefined
+    return named ?? pluralize(armKeys.length - 1, 'the other variant', undefined, false)
 }
 
 /**
