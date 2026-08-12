@@ -24,7 +24,9 @@ const Y_LABEL_LEFT_GUTTER = 6
 /** Horizontal gap between stacked value-axis gutters on the same side — shared by the margin
  *  reservation here and the gutter rendering in AxisLabels so the two can't drift. */
 export const GUTTER_GAP = 12
-const X_LABEL_EDGE_PADDING = 4
+/** Breathing room past half an edge tick label, so the outermost label doesn't sit flush against
+ *  the wrapper's clip. Shared with chart types that reserve their own x-label gutters. */
+export const X_LABEL_EDGE_PADDING = 4
 export const X_AXIS_TITLE_MARGIN = 22
 export const Y_AXIS_TITLE_MARGIN = 24
 
