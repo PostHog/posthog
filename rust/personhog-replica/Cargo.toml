@@ -19,7 +19,6 @@ futures = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 envconfig = { workspace = true }
-rand = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
@@ -29,6 +28,7 @@ tracing-subscriber = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+rand = { workspace = true }
 rstest = "0.26"
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"

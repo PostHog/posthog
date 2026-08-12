@@ -20,7 +20,6 @@ futures = { workspace = true }
 metrics = { workspace = true }
 prost = { workspace = true }
 rdkafka = { workspace = true }
-serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
@@ -30,6 +29,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 health = { path = "../common/health" }
 personhog-common = { path = "../personhog-common" }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 
 [lints]

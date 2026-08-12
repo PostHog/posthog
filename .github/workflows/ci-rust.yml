@@ -796,7 +796,7 @@ jobs:
               # (which records cargo-shear as installed) but not the binary itself, so
               # without --force binstall short-circuits ("already installed") and the
               # next step fails with `error: no such command: shear`.
-              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
+              run: cargo binstall --no-confirm --force cargo-shear@1.13.4
 
             - name: Run cargo shear
               run: cargo shear
