@@ -1623,6 +1623,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         timing_keys = {timing.k for timing in response.timings or []}
         for timing_suffix in (
             "/postgres_source_validation",
+            "/postgres_source_helpers_import",
             "/postgres_source_config",
             "/postgres_source_capability",
             "/postgres_source_registry",

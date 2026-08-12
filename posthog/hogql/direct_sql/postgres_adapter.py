@@ -244,13 +244,17 @@ class PostgresAdapter:
         return ensure_single_direct_statement(sql)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        from products.warehouse_sources.backend.facade.source_management import _get_sslmode, source_requires_ssl
-
         source = request.source
-        with request.timings.measure("postgres_source_validation", emit_span=True):
+        with request.timings.measure("postgres_source_validation"):
+            with request.timings.measure("postgres_source_helpers_import"):
+                from products.warehouse_sources.backend.facade.source_management import (
+                    _get_sslmode,
+                    source_requires_ssl,
+                )
+
             postgres_source, source_config = self.validate_source_config(source, request.team, request.timings)
-        source_schema = source_config.schema
-        require_ssl = source_requires_ssl(source, source_config)
+            source_schema = source_config.schema
+            require_ssl = source_requires_ssl(source, source_config)
         settings = request.settings
         statement_timeout_ms = (
             max(settings.max_execution_time or DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS, 1) * 1000
@@ -295,7 +299,7 @@ class PostgresAdapter:
                             source_schema,
                             runtime_connection_metadata,
                         ):
-                            with request.timings.measure("postgres_connection_metadata", emit_span=True):
+                            with request.timings.measure("postgres_connection_metadata"):
                                 runtime_connection_metadata = get_runtime_direct_postgres_connection_metadata(
                                     connection,
                                     runtime_connection_metadata,
@@ -306,11 +310,11 @@ class PostgresAdapter:
                             host,
                         )
                         if session_setup_sql:
-                            with request.timings.measure("postgres_session_setup", emit_span=True):
+                            with request.timings.measure("postgres_session_setup"):
                                 connection.execute(session_setup_sql)
                         connection.adapters.register_loader("date", LenientDirectPostgresDateLoader)
                         with connection.cursor() as cursor:
-                            with request.timings.measure("postgres_query_execute", emit_span=True):
+                            with request.timings.measure("postgres_query_execute"):
                                 cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
                                     request.sql, request.values or None
                                 )
@@ -319,7 +323,7 @@ class PostgresAdapter:
                             # fetchall() on them raises ProgrammingError. Treat them as a
                             # successful, empty result instead of surfacing a spurious error.
                             description = cursor.description or []
-                            with request.timings.measure("postgres_query_fetch", emit_span=True):
+                            with request.timings.measure("postgres_query_fetch"):
                                 results = cursor.fetchall() if description else []
         except (psycopg.Error, BaseSSHTunnelForwarderError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
