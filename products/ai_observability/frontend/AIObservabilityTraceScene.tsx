@@ -617,18 +617,18 @@ function PersonChip({ person }: { person: PersonData }): JSX.Element {
             <span className="sr-only">Person</span>
             <PersonDisplay withIcon="sm" person={person} />
             {filterIdentifier && (
-                <Tooltip title={`View traces for ${filterIdentifier.value}`}>
-                    <LemonButton
-                        size="xsmall"
-                        icon={<IconFilter />}
-                        noPadding
-                        className="ml-0.5"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            push(getTracesUrlWithPersonFilter(filterIdentifier))
-                        }}
-                    />
-                </Tooltip>
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconFilter />}
+                    // A string tooltip also becomes the accessible name of this icon-only button
+                    tooltip={`View traces for ${filterIdentifier.value}`}
+                    noPadding
+                    className="ml-0.5"
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        push(getTracesUrlWithPersonFilter(filterIdentifier))
+                    }}
+                />
             )}
         </LemonTag>
     )
