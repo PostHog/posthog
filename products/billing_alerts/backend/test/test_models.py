@@ -38,8 +38,8 @@ def test_organization_deletion_cascades_all_billing_alert_rows() -> None:
     alert = BillingAlertConfiguration.objects.create(
         organization=organization,
         team=team,
-        name="Spend increase",
-        threshold_percentage=Decimal("10"),
+        name="Period spend cap",
+        threshold_value=Decimal("10"),
     )
     claim = BillingAlertEvaluationClaim.objects.create(
         alert=alert,
@@ -69,7 +69,7 @@ def test_team_deletion_leaves_alert_disabled_and_detached() -> None:
         organization=organization,
         team=team,
         name="Spend increase",
-        threshold_percentage=Decimal("10"),
+        threshold_value=Decimal("10"),
         state=BillingAlertConfiguration.State.FIRING,
         next_check_at=datetime(2026, 7, 21, 12, tzinfo=UTC),
         pending_evaluation_date=date(2026, 7, 20),
@@ -95,7 +95,7 @@ def test_execution_team_must_belong_to_alert_organization() -> None:
         organization=alert_organization,
         team=other_team,
         name="Spend increase",
-        threshold_percentage=Decimal("10"),
+        threshold_value=Decimal("10"),
     )
 
     with pytest.raises(ValidationError) as error:
@@ -112,7 +112,7 @@ def test_event_lineage_is_derived_from_its_claim() -> None:
         organization=organization,
         team=team,
         name="Spend increase",
-        threshold_percentage=Decimal("10"),
+        threshold_value=Decimal("10"),
     )
     claim = BillingAlertEvaluationClaim.objects.create(
         alert=alert,
