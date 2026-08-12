@@ -99,6 +99,12 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     evaluationRuntime?: FeatureFlagEvaluationRuntime
     /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
     hideMatchOptions?: boolean
+    /**
+     * When true, group targeting is disabled per condition set. Early access feature enrollment is
+     * held in the `$feature_enrollment/<key>` person property, which a group-aggregated condition
+     * cannot read, so the API rejects the save.
+     */
+    hasEarlyAccessFeatures?: boolean
     /** When true, hides the early exit toggle. Use in contexts where early_exit cannot be persisted (e.g. default release conditions). */
     hideEarlyExit?: boolean
 }
@@ -349,6 +355,7 @@ interface ConditionProps {
     taxonomicGroupTypesForCondition: (conditionGroupTypeIndex: number | null | undefined) => TaxonomicFilterGroupType[]
     groupTypes: Map<GroupTypeIndex, GroupType>
     setConditionAggregation: (index: number, groupTypeIndex: number | null) => void
+    hasEarlyAccessFeatures?: boolean
     isDeviceTargeting: boolean
     onMoveUp: () => void
     onMoveDown: () => void
@@ -422,6 +429,7 @@ const ConditionContent = ({
     taxonomicGroupTypesForCondition,
     groupTypes,
     setConditionAggregation,
+    hasEarlyAccessFeatures,
     isDeviceTargeting,
     onMoveUp,
     onMoveDown,
@@ -612,6 +620,9 @@ const ConditionContent = ({
                                                                     gt.group_type.slice(1) +
                                                                     's',
                                                             icon: <IconPeople />,
+                                                            disabledReason: hasEarlyAccessFeatures
+                                                                ? 'This flag is linked to an early access feature, so it can only target users. Remove the early access feature to target groups.'
+                                                                : undefined,
                                                         })),
                                                     },
                                                 ]}
@@ -860,6 +871,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
     evaluationRuntime,
     hideMatchOptions,
     hideEarlyExit,
+    hasEarlyAccessFeatures,
 }: FeatureFlagReleaseConditionsCollapsibleProps): JSX.Element {
     const releaseConditionsLogic = featureFlagReleaseConditionsLogic({
         id,
@@ -1282,6 +1294,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                                 groupTypes={groupTypes}
                                                 setConditionAggregation={setConditionAggregation}
+                                                hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                                 isDeviceTargeting={isDeviceTargeting}
                                                 onMoveUp={() => moveConditionSetUp(index)}
                                                 onMoveDown={() => moveConditionSetDown(index)}
@@ -1362,6 +1375,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1416,6 +1430,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                         taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                         groupTypes={groupTypes}
                                         setConditionAggregation={setConditionAggregation}
+                                        hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                         isDeviceTargeting={isDeviceTargeting}
                                         onMoveUp={() => moveConditionSetUp(index)}
                                         onMoveDown={() => moveConditionSetDown(index)}
@@ -1452,6 +1467,7 @@ export function FeatureFlagReleaseConditionsCollapsible({
                                 taxonomicGroupTypesForCondition={taxonomicGroupTypesForCondition}
                                 groupTypes={groupTypes}
                                 setConditionAggregation={setConditionAggregation}
+                                hasEarlyAccessFeatures={hasEarlyAccessFeatures}
                                 isDeviceTargeting={isDeviceTargeting}
                                 onMoveUp={() => moveConditionSetUp(index)}
                                 onMoveDown={() => moveConditionSetDown(index)}
