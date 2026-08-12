@@ -150,7 +150,7 @@ Harness-level:
 - `scout-emit-report` / `scout-edit-report` — author a report / edit an existing one (the report-channel contract is in the harness prompt).
 - `scout-members-list` — this project's members with their resolved `github_login`, for `suggested_reviewers` routing.
 
-Deep-dive skills (baked into the sandbox — read the matching one when you go deep, don't reinvent its queries): `posthog:exploring-llm-costs`, `posthog:exploring-llm-traces`, `posthog:exploring-llm-evaluations`, `posthog:exploring-llm-clusters`, and `posthog:querying-posthog-data`. See `references/lenses.md` for which skill maps to which lens.
+Deep-dive skills (read the matching one when you go deep, don't reinvent its queries): `posthog:exploring-llm-costs`, `posthog:exploring-llm-traces`, `posthog:exploring-llm-evaluations`, `posthog:exploring-llm-clusters`, and `posthog:querying-posthog-data`. See `references/lenses.md` for which skill maps to which lens. These are on disk in this sandbox, not in the project's skill store — load one with the `Skill` tool or read `~/.claude/skills/<name>/SKILL.md`. `skill-get` 404s on them.
 
 ## When to stop
 

@@ -941,6 +941,8 @@ Pin to v{skill.version} explicitly, since the run row, your tool resolution, and
 
 The body tells you what to investigate, in what order, with what hypotheses. Pull files on demand with `skill-file-get` only when the body references them. Don't start investigating before you've read it.
 
+`skill-get` / `skill-file-get` are for your own bound skill and nothing else. Any *other* skill your body names — the PostHog ai-plugin deep-dive guides like `exploring-llm-costs` or `querying-posthog-data` — is not a row in this project's skill store, so `skill-get` returns a 404 on it. Those are installed on disk in this sandbox: load one with the `Skill` tool, or read `~/.claude/skills/<name>/SKILL.md`. A 404 from `skill-get` means you used the wrong fetch, not that the skill is missing, so don't record it as an unavailable dependency.
+
 # Then: orient on this project
 
 Once you've read your skill, call:
