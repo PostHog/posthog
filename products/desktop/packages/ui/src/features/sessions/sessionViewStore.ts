@@ -1,3 +1,4 @@
+import type { AgentTurnFeedbackSentiment } from "@posthog/shared";
 import { create } from "zustand";
 
 interface SessionViewState {
@@ -20,6 +21,13 @@ interface SessionViewState {
     string,
     { collapsed: boolean; fileListKey: string }
   >;
+  /**
+   * Thumbs rating given to an agent turn, keyed by turn id. Feedback is
+   * analytics-only, so this exists purely to keep the chosen thumb lit —
+   * without it a rated turn would forget the click as soon as the virtualized
+   * thread scrolled its row out of the window. Not persisted.
+   */
+  turnFeedbackByTurnId: Record<string, AgentTurnFeedbackSentiment>;
 }
 
 interface SessionViewActions {
@@ -35,6 +43,10 @@ interface SessionViewActions {
     fileListKey: string,
   ) => void;
   syncArtifactFilesListKey: (taskId: string, fileListKey: string) => void;
+  setTurnFeedback: (
+    turnId: string,
+    sentiment: AgentTurnFeedbackSentiment,
+  ) => void;
 }
 
 type SessionViewStore = SessionViewState & { actions: SessionViewActions };
@@ -46,6 +58,7 @@ const useStore = create<SessionViewStore>((set) => ({
   groupOverrides: {},
   queueCollapsedByTaskId: {},
   artifactFilesCollapseByTaskId: {},
+  turnFeedbackByTurnId: {},
   actions: {
     setShowRawLogs: (show) => set({ showRawLogs: show }),
     setSearchQuery: (query) => set({ searchQuery: query }),
@@ -89,6 +102,13 @@ const useStore = create<SessionViewStore>((set) => ({
           },
         };
       }),
+    setTurnFeedback: (turnId, sentiment) =>
+      set((state) => ({
+        turnFeedbackByTurnId: {
+          ...state.turnFeedbackByTurnId,
+          [turnId]: sentiment,
+        },
+      })),
   },
 }));
 
@@ -109,4 +129,6 @@ export const useArtifactFilesCollapsed = (
         (fileListKey === undefined ||
           s.artifactFilesCollapseByTaskId[taskId]?.fileListKey === fileListKey),
   );
+export const useTurnFeedback = (turnId: string) =>
+  useStore((s) => s.turnFeedbackByTurnId[turnId] ?? null);
 export const useSessionViewActions = () => useStore((s) => s.actions);
