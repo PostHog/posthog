@@ -89,6 +89,18 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
         assert not is_valid
         assert "internal storage" in error_message
 
+    @override_settings(BUCKET_URL="s3://ph-modeling-storage")
+    def test_rejects_a_bucket_url_that_diverges_from_datawarehouse_bucket(self) -> None:
+        # BUCKET_URL is configured independently of DATAWAREHOUSE_BUCKET/BUCKET_PATH (see
+        # s3_proxy.warehouse_bucket_host) and is the actual storage root every warehouse-pipeline
+        # write path uses, so a deployment where it names a different bucket must still be blocked.
+        is_valid, error_message = validate_warehouse_table_url_pattern(
+            "https://ph-modeling-storage.s3.us-east-1.amazonaws.com/team_1_model_x/modeling/y"
+        )
+
+        assert not is_valid
+        assert "internal storage" in error_message
+
     @parameterized.expand(
         [
             ("brace_expansion", "https://s3.us-east-1.amazonaws.com/{ph-warehouse,acme}/x.csv"),

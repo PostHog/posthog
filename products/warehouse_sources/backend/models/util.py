@@ -614,9 +614,13 @@ _NOT_OUR_STORAGE = (
 # url_pattern must never resolve to one - see _posthog_owned_bucket_names below.
 # test_bucket_settings_are_all_triaged in test_util.py enumerates every "*_BUCKET" setting that
 # exists and fails if one isn't listed here or in _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE,
-# so a newly added bucket setting can't silently miss this check the way this one originally did.
-# BUCKET_PATH is the one name here that doesn't follow the "*_BUCKET" suffix, so it has to stay
-# listed by hand; the test can't discover it on its own.
+# so a newly added "*_BUCKET" setting can't silently miss this check the way this one originally
+# did. BUCKET_PATH and BUCKET_URL are the two names here that don't follow that suffix, so they
+# have to stay listed by hand; the test can't discover either on its own. BUCKET_URL is the
+# warehouse pipelines' actual storage root (an `s3://bucket` URI, not a bare name - see the
+# s3:// handling in _posthog_owned_bucket_names) and is configured independently of
+# DATAWAREHOUSE_BUCKET/BUCKET_PATH, so a deployment that points it at a different bucket was
+# reachable through a table's url_pattern until this line was added.
 #
 # CLICKHOUSE_BACKUPS_BUCKET, IDENTITY_MATCHING_S3_BUCKET, OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET,
 # and QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here because each is read or written by ClickHouse's own
@@ -624,6 +628,7 @@ _NOT_OUR_STORAGE = (
 # shape the original vulnerability exploited - not because a customer's url_pattern can reach them today.
 _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
     "BUCKET_PATH",
+    "BUCKET_URL",
     "CLICKHOUSE_BACKUPS_BUCKET",
     "DATAWAREHOUSE_BUCKET",
     "IDENTITY_MATCHING_S3_BUCKET",
@@ -663,9 +668,18 @@ def _posthog_owned_bucket_names() -> set[str]:
     table carries no credential. These are the buckets that role can reach, and they hold every
     team's data, so reading one across the API would cross the tenant boundary.
     """
-    names = {getattr(settings, name, None) for name in _POSTHOG_OWNED_BUCKET_SETTING_NAMES}
-    # A couple of these settings are configured as `bucket/prefix`; only the bucket identifies storage.
-    return {str(name).strip("/").split("/", 1)[0] for name in names if name}
+    owned: set[str] = set()
+    for setting_name in _POSTHOG_OWNED_BUCKET_SETTING_NAMES:
+        value = getattr(settings, setting_name, None)
+        if not value:
+            continue
+        value = str(value)
+        # BUCKET_URL is a full `s3://bucket` URI rather than a bare bucket name; the rest are
+        # sometimes configured as `bucket/prefix`, where only the leading segment is the bucket.
+        bucket = urlparse(value).netloc if value.startswith("s3://") else value.strip("/").split("/", 1)[0]
+        if bucket:
+            owned.add(bucket)
+    return owned
 
 
 def _validate_url_pattern_is_not_posthog_storage(
