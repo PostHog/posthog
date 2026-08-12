@@ -98,7 +98,8 @@ export function buildPosthogProvider(
     oauth: {
       name: "PostHog",
       login: (callbacks) => loginPosthog(callbacks, explicitRegion),
-      refreshToken: (credentials) => refreshPosthog(region, credentials),
+      refreshToken: (credentials, signal) =>
+        refreshPosthog(region, credentials, signal),
       getApiKey: (credentials) => String(credentials.access),
       modifyModels: (models, credentials) =>
         remapModelsToCredentialRegion(
