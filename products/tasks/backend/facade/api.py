@@ -2079,12 +2079,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # queued repo-less run.
         "github_read_access",
         # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
-        # and drives loop bookkeeping in handle_loop_run_terminal. A run update must never be able
-        # to forge or repoint it, or a caller could steer terminal side effects at another loop.
+        # and drives loop bookkeeping in handle_loop_run_terminal. The completion marker prevents
+        # terminal bookkeeping from running twice. A caller must not be able to forge either.
         "loop_id",
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         "ai_stage",
