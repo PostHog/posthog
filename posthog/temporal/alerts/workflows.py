@@ -165,8 +165,12 @@ class CheckAlertWorkflow(PostHogWorkflow):
                 # exists and next_check_at is still in the past, so the one-minute sweep would
                 # start the whole chain again. Recording the failure caps a permanently failing
                 # alert at one chain per cadence period and tells its owner.
-                if not temporalio.workflow.patched("alerts-record-failed-evaluation-2026-08"):
-                    raise
+                #
+                # These activities need no workflow.patched guard: before them this path issued no
+                # command between the failed activity and the workflow failing, so every history
+                # that reaches here is closed, and an open execution can only arrive in a workflow
+                # task it has yet to complete, where the commands are new rather than replayed.
+                # Adding a command earlier in this path would break that and would need a patch.
                 await self._record_failed_evaluation(inputs, timeouts, evaluation_error)
                 raise
             new_state = evaluation.new_state
