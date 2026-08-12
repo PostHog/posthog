@@ -877,8 +877,8 @@ class EstimateRequestSerializer(serializers.Serializer):
             required=False,
             help_text=(
                 "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate always scans its own recent window (`window_days` in the "
-                "response) and extrapolates. Omit to estimate against all recordings."
+                "ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate "
+                "against all recordings."
             ),
         )
     )
@@ -964,20 +964,18 @@ class EstimateResponseSerializer(serializers.Serializer):
 
     matched_sessions_in_window = serializers.IntegerField(
         help_text=(
-            "Distinct sessions matching the query within the `window_days` lookback, after the sampling_mode "
-            "quality filter but before random sampling. Approximate when `sampled` is true."
+            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
+            "filter but before random sampling. Approximate when `sampled` is true."
         ),
     )
     window_days = serializers.IntegerField(
         help_text=(
-            "Days of recordings the estimate scanned, capped by the team's available recordings. "
-            "The monthly projection extrapolates this window to 30 days."
+            "Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings."
         ),
     )
     sampled = serializers.BooleanField(
         help_text=(
-            "True when the exact session count timed out and `matched_sessions_in_window` was instead "
-            "extrapolated from a sample of users, making it approximate."
+            "True when `matched_sessions_in_window` was extrapolated from a sample of users, making it approximate."
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(

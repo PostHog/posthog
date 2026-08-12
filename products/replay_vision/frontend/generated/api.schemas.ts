@@ -1534,7 +1534,7 @@ export interface ScannerCreatorsResponseApi {
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
 export interface EstimateRequestApi {
-    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always scans its own recent window (`window_days` in the response) and extrapolates. Omit to estimate against all recordings. */
+    /** Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings. */
     query?: unknown
     /**
      * 0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).
@@ -1565,11 +1565,11 @@ export interface EstimateRequestApi {
  * Forward-looking volume and credit-cost estimate for a proposed scanner.
  */
 export interface EstimateResponseApi {
-    /** Distinct sessions matching the query within the `window_days` lookback, after the sampling_mode quality filter but before random sampling. Approximate when `sampled` is true. */
+    /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. Approximate when `sampled` is true. */
     matched_sessions_in_window: number
-    /** Days of recordings the estimate scanned, capped by the team's available recordings. The monthly projection extrapolates this window to 30 days. */
+    /** Lookback window the estimate is based on. Normally 30; smaller when the team has fewer days of recordings. */
     window_days: number
-    /** True when the exact session count timed out and `matched_sessions_in_window` was instead extrapolated from a sample of users, making it approximate. */
+    /** True when `matched_sessions_in_window` was extrapolated from a sample of users, making it approximate. */
     sampled: boolean
     /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
     estimated_observations_per_month: number

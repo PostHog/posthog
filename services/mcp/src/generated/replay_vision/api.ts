@@ -1349,7 +1349,7 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'Proposed `RecordingsQuery` for the candidate filter. `date_from`\/`date_to` are ignored — the estimate always scans its own recent window (`window_days` in the response) and extrapolates. Omit to estimate against all recordings.'
+                'Proposed `RecordingsQuery` for the candidate filter. `date_from`\/`date_to` are ignored — the estimate always uses a fixed 30-day lookback. Omit to estimate against all recordings.'
             ),
         sampling_rate: zod
             .number()
