@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT i.id, i.team_id, i.status, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen\n            FROM posthog_errortrackingissue i\n            JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id\n            WHERE f.team_id = $1 AND f.fingerprint = $2\n            ",
+  "query": "\n            SELECT i.id, i.team_id, i.status, i.severity, i.name, i.description, i.created_at, f.first_seen as fingerprint_first_seen\n            FROM posthog_errortrackingissue i\n            JOIN posthog_errortrackingissuefingerprintv2 f ON i.id = f.issue_id\n            WHERE f.team_id = $1 AND f.fingerprint = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -20,21 +20,26 @@
       },
       {
         "ordinal": 3,
-        "name": "name",
+        "name": "severity",
         "type_info": "Text"
       },
       {
         "ordinal": 4,
-        "name": "description",
+        "name": "name",
         "type_info": "Text"
       },
       {
         "ordinal": 5,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "fingerprint_first_seen",
         "type_info": "Timestamptz"
       }
@@ -51,9 +56,10 @@
       false,
       true,
       true,
+      true,
       false,
       true
     ]
   },
-  "hash": "92c96de17ad6e6da2b161a551cc618aa685b3bd983f1458e86e1b3b28cad463d"
+  "hash": "55069e68a8e600073e6e06701fb91d24a5f5a49e26855f4b62bd376e99f08d6e"
 }
