@@ -97,12 +97,11 @@ def _invalidate_summary_quota_cache(organization_id) -> None:
     cache.delete(_summary_quota_cache_key(organization_id))
 
 
-def _require_viewer_access(context: dict[str, Any], obj: Insight | Dashboard, field: str) -> None:
-    # Team scoping alone doesn't gate per-object access controls, and `subscription` isn't an
-    # access-control resource — so require viewer access explicitly. Saving a subscription renders
-    # its target server-side and delivers the results to an arbitrary address, so subscription:write
-    # must not become a way to read a restricted insight or dashboard.
-    if not context["view"].user_access_control.check_access_level_for_object(obj, "viewer"):
+def _require_viewer_access(user_access_control: UserAccessControl, obj: Insight | Dashboard, field: str) -> None:
+    # `subscription` isn't an access-control resource, so team scoping is the only gate the framework
+    # applies. Saving a subscription renders its target server-side and delivers the results to an
+    # arbitrary address, so subscription:write must not become a way to read a restricted object.
+    if not user_access_control.check_access_level_for_object(obj, "viewer"):
         raise ValidationError({field: [f"Viewer access to this {field} is required."]})
 
 
@@ -430,13 +429,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         # Gate on the target the row will have *after* this write, falling back to the persisted one,
         # so a PATCH that omits insight/dashboard can't skip the check.
-        dashboard_after = attrs.get("dashboard") or (existing.dashboard if existing else None)
-        if dashboard_after is not None:
-            _require_viewer_access(self.context, dashboard_after, "dashboard")
-
-        insight_after = attrs.get("insight") or (existing.insight if existing else None)
-        if insight_after is not None:
-            _require_viewer_access(self.context, insight_after, "insight")
+        user_access_control = self.context["view"].user_access_control
+        for field in ("dashboard", "insight"):
+            target = attrs.get(field) or getattr(existing, field, None)
+            if target is not None:
+                _require_viewer_access(user_access_control, target, field)
 
         if existing is None:
             # Create: a subscription must export an insight, a dashboard, or an AI prompt.
@@ -706,15 +703,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             # Each selected tile is rendered and delivered on its own, and an insight can be restricted
             # independently of the dashboard it sits on, so viewer access to the dashboard doesn't cover
             # them. The dashboard API redacts such tiles for the same reason.
-            viewable_ids = set(
-                self.context["view"]
-                .user_access_control.filter_queryset_by_access_level(team_insights, include_all_if_admin=True)
-                .values_list("id", flat=True)
-            )
-            if selected_ids - viewable_ids:
-                raise ValidationError(
-                    {"dashboard_export_insights": ["Viewer access to every selected insight is required."]}
+            user_access_control = self.context["view"].user_access_control
+            if user_access_control.access_controls_supported:
+                viewable_ids = set(
+                    user_access_control.filter_queryset_by_access_level(
+                        team_insights, include_all_if_admin=True
+                    ).values_list("id", flat=True)
                 )
+                if selected_ids - viewable_ids:
+                    raise ValidationError(
+                        {"dashboard_export_insights": ["Viewer access to every selected insight is required."]}
+                    )
 
             # Ensure all selected insights belong to the dashboard (and are not deleted)
             dashboard_insight_ids = set(
@@ -946,12 +945,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 def _viewable_target_filter(user_access_control: UserAccessControl, team_id: int, prefix: str = "") -> Q:
     """Match only subscriptions whose insight/dashboard target the caller can view.
 
-    Subscription read/write access does not imply access to the target's results, and `subscription`
-    isn't an access-control resource — so without this a restricted insight or dashboard leaks its
-    name and rendered results, and a PATCH that omits `insight`/`dashboard` skips the create-time
-    check. Applying this to the viewset queryset covers list, retrieve, update, delete, and the
-    nested delivery routes, since get_object() resolves detail routes from that queryset.
-    AI prompt subscriptions have no insight or dashboard; they're gated on query access instead.
+    `subscription` isn't an access-control resource, so without this a restricted insight or dashboard
+    leaks its name and rendered results through the subscription routes. Applied to the viewset
+    queryset it covers list, retrieve, update, and delete, since get_object() resolves detail routes
+    from it. AI prompt subscriptions have no insight or dashboard; they're gated on query access.
     """
     if not user_access_control.access_controls_supported:
         # No entitlement means no rules to enforce, and the filter below would resolve to a no-op
