@@ -306,6 +306,10 @@ class BackfillCandidateQuery:
         cursor_end_time: dt.datetime | None = None,
         cursor_session_id: str | None = None,
         exclude_observed_by_scanner: str | None = None,
+        # Session ids to drop inside the query. Unlike `exclude_observed_by_scanner` this comes from
+        # the caller rather than from the `$recording_observed` event, so it can carry observations in
+        # any state and cannot be influenced by ingested events.
+        exclude_session_ids: list[str] | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
     ) -> None:
@@ -325,6 +329,7 @@ class BackfillCandidateQuery:
         self._cursor_end_time = cursor_end_time
         self._cursor_session_id = cursor_session_id
         self._exclude_observed_by_scanner = exclude_observed_by_scanner
+        self._exclude_session_ids = exclude_session_ids
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
 
@@ -343,7 +348,12 @@ class BackfillCandidateQuery:
         if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
             extra_having.append(surfacing)
 
-        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
+        self._inner = SessionRecordingListFromQuery(
+            team=team,
+            query=inner_query,
+            extra_having_predicates=extra_having,
+            session_ids_to_exclude=exclude_session_ids,
+        )
 
     @tracer.start_as_current_span("BackfillCandidateQuery.run")
     def run(self) -> list[CandidateSession]:

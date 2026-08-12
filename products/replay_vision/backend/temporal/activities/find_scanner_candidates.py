@@ -10,6 +10,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
@@ -98,6 +99,10 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
 
 
+# Past this the exclusion list stops being complete, so holding the watermark could stall the walk.
+_DEEP_SWEEP_MAX_EXCLUSIONS = 20_000
+
+
 def _deep_sweep(
     scanner: ReplayScanner, query: RecordingsQuery, limit: int
 ) -> tuple[list[CandidateSession], dt.datetime | None]:
@@ -113,6 +118,17 @@ def _deep_sweep(
     if now - scanner.last_deep_swept_at < DEEP_SWEEP_INTERVAL or scanner.last_deep_swept_at >= scanner.last_swept_at:
         return [], None
 
+    # Exclude on observation rows rather than on the `$recording_observed` event. That event only
+    # lands on the success path, so failed and ineligible sessions would keep matching and the walk
+    # would never move past them. It is also an ingested event, so it is not ours to trust.
+    observed_session_ids = list(
+        ReplayObservation.objects.filter(
+            team_id=scanner.team_id,
+            scanner_id=scanner.id,
+            created_at__gte=scanner.last_deep_swept_at,
+        ).values_list("session_id", flat=True)[:_DEEP_SWEEP_MAX_EXCLUSIONS]
+    )
+
     deep_query = BackfillCandidateQuery(
         team=scanner.team,
         query=query,
@@ -121,12 +137,12 @@ def _deep_sweep(
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
         sampling_mode=scanner.sampling_mode,
-        exclude_observed_by_scanner=str(scanner.id),
+        exclude_session_ids=observed_session_ids,
         candidate_limit=limit,
         max_execution_time_seconds=DEEP_SWEEP_MAX_EXECUTION_SECONDS,
     )
     deep_candidates = deep_query.run()
-    if len(deep_candidates) == limit:
+    if len(deep_candidates) == limit and len(observed_session_ids) < _DEEP_SWEEP_MAX_EXCLUSIONS:
         # Truncated by the dispatch headroom rather than by the window running out, so hold the
         # watermark and cover the rest next time. The walk is newest-first, so advancing here would
         # drop the oldest stragglers, which are exactly the ones this pass exists to catch. Re-running

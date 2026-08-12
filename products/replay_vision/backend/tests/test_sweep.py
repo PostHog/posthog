@@ -10,6 +10,11 @@ from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
@@ -217,7 +222,7 @@ class TestFindScannerCandidatesActivity:
         _, deep_kwargs = MockDeep.call_args
         assert deep_kwargs["window_start"] == deep_watermark
         assert deep_kwargs["window_end"] == scanner.last_swept_at
-        assert deep_kwargs["exclude_observed_by_scanner"] == str(scanner.id)
+        assert deep_kwargs["exclude_session_ids"] == []
         assert [c.session_id for c in result.deep_candidates] == ["deep-sess"]
         assert result.deep_swept_through == scanner.last_swept_at
 
@@ -313,6 +318,40 @@ class TestFindScannerCandidatesActivity:
             return
         # Both lists dispatch together, so exceeding this would put the tick over the in-flight caps.
         assert MockDeep.call_args.kwargs["candidate_limit"] == expected_deep_limit
+
+    def test_deep_pass_excludes_sessions_with_terminal_observations(self) -> None:
+        # The $recording_observed event only lands on success, so excluding on it would hand these
+        # sessions back on every tick and the walk would never move past them.
+        scanner = _make_scanner(last_deep_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=7))
+        for session_id, status in (("failed-sess", ObservationStatus.FAILED), ("ok-sess", ObservationStatus.SUCCEEDED)):
+            ReplayObservation.objects.create(
+                scanner=scanner,
+                team=scanner.team,
+                session_id=session_id,
+                status=status,
+                scanner_snapshot={"model": scanner.model},
+                triggered_by=ObservationTrigger.SCHEDULE,
+                completed_at=dt.datetime.now(dt.UTC),
+            )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = []
+            MockDeep.return_value.run.return_value = []
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
+            )
+
+        excluded = MockDeep.call_args.kwargs["exclude_session_ids"]
+        assert sorted(excluded) == ["failed-sess", "ok-sess"]
+        # The ingested event is no longer consulted, so it cannot suppress a candidate either.
+        assert "exclude_observed_by_scanner" not in MockDeep.call_args.kwargs
 
     def test_truncated_deep_batch_holds_watermark(self) -> None:
         scanner = _make_scanner(last_deep_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=7))
