@@ -605,14 +605,19 @@ def _resolve_client_authentication(
     ``allow_confidential`` gates the promotion to a registered provisioning partner: the
     document alone is not proof of anything, since the client that publishes it also controls
     it, so an unregistered CIMD client declaring private_key_jwt stays public and keeps relying
-    on PKCE rather than being upgraded into an auth method it may never actually send. A
-    partner, once registered, keeps upgrading and downgrading in place as it edits its
-    document, with no client_id change or operator involved.
+    on PKCE as its enforced baseline, rather than being upgraded into an auth method it may
+    never actually send. A partner, once registered, keeps upgrading and downgrading in place
+    as it edits its document, with no client_id change or operator involved.
+
+    A self-controlled declaration can only ever lower what we require, never raise it — that
+    takes partner registration. But the jwks_uri is stored either way, so a client that starts
+    signing later (a runtime change PostHog does not control) can still be verified and
+    accepted; see ``verify_client_assertion``. The declaration is a menu, not a mandate.
     """
     auth_method = metadata.get("token_endpoint_auth_method", TokenEndpointAuthMethod.NONE.value)
     if auth_method == TokenEndpointAuthMethod.PRIVATE_KEY_JWT.value and allow_confidential:
         return AbstractApplication.CLIENT_CONFIDENTIAL, metadata.get("jwks_uri")
-    return AbstractApplication.CLIENT_PUBLIC, None
+    return AbstractApplication.CLIENT_PUBLIC, metadata.get("jwks_uri")
 
 
 def _create_cimd_application(
@@ -742,8 +747,8 @@ def _update_cimd_application(
     # Re-derived on every refresh, in both directions: a registered partner that starts
     # publishing a jwks_uri is promoted to confidential here, and one that stops is demoted
     # back to public rather than being left as a confidential client whose key source has gone
-    # away. A client that is not a registered partner never promotes this way, regardless of
-    # what its self-controlled document declares — see _resolve_client_authentication.
+    # away. A non-partner's document never promotes client_type this way, but its jwks_uri is
+    # still stored — see _resolve_client_authentication.
     app.client_type, app.jwks_uri = _resolve_client_authentication(
         metadata, allow_confidential=allow_confidential or app.is_provisioning_partner
     )

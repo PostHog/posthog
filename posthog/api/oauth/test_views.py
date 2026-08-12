@@ -642,6 +642,7 @@ class TestOAuthAPI(APIBaseTest):
     def _create_private_key_jwt_app_and_grant(
         self,
         is_cimd_client: bool = True,
+        client_type: str = OAuthApplication.CLIENT_CONFIDENTIAL,
     ) -> tuple[OAuthApplication, OAuthGrant, rsa.RSAPrivateKey]:
         cimd_url = "https://partner.example.com/oauth/client-metadata"
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -649,7 +650,7 @@ class TestOAuthAPI(APIBaseTest):
             name="Private Key JWT CIMD Client",
             client_id="cimd-pkjwt-client-id",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            client_type=client_type,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             user=self.user,
@@ -834,6 +835,61 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_public_cimd_client_with_stored_jwks_completes_assertion_exchange(self):
+        # A public CIMD client (never partner-registered) can start signing at any time — a
+        # runtime change on the client's side PostHog doesn't control — and must be verified
+        # and accepted rather than rejected for presenting more proof than required.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant(client_type=OAuthApplication.CLIENT_PUBLIC)
+        assertion, jwks = self._signed_assertion_and_jwks(app, private_key)
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            return_value=(jwks, None),
+        ):
+            response = self._post_assertion_exchange(app, grant, assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIn("access_token", response.json())
+
+    @freeze_time("2025-01-01 00:00:00")
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_public_cimd_client_with_forged_assertion_is_rejected(self):
+        # The menu-semantics widening must not weaken verification: a public client's forged
+        # signature still 401s instead of silently downgrading to the PKCE it could have used
+        # by presenting nothing at all.
+        app, grant, private_key = self._create_private_key_jwt_app_and_grant(client_type=OAuthApplication.CLIENT_PUBLIC)
+        _, jwks = self._signed_assertion_and_jwks(app, private_key)
+        attacker_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        forged_assertion, _attacker_jwks = self._signed_assertion_and_jwks(app, attacker_key)
+
+        with patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document",
+            return_value=(jwks, None),
+        ):
+            response = self._post_assertion_exchange(app, grant, forged_assertion)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED, response.content)
+
+    @override_settings(SITE_URL="https://us.posthog.com")
+    def test_public_cimd_client_with_stored_jwks_still_completes_plain_pkce(self):
+        # A stored jwks_uri must not, by itself, force authentication: a public CIMD client
+        # presenting no credential at all still completes the ordinary PKCE exchange.
+        app, grant, _ = self._create_private_key_jwt_app_and_grant(client_type=OAuthApplication.CLIENT_PUBLIC)
+        response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "redirect_uri": "https://partner.example.com/callback",
+                "code_verifier": self.code_verifier,
+                "code": grant.code,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertIn("access_token", response.json())
 
     @freeze_time("2025-01-01 00:00:00")
     @override_settings(SITE_URL="https://us.posthog.com")

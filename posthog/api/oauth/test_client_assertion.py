@@ -213,6 +213,15 @@ class TestClientAssertion(BaseTest):
         with self.assertRaises(ClientAssertionError):
             self._verify(self._assertion())
 
+    def test_public_client_with_a_jwks_uri_verifies(self):
+        # A public CIMD client can publish keys and sign without ever being promoted to
+        # confidential (that takes partner registration) — verification only needs a key
+        # source, not client_type.
+        self.app.client_type = OAuthApplication.CLIENT_PUBLIC
+        self.app.save(update_fields=["client_type"])
+        assert not self.app.uses_private_key_jwt_auth
+        self._verify(self._assertion())
+
     def test_jwks_is_cached_across_verifications(self):
         with patch(
             "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(self.jwks, None)

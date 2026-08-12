@@ -379,10 +379,10 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         if self.jwks_uri and not self.jwks_uri.startswith("https://"):
             raise ValidationError("jwks_uri must be an https URL")
 
-        # A public client cannot authenticate, so a key set would never be consulted
-        # Rejecting the combination keeps token_endpoint_auth_method unambiguous.
-        if self.jwks_uri and not self.requires_client_authentication:
-            raise ValidationError("jwks_uri is only meaningful for a confidential client")
+        # A stored key set on a public client enables optional assertion authentication
+        # (verify_client_assertion) without requiring it: token_endpoint_auth_method reads
+        # requires_client_authentication first, so a public client derives NONE regardless
+        # of jwks_uri.
 
     def _validate_redirect_uris(self):
         validator = AllowedURIValidator(

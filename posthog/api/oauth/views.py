@@ -477,12 +477,15 @@ class OAuthValidator(OAuth2Validator):
         return None
 
     def authenticate_client(self, request, *args, **kwargs):
-        """Authenticate a confidential client, adding ``private_key_jwt`` (RFC 7523).
+        """Authenticate a client presenting ``private_key_jwt`` (RFC 7523).
 
-        CIMD clients register as confidential with a ``jwks_uri`` and never receive a secret,
-        so the library's secret-based paths cannot authenticate them. A client presenting a
-        signed assertion is verified here against the keys it publishes; every other client
-        falls through to the library's HTTP Basic and request-body secret checks.
+        CIMD clients that hold a jwks_uri never receive a secret, so the library's
+        secret-based paths cannot authenticate them — confidential partners, whose signature
+        is required, and public CIMD clients that publish keys and sign opportunistically,
+        whose signature is only ever a bonus (see ``_authenticate_client_assertion``). A
+        client presenting a signed assertion is verified here against the keys it publishes;
+        every other client falls through to the library's HTTP Basic and request-body secret
+        checks.
         """
         if self._authenticate_client_assertion(request):
             return True
@@ -519,7 +522,10 @@ class OAuthValidator(OAuth2Validator):
 
         assertion_value, client_id = assertion
         app = self._load_application(client_id, request)
-        if app is None or not app.uses_private_key_jwt_auth:
+        # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
+        # and start signing before any partner registration. What's REQUIRED is a separate
+        # question, decided by client_type via client_authentication_required.
+        if app is None or not app.jwks_uri:
             return False
 
         if app.is_cimd_client and app.cimd_metadata_url:

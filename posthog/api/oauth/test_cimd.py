@@ -338,18 +338,42 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
             # A registered partner publishing a key set is the upgrade path with no
             # re-onboarding: it edits its own metadata document and the next refresh promotes
             # it in place.
-            ("partner_promoted_when_a_jwks_uri_appears", True, False, True, TokenEndpointAuthMethod.PRIVATE_KEY_JWT),
+            (
+                "partner_promoted_when_a_jwks_uri_appears",
+                True,
+                False,
+                True,
+                TokenEndpointAuthMethod.PRIVATE_KEY_JWT,
+                CIMD_JWKS_URI,
+            ),
             # A confidential partner whose key source disappeared could never authenticate
             # again, so it must fall back to public rather than becoming permanently unusable.
-            ("partner_demoted_when_the_jwks_uri_disappears", True, True, False, TokenEndpointAuthMethod.NONE),
-            # A client that never registered as a partner cannot promote itself by editing a
-            # document it controls: it stays on the PKCE it was already relying on.
-            ("non_partner_not_promoted_when_a_jwks_uri_appears", False, False, True, TokenEndpointAuthMethod.NONE),
+            ("partner_demoted_when_the_jwks_uri_disappears", True, True, False, TokenEndpointAuthMethod.NONE, None),
+            # A client that never registered as a partner cannot promote its client_type by
+            # editing a document it controls: it stays on the PKCE it was already relying on.
+            # But the jwks_uri is still stored, so a presented assertion can be verified —
+            # the declaration only ever raises what we accept, never what we require.
+            (
+                "non_partner_stores_jwks_uri_without_promotion",
+                False,
+                False,
+                True,
+                TokenEndpointAuthMethod.NONE,
+                CIMD_JWKS_URI,
+            ),
         ]
     )
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_client_authentication_is_re_derived_on_every_refresh(
-        self, _name, is_partner, starts_with_jwks, ends_with_jwks, expected_method, mock_get, _url_mock
+        self,
+        _name,
+        is_partner,
+        starts_with_jwks,
+        ends_with_jwks,
+        expected_method,
+        expected_jwks_uri,
+        mock_get,
+        _url_mock,
     ):
         mock_get.return_value = _mock_response(_metadata_for_auth(starts_with_jwks), headers={})
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL, allow_confidential=is_partner)
@@ -365,12 +389,11 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         self.assertEqual(refreshed.pk, app.pk)
         self.assertEqual(refreshed.client_id, app.client_id)
         self.assertIs(refreshed.token_endpoint_auth_method, expected_method)
+        self.assertEqual(refreshed.jwks_uri, expected_jwks_uri)
         if expected_method is TokenEndpointAuthMethod.PRIVATE_KEY_JWT:
-            self.assertEqual(refreshed.jwks_uri, CIMD_JWKS_URI)
             # It holds no secret, but it can authenticate, so it is confidential per RFC 6749.
             self.assertEqual(refreshed.client_type, OAuthApplication.CLIENT_CONFIDENTIAL)
         else:
-            self.assertIsNone(refreshed.jwks_uri)
             self.assertEqual(refreshed.client_type, OAuthApplication.CLIENT_PUBLIC)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
@@ -1201,6 +1224,9 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         self.assertIn("access_token", token_response.json())
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
         self.assertEqual(app.client_type, OAuthApplication.CLIENT_PUBLIC)
+        # The jwks_uri is still stored, even though it did not promote client_type: if this
+        # client starts signing, the token endpoint can verify it.
+        self.assertEqual(app.jwks_uri, CIMD_JWKS_URI)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_existing_non_partner_cimd_client_keeps_authenticating_after_document_flips(self, mock_get, _url_mock):
