@@ -44,6 +44,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Show detailed information about the process",
         )
+        parser.add_argument(
+            "--missing-properties",
+            action="store_true",
+            help="Also reprocess insights whose query_metadata predates property extraction (no `properties` key)",
+        )
 
     def handle(self, *args, **options):
         batch_size = options["batch_size"]
@@ -51,6 +56,7 @@ class Command(BaseCommand):
         team_id = options["team_id"]
         dry_run = options["dry_run"]
         verbose = options["verbose"]
+        missing_properties = options["missing_properties"]
 
         if dry_run:
             self.stdout.write(self.style.WARNING("Running in dry-run mode - no changes will be made"))
@@ -64,7 +70,12 @@ class Command(BaseCommand):
         )
 
         self.backfill_insights_query_metadata(
-            batch_size=batch_size, sleep_interval=sleep_interval, team_id=team_id, dry_run=dry_run, verbose=verbose
+            batch_size=batch_size,
+            sleep_interval=sleep_interval,
+            team_id=team_id,
+            dry_run=dry_run,
+            verbose=verbose,
+            missing_properties=missing_properties,
         )
 
     def backfill_insights_query_metadata(
@@ -74,6 +85,7 @@ class Command(BaseCommand):
         team_id: int | None = None,
         dry_run: bool = False,
         verbose: bool = False,
+        missing_properties: bool = False,
     ) -> None:
         """
         Backfill query_metadata for insights that don't have it.
@@ -82,9 +94,10 @@ class Command(BaseCommand):
         Uses proper row locking to prevent race conditions.
         """
         # Build base query
-        base_query = Insight.objects_including_soft_deleted.filter(
-            Q(query_metadata__isnull=True) | Q(query_metadata={})
-        )
+        missing_metadata = Q(query_metadata__isnull=True) | Q(query_metadata={})
+        if missing_properties:
+            missing_metadata = missing_metadata | Q(query_metadata__properties__isnull=True)
+        base_query = Insight.objects_including_soft_deleted.filter(missing_metadata)
 
         if team_id:
             base_query = base_query.filter(team_id=team_id)
@@ -132,9 +145,10 @@ class Command(BaseCommand):
                 insights_to_update = []
 
                 for insight in insights:
-                    # Skip insights that already have metadata
+                    # Skip insights that already have metadata (with properties, when requested)
                     if insight.query_metadata and insight.query_metadata != {}:
-                        continue
+                        if not missing_properties or "properties" in insight.query_metadata:
+                            continue
 
                     # Generate metadata
                     try:

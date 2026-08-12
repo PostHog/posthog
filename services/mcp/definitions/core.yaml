@@ -371,16 +371,76 @@ tools:
         enabled: false
     property-definitions-list:
         operation: property_definitions_list
-        enabled: false
+        enabled: true
+        scopes:
+            - property_definition:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List property definitions
+        description: |
+            List the property definitions seen in the project. Filter by type (event, person, group, session),
+            search by name, or pass in_use=true/false to keep only properties that are (or are not) referenced
+            by saved insights, cohorts, feature flags, experiments, surveys, destinations, or workflows.
+        list: true
+    property-definitions-metrics-retrieve:
+        operation: property_definitions_metrics_retrieve
+        enabled: true
+        scopes:
+            - property_definition:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get property query usage
+        description: |
+            How many executed queries referenced this property in the last 30 days.
     property-definitions-partial-update:
         operation: property_definitions_partial_update
         enabled: false
     property-definitions-retrieve:
         operation: property_definitions_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - property_definition:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get property definition
+        description: |
+            Retrieve a single property definition by ID.
     property-definitions-seen-together-retrieve:
         operation: property_definitions_seen_together_retrieve
         enabled: false
+    property-definitions-usage-summary-retrieve:
+        operation: property_definitions_usage_summary_retrieve
+        enabled: true
+        scopes:
+            - property_definition:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Summarize property usage
+        description: |
+            For a list of property names, count the saved objects referencing each one (insights, cohorts,
+            feature flags, experiments, surveys, destinations, workflows) and, for person properties, the share
+            of person profiles carrying it. Use this to find unused properties worth cleaning up.
+    property-definitions-used-in-retrieve:
+        operation: property_definitions_used_in_retrieve
+        enabled: true
+        scopes:
+            - property_definition:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get objects using a property
+        description: |
+            List the saved objects referencing a property definition: insights, cohorts, feature flags,
+            experiments, surveys, destinations, and workflows, with ids and names for linking.
     property-definitions-update:
         operation: property_definitions_update
         enabled: false

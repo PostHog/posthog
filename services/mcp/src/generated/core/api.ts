@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2637,6 +2637,142 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         web_analytics_pre_aggregated_tables_enabled: zod.boolean().nullish(),
     })
     .describe('Mixin for serializers to add user access control fields')
+
+export const PropertyDefinitionsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const propertyDefinitionsListQueryExcludeCorePropertiesDefault = false
+export const propertyDefinitionsListQueryExcludeHiddenDefault = false
+export const propertyDefinitionsListQueryExcludeRestrictedDefault = false
+
+export const propertyDefinitionsListQueryTypeDefault = `event`
+
+export const PropertyDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+    event_names: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('If sent, response value will have `is_seen_on_filtered_events` populated. JSON-encoded'),
+    exclude_core_properties: zod
+        .boolean()
+        .default(propertyDefinitionsListQueryExcludeCorePropertiesDefault)
+        .describe('Whether to exclude core properties'),
+    exclude_hidden: zod
+        .boolean()
+        .default(propertyDefinitionsListQueryExcludeHiddenDefault)
+        .describe('Whether to exclude properties marked as hidden'),
+    exclude_restricted: zod
+        .boolean()
+        .default(propertyDefinitionsListQueryExcludeRestrictedDefault)
+        .describe(
+            'Whether to exclude properties that the current user does not have read access to via field-level access control'
+        ),
+    excluded_properties: zod.string().min(1).optional().describe('JSON-encoded list of excluded properties'),
+    filter_by_event_names: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature\/\*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.'
+        ),
+    group_type_index: zod
+        .number()
+        .optional()
+        .describe('What group type is the property for. Only should be set if `type=group`'),
+    in_use: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'Filter by usage in saved objects (insights, cohorts, feature flags, experiments, surveys, destinations, workflows). True returns only properties referenced somewhere, false returns only unreferenced ones.'
+        ),
+    is_feature_flag: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Whether to return only (or excluding) feature flag properties ($feature\/\*). Flags are global, not per-event, so they can't be scoped by event_names\/filter_by_event_names — pass is_feature_flag=true to list them all."
+        ),
+    is_numerical: zod
+        .boolean()
+        .nullish()
+        .describe('Whether to return only (or excluding) numerical property definitions'),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    properties: zod.string().min(1).optional().describe('Comma-separated list of properties to filter'),
+    search: zod.string().optional().describe('Searches properties by name'),
+    type: zod
+        .enum(['event', 'person', 'group', 'session'])
+        .default(propertyDefinitionsListQueryTypeDefault)
+        .describe(
+            'What property definitions to return\n\n\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+        ),
+    verified: zod
+        .boolean()
+        .nullish()
+        .describe('Filter by verified status. True returns only verified, false returns only unverified.'),
+})
+
+export const PropertyDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this property definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Query usage of this property over the last 30 days.
+ */
+export const PropertyDefinitionsMetricsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this property definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List the saved objects (insights, cohorts, flags, experiments, surveys, destinations, workflows) referencing this property.
+ */
+export const PropertyDefinitionsUsedInRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this property definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Bulk usage counts (and, for person properties, profile coverage) for a list of property names.
+ */
+export const PropertyDefinitionsUsageSummaryRetrieveParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const propertyDefinitionsUsageSummaryRetrieveQueryTypeDefault = `person`
+
+export const PropertyDefinitionsUsageSummaryRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    names: zod
+        .string()
+        .min(1)
+        .describe('JSON-encoded list of property names to summarize usage for, e.g. [\"email\", \"plan\"]'),
+    type: zod
+        .enum(['event', 'person', 'group', 'session'])
+        .default(propertyDefinitionsUsageSummaryRetrieveQueryTypeDefault)
+        .describe(
+            'What type of properties the names refer to\n\n\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+        ),
+})
 
 /**
  * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.

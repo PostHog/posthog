@@ -2,7 +2,7 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,6 +10,7 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
@@ -21,9 +22,40 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
+const USAGE_RESOURCE_LABELS: Record<string, string> = {
+    insights: 'insights',
+    cohorts: 'cohorts',
+    feature_flags: 'feature flags',
+    experiments: 'experiments',
+    surveys: 'surveys',
+    hog_functions: 'destinations',
+    hog_flows: 'workflows',
+}
+
+const IN_USE_FILTER_OPTIONS = [
+    { label: 'Any', value: 'any' },
+    { label: 'In use', value: 'in_use' },
+    { label: 'Not in use', value: 'not_in_use' },
+]
+
+function inUseFilterValue(inUse: boolean | undefined): string {
+    return inUse === undefined ? 'any' : inUse ? 'in_use' : 'not_in_use'
+}
+
+function inUseFilterFromOption(option: string): boolean | undefined {
+    return option === 'any' ? undefined : option === 'in_use'
+}
+
 export function PropertyDefinitionsTable(): JSX.Element {
-    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions, showVerifiedFilter } =
-        useValues(propertyDefinitionsTableLogic)
+    const {
+        propertyDefinitions,
+        propertyDefinitionsLoading,
+        filters,
+        propertyTypeOptions,
+        showVerifiedFilter,
+        usageSummary,
+        usageSummaryLoading,
+    } = useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
@@ -85,6 +117,76 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 return <ObjectTags tags={definition.tags ?? []} staticOnly />
             },
         } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
+        {
+            title: (
+                <span className="flex items-center gap-1">
+                    Usage
+                    <Tooltip title="Saved insights, cohorts, feature flags, experiments, surveys, destinations, and workflows that reference this property.">
+                        <span className="text-secondary text-sm">?</span>
+                    </Tooltip>
+                </span>
+            ),
+            key: 'usage',
+            render: function RenderUsage(_, definition: PropertyDefinition) {
+                if (definition.virtual) {
+                    return <span className="text-secondary">–</span>
+                }
+                const entry = usageSummary?.entries[definition.name]
+                if (!entry) {
+                    return usageSummaryLoading ? <Spinner /> : <span className="text-secondary">–</span>
+                }
+                if (entry.total_usage === 0) {
+                    return (
+                        <Tooltip title="Not referenced by any saved insights, cohorts, feature flags, experiments, surveys, destinations, or workflows.">
+                            <span className="text-secondary">Not in use</span>
+                        </Tooltip>
+                    )
+                }
+                return (
+                    <Link to={urls.propertyDefinition(definition.id)} className="flex flex-wrap gap-1">
+                        {Object.entries(entry.usage)
+                            .filter(([, count]) => count > 0)
+                            .map(([resource, count]) => (
+                                <LemonTag key={resource}>
+                                    {count} {USAGE_RESOURCE_LABELS[resource] ?? resource}
+                                </LemonTag>
+                            ))}
+                    </Link>
+                )
+            },
+        },
+        ...(filters.type === 'person'
+            ? [
+                  {
+                      title: (
+                          <span className="flex items-center gap-1">
+                              Profiles
+                              <Tooltip
+                                  title={`Share of person profiles with this property${
+                                      usageSummary?.profilesTotal
+                                          ? `, out of ${humanFriendlyNumber(usageSummary.profilesTotal)} profiles`
+                                          : ''
+                                  }. Updated daily.`}
+                              >
+                                  <span className="text-secondary text-sm">?</span>
+                              </Tooltip>
+                          </span>
+                      ),
+                      key: 'profiles',
+                      render: function RenderProfiles(_: unknown, definition: PropertyDefinition) {
+                          const entry = usageSummary?.entries[definition.name]
+                          if (!entry) {
+                              return usageSummaryLoading ? <Spinner /> : <span className="text-secondary">–</span>
+                          }
+                          return entry.profiles_percentage != null ? (
+                              <span>{entry.profiles_percentage}%</span>
+                          ) : (
+                              <span className="text-secondary">–</span>
+                          )
+                      },
+                  } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
+              ]
+            : []),
     ]
 
     return (
@@ -125,6 +227,17 @@ export function PropertyDefinitionsTable(): JSX.Element {
                         options={propertyTypeOptions}
                         value={`${filters.type}::${filters.group_type_index ?? ''}`}
                         onSelect={setPropertyType}
+                    />
+                    <span>Usage:</span>
+                    <LemonSelect
+                        value={inUseFilterValue(filters.in_use)}
+                        options={IN_USE_FILTER_OPTIONS}
+                        data-attr="property-in-use-filter"
+                        dropdownMatchSelectWidth={false}
+                        onChange={(value) => {
+                            setFilters({ in_use: inUseFilterFromOption(value) })
+                        }}
+                        size="small"
                     />
                     {showVerifiedFilter && (
                         <>

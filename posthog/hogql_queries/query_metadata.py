@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from typing import Any, TypeVar, Union
 
@@ -46,13 +47,108 @@ from products.actions.backend.models.action import Action
 
 T = TypeVar("T", bound=BaseModel)
 
+# Property filter `type` values whose `key` holds a property name. "cohort" (value is a cohort
+# id) and "hogql" (key is an expression) are deliberately absent.
+PROPERTY_FILTER_TYPES_WITH_PROPERTY_KEYS = frozenset(
+    {
+        "event",
+        "event_metadata",
+        "person",
+        "element",
+        "session",
+        "recording",
+        "log_entry",
+        "group",
+        "feature",
+        "flag",
+        "data_warehouse",
+        "data_warehouse_person_property",
+    }
+)
+
+# Breakdown `breakdown_type`/`type` values whose breakdown value is a property name.
+BREAKDOWN_TYPES_WITH_PROPERTY_KEYS = frozenset({"event", "event_metadata", "person", "session", "group"})
+
+# Person property references inside HogQL expressions: person.properties.email,
+# person.properties['utm source'], person.properties."utm source".
+HOGQL_PERSON_PROPERTY_REGEX = re.compile(
+    r"person\.properties(?:\.([A-Za-z0-9_$]+)|\[\s*'([^']+)'\s*\]|\[\s*\"([^\"]+)\"\s*\])"
+)
+
+
+class QueryPropertyReference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    type: str
+
 
 class InsightQueryMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     events: list[str]
+    properties: list[QueryPropertyReference] = []
     updated_at: datetime
+
+
+class QueryPropertiesExtractor:
+    """Collects property references from a query's JSON structure.
+
+    Walks the raw dict rather than typed query models so property filters are found in any query
+    kind (global filters, per-series filters, breakdowns, funnel exclusions), mirroring the
+    structural jsonpath matching the API uses to find cohort references in stored queries.
+    """
+
+    def extract_properties(self, query: dict[str, Any] | list | BaseModel | None) -> list[QueryPropertyReference]:
+        if query is None:
+            return []
+        if isinstance(query, BaseModel):
+            query = query.model_dump(mode="json", exclude_none=True)
+
+        refs: dict[tuple[str, str], QueryPropertyReference] = {}
+        self._walk(query, refs)
+        return sorted(refs.values(), key=lambda ref: (ref.type, ref.name))
+
+    def _walk(self, node: Any, refs: dict[tuple[str, str], QueryPropertyReference]) -> None:
+        if isinstance(node, dict):
+            self._collect_from_dict(node, refs)
+            for value in node.values():
+                self._walk(value, refs)
+        elif isinstance(node, list):
+            for item in node:
+                self._walk(item, refs)
+        elif isinstance(node, str):
+            for match in HOGQL_PERSON_PROPERTY_REGEX.finditer(node):
+                name = next(group for group in match.groups() if group is not None)
+                self._add(refs, name, "person")
+
+    def _collect_from_dict(self, node: dict[str, Any], refs: dict[tuple[str, str], QueryPropertyReference]) -> None:
+        key = node.get("key")
+        node_type = node.get("type")
+        if isinstance(key, str) and node_type in PROPERTY_FILTER_TYPES_WITH_PROPERTY_KEYS:
+            self._add(refs, key, str(node_type))
+
+        # BreakdownFilter: {"breakdown": "email", "breakdown_type": "person"}
+        breakdown = node.get("breakdown")
+        breakdown_type = node.get("breakdown_type")
+        if isinstance(breakdown, str) and breakdown_type in BREAKDOWN_TYPES_WITH_PROPERTY_KEYS:
+            self._add(refs, breakdown, str(breakdown_type))
+
+        # Breakdown (multiple breakdowns): {"property": "email", "type": "person"}
+        breakdown_property = node.get("property")
+        if isinstance(breakdown_property, str) and node_type in BREAKDOWN_TYPES_WITH_PROPERTY_KEYS:
+            self._add(refs, breakdown_property, str(node_type))
+
+        # Series math aggregation: {"math": "sum", "math_property": "amount"}
+        math_property = node.get("math_property")
+        if isinstance(math_property, str):
+            self._add(refs, math_property, "event")
+
+    @staticmethod
+    def _add(refs: dict[tuple[str, str], QueryPropertyReference], name: str, ref_type: str) -> None:
+        refs.setdefault((name, ref_type), QueryPropertyReference(name=name, type=ref_type))
 
 
 class QueryEventsExtractor:
@@ -262,9 +358,12 @@ def extract_query_metadata(
         InsightQueryMetadata: An object containing the query metadata
     """
     if not query:
-        return InsightQueryMetadata(events=[], updated_at=now())
+        return InsightQueryMetadata(events=[], properties=[], updated_at=now())
 
     events_extractor = QueryEventsExtractor(team=team)
     events = events_extractor.extract_events(query=query)
 
-    return InsightQueryMetadata(events=events, updated_at=now())
+    properties_extractor = QueryPropertiesExtractor()
+    properties = properties_extractor.extract_properties(query=query)
+
+    return InsightQueryMetadata(events=events, properties=properties, updated_at=now())

@@ -6,12 +6,17 @@ import {
     OrganizationsProjectsPartialUpdateBody,
     OrganizationsProjectsPartialUpdateParams,
     OrganizationsProjectsRetrieveParams,
+    PropertyDefinitionsListQueryParams,
+    PropertyDefinitionsMetricsRetrieveParams,
+    PropertyDefinitionsRetrieveParams,
+    PropertyDefinitionsUsageSummaryRetrieveQueryParams,
+    PropertyDefinitionsUsedInRetrieveParams,
     UsersPartialUpdateBody,
     UsersPartialUpdateParams,
     UsersRetrieveParams,
 } from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
@@ -277,6 +282,118 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
     },
 })
 
+const PropertyDefinitionsListSchema = PropertyDefinitionsListQueryParams
+
+const propertyDefinitionsList = (): ToolBase<
+    typeof PropertyDefinitionsListSchema,
+    WithPostHogUrl<Schemas.PaginatedEnterprisePropertyDefinitionList>
+> => ({
+    name: 'property-definitions-list',
+    schema: PropertyDefinitionsListSchema,
+    handler: async (context: Context, params: z.infer<typeof PropertyDefinitionsListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedEnterprisePropertyDefinitionList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/property_definitions/`,
+            query: {
+                event_names: params.event_names,
+                exclude_core_properties: params.exclude_core_properties,
+                exclude_hidden: params.exclude_hidden,
+                exclude_restricted: params.exclude_restricted,
+                excluded_properties: params.excluded_properties,
+                filter_by_event_names: params.filter_by_event_names,
+                group_type_index: params.group_type_index,
+                in_use: params.in_use,
+                is_feature_flag: params.is_feature_flag,
+                is_numerical: params.is_numerical,
+                limit: params.limit,
+                offset: params.offset,
+                properties: params.properties,
+                search: params.search,
+                type: params.type,
+                verified: params.verified,
+            },
+        })
+        return await withPostHogUrl(context, result, '/')
+    },
+})
+
+const PropertyDefinitionsMetricsRetrieveSchema = PropertyDefinitionsMetricsRetrieveParams.omit({ project_id: true })
+
+const propertyDefinitionsMetricsRetrieve = (): ToolBase<
+    typeof PropertyDefinitionsMetricsRetrieveSchema,
+    Schemas.PropertyDefinitionMetrics
+> => ({
+    name: 'property-definitions-metrics-retrieve',
+    schema: PropertyDefinitionsMetricsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof PropertyDefinitionsMetricsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PropertyDefinitionMetrics>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/property_definitions/${encodeURIComponent(String(params.id))}/metrics/`,
+        })
+        return result
+    },
+})
+
+const PropertyDefinitionsRetrieveSchema = PropertyDefinitionsRetrieveParams.omit({ project_id: true })
+
+const propertyDefinitionsRetrieve = (): ToolBase<
+    typeof PropertyDefinitionsRetrieveSchema,
+    Schemas.EnterprisePropertyDefinition
+> => ({
+    name: 'property-definitions-retrieve',
+    schema: PropertyDefinitionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof PropertyDefinitionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EnterprisePropertyDefinition>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/property_definitions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const PropertyDefinitionsUsageSummaryRetrieveSchema = PropertyDefinitionsUsageSummaryRetrieveQueryParams
+
+const propertyDefinitionsUsageSummaryRetrieve = (): ToolBase<
+    typeof PropertyDefinitionsUsageSummaryRetrieveSchema,
+    Schemas.PropertyDefinitionUsageSummaryResponse
+> => ({
+    name: 'property-definitions-usage-summary-retrieve',
+    schema: PropertyDefinitionsUsageSummaryRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof PropertyDefinitionsUsageSummaryRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PropertyDefinitionUsageSummaryResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/property_definitions/usage_summary/`,
+            query: {
+                names: params.names,
+                type: params.type,
+            },
+        })
+        return result
+    },
+})
+
+const PropertyDefinitionsUsedInRetrieveSchema = PropertyDefinitionsUsedInRetrieveParams.omit({ project_id: true })
+
+const propertyDefinitionsUsedInRetrieve = (): ToolBase<
+    typeof PropertyDefinitionsUsedInRetrieveSchema,
+    Schemas.PropertyDefinitionUsedInResponse
+> => ({
+    name: 'property-definitions-used-in-retrieve',
+    schema: PropertyDefinitionsUsedInRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof PropertyDefinitionsUsedInRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PropertyDefinitionUsedInResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/property_definitions/${encodeURIComponent(String(params.id))}/used_in/`,
+        })
+        return result
+    },
+})
+
 const UserGetSchema = UsersRetrieveParams.extend({
     uuid: UsersRetrieveParams.shape['uuid'].describe('User UUID, or `@me` to target the authenticated user.'),
 })
@@ -413,6 +530,11 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
+    'property-definitions-list': propertyDefinitionsList,
+    'property-definitions-metrics-retrieve': propertyDefinitionsMetricsRetrieve,
+    'property-definitions-retrieve': propertyDefinitionsRetrieve,
+    'property-definitions-usage-summary-retrieve': propertyDefinitionsUsageSummaryRetrieve,
+    'property-definitions-used-in-retrieve': propertyDefinitionsUsedInRetrieve,
     'user-get': userGet,
     'user-settings-update': userSettingsUpdate,
 }

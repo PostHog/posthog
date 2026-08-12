@@ -75,6 +75,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Messaging opt-outs (`system.message_recipient_preferences`, `system.message_categories`)](./references/models-messaging-opt-outs.md)
 - [Metrics (`posthog.metrics`)](./references/models-metrics.md)
 - [Notebooks](./references/models-notebooks.md)
+- [Property definitions (`system.property_definitions`)](./references/models-property-definitions.md)
 - [Session Recording Playlists](./references/models-session-recording-playlists.md)
 - [Session Recordings](./references/models-session-recordings.md)
 - [Support Tickets](./references/models-support-tickets.md)

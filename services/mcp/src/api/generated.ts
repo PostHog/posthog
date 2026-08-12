@@ -27382,6 +27382,8 @@ export namespace Schemas {
       description?: string | null;
       tags?: unknown[];
       readonly is_numerical: boolean;
+      /** What the property is defined on: event, person, group, or session. Read-only. */
+      readonly type: string;
       readonly updated_at: string;
       readonly updated_by: UserBasic;
       /** @nullable */
@@ -54649,6 +54651,8 @@ export namespace Schemas {
       description?: string | null;
       tags?: unknown[];
       readonly is_numerical?: boolean;
+      /** What the property is defined on: event, person, group, or session. Read-only. */
+      readonly type?: string;
       readonly updated_at?: string;
       readonly updated_by?: UserBasic;
       /** @nullable */
@@ -63194,6 +63198,161 @@ export namespace Schemas {
          * @nullable
          */
       role?: string | null;
+    }
+
+    export interface PropertyDefinitionMetrics {
+      /** Number of times this property was part of an executed query in the last 30 days */
+      query_usage_30_day: number;
+    }
+
+    /**
+     * Counts of saved objects referencing this property, keyed by object type: insights, cohorts, feature_flags, experiments, surveys, hog_functions (data pipeline destinations and transformations), hog_flows (workflows)
+     */
+    export type PropertyDefinitionUsageEntryUsage = {[key: string]: number};
+
+    export interface PropertyDefinitionUsageEntry {
+      /** Property name */
+      name: string;
+      /** Counts of saved objects referencing this property, keyed by object type: insights, cohorts, feature_flags, experiments, surveys, hog_functions (data pipeline destinations and transformations), hog_flows (workflows) */
+      usage: PropertyDefinitionUsageEntryUsage;
+      /** Total number of saved objects referencing this property */
+      total_usage: number;
+      /**
+         * Share of person profiles carrying this property, as a percentage. Only computed for person properties; null otherwise or when person data is unavailable.
+         * @nullable
+         */
+      profiles_percentage: number | null;
+    }
+
+    export interface PropertyDefinitionUsageSummaryResponse {
+      /** One usage summary per requested name */
+      results: PropertyDefinitionUsageEntry[];
+      /**
+         * Total number of person profiles the percentages are relative to; null for non-person properties
+         * @nullable
+         */
+      profiles_total: number | null;
+    }
+
+    export interface PropertyDefinitionUsedInIntIdResource {
+      /** Database ID of the referencing object */
+      id: number;
+      /**
+         * Display name of the referencing object
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface PropertyDefinitionUsedInCohortsBlock {
+      /** Cohorts referencing this property, capped at 100 results */
+      results: PropertyDefinitionUsedInIntIdResource[];
+      /** Total number of cohorts referencing this property, before truncation */
+      total: number;
+      /** True when more results exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface PropertyDefinitionUsedInExperimentsBlock {
+      /** Experiments referencing this property, capped at 100 results */
+      results: PropertyDefinitionUsedInIntIdResource[];
+      /** Total number of experiments referencing this property, before truncation */
+      total: number;
+      /** True when more results exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface PropertyDefinitionUsedInFlag {
+      /** Feature flag database ID */
+      id: number;
+      /** Feature flag key (URL slug) */
+      key: string;
+      /**
+         * Feature flag display name
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface PropertyDefinitionUsedInFlagsBlock {
+      /** Feature flags referencing this property, capped at 100 results */
+      results: PropertyDefinitionUsedInFlag[];
+      /** Total number of feature flags referencing this property, before truncation */
+      total: number;
+      /** True when more results exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface PropertyDefinitionUsedInUuidResource {
+      /** UUID of the referencing object */
+      id: string;
+      /**
+         * Display name of the referencing object
+         * @nullable
+         */
+      name: string | null;
+    }
+
+    export interface PropertyDefinitionUsedInHogFlowsBlock {
+      /** Workflows referencing this property, capped at 100 results */
+      results: PropertyDefinitionUsedInUuidResource[];
+      /** Total number of workflows referencing this property, before truncation */
+      total: number;
+      /** True when more results exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface PropertyDefinitionUsedInHogFunctionsBlock {
+      /** Data pipeline destinations and transformations referencing this property, capped at 100 results */
+      results: PropertyDefinitionUsedInUuidResource[];
+      /** Total number of data pipeline destinations and transformations referencing this property, before truncation */
+      total: number;
+      /** True when more results exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface PropertyDefinitionUsedInInsight {
+      /** Insight database ID */
+      id: number;
+      /** Insight short ID used for routing in the frontend */
+      short_id: string;
+      /** Insight display name; falls back to derived name, then to 'Unnamed' when both are empty */
+      name: string;
+    }
+
+    export interface PropertyDefinitionUsedInInsightsBlock {
+      /** Insights referencing this property, capped at 100 results */
+      results: PropertyDefinitionUsedInInsight[];
+      /** Total number of insights referencing this property, before truncation */
+      total: number;
+      /** True when more results exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface PropertyDefinitionUsedInSurveysBlock {
+      /** Surveys referencing this property, capped at 100 results */
+      results: PropertyDefinitionUsedInUuidResource[];
+      /** Total number of surveys referencing this property, before truncation */
+      total: number;
+      /** True when more results exist beyond the truncation cap */
+      has_more: boolean;
+    }
+
+    export interface PropertyDefinitionUsedInResponse {
+      /** Insights referencing this property in their query, with truncation metadata */
+      insights: PropertyDefinitionUsedInInsightsBlock;
+      /** Cohorts referencing this property in their filters, with truncation metadata */
+      cohorts: PropertyDefinitionUsedInCohortsBlock;
+      /** Feature flags (active and inactive, excluding soft-deleted) referencing this property in their release conditions, with truncation metadata */
+      feature_flags: PropertyDefinitionUsedInFlagsBlock;
+      /** Experiments referencing this property via their feature flag or metrics, with truncation metadata */
+      experiments: PropertyDefinitionUsedInExperimentsBlock;
+      /** Surveys referencing this property via their targeting or linked flags, with truncation metadata */
+      surveys: PropertyDefinitionUsedInSurveysBlock;
+      /** Data pipeline destinations and transformations referencing this property in their filters, with truncation metadata */
+      hog_functions: PropertyDefinitionUsedInHogFunctionsBlock;
+      /** Workflows referencing this property in their trigger or actions, with truncation metadata */
+      hog_flows: PropertyDefinitionUsedInHogFlowsBlock;
     }
 
     export type PropertyType = typeof PropertyType[keyof typeof PropertyType];
@@ -88033,6 +88192,11 @@ export namespace Schemas {
      */
     group_type_index?: number;
     /**
+     * Filter by usage in saved objects (insights, cohorts, feature flags, experiments, surveys, destinations, workflows). True returns only properties referenced somewhere, false returns only unreferenced ones.
+     * @nullable
+     */
+    in_use?: boolean | null;
+    /**
      * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
@@ -88080,6 +88244,34 @@ export namespace Schemas {
 
 
     export const PropertyDefinitionsListType = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
+    export type PropertyDefinitionsUsageSummaryRetrieveParams = {
+    /**
+     * JSON-encoded list of property names to summarize usage for, e.g. ["email", "plan"]
+     * @minLength 1
+     */
+    names: string;
+    /**
+     * What type of properties the names refer to
+     *
+     * * `event` - event
+     * * `person` - person
+     * * `group` - group
+     * * `session` - session
+     * @minLength 1
+     */
+    type?: PropertyDefinitionsUsageSummaryRetrieveType;
+    };
+
+    export type PropertyDefinitionsUsageSummaryRetrieveType = typeof PropertyDefinitionsUsageSummaryRetrieveType[keyof typeof PropertyDefinitionsUsageSummaryRetrieveType];
+
+
+    export const PropertyDefinitionsUsageSummaryRetrieveType = {
       Event: 'event',
       Person: 'person',
       Group: 'group',

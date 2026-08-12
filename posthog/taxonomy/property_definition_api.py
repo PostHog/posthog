@@ -9,6 +9,7 @@ from django.db.models.functions import Coalesce
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
+from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
@@ -21,12 +22,29 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
+from posthog.taxonomy.property_usage import (
+    PROPERTY_USED_IN_PAGE_SIZE,
+    fetch_30day_property_queries,
+    get_cohorts_using_property,
+    get_experiments_using_property,
+    get_feature_flags_using_property,
+    get_hog_flows_using_property,
+    get_hog_functions_using_property,
+    get_insights_using_property,
+    get_person_profile_percentages,
+    get_property_usage_counts,
+    get_surveys_using_property,
+    get_used_property_names,
+    truncate_used_in_queryset,
+    used_in_block,
+)
 from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
@@ -167,6 +185,17 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
 
     verified = serializers.BooleanField(
         help_text="Filter by verified status. True returns only verified, false returns only unverified.",
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+    in_use = serializers.BooleanField(
+        help_text=(
+            "Filter by usage in saved objects (insights, cohorts, feature flags, experiments, surveys, "
+            "destinations, workflows). True returns only properties referenced somewhere, false returns "
+            "only unreferenced ones."
+        ),
         required=False,
         allow_null=True,
         default=None,
@@ -413,6 +442,19 @@ class QueryContext:
             )
         return self
 
+    def with_in_use_filter(self, in_use: Optional[bool], used_names: Optional[set[str]]) -> Self:
+        if in_use is None or used_names is None:
+            return self
+        negation = "" if in_use else "NOT "
+        in_use_filter = f" AND {negation}{self.property_definition_table}.name = ANY(%(in_use_names)s)"
+        return dataclasses.replace(
+            self,
+            excluded_properties_filter=(
+                self.excluded_properties_filter + in_use_filter if self.excluded_properties_filter else in_use_filter
+            ),
+            params={**self.params, "in_use_names": sorted(used_names)},
+        )
+
     def with_restricted_filter(self, restricted_property_names: set[str]) -> Self:
         if not restricted_property_names:
             return self
@@ -532,6 +574,9 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "(source/table/column/last synced), or null. Read-only."
         ),
     )
+    type = serializers.SerializerMethodField(
+        help_text="What the property is defined on: event, person, group, or session. Read-only."
+    )
 
     class Meta:
         model = PropertyDefinition
@@ -540,11 +585,16 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "name",
             "is_numerical",
             "property_type",
+            "type",
             "tags",
             # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
             "is_seen_on_filtered_events",
             "warehouse_origin",
         )
+
+    @extend_schema_field(serializers.CharField())
+    def get_type(self, obj: PropertyDefinition) -> str:
+        return obj.get_type_display()
 
     def validate(self, data):
         validated_data = super().validate(data)
@@ -578,6 +628,173 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             return super().update(property_definition, changed_fields)
         else:
             return super().update(property_definition, validated_data)
+
+
+class PropertyDefinitionUsedInInsightSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Insight database ID")
+    short_id = serializers.CharField(help_text="Insight short ID used for routing in the frontend")
+    name = serializers.CharField(
+        help_text="Insight display name; falls back to derived name, then to 'Unnamed' when both are empty"
+    )
+
+
+class PropertyDefinitionUsedInFlagSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Feature flag database ID")
+    key = serializers.CharField(help_text="Feature flag key (URL slug)")
+    name = serializers.CharField(allow_null=True, allow_blank=True, help_text="Feature flag display name")
+
+
+class PropertyDefinitionUsedInIntIdResourceSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="Database ID of the referencing object")
+    name = serializers.CharField(allow_null=True, allow_blank=True, help_text="Display name of the referencing object")
+
+
+class PropertyDefinitionUsedInUuidResourceSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="UUID of the referencing object")
+    name = serializers.CharField(allow_null=True, allow_blank=True, help_text="Display name of the referencing object")
+
+
+class PropertyDefinitionUsedInInsightsBlockSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsedInInsightSerializer(
+        many=True, help_text=f"Insights referencing this property, capped at {PROPERTY_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(help_text="Total number of insights referencing this property, before truncation")
+    has_more = serializers.BooleanField(help_text="True when more results exist beyond the truncation cap")
+
+
+class PropertyDefinitionUsedInFlagsBlockSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsedInFlagSerializer(
+        many=True, help_text=f"Feature flags referencing this property, capped at {PROPERTY_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of feature flags referencing this property, before truncation"
+    )
+    has_more = serializers.BooleanField(help_text="True when more results exist beyond the truncation cap")
+
+
+class PropertyDefinitionUsedInCohortsBlockSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsedInIntIdResourceSerializer(
+        many=True, help_text=f"Cohorts referencing this property, capped at {PROPERTY_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(help_text="Total number of cohorts referencing this property, before truncation")
+    has_more = serializers.BooleanField(help_text="True when more results exist beyond the truncation cap")
+
+
+class PropertyDefinitionUsedInExperimentsBlockSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsedInIntIdResourceSerializer(
+        many=True, help_text=f"Experiments referencing this property, capped at {PROPERTY_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of experiments referencing this property, before truncation"
+    )
+    has_more = serializers.BooleanField(help_text="True when more results exist beyond the truncation cap")
+
+
+class PropertyDefinitionUsedInSurveysBlockSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsedInUuidResourceSerializer(
+        many=True, help_text=f"Surveys referencing this property, capped at {PROPERTY_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(help_text="Total number of surveys referencing this property, before truncation")
+    has_more = serializers.BooleanField(help_text="True when more results exist beyond the truncation cap")
+
+
+class PropertyDefinitionUsedInHogFunctionsBlockSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsedInUuidResourceSerializer(
+        many=True,
+        help_text=f"Data pipeline destinations and transformations referencing this property, capped at {PROPERTY_USED_IN_PAGE_SIZE} results",
+    )
+    total = serializers.IntegerField(
+        help_text="Total number of data pipeline destinations and transformations referencing this property, before truncation"
+    )
+    has_more = serializers.BooleanField(help_text="True when more results exist beyond the truncation cap")
+
+
+class PropertyDefinitionUsedInHogFlowsBlockSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsedInUuidResourceSerializer(
+        many=True, help_text=f"Workflows referencing this property, capped at {PROPERTY_USED_IN_PAGE_SIZE} results"
+    )
+    total = serializers.IntegerField(help_text="Total number of workflows referencing this property, before truncation")
+    has_more = serializers.BooleanField(help_text="True when more results exist beyond the truncation cap")
+
+
+class PropertyDefinitionUsedInResponseSerializer(serializers.Serializer):
+    insights = PropertyDefinitionUsedInInsightsBlockSerializer(
+        help_text="Insights referencing this property in their query, with truncation metadata"
+    )
+    cohorts = PropertyDefinitionUsedInCohortsBlockSerializer(
+        help_text="Cohorts referencing this property in their filters, with truncation metadata"
+    )
+    feature_flags = PropertyDefinitionUsedInFlagsBlockSerializer(
+        help_text="Feature flags (active and inactive, excluding soft-deleted) referencing this property in their release conditions, with truncation metadata"
+    )
+    experiments = PropertyDefinitionUsedInExperimentsBlockSerializer(
+        help_text="Experiments referencing this property via their feature flag or metrics, with truncation metadata"
+    )
+    surveys = PropertyDefinitionUsedInSurveysBlockSerializer(
+        help_text="Surveys referencing this property via their targeting or linked flags, with truncation metadata"
+    )
+    hog_functions = PropertyDefinitionUsedInHogFunctionsBlockSerializer(
+        help_text="Data pipeline destinations and transformations referencing this property in their filters, with truncation metadata"
+    )
+    hog_flows = PropertyDefinitionUsedInHogFlowsBlockSerializer(
+        help_text="Workflows referencing this property in their trigger or actions, with truncation metadata"
+    )
+
+
+class PropertyDefinitionMetricsSerializer(serializers.Serializer):
+    query_usage_30_day = serializers.IntegerField(
+        help_text="Number of times this property was part of an executed query in the last 30 days"
+    )
+
+
+class PropertyDefinitionUsageSummaryQuerySerializer(serializers.Serializer):
+    names = serializers.CharField(
+        help_text='JSON-encoded list of property names to summarize usage for, e.g. ["email", "plan"]'
+    )
+    type = serializers.ChoiceField(
+        choices=PROPERTY_DEFINITION_TYPES,
+        help_text="What type of properties the names refer to",
+        default="person",
+    )
+
+    def validate_names(self, value: str) -> list[str]:
+        try:
+            names = json.loads(value)
+        except json.JSONDecodeError:
+            raise ValidationError("`names` must be a JSON-encoded list of strings")
+        if not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+            raise ValidationError("`names` must be a JSON-encoded list of strings")
+        if len(names) > 500:
+            raise ValidationError("`names` supports at most 500 names per request")
+        return names
+
+
+class PropertyDefinitionUsageEntrySerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Property name")
+    usage = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            "Counts of saved objects referencing this property, keyed by object type: "
+            "insights, cohorts, feature_flags, experiments, surveys, hog_functions (data pipeline "
+            "destinations and transformations), hog_flows (workflows)"
+        ),
+    )
+    total_usage = serializers.IntegerField(help_text="Total number of saved objects referencing this property")
+    profiles_percentage = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Share of person profiles carrying this property, as a percentage. Only computed for "
+            "person properties; null otherwise or when person data is unavailable."
+        ),
+    )
+
+
+class PropertyDefinitionUsageSummaryResponseSerializer(serializers.Serializer):
+    results = PropertyDefinitionUsageEntrySerializer(many=True, help_text="One usage summary per requested name")
+    profiles_total = serializers.IntegerField(
+        allow_null=True,
+        help_text="Total number of person profiles the percentages are relative to; null for non-person properties",
+    )
 
 
 class NotCountingLimitOffsetPaginator(LimitOffsetPagination):
@@ -763,6 +980,12 @@ class PropertyDefinitionViewSet(
                     else set()
                 )
                 .with_verified_filter(query.validated_data.get("verified"), use_enterprise_taxonomy=EE_AVAILABLE)
+                .with_in_use_filter(
+                    query.validated_data.get("in_use"),
+                    get_used_property_names(self.team, prop_type)
+                    if query.validated_data.get("in_use") is not None
+                    else None,
+                )
             )
 
             span.set_attribute("joins_event_property", query_context.should_join_event_property)
@@ -960,6 +1183,11 @@ class PropertyDefinitionViewSet(
         if v.get("verified") is not None:
             return False
 
+        # in_use filter — usage is only tracked for stored definitions, so exclude
+        # virtual properties whenever the caller filters by usage.
+        if v.get("in_use") is not None:
+            return False
+
         # virtual feature flag filter (not supported anywhere yet but add the logic and tests anyway for completeness)
         if v.get("is_feature_flag") is not None:
             if v["is_feature_flag"]:
@@ -995,6 +1223,121 @@ class PropertyDefinitionViewSet(
         results = {event_name: event_name in seen_events for event_name in event_names}
 
         return response.Response(results)
+
+    @extend_schema(responses=PropertyDefinitionUsedInResponseSerializer)
+    @action(methods=["GET"], detail=True, required_scopes=["property_definition:read"])
+    def used_in(self, request: request.Request, **kwargs: Any) -> response.Response:
+        """List the saved objects (insights, cohorts, flags, experiments, surveys, destinations, workflows) referencing this property."""
+        definition: PropertyDefinition = self.get_object()
+        name = definition.name
+        property_type = definition.get_type_display()
+        # Hide references the caller has been denied at the object level, matching the
+        # access-level filtering on the cohort used_in endpoint.
+        uac = self.user_access_control
+
+        flags_qs = uac.filter_queryset_by_access_level(
+            get_feature_flags_using_property(self.team, name, property_type), include_all_if_admin=True
+        )
+        flags_page, flags_total = truncate_used_in_queryset(flags_qs.values("id", "key", "name"))
+
+        insights_qs = uac.filter_queryset_by_access_level(get_insights_using_property(self.team, name, property_type))
+        insights_page, insights_total = truncate_used_in_queryset(
+            insights_qs.values("id", "short_id", "name", "derived_name")
+        )
+        insights_data = [
+            {
+                "id": insight["id"],
+                "short_id": insight["short_id"],
+                "name": insight.get("name") or insight.get("derived_name") or "Unnamed",
+            }
+            for insight in insights_page
+        ]
+
+        cohorts_qs = uac.filter_queryset_by_access_level(get_cohorts_using_property(self.team, name, property_type))
+        cohorts_page, cohorts_total = truncate_used_in_queryset(cohorts_qs.values("id", "name"))
+
+        experiments_qs = get_experiments_using_property(self.team, name, property_type, flags_qs)
+        experiments_page, experiments_total = truncate_used_in_queryset(experiments_qs.values("id", "name"))
+
+        surveys_qs = get_surveys_using_property(self.team, flags_qs)
+        surveys_page, surveys_total = truncate_used_in_queryset(surveys_qs.values("id", "name"))
+        surveys_data = [{"id": str(survey["id"]), "name": survey["name"]} for survey in surveys_page]
+
+        hog_functions_qs = get_hog_functions_using_property(self.team, name, property_type)
+        hog_functions_page, hog_functions_total = truncate_used_in_queryset(hog_functions_qs.values("id", "name"))
+        hog_functions_data = [{"id": str(fn["id"]), "name": fn["name"]} for fn in hog_functions_page]
+
+        hog_flows_qs = get_hog_flows_using_property(self.team, name, property_type)
+        hog_flows_page, hog_flows_total = truncate_used_in_queryset(hog_flows_qs.values("id", "name"))
+        hog_flows_data = [{"id": str(flow["id"]), "name": flow["name"]} for flow in hog_flows_page]
+
+        return response.Response(
+            {
+                "insights": used_in_block(insights_data, insights_total),
+                "cohorts": used_in_block(list(cohorts_page), cohorts_total),
+                "feature_flags": used_in_block(list(flags_page), flags_total),
+                "experiments": used_in_block(list(experiments_page), experiments_total),
+                "surveys": used_in_block(surveys_data, surveys_total),
+                "hog_functions": used_in_block(hog_functions_data, hog_functions_total),
+                "hog_flows": used_in_block(hog_flows_data, hog_flows_total),
+            }
+        )
+
+    @extend_schema(responses=PropertyDefinitionMetricsSerializer)
+    @action(methods=["GET"], detail=True, url_path="metrics", required_scopes=["property_definition:read"])
+    def metrics_totals(self, request: request.Request, **kwargs: Any) -> response.Response:
+        """Query usage of this property over the last 30 days."""
+        definition: PropertyDefinition = self.get_object()
+
+        query_usage_30_day = fetch_30day_property_queries(
+            team=self.team,
+            property_name=definition.name,
+            property_type=definition.get_type_display(),
+        )
+
+        return response.Response(
+            {
+                "query_usage_30_day": query_usage_30_day,
+            }
+        )
+
+    @extend_schema(
+        parameters=[PropertyDefinitionUsageSummaryQuerySerializer],
+        responses=PropertyDefinitionUsageSummaryResponseSerializer,
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["property_definition:read"])
+    def usage_summary(self, request: request.Request, **kwargs: Any) -> response.Response:
+        """Bulk usage counts (and, for person properties, profile coverage) for a list of property names."""
+        query = PropertyDefinitionUsageSummaryQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+
+        names: list[str] = query.validated_data["names"]
+        property_type: str = query.validated_data["type"]
+
+        counts = get_property_usage_counts(self.team, property_type, names=names)
+
+        percentages: dict[str, float] = {}
+        profiles_total: Optional[int] = None
+        if property_type == "person":
+            try:
+                percentages, profiles_total = get_person_profile_percentages(self.team)
+            except Exception as e:
+                # Usage counts are still useful when person data is unavailable.
+                capture_exception(e)
+
+        results = []
+        for name in names:
+            usage = counts.get(name, {})
+            results.append(
+                {
+                    "name": name,
+                    "usage": usage,
+                    "total_usage": sum(usage.values()),
+                    "profiles_percentage": percentages.get(name) if property_type == "person" else None,
+                }
+            )
+
+        return response.Response({"results": results, "profiles_total": profiles_total})
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

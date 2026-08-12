@@ -2612,6 +2612,40 @@ tags: PostgresTable = PostgresTable(
 )
 
 
+property_definitions: PostgresTable = PostgresTable(
+    name="property_definitions",
+    postgres_table_name="posthog_propertydefinition",
+    description=(
+        "Definitions of event, person, group, and session properties seen in the project; one row per "
+        "property name and type. Join against insights.query_metadata, feature_flags.filters, or "
+        "cohorts.filters to find where a property is referenced."
+    ),
+    access_scope="property_definition",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Property definition UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name", description="Property name as sent in events or person profiles."),
+        "type": IntegerDatabaseField(
+            name="type",
+            description="What the property is defined on: 1 = event, 2 = person, 3 = group, 4 = session.",
+        ),
+        "property_type": StringDatabaseField(
+            name="property_type",
+            description="Value type of the property: String, Numeric, Boolean, DateTime, or Duration.",
+        ),
+        "_is_numerical": BooleanDatabaseField(name="is_numerical", hidden=True),
+        "is_numerical": ExpressionField(
+            name="is_numerical",
+            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_numerical"])]),
+            description="1 if the property holds numeric values, 0 otherwise.",
+        ),
+        "group_type_index": IntegerDatabaseField(
+            name="group_type_index", description="Which group type the property belongs to; only set when type = 3."
+        ),
+    },
+)
+
+
 class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
@@ -2703,6 +2737,7 @@ class SystemTables(TableNode):
         "review_queue_items": TableNode(name="review_queue_items", table=review_queue_items),
         "review_queues": TableNode(name="review_queues", table=review_queues),
         "score_definitions": TableNode(name="score_definitions", table=score_definitions),
+        "property_definitions": TableNode(name="property_definitions", table=property_definitions),
         "session_recording_playlists": TableNode(name="session_recording_playlists", table=session_recording_playlists),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),

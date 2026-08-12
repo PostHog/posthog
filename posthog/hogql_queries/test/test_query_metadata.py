@@ -2,6 +2,8 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     ActorsQuery,
@@ -32,7 +34,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.query_metadata import QueryEventsExtractor
+from posthog.hogql_queries.query_metadata import QueryEventsExtractor, QueryPropertiesExtractor
 
 from products.actions.backend.models.action import Action
 
@@ -360,3 +362,115 @@ class TestQueryEventsExtractor(TestCase):
         )
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "click"])
+
+
+class TestQueryPropertiesExtractor(TestCase):
+    def setUp(self):
+        self.extractor = QueryPropertiesExtractor()
+
+    def _names(self, query) -> list[tuple[str, str]]:
+        return [(ref.name, ref.type) for ref in self.extractor.extract_properties(query)]
+
+    @parameterized.expand(
+        [
+            (
+                "global_properties",
+                {
+                    "kind": "TrendsQuery",
+                    "properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}],
+                },
+                [("plan", "person")],
+            ),
+            (
+                "series_properties",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "properties": [{"key": "$browser", "type": "event", "value": "Chrome"}],
+                        }
+                    ],
+                },
+                [("$browser", "event")],
+            ),
+            (
+                "breakdown_filter",
+                {
+                    "kind": "TrendsQuery",
+                    "breakdownFilter": {"breakdown": "plan", "breakdown_type": "person"},
+                },
+                [("plan", "person")],
+            ),
+            (
+                "multiple_breakdowns",
+                {
+                    "kind": "TrendsQuery",
+                    "breakdownFilter": {"breakdowns": [{"property": "$geoip_country_code", "type": "person"}]},
+                },
+                [("$geoip_country_code", "person")],
+            ),
+            (
+                "math_property",
+                {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "purchase", "math": "sum", "math_property": "amount"}],
+                },
+                [("amount", "event")],
+            ),
+            (
+                "hogql_expression_dot_access",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT count() FROM events WHERE person.properties.plan = 'pro'",
+                },
+                [("plan", "person")],
+            ),
+            (
+                "hogql_expression_bracket_access",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT person.properties['utm source'] FROM persons",
+                },
+                [("utm source", "person")],
+            ),
+            (
+                "cohort_filters_are_not_property_names",
+                {
+                    "kind": "TrendsQuery",
+                    "properties": [{"key": "id", "type": "cohort", "value": 42}],
+                },
+                [],
+            ),
+            (
+                "hogql_property_filters_are_not_property_names",
+                {
+                    "kind": "TrendsQuery",
+                    "properties": [{"key": "properties.x > 1", "type": "hogql"}],
+                },
+                [],
+            ),
+        ]
+    )
+    def test_extract_properties(self, _name, query, expected):
+        self.assertCountEqual(self._names(query), expected)
+
+    def test_extract_properties_deduplicates_across_locations(self):
+        query = {
+            "kind": "TrendsQuery",
+            "properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}],
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "$pageview",
+                    "properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}],
+                }
+            ],
+            "breakdownFilter": {"breakdown": "plan", "breakdown_type": "person"},
+        }
+        self.assertEqual(self._names(query), [("plan", "person")])
+
+    def test_extract_properties_handles_empty_and_none(self):
+        self.assertEqual(self.extractor.extract_properties(None), [])
+        self.assertEqual(self.extractor.extract_properties({}), [])

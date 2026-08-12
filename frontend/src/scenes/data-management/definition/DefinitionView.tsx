@@ -24,6 +24,7 @@ import {
     decodeDefinitionId,
     definitionLogic,
 } from 'scenes/data-management/definition/definitionLogic'
+import { PropertyDefinitionUsedIn } from 'scenes/data-management/definition/PropertyDefinitionUsedIn'
 import { EventDefinitionExperiments } from 'scenes/data-management/events/EventDefinitionExperiments'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -130,8 +131,20 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     // The app renders scene components with raw route params, so decode the id like paramsToProps does
     const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
-        useValues(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        isEvent,
+        isProperty,
+        metrics,
+        metricsLoading,
+        usedIn,
+        usedInLoading,
+        usageEntry,
+        usageEntryLoading,
+    } = useValues(logic)
     const { deleteDefinition } = useActions(logic)
 
     const memoizedQuery = useMemo(() => {
@@ -367,11 +380,11 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
-                {isEvent && (
+                {(isEvent || (isProperty && !isVirtual && definition.id !== 'new')) && (
                     <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
-                            <Tooltip title="Number of times this event has been queried in the last 30 days">
+                            <Tooltip title={`Number of times this ${singular} has been queried in the last 30 days`}>
                                 <IconInfo className="text-sm" />
                             </Tooltip>
                         </h5>
@@ -380,6 +393,26 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                 <Spinner textColored />
                             ) : (
                                 <>{metrics?.query_usage_30_day ? metrics.query_usage_30_day.toLocaleString() : '-'}</>
+                            )}
+                        </b>
+                    </div>
+                )}
+
+                {isProperty && (definition as PropertyDefinition).type === 'person' && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48">
+                        <h5>
+                            Profiles with this property{' '}
+                            <Tooltip title="Share of person profiles that currently have this property. Updated daily.">
+                                <IconInfo className="text-sm" />
+                            </Tooltip>
+                        </h5>
+                        <b>
+                            {usageEntryLoading ? (
+                                <Spinner textColored />
+                            ) : usageEntry?.profiles_percentage != null ? (
+                                `${usageEntry.profiles_percentage}%`
+                            ) : (
+                                '-'
                             )}
                         </b>
                     </div>
@@ -468,6 +501,15 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         <Query query={memoizedQuery} />
                     </SceneSection>
                 </>
+            )}
+
+            {isProperty && !isVirtual && definition.id !== 'new' && (
+                <SceneSection
+                    title="Used in"
+                    description="Saved places in PostHog that reference this property. Ad-hoc queries are not included."
+                >
+                    <PropertyDefinitionUsedIn usedIn={usedIn} loading={usedInLoading} />
+                </SceneSection>
             )}
         </SceneContent>
     )

@@ -4,6 +4,7 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.db import OperationalError
 from django.test import SimpleTestCase
 
@@ -17,6 +18,10 @@ from posthog.taxonomy.property_definition_api import (
     QueryContext,
     is_query_canceled,
 )
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 
 
 def exclude_virtual_properties(results: list) -> list:
@@ -1116,3 +1121,160 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     )
     def test_invalid_query(self, _name: str, data: dict[str, Any]) -> None:
         assert not PropertyDefinitionQuerySerializer(data=data).is_valid()
+
+
+class TestPropertyDefinitionUsage(APIBaseTest):
+    maxDiff = None
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.definition = PropertyDefinition.objects.create(
+            team=self.team, name="plan", type=PropertyDefinition.Type.PERSON
+        )
+        self.unused_definition = PropertyDefinition.objects.create(
+            team=self.team, name="legacy_score", type=PropertyDefinition.Type.PERSON
+        )
+        self.flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="pro-plan-gate",
+            name="Pro plan gate",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}]}]
+            },
+        )
+        self.cohort = Cohort.objects.create(
+            team=self.team,
+            name="Pro users",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}],
+                        }
+                    ],
+                }
+            },
+        )
+        self.insight = Insight.objects.create(
+            team=self.team,
+            name="Pageviews by plan",
+            query={
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}],
+                },
+            },
+        )
+        # References in another project must never surface in this project's usage
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        FeatureFlag.objects.create(
+            team=other_team,
+            key="other-team-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [{"key": "plan", "type": "person", "value": ["pro"], "operator": "exact"}]}]
+            },
+        )
+
+    def test_used_in_lists_referencing_objects(self):
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{self.definition.id}/used_in/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        self.assertEqual(
+            data["feature_flags"],
+            {
+                "results": [{"id": self.flag.id, "key": "pro-plan-gate", "name": "Pro plan gate"}],
+                "total": 1,
+                "has_more": False,
+            },
+        )
+        self.assertEqual(
+            data["cohorts"],
+            {"results": [{"id": self.cohort.id, "name": "Pro users"}], "total": 1, "has_more": False},
+        )
+        self.assertEqual(
+            data["insights"],
+            {
+                "results": [{"id": self.insight.id, "short_id": self.insight.short_id, "name": "Pageviews by plan"}],
+                "total": 1,
+                "has_more": False,
+            },
+        )
+        for empty_block in ("experiments", "surveys", "hog_functions", "hog_flows"):
+            self.assertEqual(data[empty_block], {"results": [], "total": 0, "has_more": False})
+
+    def test_used_in_is_empty_for_unreferenced_property(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/{self.unused_definition.id}/used_in/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        for block in data.values():
+            self.assertEqual(block, {"results": [], "total": 0, "has_more": False})
+
+    def test_used_in_matches_insights_without_query_metadata(self):
+        # Insights saved before property extraction existed fall back to a structural query scan
+        Insight.objects.filter(pk=self.insight.pk).update(query_metadata=None)
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{self.definition.id}/used_in/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["insights"]["total"], 1)
+
+    @patch(
+        "posthog.taxonomy.property_definition_api.get_person_profile_percentages", return_value=({"plan": 82.5}, 200)
+    )
+    def test_usage_summary_counts_by_name(self, _mock_percentages):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_summary/",
+            {"names": json.dumps(["plan", "legacy_score"]), "type": "person"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+
+        self.assertEqual(data["profiles_total"], 200)
+        by_name = {entry["name"]: entry for entry in data["results"]}
+        self.assertEqual(
+            by_name["plan"],
+            {
+                "name": "plan",
+                "usage": {"insights": 1, "cohorts": 1, "feature_flags": 1},
+                "total_usage": 3,
+                "profiles_percentage": 82.5,
+            },
+        )
+        self.assertEqual(
+            by_name["legacy_score"],
+            {"name": "legacy_score", "usage": {}, "total_usage": 0, "profiles_percentage": None},
+        )
+
+    def test_usage_summary_rejects_invalid_names(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_summary/",
+            {"names": "plan", "type": "person"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("in_use", "true", ["plan"]),
+            ("not_in_use", "false", ["legacy_score"]),
+        ]
+    )
+    def test_list_filters_by_in_use(self, _name, in_use, expected_names):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/",
+            {"type": "person", "in_use": in_use},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        names = [row["name"] for row in exclude_virtual_properties(response.json()["results"])]
+        self.assertEqual(names, expected_names)
+
+    def test_saving_insight_extracts_property_references_into_query_metadata(self):
+        refs = self.insight.query_metadata.get("properties")
+        self.assertEqual(refs, [{"name": "plan", "type": "person"}])

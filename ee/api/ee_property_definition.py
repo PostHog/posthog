@@ -1,5 +1,6 @@
 from django.utils import timezone
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -23,6 +24,10 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
         ),
     )
 
+    type = serializers.SerializerMethodField(
+        help_text="What the property is defined on: event, person, group, or session. Read-only."
+    )
+
     class Meta:
         model = EnterprisePropertyDefinition
         fields = (
@@ -31,6 +36,7 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "description",
             "tags",
             "is_numerical",
+            "type",
             "updated_at",
             "updated_by",
             "is_seen_on_filtered_events",
@@ -45,11 +51,16 @@ class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializ
             "id",
             "name",
             "is_numerical",
+            "type",
             "is_seen_on_filtered_events",
             "verified_at",
             "verified_by",
             "warehouse_origin",
         ]
+
+    @extend_schema_field(serializers.CharField())
+    def get_type(self, obj: EnterprisePropertyDefinition) -> str:
+        return obj.get_type_display()
 
     def validate(self, data):
         validated_data = super().validate(data)

@@ -66,7 +66,11 @@ import type {
     ProjectBackwardCompatApi,
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
+    PropertyDefinitionMetricsApi,
+    PropertyDefinitionUsageSummaryResponseApi,
+    PropertyDefinitionUsedInResponseApi,
     PropertyDefinitionsListParams,
+    PropertyDefinitionsUsageSummaryRetrieveParams,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
@@ -2164,6 +2168,42 @@ export const propertyDefinitionsDestroy = async (
     })
 }
 
+export const getPropertyDefinitionsMetricsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/property_definitions/${id}/metrics/`
+}
+
+/**
+ * Query usage of this property over the last 30 days.
+ */
+export const propertyDefinitionsMetricsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PropertyDefinitionMetricsApi> => {
+    return apiMutator<PropertyDefinitionMetricsApi>(getPropertyDefinitionsMetricsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPropertyDefinitionsUsedInRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/property_definitions/${id}/used_in/`
+}
+
+/**
+ * List the saved objects (insights, cohorts, flags, experiments, surveys, destinations, workflows) referencing this property.
+ */
+export const propertyDefinitionsUsedInRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PropertyDefinitionUsedInResponseApi> => {
+    return apiMutator<PropertyDefinitionUsedInResponseApi>(getPropertyDefinitionsUsedInRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getPropertyDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/property_definitions/bulk_update_tags/`
 }
@@ -2216,6 +2256,42 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getPropertyDefinitionsUsageSummaryRetrieveUrl = (
+    projectId: string,
+    params: PropertyDefinitionsUsageSummaryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/property_definitions/usage_summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/property_definitions/usage_summary/`
+}
+
+/**
+ * Bulk usage counts (and, for person properties, profile coverage) for a list of property names.
+ */
+export const propertyDefinitionsUsageSummaryRetrieve = async (
+    projectId: string,
+    params: PropertyDefinitionsUsageSummaryRetrieveParams,
+    options?: RequestInit
+): Promise<PropertyDefinitionUsageSummaryResponseApi> => {
+    return apiMutator<PropertyDefinitionUsageSummaryResponseApi>(
+        getPropertyDefinitionsUsageSummaryRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getSessionRecordingsSharingListUrl = (projectId: string, recordingId: string) => {
