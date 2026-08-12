@@ -16,6 +16,7 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     EventsNode,
+    GroupMathType,
     GroupNode,
     IntervalType,
     MathGroupTypeIndex,
@@ -446,7 +447,14 @@ class TestTrendsActorsQueryBuilder(BaseTest):
             )
 
     def test_actor_id_expr_for_groups_math(self):
-        maths = [BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE]
+        maths = [
+            BaseMathType.DAU,
+            UNIQUE_GROUPS,
+            BaseMathType.WEEKLY_ACTIVE,
+            BaseMathType.MONTHLY_ACTIVE,
+            GroupMathType.FIRST_TIME_FOR_GROUP,
+            GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP,
+        ]
         for math in maths:
             with self.subTest(math=math):
                 trends_query = default_query.model_copy(
