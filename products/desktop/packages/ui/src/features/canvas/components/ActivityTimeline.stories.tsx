@@ -1,4 +1,4 @@
-import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
+import { buildThreadTimeline } from "@posthog/core/canvas/threadTimeline";
 import type {
   Task,
   TaskCommentThreadSummary,
@@ -35,23 +35,21 @@ function event(
   event: string,
   payload: Record<string, unknown>,
   createdAt: string,
-): ThreadTimelineRow<TaskThreadMessage> {
+): TaskThreadMessage {
   return {
-    kind: "human",
-    timestamp: Date.parse(createdAt),
-    message: {
-      id,
-      task: task.id,
-      content: "",
-      created_at: createdAt,
-      author_kind: "agent",
-      event,
-      payload,
-    } as TaskThreadMessage,
-  };
+    id,
+    task: task.id,
+    content: "",
+    created_at: createdAt,
+    author_kind: "agent",
+    event,
+    payload,
+  } as TaskThreadMessage;
 }
 
-const timeline: ThreadTimelineRow<TaskThreadMessage>[] = [
+// The raw thread, as the API returns it. `timeline` is derived the way the panel derives
+// it, so a story cannot show a row shape production never produces.
+const messages: TaskThreadMessage[] = [
   event(
     "e1",
     "run_started",
@@ -99,6 +97,8 @@ const timeline: ThreadTimelineRow<TaskThreadMessage>[] = [
     "2026-08-05T15:30:00Z",
   ),
 ];
+
+const timeline = buildThreadTimeline(messages);
 
 const commentThreads: TaskCommentThreadSummary[] = [
   {
@@ -171,6 +171,7 @@ export const FullTimeline: Story = {
   args: {
     task,
     timeline,
+    messages,
     conversationItems: [
       {
         type: "user_message",
@@ -183,12 +184,6 @@ export const FullTimeline: Story = {
     commentThreads,
     commentsEnabled: true,
     currentUserId: ben.id,
-    currentUserUuid: ben.uuid,
-    isTaskAuthor: false,
-    canForward: false,
-    runCount: 1,
-    onSendToAgent: () => {},
-    onDelete: () => {},
   },
 };
 
