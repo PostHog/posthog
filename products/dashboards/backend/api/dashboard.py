@@ -1130,15 +1130,6 @@ class DashboardBasicSerializer(
             return "v1"
         return "v2"
 
-    def _filed_entry(self, dashboard: Dashboard) -> FiledEntry | None:
-        # Three fields read the same entry, and resolving it costs a query for a dashboard the queryset never
-        # annotated, so hold the answer for the length of the response.
-        if not hasattr(self, "_filed_entry_cache"):
-            self._filed_entry_cache: dict[int, FiledEntry | None] = {}
-        if dashboard.id not in self._filed_entry_cache:
-            self._filed_entry_cache[dashboard.id] = filed_entry(dashboard)
-        return self._filed_entry_cache[dashboard.id]
-
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_folder(self, dashboard: Dashboard) -> str | None:
         # Don't expose the project-tree location to anonymous viewers of a publicly shared dashboard,
@@ -1147,14 +1138,14 @@ class DashboardBasicSerializer(
             return None
         # `_folder_path` is annotated on DashboardsViewSet.dangerously_get_queryset (all actions).
         # The file system path's last segment is the dashboard's own name; the folder is everything above it.
-        entry = self._filed_entry(dashboard)
+        entry = filed_entry(dashboard)
         return join_path(split_path(entry.path)[:-1]) if entry else None
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_file_system_id(self, dashboard: Dashboard) -> str | None:
         if self.context.get("is_shared"):
             return None
-        entry = self._filed_entry(dashboard)
+        entry = filed_entry(dashboard)
         return entry.id if entry else None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -1163,7 +1154,7 @@ class DashboardBasicSerializer(
         # does: an anonymous viewer of a public dashboard must not learn the internal folder structure.
         if self.context.get("is_shared"):
             return None
-        entry = self._filed_entry(dashboard)
+        entry = filed_entry(dashboard)
         return entry.path if entry else None
 
 

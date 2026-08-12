@@ -632,10 +632,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             projectTreeLogicKey,
         }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
-        // A move operation finished, carrying the moves that landed. This does not patch anything, and it
-        // does not replace `movedItem`: five stores take `movedItem` to re-path one row each, as each row
-        // lands. This exists for work worth doing once per operation rather than once per row, such as a
-        // refetch, which would otherwise have to guess the boundary from a timer.
+        // Sits beside `movedItem` rather than replacing it: that one re-paths a single row as it lands, this
+        // one is for work worth doing once per operation, such as a refetch.
         movesSettled: (moved: MovedItem[]) => ({ moved }),
         // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
         restoredItems: true,
