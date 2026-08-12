@@ -541,6 +541,19 @@ class TestConvexNonRetryableErrors:
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
         assert any(key in error_msg for key in non_retryable_errors), error_msg
 
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_get_json_schemas_400_with_unparseable_body_falls_through_to_http_error(self, mock_get: Mock) -> None:
+        # A 400 whose body isn't JSON (e.g. a proxy/edge error page) must not crash the
+        # body-parsing added for StreamingExportNotEnabled detection - it should fall through
+        # to the normal raise_for_status() error instead of raising an unhandled ValueError.
+        response = _make_response({}, status_code=400)
+        response.json.side_effect = ValueError("not JSON")
+        response.raise_for_status.side_effect = HTTPError("400 Client Error: Bad Request for url: ...")
+        mock_get.return_value.get.return_value = response
+
+        with pytest.raises(HTTPError):
+            get_json_schemas("https://x.convex.cloud", "key")
+
     @parameterized.expand(
         [
             ("401", "401 Client Error: Unauthorized for url: https://x.convex.cloud/api/document_deltas"),
