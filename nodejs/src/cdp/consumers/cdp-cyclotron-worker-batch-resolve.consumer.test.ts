@@ -1,6 +1,14 @@
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 import { Team } from '~/types'
 
+import { CdpOutput } from '../cdp-services'
+import { HogFlow } from '../schema/hogflow'
 import { BatchResolverState } from '../services/hogflows/batch-resolver.types'
+import {
+    HogInvocationResultRow,
+    HogInvocationResultsService,
+} from '../services/monitoring/hog-invocation-results.service'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
     CdpCyclotronWorkerBatchResolve,
@@ -16,8 +24,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 siteUrl: 'https://us.posthog.com',
                 parentRunId: 'batch-job-1',
                 team,
-                hogFlowId: 'flow-1',
-                flowVersion: 4,
+                hogFlow: { id: 'flow-1', version: 4 } as HogFlow,
                 externalId: 'acme-1',
                 groupType: 'customer',
                 defaultVariables: { greeting: 'hi' },
@@ -41,6 +48,9 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(invocation.parentRunId).toEqual('batch-job-1')
             expect(invocation.queue).toEqual('hogflow')
             expect((invocation as any).person).toBeUndefined()
+            // The processOnePage tests cover only the person path, so this is the one guard
+            // that account children carry the shape marker the lifecycle rows classify by.
+            expect(invocation.hogFlow.id).toEqual('flow-1')
         })
     })
 
@@ -50,8 +60,8 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
         let consumer: CdpCyclotronWorkerBatchResolve
         let queueAppMetrics: jest.Mock
-        let queueLifecycleRow: jest.Mock
-        let dropQueuedRowsFor: jest.Mock
+        let outputs: jest.Mocked<IngestionOutputs<CdpOutput>>
+        let rowsService: HogInvocationResultsService
         let bulkCreateAndCheckIn: jest.Mock
 
         const state: BatchResolverState = {
@@ -71,14 +81,27 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
         const processPage = async (): Promise<void> =>
             await (consumer as any).processOnePage({ bulkCreateAndCheckIn, reschedule: jest.fn() }, state)
 
+        // The rows the real service produced on flush. Asserting on these rather than on mock
+        // call args is what catches a misclassification: function_kind is derived structurally
+        // inside the service ('hogFlow' in invocation), which a mocked service never evaluates.
+        const producedRows = (): HogInvocationResultRow[] =>
+            outputs.produce.mock.calls.map(
+                ([, message]) => parseJSON(message.value!.toString('utf8')) as HogInvocationResultRow
+            )
+
         beforeEach(() => {
             queueAppMetrics = jest.fn()
-            queueLifecycleRow = jest.fn()
-            dropQueuedRowsFor = jest.fn()
             bulkCreateAndCheckIn = jest.fn().mockResolvedValue(undefined)
+            outputs = {
+                produce: jest.fn().mockResolvedValue(undefined),
+            } as unknown as jest.Mocked<IngestionOutputs<CdpOutput>>
+            rowsService = new HogInvocationResultsService(outputs, { HOG_INVOCATION_RESULTS_ENABLED: true })
 
             // The base constructor builds redis/valkey-backed services, so assemble the
             // instance directly — this exercises processOnePage without any live boundary.
+            // The rows service is real (only its produce boundary is mocked) because the
+            // regressions to catch live inside it: how it classifies and stamps the
+            // invocations this consumer builds.
             consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
@@ -94,9 +117,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                     }),
                 },
                 hogFunctionMonitoringService: { queueAppMetrics, queueLogs: jest.fn() },
-                invocationResultsService: {
-                    invocationResultsRowsService: { queueLifecycleRow, dropQueuedRowsFor },
-                },
+                invocationResultsService: { invocationResultsRowsService: rowsService },
             })
         })
 
@@ -123,30 +144,36 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(metrics[0].instance_id).toBeUndefined()
         })
 
-        it('records each enrolled person as a running invocation so parked runs are listable', async () => {
+        it('records each enrolled person as a running hog_flow invocation so parked runs are listable', async () => {
             await processPage()
+            await rowsService.flush()
 
-            expect(queueLifecycleRow).toHaveBeenCalledTimes(2)
-            for (const [invocation, status] of queueLifecycleRow.mock.calls) {
-                expect(status).toEqual('running')
-                expect(invocation.parentRunId).toEqual(BATCH_JOB_ID)
-                expect(invocation.functionId).toEqual(HOG_FLOW_ID)
+            const rows = producedRows()
+            expect(rows).toHaveLength(2)
+            for (const row of rows) {
+                // hog_flow, not hog_function: the workflow invocations API only reads rows with
+                // function_kind = 'hog_flow', so a row under any other kind is invisible — the
+                // exact blackout this PR exists to close.
+                expect(row.function_kind).toEqual('hog_flow')
+                expect(row.function_id).toEqual(HOG_FLOW_ID)
+                expect(row.parent_run_id).toEqual(BATCH_JOB_ID)
+                expect(row.status).toEqual('running')
             }
+            expect(rows.map((row) => row.person_id).sort()).toEqual(['person-1', 'person-2'])
         })
 
         it('stamps the enqueue time into the state that gets persisted', async () => {
             // queueLifecycleRow sets firstScheduledAt on the invocation, so it has to run before
-            // the state is serialized onto the cyclotron job. If it runs after, the terminal row
-            // written when the run wakes records the wake time and wins the argMax collapse.
-            queueLifecycleRow.mockImplementation((invocation) => {
-                invocation.state.firstScheduledAt = '2026-08-11 00:00:00.000000'
-            })
-
+            // the state is serialized onto the cyclotron job. If it runs after — or if the
+            // service does not recognize the invocation as a workflow — the terminal row written
+            // when the run wakes records the wake time and wins the argMax collapse.
             await processPage()
 
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
+            expect(newJobs).toHaveLength(2)
             for (const job of newJobs) {
-                expect(job.state.toString()).toContain('firstScheduledAt')
+                const persisted = parseJSON(job.state.toString('utf8'))
+                expect(persisted.state.firstScheduledAt).toEqual(expect.any(String))
             }
         })
 
@@ -157,8 +184,8 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             await expect(processPage()).rejects.toThrow('postgres is down')
 
-            const enrolled = queueLifecycleRow.mock.calls.map(([invocation]) => invocation.id)
-            expect(dropQueuedRowsFor).toHaveBeenCalledWith(enrolled)
+            await rowsService.flush()
+            expect(outputs.produce).not.toHaveBeenCalled()
             expect(queueAppMetrics).not.toHaveBeenCalled()
         })
     })

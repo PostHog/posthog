@@ -8,6 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig, Team } from '../../types'
+import { HogFlow } from '../schema/hogflow'
 import type { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Worker } from '../services/cyclotron-v2'
 import {
     BatchResolverState,
@@ -17,7 +18,7 @@ import {
 } from '../services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from '../services/hogflows/hogflow-batch-person-query.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobInvocation } from '../types'
+import { CyclotronJobInvocationHogFlow } from '../types'
 import {
     convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals,
     convertBatchHogFlowRequestToHogFunctionInvocationGlobals,
@@ -272,8 +273,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                       siteUrl: this.config.SITE_URL,
                       parentRunId: state.batchJobId,
                       team,
-                      hogFlowId: hogFlow.id,
-                      flowVersion: hogFlow.version,
+                      hogFlow,
                       externalId: id,
                       groupType: page.accountGroupType ?? '',
                       defaultVariables,
@@ -282,8 +282,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                       siteUrl: this.config.SITE_URL,
                       parentRunId: state.batchJobId,
                       team,
-                      hogFlowId: hogFlow.id,
-                      flowVersion: hogFlow.version,
+                      hogFlow,
                       personId: id,
                       defaultVariables,
                   })
@@ -510,12 +509,11 @@ export function buildAccountHogFlowInvocation(params: {
     siteUrl: string
     parentRunId: string
     team: Team
-    hogFlowId: string
-    flowVersion: number
+    hogFlow: HogFlow
     externalId: string
     groupType: string
     defaultVariables: Record<string, unknown>
-}): CyclotronJobInvocation {
+}): CyclotronJobInvocationHogFlow {
     const invocationGlobals = convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals({
         team: params.team,
         externalId: params.externalId,
@@ -534,16 +532,21 @@ export function buildAccountHogFlowInvocation(params: {
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive long after
             // the send, so they attribute to the version that sent, not the one live by then.
-            flowVersion: params.flowVersion,
-        } as any,
+            flowVersion: params.hogFlow.version,
+        },
         teamId: params.team.id,
-        functionId: params.hogFlowId,
+        functionId: params.hogFlow.id,
+        // In-memory only (persistence serializes just `state`), but load-bearing for
+        // monitoring: the invocation-results service classifies by shape (`'hogFlow' in
+        // invocation`), and a row not classified as hog_flow never shows up in the
+        // workflow invocations list.
+        hogFlow: params.hogFlow,
         parentRunId: params.parentRunId,
         filterGlobals,
         queue: 'hogflow' as const,
         queuePriority: 1,
         queueScheduledAt: DateTime.now(),
-    } as CyclotronJobInvocation
+    }
 }
 
 // Mirrors `createHogFlowInvocation` from the legacy Kafka consumer so children
@@ -552,11 +555,10 @@ function buildHogFlowInvocation(params: {
     siteUrl: string
     parentRunId: string
     team: Team
-    hogFlowId: string
-    flowVersion: number
+    hogFlow: HogFlow
     personId: string
     defaultVariables: Record<string, unknown>
-}): CyclotronJobInvocation {
+}): CyclotronJobInvocationHogFlow {
     const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
         team: params.team,
         personId: params.personId,
@@ -574,15 +576,18 @@ function buildHogFlowInvocation(params: {
             variables: params.defaultVariables,
             // Same reason as createHogFlowInvocation: a broadcast's conversions arrive days after
             // the send, so they have to attribute to the version that sent, not the one live then.
-            flowVersion: params.flowVersion,
-        } as any,
+            flowVersion: params.hogFlow.version,
+        },
         teamId: params.team.id,
-        functionId: params.hogFlowId,
+        functionId: params.hogFlow.id,
+        // See buildAccountHogFlowInvocation: in-memory only, but drives the shape-based
+        // hog_flow classification of the `running` lifecycle rows.
+        hogFlow: params.hogFlow,
         parentRunId: params.parentRunId,
-        person: invocationGlobals.person as any,
+        person: invocationGlobals.person,
         filterGlobals,
         queue: 'hogflow' as const,
         queuePriority: 1,
         queueScheduledAt: DateTime.now(),
-    } as CyclotronJobInvocation
+    }
 }
