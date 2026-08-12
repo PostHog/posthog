@@ -742,3 +742,69 @@ async fn warming_a_range_larger_than_the_budget_marks_every_person() {
          if everything fit, this test no longer exercises eviction"
     );
 }
+
+/// The coordination loop drops warms on lease loss and shutdown, and a
+/// dropped future never reaches post-await cleanup — the guard must run
+/// on cancellation. A surviving build pins memory for a partition this
+/// pod never serves; a surviving mark outlives re-acquisition (the
+/// re-warm only overwrites marks past the writer's new committed
+/// offset) and redirects a later miss to a superseded changelog offset.
+#[tokio::test]
+async fn a_cancelled_warm_leaves_no_build_and_no_marks() {
+    let (cluster, producer) = create_test_kafka().await;
+
+    // Enough records that the consume demonstrably outlasts the abort
+    // below: the poll waits for the first mark, so the abort lands
+    // mid-range with the rest of the range still unconsumed.
+    for person_id in 1..=2_000i64 {
+        let mut person = make_person(1, person_id);
+        person.properties = serde_json::to_vec(&serde_json::json!({
+            "email": format!("p{person_id}@example.com"),
+            "padding": "x".repeat(2048),
+        }))
+        .unwrap();
+        produce_person_to_partition(&producer, 0, &person).await;
+    }
+
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    let (cfg, pools) = warming_config_for("warmer-cancelled", &cluster);
+    let warm = {
+        let cache = Arc::clone(&cache);
+        let dirty_index = Arc::clone(&dirty_index);
+        tokio::spawn(async move { warm_from_kafka(&cfg, &pools, &cache, &dirty_index, 0).await })
+    };
+
+    let first = PersonCacheKey {
+        team_id: 1,
+        person_id: 1,
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while dirty_index.get(&first).is_none() {
+        if warm.is_finished() {
+            let result = warm.await;
+            panic!("the warm finished before the abort could land: {result:?}");
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the warm never started seeding marks"
+        );
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    warm.abort();
+    let err = warm
+        .await
+        .expect_err("the warm must have been cancelled mid-range, not completed");
+    assert!(err.is_cancelled(), "expected cancellation, got: {err}");
+
+    assert!(
+        dirty_index.get(&first).is_none(),
+        "a cancelled warm must clear the marks it seeded"
+    );
+    assert_eq!(
+        cache.usage_bytes(),
+        0,
+        "a cancelled warm must leave no build in flight"
+    );
+    assert!(!cache.has_partition(0), "nothing may have published");
+}

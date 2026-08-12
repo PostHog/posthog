@@ -385,6 +385,29 @@ fn record_warm_span(span: &'static str, start: Instant) {
         .record(start.elapsed().as_secs_f64() * 1000.0);
 }
 
+/// Cancellation-safe cleanup for a warm in flight. The coordination loop
+/// drops warms on lease loss and shutdown, and a dropped future never
+/// reaches code after its await points — so the abort of the unpublished
+/// build and the clearing of this partition's seeded dirty marks live in
+/// `Drop`, which runs on every exit: error, panic, and cancellation.
+/// Disarmed immediately before the publish, when the state stops being
+/// residue and becomes the partition's serving truth.
+struct WarmCleanup<'a> {
+    cache: &'a PartitionedCache,
+    dirty_index: &'a DirtyIndex,
+    partition: u32,
+    armed: bool,
+}
+
+impl Drop for WarmCleanup<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.cache.abort_warm_partition(self.partition);
+            self.dirty_index.clear_partition(self.partition);
+        }
+    }
+}
+
 /// Populate the cache from Kafka for a single partition.
 ///
 /// Invariants at call time (enforced by the handoff protocol). The
@@ -520,11 +543,22 @@ pub async fn warm_from_kafka(
     // so at every instant an evicted unapplied person is already
     // recoverable from the changelog — the same miss path a serving
     // partition relies on. Nothing is observable until the publish at
-    // the end: a failure mid-range aborts the build and clears the
-    // marks, leaving no trace, which keeps a partial cache from masking
-    // PG fallback reads exactly as the old whole-range buffer did —
-    // without holding the whole range in memory to do it.
+    // the end.
     cache.begin_warm_partition(partition);
+    // Every non-published exit — an error, a panic, or the coordination
+    // loop dropping this future on lease loss or shutdown (the
+    // cancellation `HandoffHandler::warm_partition`'s contract names) —
+    // must leave no trace: the guard aborts the build and clears the
+    // partition's seeded marks on drop. A stale mark surviving into a
+    // later acquisition would redirect a miss to a superseded changelog
+    // offset; the re-warm only overwrites marks for records past the
+    // writer's *new* committed offset, so it cannot heal one.
+    let mut cleanup = WarmCleanup {
+        cache,
+        dirty_index,
+        partition,
+        armed: true,
+    };
     let mut consumed: u64 = 0;
     let mut seeded = 0u64;
     let mut last_offset: i64 = -1;
@@ -538,9 +572,8 @@ pub async fn warm_from_kafka(
     let poll_slice = Duration::from_millis(100).min(cfg.recv_timeout);
     let mut quiet_since = Instant::now();
 
-    // `return` inside this block exits the block, not the function:
-    // every failure funnels through the single cleanup below, which
-    // aborts the unpublished build and clears the marks it seeded.
+    // `return` inside this block exits the block, not the function: a
+    // failure propagates through `?` below and the guard cleans up.
     let consume_result: CoordResult<()> = async {
         loop {
         let msg = match timeout(poll_slice, consumer.recv()).await {
@@ -678,11 +711,7 @@ pub async fn warm_from_kafka(
         Ok(())
     }
     .await;
-    if let Err(e) = consume_result {
-        cache.abort_warm_partition(partition);
-        dirty_index.clear_partition(partition);
-        return Err(e);
-    }
+    consume_result?;
 
     record_warm_span("consume", span_start);
 
@@ -695,6 +724,11 @@ pub async fn warm_from_kafka(
     // yet persisted. Publishing at the end removes the dependency on the
     // protocol invariant ("no reads during Warming") for correctness.
     let resident_bytes = cache.warm_usage_bytes(partition) as u64;
+    // Disarm before the publish: from here the marks and the cache are
+    // the partition's serving state, not warm residue. No await sits
+    // between the disarm and the publish, so no cancellation can land
+    // in between.
+    cleanup.armed = false;
     cache.publish_warmed_partition(partition);
 
     let elapsed = start.elapsed();
