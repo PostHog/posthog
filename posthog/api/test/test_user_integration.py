@@ -1031,6 +1031,58 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.integration_id, "12345")
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_refreshed")
 
+    @parameterized.expand(
+        [
+            ("deliberate_link", False, False),
+            ("rode_along_with_team_install", True, True),
+        ]
+    )
+    @patch("posthog.event_usage.report_user_action")
+    def test_reports_personal_integration_created(self, _name, create_only, expected_auto_created, mock_report):
+        user_github_integration_from_installation(
+            self.user,
+            GitHubInstallationAccess(
+                installation_id="12345",
+                installation_info={"account": {"type": "Organization", "login": "posthog"}},
+                access_token="ghs_install",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="selected",
+            ),
+            _authorization(),
+            create_only=create_only,
+        )
+
+        self.assertEqual(mock_report.call_count, 1)
+        args, _kwargs = mock_report.call_args
+        self.assertEqual(args[1], "personal integration created")
+        self.assertEqual(
+            args[2],
+            {
+                "integration_kind": "github",
+                "repo_owner_type": "Organization",
+                "account_type": "organization",
+                "auto_created": expected_auto_created,
+            },
+        )
+
+    @patch("posthog.event_usage.report_user_action")
+    def test_relinking_same_installation_does_not_report_again(self, mock_report):
+        _create_user_integration(self.user, integration_id="12345")
+
+        user_github_integration_from_installation(
+            self.user,
+            GitHubInstallationAccess(
+                installation_id="12345",
+                installation_info={"account": {"type": "User", "login": "octocat"}},
+                access_token="ghs_refreshed",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="all",
+            ),
+            _authorization(),
+        )
+
+        self.assertEqual(mock_report.call_count, 0)
+
 
 class TestGithubUserFromCode(APIBaseTest):
     @patch("posthog.egress.transport.transport.requests.request")
