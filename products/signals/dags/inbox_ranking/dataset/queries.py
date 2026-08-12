@@ -93,6 +93,14 @@ def valid_report_uuids(report_ids: set[str | None]) -> set[str]:
     return {canonical for report_id in report_ids if (canonical := canonical_report_uuid(report_id)) is not None}
 
 
+# Trust boundary for every label stream below: these are analytics events captured in the dogfood
+# project, not authoritative records, so a label attests that an event arrived and never that the
+# thing it describes happened. The authoritative rows (SignalReport, SignalReportRefund) sit in
+# per-region Postgres while this dag runs US-only, so sourcing labels from them would silently drop
+# every non-US report — the same constraint that makes cross-region reports label-only (README.md).
+# Weight a label by how it is produced: the status, pr and refund streams are server-emitted behind
+# authenticated endpoints, while impressions, opens, actions and feedback come from the clients.
+
 # The `Inbox report feedback` producer contract (products/signals/frontend/inbox/inboxAnalytics.ts emits
 # exactly these two). Applied to the labeled-id spine and the feedback stream alike, so an event
 # whose sentiment is missing or off-contract carries no label and can neither mint a label-only
