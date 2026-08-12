@@ -252,11 +252,11 @@ class OrganizationSerializer(
         from ee.models.rbac.role import Role  # noqa: PLC0415 — keeps the EE model off the import path
 
         try:
-            role = Role.objects.get(pk=value)
+            Role.objects.get(pk=value, organization_id=self.instance.id)
         except (Role.DoesNotExist, ValidationError, ValueError):
+            # One message for both a missing role and another organization's role, so the response
+            # does not confirm that an unreachable role ID exists.
             raise serializers.ValidationError("This role does not exist.")
-        if role.organization_id != self.instance.id:
-            raise serializers.ValidationError("This role does not belong to this organization.")
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
