@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CardSkeleton } from './components/cards/CardSkeleton'
+import { ScoutCreateModalSkeleton } from './components/config/scouts/ScoutCreateModalSkeleton'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
@@ -56,7 +57,7 @@ function ScoutTemplateDraftModal(): JSX.Element | null {
         return null
     }
     return (
-        <React.Suspense fallback={null}>
+        <React.Suspense fallback={<ScoutCreateModalSkeleton />}>
             <LazyScoutCreateModal
                 isOpen
                 initialValues={scoutTemplateDraft}

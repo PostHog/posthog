@@ -35,7 +35,7 @@ export function ScratchpadPanel(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 px-4 py-3">
-            <ScratchpadHeader totalCount={totalCount} lastUpdatedAt={lastUpdatedAt} />
+            <ScratchpadHeader totalCount={totalCount} lastUpdatedAt={lastUpdatedAt} loading={isInitialLoad} />
 
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
@@ -113,9 +113,11 @@ export function ScratchpadPanel(): JSX.Element {
 function ScratchpadHeader({
     totalCount,
     lastUpdatedAt,
+    loading,
 }: {
     totalCount: number | null
     lastUpdatedAt: string | null
+    loading: boolean
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
@@ -127,17 +129,21 @@ function ScratchpadHeader({
                 Where your scouts jot down useful context as they scan your project — things they've classified, ruled
                 out, or the vocabulary they've settled on. Browse it to see what they're picking up about your setup.
             </p>
-            {totalCount !== null && totalCount > 0 && (
-                <span className="text-xs text-muted">
-                    {pluralize(totalCount, 'note')}
-                    {lastUpdatedAt ? (
-                        <>
-                            {' · last updated '}
-                            <TZLabel time={lastUpdatedAt} />
-                        </>
-                    ) : null}
-                </span>
-            )}
+            <div className="flex min-h-4 items-center">
+                {loading ? (
+                    <LemonSkeleton className="h-3 w-36 rounded" />
+                ) : totalCount !== null && totalCount > 0 ? (
+                    <span className="text-xs text-muted">
+                        {pluralize(totalCount, 'note')}
+                        {lastUpdatedAt ? (
+                            <>
+                                {' · last updated '}
+                                <TZLabel time={lastUpdatedAt} />
+                            </>
+                        ) : null}
+                    </span>
+                ) : null}
+            </div>
         </div>
     )
 }

@@ -11,6 +11,7 @@ import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/gen
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
+import { ScoutCreateModalSkeleton } from './ScoutCreateModalSkeleton'
 
 const LazyScoutCreateModal = React.lazy(async () => {
     const { ScoutCreateModal } = await import('./ScoutCreateModal')
@@ -57,7 +58,7 @@ export function ScoutCreateButton({
                 {children}
             </LemonButton>
             {isModalOpen ? (
-                <React.Suspense fallback={null}>
+                <React.Suspense fallback={<ScoutCreateModalSkeleton />}>
                     <LazyScoutCreateModal
                         isOpen
                         initialValues={initialValues}
