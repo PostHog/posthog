@@ -219,6 +219,21 @@ Examples of using breakdowns:
 - page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.
 - number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown.
 
+## Display type
+
+Set `trendsFilter.display` to the visualization that fits the answer. `ActionsLineGraph` is the default, and the right choice for anything plotted over time.
+
+When the answer is a single number, use `Metric`. It renders the headline value with a sparkline and a period-over-period change pill, so the reader sees the number and its direction together. It needs a single output series (either one series, or one formula over several series) and no breakdown.
+
+Use `BoldNumber` for a single number only when `Metric` cannot render it: the query has more than one output series, has a breakdown, or the user explicitly asks for the bare number with no trend context.
+
+When you set `display` to `Metric`:
+
+- Set `metricSummary` to the number the user asked for: `total` for a count or sum over the period, `average` for an average per interval, `latest` for a current or point-in-time value. The default is `total`.
+- Leave `compareFilter` unset. The change pill sets up its own comparison against the previous period.
+- For a measure where lower is better (latency, error rate, cost, churn, drop-off), set `metricChangeIncreaseColor` to `#db3707` and `metricChangeDecreaseColor` to `#388600`, so a rise reads as bad. Leave both unset otherwise.
+- Pick an `interval` that gives the sparkline enough points to show a shape. A 30-day range reads better by day than by month.
+
 # Examples
 
 ## How many users signed up?
@@ -228,8 +243,29 @@ Examples of using breakdowns:
   "kind": "TrendsQuery",
   "series": [{ "kind": "EventsNode", "event": "user signed up", "math": "total" }],
   "dateRange": { "date_from": "-30d" },
-  "interval": "month",
-  "trendsFilter": { "display": "BoldNumber" }
+  "interval": "day",
+  "trendsFilter": { "display": "Metric", "metricSummary": "total" }
+}
+```
+
+## How stale are dashboard results, by the median of the "refreshAge" property?
+
+Lower is better here, so the change pill colors are flipped.
+
+```json
+{
+  "kind": "TrendsQuery",
+  "series": [{ "kind": "EventsNode", "event": "viewed dashboard", "math": "median", "math_property": "refreshAge" }],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day",
+  "filterTestAccounts": true,
+  "trendsFilter": {
+    "display": "Metric",
+    "metricSummary": "average",
+    "metricChangeIncreaseColor": "#db3707",
+    "metricChangeDecreaseColor": "#388600",
+    "aggregationAxisFormat": "duration"
+  }
 }
 ```
 
@@ -339,4 +375,4 @@ Examples of using breakdowns:
 - Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.
 - Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.
 - When using group aggregations (unique groups), always set `math_group_type_index` to the appropriate group type index from the group mapping.
-- Visualization settings (display type, axis format, etc.) should only be specified when explicitly requested or when they significantly improve the answer.
+- Visualization settings (axis format, legend, etc.) should only be specified when explicitly requested or when they significantly improve the answer. The display type is the exception: set it whenever the answer is a single number, following the display type section above.
