@@ -12,6 +12,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
 from posthog.hogql.type_diagnostics import (
@@ -202,6 +203,11 @@ class TestHogQLTypeSystem:
             column_type = node.select[0].type
             assert column_type is not None
             assert column_type.resolve_constant_type(self.context) == ast.UnknownType(), query
+
+        # A loaded property definition types the property confidently enough to conflict with the
+        # boolean branch, so only the property-access check keeps this query from being rejected.
+        self.context.property_metadata = PropertyMetadata(event_properties={"signup": {"type": "DateTime"}})
+        self._assert_first_column_type("SELECT coalesce(properties.signup, false) FROM events", ast.UnknownType())
 
     def test_resolver_poisons_only_unanalyzable_branches(self) -> None:
         # An unmapped function (throwIf) infers as unanalyzable, poisoning the unifying call's type...

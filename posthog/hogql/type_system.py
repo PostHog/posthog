@@ -742,7 +742,11 @@ def _branch_type_is_untrustworthy(branch_type: ast.ConstantType, expr: Optional[
     resolver frequently does not have loaded - it then falls back to the JSON type of the parent
     `properties` column, regardless of what the property actually holds. The printer resolves the
     physical read separately, so `coalesce(properties.blocked, false)` reaches ClickHouse with two
-    compatible branches even though inference reports JSON and Boolean."""
+    compatible branches even though inference reports JSON and Boolean.
+
+    Every property access is skipped, not only the metadata-missing fallback: a loaded property
+    definition types the property from the values seen so far, which is still a guess about what a
+    given row holds, so it is no safer to raise on than the JSON fallback."""
     if runtime_type_from_constant_type(branch_type).family in _UNTRUSTWORTHY_BRANCH_FAMILIES:
         return True
     while isinstance(expr, ast.Alias):
