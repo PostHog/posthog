@@ -139,23 +139,35 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
-        # Channels are per-user for the personal kind: the facade's visibility
-        # rule makes a canvas filed into someone else's personal channel
-        # invisible (and unwritable) to everyone but its owner, for list and
-        # every detail action alike. The create() check alone is not enough —
-        # DRF resolves all detail actions off this queryset.
         user = self._request_user()
-        queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
-        if self._is_sandbox_authenticated(self.request):
+        is_sandbox_authenticated = self._is_sandbox_authenticated(self.request)
+        if is_sandbox_authenticated:
             sandbox_task_id = self._sandbox_task_id(self.request)
             if sandbox_task_id is None:
                 return queryset.none()
             task_creator_id = tasks_facade.task_creator_id(sandbox_task_id, self.team_id)
-            task_link_q = Q(generation_task_id=sandbox_task_id) | Q(source_versions__task_id=sandbox_task_id)
-            if task_creator_id is not None:
-                task_link_q |= Q(created_by_id=task_creator_id)
-            queryset = queryset.filter(task_link_q).distinct()
-        elif self.action in self._CREATOR_ONLY_ACTIONS:
+            public_canvas_q = tasks_facade.visible_channels_q(None, relation="channel")
+            if task_creator_id is None:
+                queryset = (
+                    queryset.filter(public_canvas_q)
+                    if self.action in self.scope_object_read_actions
+                    else queryset.none()
+                )
+            else:
+                creator_canvas_q = Q(created_by_id=task_creator_id) & tasks_facade.visible_channels_q(
+                    task_creator_id, relation="channel"
+                )
+                queryset = queryset.filter(
+                    public_canvas_q | creator_canvas_q
+                    if self.action in self.scope_object_read_actions
+                    else creator_canvas_q
+                )
+        else:
+            # Channels are per-user for the personal kind: the facade's visibility
+            # rule makes a canvas filed into someone else's personal channel
+            # invisible (and unwritable) to everyone but its owner.
+            queryset = queryset.filter(tasks_facade.visible_channels_q(user.id if user else None, relation="channel"))
+        if not is_sandbox_authenticated and self.action in self._CREATOR_ONLY_ACTIONS:
             if user is None:
                 return queryset.none()
             queryset = queryset.filter(created_by_id=user.id)

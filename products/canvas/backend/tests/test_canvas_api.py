@@ -269,13 +269,20 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             format="json",
             HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
+        linked_update = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{own_canvas.id}/",
+            {"name": "Linked but unowned"},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
 
         assert [row["id"] for row in listing.json()["results"]] == [str(earlier_canvas.id), str(own_canvas.id)]
         assert earlier_detail.status_code == status.HTTP_200_OK
         assert update.status_code == status.HTTP_200_OK
         assert update.json()["name"] == "Updated by later task"
+        assert linked_update.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_task_bound_sandbox_cannot_read_another_creators_canvas(self):
+    def test_task_bound_sandbox_can_read_but_not_write_another_creators_public_canvas(self):
         other_user = self._create_user("other-canvas-creator@example.com")
         bound_task = Task.objects.create(
             team=self.team,
@@ -293,12 +300,19 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
         client = self._sandbox_client(bound_task.id)
 
-        response = client.get(
+        read_response = client.get(
             f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/",
             HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
+        write_response = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/",
+            {"name": "Not allowed"},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert read_response.status_code == status.HTTP_200_OK
+        assert write_response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_personal_space_task_can_read_its_creators_canvas(self):
         personal_channel = Channel.objects.create(
@@ -323,12 +337,57 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         )
         client = self._sandbox_client(bound_task.id)
 
-        response = client.get(
+        read_response = client.get(
             f"/api/projects/{self.team.id}/canvases/{canvas.id}/",
             HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
+        write_response = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas.id}/",
+            {"name": "Updated project tracker"},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
 
-        assert response.status_code == status.HTTP_200_OK
+        assert read_response.status_code == status.HTTP_200_OK
+        assert write_response.status_code == status.HTTP_200_OK
+
+    def test_task_bound_sandbox_cannot_access_another_creators_personal_canvas(self):
+        other_user = self._create_user("other-personal-canvas-creator@example.com")
+        other_personal_channel = Channel.objects.create(
+            team=self.team,
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=other_user,
+        )
+        bound_task = Task.objects.create(
+            team=self.team,
+            channel=self.channel,
+            created_by=self.user,
+            title="Bound",
+            description="d",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_canvas = Canvas.objects.unscoped().create(
+            team=self.team,
+            channel=other_personal_channel,
+            name="Private project tracker",
+            created_by=other_user,
+        )
+        client = self._sandbox_client(bound_task.id)
+
+        read_response = client.get(
+            f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+        write_response = client.patch(
+            f"/api/projects/{self.team.id}/canvases/{other_canvas.id}/",
+            {"name": "Not allowed"},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
+        )
+
+        assert read_response.status_code == status.HTTP_404_NOT_FOUND
+        assert write_response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_create_rejects_unknown_channel(self):
         response = self.client.post(

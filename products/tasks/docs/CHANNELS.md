@@ -110,7 +110,17 @@ membership without adding permissions to Task.
 - Project members can create and read Canvases in public channels.
 - Only a Canvas creator can change Canvas metadata or source.
 - Any project member can queue a build for the current source version through `publish-current-version`.
-- A task sandbox can access Canvases linked to that task and Canvases created by the task creator. Channel visibility still applies.
+
+Task sandboxes use the same creator boundary across public and personal spaces:
+
+| Canvas space | Task creator               | Read | Write |
+| ------------ | -------------------------- | ---- | ----- |
+| Public       | Canvas creator             | Yes  | Yes   |
+| Public       | Another user or no creator | Yes  | No    |
+| Personal     | Canvas creator             | Yes  | Yes   |
+| Personal     | Another user or no creator | No   | No    |
+
+An exact task-to-Canvas link does not grant additional write access. Canvas creation remains limited to the bound task's space.
 
 ### `/api/projects/{id}/tasks/{task_id}/thread_messages/`
 
