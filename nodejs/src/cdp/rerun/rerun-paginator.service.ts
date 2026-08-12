@@ -247,7 +247,19 @@ export class RerunPaginatorService {
             // Update the wrapper lifecycle row + emit a progress log so the
             // Invocations tab reflects the running total without the user
             // hitting Refresh between pages.
-            await this.writeWrapperUpdate(teamId, state, context, nextProgress, undefined)
+            //
+            // Best-effort: the page's invocations are already committed to kafka
+            // or postgres-v2 by this point, so letting a lifecycle-write failure
+            // reach the catch below would count a page that did its work as a
+            // page error, hold the cursor back, and on a persistent write outage
+            // eventually mark a rerun failed that actually ran.
+            await this.writeWrapperUpdate(teamId, state, context, nextProgress, undefined).catch((writeErr) => {
+                logger.warn('Rerun paginator could not write the wrapper progress row', {
+                    rerun_function_kind: function_kind,
+                    rerun_function_id: function_id,
+                    error: writeErr instanceof Error ? writeErr.message : String(writeErr),
+                })
+            })
 
             return { state: { ...state, progress: nextProgress } }
         } catch (err) {

@@ -482,6 +482,32 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.done).toBe(true)
             expect(hogQueue.queueInvocations).not.toHaveBeenCalled()
         })
+
+        it('keeps a page successful when only the wrapper progress row fails to write', async () => {
+            // The page's invocations are committed before the wrapper row is
+            // written, so a failure there must not count toward the give-up
+            // streak — otherwise a lifecycle-write outage marks a rerun failed
+            // that actually ran, and holds the cursor back onto the same page.
+            await seedRows([{ invocation_id: 'inv-ok', status: 'succeeded' }])
+            jest.spyOn(paginatorLifecycleService, 'queueRerunWrapperRow').mockImplementation(() => {
+                throw new Error('lifecycle write boom')
+            })
+
+            const state = buildState({
+                request: {
+                    filter: { window_start: '2026-01-01T00:00:00Z', window_end: '2027-01-01T00:00:00Z' },
+                },
+            })
+
+            const { state: next } = await paginator.processPage(team.id, state, {
+                jobId: 'test-rerun-job',
+                createdAt: DateTime.now(),
+            })
+
+            expect(next.progress.done).toBe(true)
+            expect(next.progress.last_error).toBeUndefined()
+            expect(next.progress.consecutive_errors).toBeUndefined()
+        })
     })
 
     describe('rehydration', () => {

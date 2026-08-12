@@ -115,10 +115,23 @@ export const RERUN_PAGE_SIZE = 200
  * How many consecutive errored pages a rerun tolerates before the paginator
  * gives up and fails the wrapper job terminally (recorded as a replayable
  * failure). A single stuck page (malformed filter, undecodable globals,
- * persistent ClickHouse error) otherwise reschedules every ~1s indefinitely,
- * and each reschedule increments the SMALLINT `transition_count` until it
- * overflows at 32767 — which then poisons the row so even dequeue fails. The
- * cap keeps total transitions far below that ceiling while still absorbing
- * transient blips (a successful page resets the counter to 0).
+ * persistent ClickHouse error) otherwise reschedules indefinitely, and each
+ * reschedule increments the SMALLINT `transition_count` until it overflows at
+ * 32767, which then poisons the row so even dequeue fails.
+ *
+ * Sized together with `RERUN_PAGE_ERROR_BACKOFF_MAX_MS` so the budget outlasts
+ * a ClickHouse restart or failover: giving up on one of those permanently
+ * fails an otherwise-healthy rerun and loses its paged progress. A successful
+ * page resets the counter, so this bounds only an uninterrupted streak, and
+ * even a full streak stays two orders of magnitude below the SMALLINT ceiling.
  */
-export const RERUN_MAX_CONSECUTIVE_PAGE_ERRORS = 25
+export const RERUN_MAX_CONSECUTIVE_PAGE_ERRORS = 200
+
+/**
+ * Ceiling for the exponential backoff the worker applies between retries of an
+ * errored page, growing from `RERUN_PAGE_DELAY_MS`. Retrying the same failing
+ * ClickHouse query at the healthy-page cadence adds load exactly when
+ * ClickHouse is already degraded, which is the condition most likely to have
+ * produced the streak in the first place.
+ */
+export const RERUN_PAGE_ERROR_BACKOFF_MAX_MS = 60_000
