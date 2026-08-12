@@ -13,6 +13,7 @@ import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 
 import { ingestionControlsLogic } from '../ingestionControlsLogic'
 import { UrlTriggerConfig } from '../types'
+import { UrlPatternTestRow, UrlPatternTestStatus } from './urlConfigLogic'
 
 export function UrlConfig({
     logic,
@@ -35,7 +36,7 @@ export function UrlConfig({
     title: string
     description: string
     checkUrl: string
-    checkUrlResults: { [key: number]: boolean }
+    checkUrlResults: UrlPatternTestRow[]
     setCheckUrl: (url: string) => void
     isAddFormVisible: boolean
     config: UrlTriggerConfig[] | null
@@ -51,6 +52,9 @@ export function UrlConfig({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+
+    // Saved patterns keep their config order in the results, so index maps straight to each row.
+    const savedStatuses = checkUrlResults.filter((row) => !row.inProgress).map((row) => row.status)
 
     return (
         <div className="flex flex-col gap-y-2">
@@ -83,28 +87,8 @@ export function UrlConfig({
                 />
             )}
 
-            {!props.isAddFormVisible && props.config && props.config.length > 0 && (
-                <div className="border rounded p-3 bg-surface-primary">
-                    <LemonLabel className="text-sm font-medium mb-2 block">
-                        Test a URL against these patterns:
-                    </LemonLabel>
-                    <LemonInput
-                        value={checkUrl}
-                        onChange={setCheckUrl}
-                        placeholder="Enter a URL to test (e.g., https://example.com/page)"
-                        data-attr="url-check-input"
-                        className="mb-2"
-                    />
-                    {checkUrl && (
-                        <div className="text-xs text-muted">
-                            {Object.values(checkUrlResults).some(Boolean) ? (
-                                <span className="text-success">✓ This URL matches at least one pattern</span>
-                            ) : (
-                                <span className="text-danger">✗ This URL doesn't match any patterns</span>
-                            )}
-                        </div>
-                    )}
-                </div>
+            {((props.config?.length ?? 0) > 0 || props.isAddFormVisible) && (
+                <UrlPatternTester checkUrl={checkUrl} setCheckUrl={setCheckUrl} results={checkUrlResults} />
             )}
             {props.config?.map((trigger, index) => (
                 <UrlConfigRow
@@ -119,9 +103,72 @@ export function UrlConfig({
                     editIndex={props.editIndex}
                     onEdit={props.onEdit}
                     onRemove={props.onRemove}
-                    checkUrlResult={checkUrlResults[index]}
+                    checkUrlStatus={savedStatuses[index]}
                 />
             ))}
+        </div>
+    )
+}
+
+export function UrlPatternTester({
+    checkUrl,
+    setCheckUrl,
+    results,
+}: {
+    checkUrl: string
+    setCheckUrl: (url: string) => void
+    results: UrlPatternTestRow[]
+}): JSX.Element {
+    const anyMatch = results.some((row) => row.status === 'match')
+    const anyInvalid = results.some((row) => row.status === 'invalid')
+    const matchedPatterns = results.filter((row) => row.status === 'match').map((row) => row.pattern)
+    const inProgressRow = results.find((row) => row.inProgress)
+
+    return (
+        <div className="border rounded p-3 bg-surface-primary">
+            <LemonLabel className="text-sm font-medium mb-2 block">
+                Test a URL against these regular expressions
+            </LemonLabel>
+            <LemonInput
+                value={checkUrl}
+                onChange={setCheckUrl}
+                placeholder="Enter a URL to test (e.g., https://example.com/page)"
+                data-attr="url-check-input"
+                className="mb-2"
+            />
+            {checkUrl && (
+                <div className="text-xs flex flex-col gap-1">
+                    {anyMatch ? (
+                        <span className="text-success">
+                            ✓ Matches:{' '}
+                            {matchedPatterns.map((pattern, i) => (
+                                <span key={pattern}>
+                                    {i > 0 ? ', ' : ''}
+                                    <code>{pattern}</code>
+                                </span>
+                            ))}
+                        </span>
+                    ) : (
+                        <span className="text-danger">✗ No pattern matches this URL</span>
+                    )}
+                    {inProgressRow && (
+                        <span className="text-muted">
+                            New pattern <code>{inProgressRow.pattern}</code>{' '}
+                            {inProgressRow.status === 'match'
+                                ? 'matches this URL'
+                                : inProgressRow.status === 'invalid'
+                                  ? 'is not a valid regular expression'
+                                  : "doesn't match this URL"}
+                        </span>
+                    )}
+                    {anyInvalid && (
+                        <span className="text-danger">
+                            One or more patterns are not valid regular expressions, so they never match. Edit them to
+                            fix this.
+                        </span>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
@@ -132,7 +179,7 @@ function UrlConfigRow({
     editIndex,
     onEdit,
     onRemove,
-    checkUrlResult,
+    checkUrlStatus,
     logic,
     logicProps,
     formKey,
@@ -144,7 +191,7 @@ function UrlConfigRow({
     editIndex: number | null
     onEdit: (index: number) => void
     onRemove: (index: number) => void
-    checkUrlResult?: boolean
+    checkUrlStatus?: UrlPatternTestStatus
     logic: LogicWrapper
     logicProps: Record<string, any>
     formKey: string
@@ -175,23 +222,27 @@ function UrlConfigRow({
     return (
         <div
             className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
-                'border-success': checkUrlResult === true,
-                'border-danger': checkUrlResult === false,
+                'border-success': checkUrlStatus === 'match',
+                'border-danger': checkUrlStatus === 'no-match' || checkUrlStatus === 'invalid',
             })}
         >
             <span title={trigger.url} className="flex-1 truncate">
                 <span>{trigger.matching === 'regex' ? 'Matches regex: ' : ''}</span>
                 <span>{trigger.url}</span>
-                {checkUrlResult !== undefined && (
+                {checkUrlStatus !== undefined && (
                     <span
                         className={cn('ml-2 text-xs', {
-                            'text-success': checkUrlResult === true,
-                            'text-danger': checkUrlResult === false,
+                            'text-success': checkUrlStatus === 'match',
+                            'text-danger': checkUrlStatus === 'no-match' || checkUrlStatus === 'invalid',
                         })}
                     >
-                        {checkUrlResult ? (
+                        {checkUrlStatus === 'match' ? (
                             <>
                                 <IconCheck /> Matches
+                            </>
+                        ) : checkUrlStatus === 'invalid' ? (
+                            <>
+                                <IconX /> Invalid pattern — never matches
                             </>
                         ) : (
                             <>

@@ -16,6 +16,48 @@ export function ensureAnchored(url: string): string {
     return `^${url}$`
 }
 
+export type UrlPatternTestStatus = 'match' | 'no-match' | 'invalid'
+
+export interface UrlPatternTestRow {
+    /** The pattern exactly as it is evaluated at runtime (already anchored). */
+    pattern: string
+    status: UrlPatternTestStatus
+    /** True for the pattern still being typed in the add form, not yet saved. */
+    inProgress: boolean
+}
+
+function patternStatus(pattern: string, testUrl: string): UrlPatternTestStatus {
+    try {
+        return new RegExp(pattern).test(testUrl) ? 'match' : 'no-match'
+    } catch {
+        // The pattern is not a compilable regex, so it can never match any URL.
+        return 'invalid'
+    }
+}
+
+/**
+ * Tests a URL against saved patterns and, when present, the pattern still being typed. Saved
+ * patterns are already anchored; the in-progress pattern is anchored the same way it will be on
+ * save, so the verdict matches the pattern that actually runs against the URL.
+ */
+export function testUrlAgainstPatterns(
+    testUrl: string,
+    savedPatterns: string[],
+    inProgressPattern?: string | null
+): UrlPatternTestRow[] {
+    const rows: UrlPatternTestRow[] = savedPatterns.map((pattern) => ({
+        pattern,
+        status: patternStatus(pattern, testUrl),
+        inProgress: false,
+    }))
+    const typed = inProgressPattern?.trim()
+    if (typed) {
+        const anchored = ensureAnchored(typed)
+        rows.push({ pattern: anchored, status: patternStatus(anchored, testUrl), inProgress: true })
+    }
+    return rows
+}
+
 export interface UrlConfigLogicProps {
     logicKey: string
     initialUrlTriggerConfig: UrlTriggerConfig[]

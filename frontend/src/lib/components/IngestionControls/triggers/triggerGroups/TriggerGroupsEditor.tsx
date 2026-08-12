@@ -14,6 +14,8 @@ import {
 
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { EventTriggerSelect } from 'lib/components/IngestionControls/triggers/EventTrigger'
+import { UrlPatternTester } from 'lib/components/IngestionControls/triggers/UrlConfig'
+import { testUrlAgainstPatterns } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -458,37 +460,19 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         Save
                                     </LemonButton>
                                 </div>
-                                {triggerGroup.urls.length > 0 && (
-                                    <div className="mt-3 pt-3 border-t">
-                                        <LemonLabel className="text-xs mb-1 block">
-                                            Test a URL against existing patterns:
-                                        </LemonLabel>
-                                        <LemonInput
-                                            value={testUrl}
-                                            onChange={setTestUrl}
-                                            placeholder="Enter a URL to test (e.g., https://example.com/page)"
-                                            fullWidth
-                                            size="small"
-                                        />
-                                        {testUrl && (
-                                            <div className="text-xs mt-1">
-                                                {triggerGroup.urls.some((urlConfig) => {
-                                                    try {
-                                                        const regex = new RegExp(urlConfig.url)
-                                                        return regex.test(testUrl)
-                                                    } catch {
-                                                        return false
-                                                    }
-                                                }) ? (
-                                                    <span className="text-success">Matches at least one pattern</span>
-                                                ) : (
-                                                    <span className="text-danger">Doesn't match any patterns</span>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                )}
                             </div>
+                        )}
+
+                        {(triggerGroup.urls.length > 0 || isAddingUrl) && (
+                            <UrlPatternTester
+                                checkUrl={testUrl}
+                                setCheckUrl={setTestUrl}
+                                results={testUrlAgainstPatterns(
+                                    testUrl,
+                                    triggerGroup.urls.map((urlConfig) => urlConfig.url),
+                                    isAddingUrl ? newUrl : null
+                                )}
+                            />
                         )}
                     </div>
 
