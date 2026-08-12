@@ -338,34 +338,39 @@ class TestReplyFooterGate(SimpleTestCase):
         )
         return SlackThreadHandler(context, footer or RunFooter(model="claude-opus-5"))
 
-    @parameterized.expand([("withheld", False, False), ("granted", True, True)])
+    @parameterized.expand([("withheld", False), ("granted", True)])
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=True)
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_a_default_model_run_posts_a_footer_only_when_its_links_are_open(
+    def test_withholding_the_links_still_leaves_the_model_and_configure(
         self,
         _name: str,
         code_access: bool,
-        expected: bool,
         mock_get_client,
         mock_get_integration,
         _mock_flag,
         _mock_home,
     ) -> None:
-        # A default-model run pins no model, so the links are the whole line. Withholding
-        # them left a footer reading just "Configure" under the answer.
+        # Whether this reader can open a task page changes which segments render, never
+        # whether the line appears: the model and the way to change it are theirs either way.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         mock_get_integration.return_value = Integration(config={"app_id": "A1"}, integration_id="T1")
-        links_only = RunFooter(task_url="https://app/project/1/tasks/t", desktop_url="posthog-code://task/t")
+        footer = RunFooter(
+            task_url="https://app/project/1/tasks/t",
+            desktop_url="posthog-code://task/t",
+            model="claude-opus-5",
+        )
 
         with patch.object(SlackThreadHandler, "viewer_can_open_code_links", return_value=code_access):
-            self._handler(links_only).post_thread_message("the answer", with_footer=True)
+            self._handler(footer).post_thread_message("the answer", with_footer=True)
 
-        kwargs = mock_client.chat_postMessage.call_args.kwargs
-        assert kwargs["text"] == "the answer"
-        assert bool(kwargs.get("blocks")) is expected
+        line = mock_client.chat_postMessage.call_args.kwargs["blocks"][-1]["elements"][0]["text"]
+        assert "*Claude Opus 5*" in line
+        assert "|Configure>" in line
+        assert ("View on web" in line) is code_access
+        assert ("View on desktop" in line) is code_access
 
     @parameterized.expand([("off", False, False), ("on", True, True)])
     @patch("products.slack_app.backend.slack_thread.is_slack_app_home_enabled", return_value=False)

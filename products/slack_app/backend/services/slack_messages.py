@@ -403,12 +403,7 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     The answer itself is the message, so this is muted rather than competing with the
     prose. A run with no links and no pinned model contributes no segments and gets no
     trailing line at all.
-
-    "Configure" rides on run provenance rather than standing as a line of its own, so a
-    footer with nothing to say about the run takes it down too.
     """
-    if not footer.has_content():
-        return None
     segments: list[str] = []
     if footer.task_url:
         segments.append(f"<{footer.task_url}|View on web>")

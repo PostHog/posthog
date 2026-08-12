@@ -1081,6 +1081,7 @@ def _resume_task_with_new_run(
     user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
+    from products.slack_app.backend.facade.run_preferences import resolve_run_preferences  # noqa: PLC0415
     from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
@@ -1121,6 +1122,18 @@ def _resume_task_with_new_run(
         # have changed since the run this one continues.
         **_artifact_delivery_state_updates(integration),
     }
+
+    # `create_run` builds a fresh state, so a follow-up that says nothing about the model
+    # reaches the sandbox with none and the agent server picks its own — the thread then
+    # can't say what ran. Resolved again rather than carried over, like the keys above: a
+    # follow-up honours whatever the picker says now.
+    run_prefs = resolve_run_preferences(integration, slack_user_id)
+    if run_prefs.model:
+        extra_state["model"] = run_prefs.model
+    if run_prefs.runtime_adapter:
+        extra_state["runtime_adapter"] = run_prefs.runtime_adapter
+    if run_prefs.reasoning_effort:
+        extra_state["reasoning_effort"] = run_prefs.reasoning_effort
 
     previous_state = previous_run.state or {}
     if previous_state.get("slack_thread_url"):

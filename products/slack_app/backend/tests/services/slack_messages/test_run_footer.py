@@ -37,6 +37,12 @@ class TestRunFooter(SimpleTestCase):
                 f"<{TASK_URL}|View on web> · <{DESKTOP_URL}|View on desktop>",
             ),
             ("model_without_effort", RunFooter(model="claude-opus-5"), None, "*Claude Opus 5*"),
+            (
+                "configure_only",
+                RunFooter(),
+                "slack://app?team=T1&id=A1&tab=home",
+                "<slack://app?team=T1&id=A1&tab=home|Configure>",
+            ),
         ]
     )
     def test_renders_present_segments_as_slack_links(
@@ -48,19 +54,10 @@ class TestRunFooter(SimpleTestCase):
 
         assert block == {"type": "context", "elements": [{"type": "mrkdwn", "text": expected}]}
 
-    @parameterized.expand(
-        [
-            ("nothing_at_all", None),
-            ("configure_alone", "slack://app?team=T1&id=A1&tab=home"),
-        ]
-    )
-    def test_contributes_no_block_when_there_is_nothing_to_say(self, _name: str, configure_url: str | None) -> None:
+    def test_contributes_no_block_when_there_is_nothing_to_say(self) -> None:
         # A context block with an empty `elements` list is rejected by Slack, which would
-        # fail the whole message post rather than just dropping the footer. Configure rides
-        # on run provenance, so it can't hold a line open by itself either: a run on the
-        # default model pins no model, and a reader who can't open the links has nothing
-        # left to read.
-        assert reply_footer_block(RunFooter(), configure_url) is None
+        # fail the whole message post rather than just dropping the footer.
+        assert reply_footer_block(RunFooter()) is None
 
 
 class TestLoadRunFooter(SimpleTestCase):

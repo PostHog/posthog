@@ -197,9 +197,8 @@ class SlackThreadHandler:
         workspace outside the Home rollout would land on an empty one. The Home flag is
         only consulted once there is actually something to gate.
         """
-        # Both guards below are about cost, not correctness: `reply_footer_block` decides
-        # what an empty footer renders as. This one skips the flag and identity lookups
-        # behind a footer that can't appear.
+        # A handler with nothing to describe can't produce a footer, so it never pays for
+        # the flag lookups.
         if not self.run_footer.has_content():
             return None
         if not self.footer_enabled():
@@ -207,11 +206,6 @@ class SlackThreadHandler:
         footer = self.reader_footer()
         if not include_task_url:
             footer = replace(footer, task_url=None)
-        # Withholding the links can empty a footer that had content a moment ago: a run on
-        # the default model pins none, so the links were the whole line. Asking here saves
-        # the Home flag evaluation below.
-        if not footer.has_content():
-            return None
         integration = self._get_integration()
         configure_url = app_home_url(integration)
         if configure_url and not is_slack_app_home_enabled(integration):
