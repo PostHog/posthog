@@ -1,3 +1,6 @@
+2026-08-12
+localstack is gone (its licence stopped being free); if you still have a localstack-main container, run hogli docker:services:down to clear it
+
 2026-07-02
 send feedback to the devex team (humans and agents): hogli devex:feedback "..."
 

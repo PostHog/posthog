@@ -461,6 +461,7 @@ services:
         extends:
             file: docker-compose.base.yml
             service: dynamodb
+        profiles: [dynamodb]
         restart: on-failure
         # No host ports — avoid conflicts between sandboxes
 
