@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "device_id": {
+            "description": "Optional `$device_id` used to evaluate flags that bucket by device rather than by user. When omitted, the most recent `$device_id` on this distinct ID's events is used, so device-bucketed flags evaluate the same way they do for the SDK. Pass one explicitly to check a specific device.",
+            "type": "string"
+        },
         "distinct_id": {
             "description": "User distinct ID",
             "minLength": 1,
