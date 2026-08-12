@@ -77,6 +77,15 @@ class TestCanvasOAuthAccess(APIBaseTest):
         assert response.status_code == 200
         assert [row["name"] for row in response.json()["results"]] == ["Signups"]
 
+    def test_list_canvases_with_an_unbound_server_minted_sandbox_token(self):
+        response = self._list_canvases(
+            "canvas:read internal_run:read",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["results"] == []
+
     def _create_canvas(
         self,
         *,
