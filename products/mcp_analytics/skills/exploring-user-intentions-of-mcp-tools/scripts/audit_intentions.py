@@ -64,6 +64,11 @@ def main() -> None:
     counts = Counter(r[args.field] for r in records)
     intentions = sorted(counts)
     print(f"{len(records)} sessions, {len(intentions)} distinct intentions")
+    if len(intentions) < 2:
+        # No pairs exist, so there is nothing to audit. Say that rather than
+        # reporting a clean result, which would read as "checked, found nothing".
+        print("Fewer than two distinct intentions; no pairs to compare.")
+        return
 
     client = OpenAI()
     vectors = embed(client, intentions)

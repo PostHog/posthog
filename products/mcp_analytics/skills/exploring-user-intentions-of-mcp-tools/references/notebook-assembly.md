@@ -34,10 +34,16 @@ Do this **first**. If a kernel is already running, the response sets `restart_re
 
 ### 3. The corpus cell (sql)
 
-Add the corpus query from the skill's step 2 with `dataframe_name: "corpus"` and a title like "Sessions that reached the tool".
-It publishes `sid`, `caller` and `org` per session, which every population table downstream joins against, so it earns its place twice: it makes the notebook auditable, and it keeps those two columns out of the hand-written literal.
+**Do not paste the skill's step 2 query into this cell.** That query concatenates the raw `$mcp_intent` text so you can read it, and a notebook is shareable: anyone with the link reads whatever the cell returns, including the customer names, project ids and pasted credentials those strings carry. Step 2 is for reading in your own context and stops there.
 
-Publish the opening tool sequence rather than the raw `$mcp_intent` text. The intents carry customer, project and product names verbatim, and the notebook is shareable.
+The published cell is a narrower query over the same sessions, with the intent text replaced by the tool name alone:
+
+```sql
+-- inside the steps CTE, instead of concat(tool, ': ', substring(intent, 1, 130))
+coalesce(nullIf(toString(properties.$mcp_tool_name), ''), toString(properties.tool_name)) AS step
+```
+
+Everything else is identical. Publish it with `dataframe_name: "corpus"` and a title like "Sessions that reached the tool". The result is `sid`, `caller`, `org` and an `opening_tools` sequence such as `execute-sql > read-data-schema > workflows-list`, which is enough to audit which sessions the taxonomy covers and carries no customer text.
 
 ### 4. The facets cell (python)
 

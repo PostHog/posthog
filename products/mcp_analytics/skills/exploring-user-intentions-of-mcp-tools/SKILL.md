@@ -111,6 +111,8 @@ ORDER BY sid
 LIMIT 400
 ```
 
+**This query's output is transient. It never becomes a notebook cell.** The `opening` column carries `$mcp_intent` verbatim, which is where customer names, project ids and occasionally pasted credentials live. You read it, you label from it, and it stops there. The notebook publishes a variant with the intent text replaced by the tool name — see "The corpus cell" in [`references/notebook-assembly.md`](references/notebook-assembly.md). This is privacy layer 4, and it is the one most easily lost by pasting the query above into a cell.
+
 Four or five calls is the working default. The opening carries the starting point; later calls describe the tool's own work and pull goals toward the action.
 
 **Select the caller and the org here, not later.** `extract_facets.py` reads the header row and carries any column between `sid` and `opening` through to its output. Fetching either as a separate query means hand-transcribing a few hundred lines with nothing checking them — a step that has already gone wrong once.
@@ -378,8 +380,22 @@ Adapted from Clio's layered defense, and each layer is load-bearing:
 2. Clusters below 5 sessions are suppressed.
 3. Cluster labels are synthesized from member goals, never copied from one member's intent.
 4. Raw `$mcp_intent` strings never enter the notebook — only goals and aggregates.
+5. Customer text reaches a third-party model only for organizations that approved AI data processing.
 
 Layers 3 and 4 are the ones people skip. Verbatim intents carry customer names, project ids, and run ids straight into a shareable document.
+
+### Layer 5: consent before any third-party model call
+
+`scripts/extract_facets.py` sends the `opening` column — customer-authored intent text — to the OpenAI API. PostHog's own backend gates the same class of text on the writing organization's consent: [`intent_generation.py`](../../backend/intent_generation.py) returns early when `team.organization.is_ai_data_processing_approved` is false, and [`failure_classification.py`](../../backend/failure_classification.py) does the same. A local analyst script does not get a weaker rule than the product path.
+
+**So restrict the corpus to consenting organizations before running that script.** The corpus query already selects `org`, so the filter is a list intersection once you have the approved ids. Consent lives on the Django `Organization` model and is not exposed in HogQL — `all_posthog_organization` in the warehouse carries no such column — so the ids have to come from the Django side rather than from the corpus query itself.
+
+Two things narrow this in practice:
+
+- **Only `extract_facets.py` transmits customer text.** `canonicalize_intentions.py` and `audit_intentions.py` see the goal labels, which are already generalized and stripped of proper nouns by the time they exist.
+- **The default path does not call the script at all.** Reading the corpus yourself is the skill's recommendation on quality grounds, and it happens to keep customer text inside PostHog's own tooling. Delegating to the script is the case that adds a third-party processor.
+
+If you cannot establish consent for the organizations in a corpus, label the goals by hand. That is the recommended path anyway.
 
 ## Related skills
 

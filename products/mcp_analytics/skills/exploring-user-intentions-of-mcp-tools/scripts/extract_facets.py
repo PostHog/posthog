@@ -10,6 +10,12 @@ session's intents), so the two stay comparable.
 PostHog employees only: the key comes from the repo's .env.local, which holds
 1Password references rather than literal secrets.
 
+CONSENT: the `opening` column is customer-authored intent text, and this script
+sends it to a third-party model. PostHog's backend gates the same class of text
+on `organization.is_ai_data_processing_approved` (see intent_generation.py and
+failure_classification.py); restrict the corpus to consenting organizations
+before running this. The sibling scripts only ever see generated goal labels.
+
     export OPENAI_API_KEY=$(op read "$(grep -E '^OPENAI_API_KEY=' .env.local | cut -d= -f2- | tr -d '\"')")
     python extract_facets.py corpus.txt facets.jsonl --facet destination \\
         --values email,slack,webhook,person_property,unclear
@@ -133,6 +139,8 @@ def main() -> None:
     system = SYSTEM.format(tool=args.tool, facet=args.facet, values=", ".join(values))
 
     rows = load_corpus(args.corpus)
+    if not rows:
+        raise SystemExit(f"no usable rows in {args.corpus}; the header must be sid|…|opening")
     print(f"extracting facets for {len(rows)} sessions on {MODEL}")
 
     client = OpenAI()
@@ -140,6 +148,11 @@ def main() -> None:
         results = list(pool.map(lambda r: extract(client, schema, system, r), rows))
 
     ok = [r for r in results if r is not None]
+    if not ok:
+        # Bail before writing. An empty JSONL looks like a finished run to every
+        # downstream step, and the real cause is in the per-session errors above.
+        raise SystemExit(f"extracted 0 of {len(rows)} sessions; nothing written to {args.out}")
+
     with args.out.open("w") as fh:
         for record in ok:
             fh.write(json.dumps(record) + "\n")
