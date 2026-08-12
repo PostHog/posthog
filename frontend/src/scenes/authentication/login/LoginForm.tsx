@@ -16,23 +16,23 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
-import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
-import { PaperDeskCard, PaperDeskScene, usePaperDeskTheme } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
-import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { LoginMethod } from '~/types'
 
-import { loginLogic } from '../../loginLogic'
-import { SessionRiskBanner } from '../../SessionRiskBanner'
+import { loginLogic } from './loginLogic'
+import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
-function Login(): JSX.Element {
+export function LoginForm(): JSX.Element {
     const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
@@ -52,7 +52,6 @@ function Login(): JSX.Element {
         autoRedirectingToProvider,
     } = useValues(loginLogic)
     const { preflight } = useValues(preflightLogic)
-    const theme = usePaperDeskTheme()
 
     const isPasswordHidden = !!precheckResponse.sso_enforcement || isPasswordLoginUnavailable
     const isCodeSent = codeVerificationRequired
@@ -82,22 +81,20 @@ function Login(): JSX.Element {
     )
 
     return (
-        <PaperDeskScene notes={['// welcome back', '// 500,000+ teams ship here']}>
+        <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
-            <PaperDeskCard footer={footer}>
-                <CardTitle
+            <AuthSceneCard footer={footer}>
+                <AuthCardTitle
                     title={
                         isCodeSent ? (
                             'Enter your login code'
-                        ) : theme === 'glass' ? (
+                        ) : (
                             <>
                                 Log in to{' '}
                                 <span className="px-1 rounded-md bg-[color-mix(in_srgb,var(--color-blue-500)_10%,transparent)] text-[var(--color-blue-500)]">
                                     @PostHog
                                 </span>
                             </>
-                        ) : (
-                            'Log in to PostHog'
                         )
                     }
                     sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
@@ -314,9 +311,7 @@ function Login(): JSX.Element {
                             showPasskey={!isPasswordLoginUnavailable || !!precheckResponse.webauthn_credentials?.length}
                         />
                     )}
-            </PaperDeskCard>
-        </PaperDeskScene>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
-
-export { Login as PaperDeskLogin }
