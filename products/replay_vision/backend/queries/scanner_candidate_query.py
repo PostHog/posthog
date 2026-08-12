@@ -316,7 +316,6 @@ class BackfillCandidateQuery:
         exclude_session_ids: list[str] | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
-        # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
         scanner_id: str | None = None,
     ) -> None:
         for name, value in (("window_start", window_start), ("window_end", window_end)):

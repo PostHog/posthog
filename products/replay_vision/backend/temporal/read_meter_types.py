@@ -23,12 +23,16 @@ def sweep_spend_bytes_24h(read_bytes_by_hour: dict[str, int] | None, now: dt.dat
     cutoff = now - dt.timedelta(hours=24)
     total = 0
     for hour_iso, read_bytes in read_bytes_by_hour.items():
+        # A malformed bucket must not raise: this runs inside the sweep, so an exception here would
+        # stop the scanner entirely rather than just mis-reporting its spend.
         try:
             hour = dt.datetime.fromisoformat(hour_iso)
-        except ValueError:
+            if hour.tzinfo is None:
+                hour = hour.replace(tzinfo=dt.UTC)
+            if hour >= cutoff:
+                total += int(read_bytes)
+        except (TypeError, ValueError):
             continue
-        if hour >= cutoff:
-            total += int(read_bytes)
     return total
 
 
