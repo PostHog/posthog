@@ -78,7 +78,10 @@ export function QueryFiltersMenu(): JSX.Element | null {
                             <code>persons</code>, <code>groups</code>, or <code>sessions</code>. For any other table or
                             view, bind your own columns, for example{' '}
                             <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
-                            <Link to="https://posthog.com/docs/data-warehouse/sql/variables" target="_blank">
+                            <Link
+                                to="https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters"
+                                target="_blank"
+                            >
                                 Learn more
                             </Link>
                         </div>
@@ -88,7 +91,10 @@ export function QueryFiltersMenu(): JSX.Element | null {
                             filters when selecting from PostHog tables like <code>events</code>, <code>persons</code>,{' '}
                             <code>groups</code>, or <code>sessions</code>. For any other table or view, bind your own
                             columns, for example <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
-                            <Link to="https://posthog.com/docs/data-warehouse/sql/variables" target="_blank">
+                            <Link
+                                to="https://posthog.com/docs/data-warehouse/sql/variables#applying-dashboard-filters"
+                                target="_blank"
+                            >
                                 Learn more
                             </Link>
                         </div>
