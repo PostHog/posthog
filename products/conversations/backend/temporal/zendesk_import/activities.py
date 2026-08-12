@@ -30,6 +30,7 @@ with workflow.unsafe.imports_passed_through():
 
     from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
     from products.conversations.backend.models.constants import Status
+    from products.conversations.backend.models.ticket import clamp_email_from
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
         build_content_with_images,
@@ -328,7 +329,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 status=map_zendesk_status(zendesk_ticket.get("status")),
                 priority=map_zendesk_priority(zendesk_ticket.get("priority")),
                 email_subject=_strip_nul(zendesk_ticket.get("subject") or "")[:500] or None,
-                email_from=requester_email if "@" in requester_email else None,
+                email_from=clamp_email_from(requester_email) if "@" in requester_email else None,
                 email_config=email_config,
                 anonymous_traits=anonymous_traits,
                 zendesk_ticket_id=zendesk_id,

@@ -19,7 +19,7 @@ from posthog.models.user import User
 
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
-from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.models.ticket import Ticket, clamp_email_from
 from products.conversations.backend.services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
@@ -420,7 +420,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                         "email": sender_email,
                     },
                     email_subject=subject,
-                    email_from=sender_email,
+                    email_from=clamp_email_from(sender_email),
                     cc_participants=cc_list,
                     unread_team_count=0 if is_team_member else 1,
                     identity_verified=sender_authenticated,

@@ -63,6 +63,7 @@ from products.conversations.backend.events import (
 from products.conversations.backend.metrics import TICKET_SEARCH_DURATION_SECONDS
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
+from products.conversations.backend.models.ticket import clamp_email_from
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
 from ee.models.rbac.role import Role
@@ -1512,7 +1513,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 status=Status.OPEN,
                 widget_session_id=str(uuid.uuid4()),
                 email_config=email_config,
-                email_from=recipient_email,
+                email_from=clamp_email_from(recipient_email),
                 email_subject=data.get("email_subject", ""),
                 # Ticket search, the person display and restore-by-email all read the
                 # customer's address from traits, so outbound tickets must carry it too.

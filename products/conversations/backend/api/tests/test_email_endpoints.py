@@ -895,6 +895,27 @@ class TestEmailInboundContent(BaseTest):
         assert comment.content == expected_content
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_inbound_oversized_sender_still_creates_ticket(self, _mock_sig: MagicMock):
+        # email_from is varchar(254); an address past that width used to raise DataError and roll
+        # back the whole transaction, so the ticket was lost and the webhook returned 500.
+        long_local_part = "a" * 300
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+                "from": f"{long_local_part}@test.com",
+                "Message-Id": "<oversized-sender@test.com>",
+                "subject": "Help",
+                "body-plain": "A question",
+            },
+        )
+        assert response.status_code == 200
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from is not None
+        assert len(ticket.email_from) == 254
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_reply_strips_quoted_thread(self, _mock_sig: MagicMock):
         base = {
             "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",

@@ -9,6 +9,17 @@ from .constants import Channel, ChannelDetail, Priority, Status
 if TYPE_CHECKING:
     from posthog.models import Person
 
+# Postgres stores email_from as varchar(254). A longer value raises DataError and rolls back
+# the whole insert, which drops an inbound support email. No real mailbox exceeds this length,
+# so clamp defensively before every write.
+EMAIL_FROM_MAX_LENGTH = 254
+
+
+def clamp_email_from(value: str | None) -> str | None:
+    if not value:
+        return value
+    return value[:EMAIL_FROM_MAX_LENGTH]
+
 
 class TicketManager(models.Manager):
     def create_with_number(self, **kwargs):
@@ -92,7 +103,7 @@ class Ticket(UUIDTModel):
         related_name="tickets",
     )
     email_subject = models.CharField(max_length=500, null=True, blank=True)
-    email_from = models.EmailField(null=True, blank=True)
+    email_from = models.EmailField(max_length=EMAIL_FROM_MAX_LENGTH, null=True, blank=True)
     cc_participants = models.JSONField(default=list, blank=True)
 
     # Session context (captured when ticket is created)
