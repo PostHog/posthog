@@ -6,6 +6,7 @@ import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { experimentLinkedScannersLogic } from '../experimentLinkedScannersLogic'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentWarning } from '../experimentLogic'
 
@@ -97,6 +98,42 @@ export function ExperimentWarningBanner(): JSX.Element | null {
             </div>
             <div>
                 <WarningDetail warning={experimentWarning} flagLink={flagLink} />
+            </div>
+        </LemonBanner>
+    )
+}
+
+export function ExperimentScannerBanner(): JSX.Element | null {
+    const { experiment } = useValues(experimentLogic)
+    const experimentId = typeof experiment.id === 'number' ? experiment.id : null
+    const { linkedScanners, hasLinkedScanners } = useValues(
+        experimentLinkedScannersLogic({ experimentId: experimentId ?? 0 })
+    )
+
+    if (experimentId === null || !hasLinkedScanners) {
+        return null
+    }
+
+    return (
+        <LemonBanner className="mb-4" type="info">
+            <div>
+                <strong>
+                    {linkedScanners.length === 1
+                        ? '1 replay scanner watches this experiment'
+                        : `${linkedScanners.length} replay scanners watch this experiment`}
+                </strong>
+            </div>
+            <div>
+                If you rename a variant, update their targeting so they keep matching sessions:{' '}
+                {linkedScanners.map((scanner, index) => (
+                    <span key={scanner.id}>
+                        {index > 0 && ', '}
+                        <Link target="_blank" to={urls.replayVision(scanner.id)}>
+                            {scanner.name}
+                        </Link>
+                    </span>
+                ))}
+                .
             </div>
         </LemonBanner>
     )

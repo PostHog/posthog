@@ -31,7 +31,7 @@ import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
 import { EditConclusionModal } from './ExperimentModals'
 import { ExperimentReplayTab } from './ExperimentReplayTab'
-import { ExperimentWarningBanner } from './ExperimentWarningBanners'
+import { ExperimentScannerBanner, ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { ExposureCriteriaModal } from './ExposureCriteria'
 import { Exposures } from './Exposures'
 import { Hypothesis } from './Hypothesis'
@@ -152,6 +152,7 @@ export function ExperimentView(): JSX.Element {
             ) : (
                 <>
                     <ExperimentWarningBanner />
+                    <ExperimentScannerBanner />
                     {showDebugPanel && (
                         <div className="mb-4">
                             <ExperimentDebugPanel

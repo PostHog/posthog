@@ -7,6 +7,7 @@ import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -20,6 +21,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
+import { experimentLinkedScannersLogic } from '../experimentLinkedScannersLogic'
 import { ensureIsPercent, isEvenlyDistributed } from '../utils'
 import {
     computeUpdatedVariantSplit,
@@ -89,6 +91,11 @@ export const VariantsPanelCreateFeatureFlag = ({
     const { currentTeam } = useValues(teamLogic)
     const [isCustomSplit, setIsCustomSplit] = useState(false)
 
+    // Only a saved (numeric-id) experiment can have scanners; during creation the id is a string and
+    // the lookup returns nothing, so the rename confirm below is a no-op there.
+    const experimentId = typeof experiment.id === 'number' ? experiment.id : null
+    const { scannersTargetingVariant } = useValues(experimentLinkedScannersLogic({ experimentId: experimentId ?? 0 }))
+
     const filters = experiment.feature_flag_config?.filters
     const variants: MultivariateFlagVariant[] = filters?.multivariate?.variants ?? [
         { key: 'control', rollout_percentage: 50 },
@@ -136,6 +143,33 @@ export const VariantsPanelCreateFeatureFlag = ({
             variants: newVariants,
             ensure_experience_continuity: ensureExperienceContinuity,
             rollout_percentage: rolloutPercentage,
+        })
+    }
+
+    // The variant key each field held when it gained focus, so a blur can tell whether the key the
+    // user just left was one a scanner targets and warn once, rather than on every keystroke.
+    const [keyOnFocus, setKeyOnFocus] = useState<Record<number, string>>({})
+
+    const confirmRenameIfScannerTargeted = (index: number, currentKey: string): void => {
+        const originalKey = keyOnFocus[index]
+        if (originalKey === undefined || originalKey === currentKey) {
+            return
+        }
+        const scanners = scannersTargetingVariant(originalKey)
+        if (scanners.length === 0) {
+            return
+        }
+        const scannerNames = scanners.map((scanner) => `"${scanner.name}"`).join(', ')
+        LemonDialog.open({
+            title: `Rename variant "${originalKey}"?`,
+            description: `${
+                scanners.length === 1 ? 'A replay scanner watches' : `${scanners.length} replay scanners watch`
+            } the "${originalKey}" variant (${scannerNames}). If you rename it, update their targeting so they keep matching sessions.`,
+            primaryButton: { children: 'Rename', status: 'danger' },
+            secondaryButton: {
+                children: 'Keep the name',
+                onClick: () => updateVariant(index, { key: originalKey }),
+            },
         })
     }
 
@@ -244,6 +278,10 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                     onChange={(value) =>
                                                         updateVariant(index, { key: value.replace(/\s+/g, '-') })
                                                     }
+                                                    onFocus={() =>
+                                                        setKeyOnFocus((prev) => ({ ...prev, [index]: variant.key }))
+                                                    }
+                                                    onBlur={() => confirmRenameIfScannerTargeted(index, variant.key)}
                                                     data-attr="experiment-variant-key"
                                                     data-key-index={index.toString()}
                                                     className="ph-ignore-input"
