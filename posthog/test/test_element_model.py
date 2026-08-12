@@ -188,6 +188,14 @@ class TestChainSplitting(SimpleTestCase):
         assert len(chain) <= MAX_ELEMENTS_CHAIN_LENGTH
         assert len(chain_to_elements(chain)) == segments
 
+    def test_an_attribute_key_stops_at_the_equals_sign(self) -> None:
+        # An attribute run holding `=` without a following quote is what makes the parse quadratic,
+        # and it stops being quadratic exactly because the key cannot span an `=`. Reverting the key
+        # to `.*?` reads this key as `x=y` and takes seconds on a chain at the length limit.
+        elements = chain_to_elements('a:x=y="v"nth-child="0"')
+
+        assert elements[0].attributes == {"y": "v"}
+
     def test_oversized_chain_is_truncated_rather_than_parsed_whole(self) -> None:
         segments = MAX_ELEMENTS_CHAIN_LENGTH // (len(SEGMENT) + 1)
         elements = chain_to_elements(";".join([SEGMENT] * segments * 3))
