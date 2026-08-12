@@ -219,14 +219,6 @@ def list_limited_team_attributes(resource: QuotaResource, cache_key: QuotaLimiti
     return [x.decode("utf-8") for x in results]
 
 
-def team_quota_limited_until(team_attribute: str, resource: QuotaResource) -> Optional[int]:
-    redis_client = get_client()
-    score = redis_client.zscore(f"{QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY.value}{resource.value}", team_attribute)
-    if score is None or score < timezone.now().timestamp():
-        return None
-    return int(score)
-
-
 def list_team_attributes_in_zset(resource: QuotaResource, cache_key: QuotaLimitingCaches) -> list[str]:
     """
     Returns every team attribute currently present in the Redis zset for `resource`,

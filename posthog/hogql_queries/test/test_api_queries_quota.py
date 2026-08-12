@@ -6,8 +6,11 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQuery
 
+from posthog.api_queries_quota import increment_api_queries_bytes
 from posthog.exceptions import APIQueriesQuotaExceeded
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -20,41 +23,50 @@ from posthog.hogql_queries.query_runner import (
 FUTURE_TS = int(datetime(2026, 9, 1, tzinfo=UTC).timestamp())
 
 
-@override_settings(API_QUERIES_ENABLED=True)
+@override_settings(API_QUERIES_ENABLED=True, API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=1000)
 class TestGetApiQueriesQuotaLimitedUntil(BaseTest):
-    def test_no_verdict_returns_none(self):
-        with patch("ee.billing.quota_limiting.team_quota_limited_until", return_value=None) as direct:
-            assert get_api_queries_quota_limited_until(self.team) is None
-            direct.assert_called_once()
+    def _set(self, has_active_subscription, counter_bytes):
+        self.organization.has_active_subscription = has_active_subscription
+        self.organization.save()
+        if counter_bytes:
+            increment_api_queries_bytes(str(self.organization.id), counter_bytes)
 
-    def test_limited_returns_datetime(self):
-        with patch("ee.billing.quota_limiting.team_quota_limited_until", return_value=FUTURE_TS):
-            result = get_api_queries_quota_limited_until(self.team)
-            assert result == datetime.fromtimestamp(FUTURE_TS, tz=UTC)
+    @parameterized.expand(
+        [
+            # (has_active_subscription, counter_bytes, expect_limited)
+            ("free_over_limit", False, 2000, True),
+            ("free_under_limit", False, 500, False),
+            ("paying_over_limit", True, 2000, False),
+            ("unknown_subscription_over_limit", None, 2000, False),
+        ]
+    )
+    def test_check_matrix(self, _name, has_active_subscription, counter_bytes, expect_limited):
+        self._set(has_active_subscription, counter_bytes)
+        result = get_api_queries_quota_limited_until(self.team)
+        if expect_limited:
+            assert result is not None and result.tzinfo is not None
+        else:
+            assert result is None
 
-    def test_fails_open_on_error(self):
-        with patch("ee.billing.quota_limiting.team_quota_limited_until", side_effect=Exception("redis down")):
-            assert get_api_queries_quota_limited_until(self.team) is None
-
-    @override_settings(API_QUERIES_ENABLED=False)
-    def test_disabled_setting_returns_none(self):
+    @override_settings(API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=0)
+    def test_zero_setting_disables(self):
+        self._set(False, 2000)
         assert get_api_queries_quota_limited_until(self.team) is None
 
+    def test_counter_error_fails_open(self):
+        self._set(False, 2000)
+        with patch("posthog.hogql_queries.query_runner.get_api_queries_bytes", side_effect=Exception("redis down")):
+            assert get_api_queries_quota_limited_until(self.team) is None
 
+
+@override_settings(API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=1000)
 class TestApiQueriesQuotaDetail(BaseTest):
     def test_detail_includes_usage_limit_and_reset(self):
-        self.organization.usage = {
-            "api_queries_read_bytes": {
-                "usage": 350_000_000_000_000,
-                "limit": 400_000_000_000_000,
-                "todays_usage": 1_000_000,
-            },
-        }
-        self.organization.save()
+        increment_api_queries_bytes(str(self.organization.id), 2000)
         limited_until = datetime(2026, 9, 1, tzinfo=UTC)
         detail = _api_queries_quota_detail(self.team, limited_until)
-        assert "350,000,001,000,000" in detail
-        assert "400,000,000,000,000" in detail
+        assert "2,000" in detail
+        assert "1,000" in detail
         assert "2026-09-01" in detail
         assert "Billing settings" in detail
 

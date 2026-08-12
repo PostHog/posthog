@@ -35,7 +35,6 @@ from ee.billing.quota_limiting import (
     refresh_org_self_driving_quota,
     replace_limited_team_tokens,
     set_org_usage_summary,
-    team_quota_limited_until,
     update_all_orgs_billing_quotas,
     update_org_billing_quotas,
     update_organization_usage_fields,
@@ -3071,22 +3070,3 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
         with patch("ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org") as live_mock:
             refresh_org_self_driving_quota(str(self.organization.id))
         live_mock.assert_not_called()
-
-
-class TestTeamQuotaLimitedUntil(BaseTest):
-    def test_returns_score_for_limited_token(self):
-        future = int(timezone.now().timestamp()) + 3600
-        add_limited_team_tokens(
-            QuotaResource.API_QUERIES, {"phc_test_token": future}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
-        assert team_quota_limited_until("phc_test_token", QuotaResource.API_QUERIES) == future
-
-    def test_returns_none_for_unknown_token(self):
-        assert team_quota_limited_until("phc_never_limited", QuotaResource.API_QUERIES) is None
-
-    def test_returns_none_for_expired_score(self):
-        past = int(timezone.now().timestamp()) - 60
-        add_limited_team_tokens(
-            QuotaResource.API_QUERIES, {"phc_expired_token": past}, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
-        assert team_quota_limited_until("phc_expired_token", QuotaResource.API_QUERIES) is None

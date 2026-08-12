@@ -104,6 +104,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
 from posthog import settings
+from posthog.api_queries_quota import get_api_queries_bytes, next_counter_reset
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
@@ -351,21 +352,20 @@ API_QUERIES_QUOTA_LIMITED_COUNTER = Counter(
 
 
 def get_api_queries_quota_limited_until(team: Team) -> Optional[datetime]:
-    """When the team's organization is over its API queries (bytes read) quota, returns the
-    moment the limit lifts; otherwise None. Fails open on error.
+    """When a free org is over its monthly chargeable-bytes allowance, returns the moment
+    the counter resets; otherwise None.
+
+    Recomputed live from the synced subscription column and the Redis counter on every
+    call, so there is no verdict to go stale after an upgrade. Fails open on error.
     """
-    if not django_settings.EE_AVAILABLE or not django_settings.API_QUERIES_ENABLED:
+    if not django_settings.API_QUERIES_ENABLED or not django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
         return None
     try:
-        from ee.billing.quota_limiting import (  # noqa: PLC0415 — EE availability is runtime-conditional
-            QuotaResource,
-            team_quota_limited_until,
-        )
-
-        limited_until = team_quota_limited_until(team.api_token, QuotaResource.API_QUERIES)
-        if limited_until is None:
+        if team.organization.has_active_subscription is not False:
             return None
-        return datetime.fromtimestamp(limited_until, tz=UTC)
+        if get_api_queries_bytes(str(team.organization_id)) <= django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT:
+            return None
+        return next_counter_reset(datetime.now(UTC))
     except Exception:
         return None
 
@@ -387,13 +387,11 @@ def _api_queries_enforcement_enabled(team: Team) -> bool:
 
 
 def _api_queries_quota_detail(team: Team, limited_until: datetime) -> str:
-    summary = (team.organization.usage or {}).get("api_queries_read_bytes") or {}
-    used = (summary.get("usage") or 0) + (summary.get("todays_usage") or 0)
-    limit = summary.get("limit")
-    allowance = f"{used:,} of {limit:,} bytes" if limit else f"{used:,} bytes"
+    used = get_api_queries_bytes(str(team.organization_id))
+    limit = django_settings.API_QUERIES_FREE_TIER_READ_BYTES_LIMIT
     return (
-        f"Your organization has used {allowance} of its API query allowance this billing period "
-        f"(figures as of the last usage sweep). The allowance resets at {limited_until.isoformat()}. "
+        f"Your organization has used {used:,} of {limit:,} bytes of its monthly API query allowance. "
+        f"The allowance resets at {limited_until.isoformat()}. "
         "Upgrade your plan in Billing settings to restore access sooner, or ask an org admin to do so."
     )
 
