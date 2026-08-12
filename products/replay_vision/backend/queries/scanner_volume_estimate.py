@@ -30,11 +30,13 @@ ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS = 10
 ESTIMATE_WINDOW_DAYS = 30
 # Scan a week and extrapolate: a 30-day scan of event-filtered queries reads billions of rows and blows the budget.
 _ESTIMATE_SCAN_WINDOW_DAYS = 7
+# The editor's cost preview re-estimates on every filter tweak, so it gets an order-of-magnitude answer from a
+# single day; the durable per-scanner number still comes from the batch refresher's full window.
+ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS = 1
 # Events subqueries additionally SAMPLE users at 10%; matched counts are corrected back up.
 _ESTIMATE_EVENTS_SAMPLE_FACTOR = 0.1
-
-# The earliest-recording probe only needs to see past the scan window; anything older clamps identically.
-_EARLIEST_PROBE_LOOKBACK_DAYS = _ESTIMATE_SCAN_WINDOW_DAYS + 1
+# When sampling is off (OR-operand filters), a full-width scan is the only option, so bound its window instead.
+_ESTIMATE_UNSAMPLED_SCAN_WINDOW_DAYS = 2
 
 # Persisted per-scanner estimates older than this are recomputed by the sweep.
 ESTIMATE_STALE_AFTER = dt.timedelta(hours=24)
@@ -54,8 +56,9 @@ def estimate_scanner_session_volume(
     sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
     max_execution_seconds: int = _ESTIMATE_MAX_EXECUTION_TIME_SECONDS,
     ch_user: ClickHouseUser = ClickHouseUser.APP,
+    scan_window_days: int = _ESTIMATE_SCAN_WINDOW_DAYS,
 ) -> ScannerVolumeEstimate:
-    """Count sessions matching `query` over the last week, for the scanner cost preview.
+    """Count sessions matching `query` over a recent window, for the scanner cost preview.
 
     Reuses `SessionRecordingListFromQuery`'s filter compilation (with events subqueries sampled
     at 10% and corrected back up) wrapped in a COUNT, so the estimate and the real recordings
@@ -63,8 +66,14 @@ def estimate_scanner_session_volume(
     earliest recent recording is fetched in the same round trip via a CROSS JOIN so the
     cost-preview widget never pays for two sequential HogQL queries.
     """
+    # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
+    # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the correction.
+    sample_factor = None if query.operand == FilterLogicalOperator.OR_ else _ESTIMATE_EVENTS_SAMPLE_FACTOR
+    if sample_factor is None:
+        scan_window_days = min(scan_window_days, _ESTIMATE_UNSAMPLED_SCAN_WINDOW_DAYS)
+
     now = dt.datetime.now(dt.UTC)
-    window_start = now - dt.timedelta(days=_ESTIMATE_SCAN_WINDOW_DAYS)
+    window_start = now - dt.timedelta(days=scan_window_days)
     windowed = query.model_copy(deep=True)
     # Exact timestamp — the relative date form truncates to start-of-day, over-counting a day against the divisor.
     windowed.date_from = window_start.isoformat()
@@ -74,9 +83,6 @@ def estimate_scanner_session_volume(
     extra_having = eligibility_predicates()
     if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
         extra_having.append(surfacing)
-    # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
-    # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the correction.
-    sample_factor = None if windowed.operand == FilterLogicalOperator.OR_ else _ESTIMATE_EVENTS_SAMPLE_FACTOR
     list_query = SessionRecordingListFromQuery(
         team=team,
         query=windowed,
@@ -103,7 +109,7 @@ def estimate_scanner_session_volume(
         where=ast.CompareOperation(
             op=ast.CompareOperationOp.GtEq,
             left=ast.Field(chain=["min_first_timestamp"]),
-            right=ast.Constant(value=now - dt.timedelta(days=_EARLIEST_PROBE_LOOKBACK_DAYS)),
+            right=ast.Constant(value=now - dt.timedelta(days=scan_window_days + 1)),
         ),
     )
     combined_query = ast.SelectQuery(
@@ -138,7 +144,7 @@ def estimate_scanner_session_volume(
 
     return ScannerVolumeEstimate(
         matched_sessions=matched,
-        effective_window_days=_clamp_window_days(earliest),
+        effective_window_days=_clamp_window_days(earliest, scan_window_days),
     )
 
 
@@ -172,12 +178,12 @@ def refresh_scanner_estimate(
         scanner.estimated_at = estimated_at
 
 
-def _clamp_window_days(earliest: object) -> int:
+def _clamp_window_days(earliest: object, scan_window_days: int) -> int:
     """Clamp the divisor to the team's actual data span so a new team isn't under-estimated."""
     if not isinstance(earliest, dt.datetime):
         # The probe covers the whole scan window, so no-earliest implies matched == 0 and any divisor projects 0.
-        return _ESTIMATE_SCAN_WINDOW_DAYS
+        return scan_window_days
     if earliest.tzinfo is None:
         earliest = earliest.replace(tzinfo=dt.UTC)
     days_of_data = (dt.datetime.now(dt.UTC) - earliest).days + 1
-    return max(1, min(_ESTIMATE_SCAN_WINDOW_DAYS, days_of_data))
+    return max(1, min(scan_window_days, days_of_data))

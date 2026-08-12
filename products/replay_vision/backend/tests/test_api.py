@@ -2643,25 +2643,24 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_estimate_counts_only_in_window_sessions(self) -> None:
-        for index in range(3):
-            self._ingest_session(days_ago=index + 1)
-        # Inside the earliest probe but outside the 7-day scan window, clamping window_days to a deterministic 7.
-        self._ingest_session(days_ago=7)
+        # The interactive preview scans a single day; only the first session falls inside it.
+        self._ingest_session(days_ago=0.5)
+        # Inside the earliest probe but outside the 1-day scan window, clamping window_days to a deterministic 1.
+        self._ingest_session(days_ago=1.5)
 
         resp = self.client.post(self.estimate_url, data={}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
-        self.assertEqual(body["matched_sessions_in_window"], 3)
-        self.assertEqual(body["window_days"], 7)
-        self.assertEqual(body["estimated_observations_per_month"], round(3 / 7 * 30))
+        self.assertEqual(body["matched_sessions_in_window"], 1)
+        self.assertEqual(body["window_days"], 1)
+        self.assertEqual(body["estimated_observations_per_month"], round(1 / 1 * 30))
         # Defaults to gemini-3-flash-preview (5 credits) when the request names no model.
         self.assertEqual(body["credits_per_observation"], 5)
-        self.assertEqual(body["estimated_credits_per_month"], round(3 / 7 * 30) * 5)
+        self.assertEqual(body["estimated_credits_per_month"], round(1 / 1 * 30) * 5)
 
     def test_estimate_prices_credits_at_proposed_model(self) -> None:
-        for index in range(3):
-            self._ingest_session(days_ago=index + 1)
+        self._ingest_session(days_ago=0.5)
         self._ingest_session(days_ago=40)
 
         resp = self.client.post(self.estimate_url, data={"model": "gemini-3.5-flash-lite"}, format="json")
@@ -2672,19 +2671,19 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["estimated_credits_per_month"], body["estimated_observations_per_month"] * 2)
 
     def test_estimate_applies_sampling(self) -> None:
-        for index in range(4):
-            self._ingest_session(days_ago=index + 1)
-        # Inside the earliest probe but outside the 7-day scan window, clamping window_days to a deterministic 7.
-        self._ingest_session(days_ago=7)
+        self._ingest_session(days_ago=0.2)
+        self._ingest_session(days_ago=0.4)
+        # Inside the earliest probe but outside the 1-day scan window, clamping window_days to a deterministic 1.
+        self._ingest_session(days_ago=1.5)
 
         resp = self.client.post(self.estimate_url, data={"sampling_rate": 0.5}, format="json")
         self.assertEqual(resp.status_code, 200)
 
         body = resp.json()
-        self.assertEqual(body["matched_sessions_in_window"], 4)
-        self.assertEqual(body["window_days"], 7)
+        self.assertEqual(body["matched_sessions_in_window"], 2)
+        self.assertEqual(body["window_days"], 1)
         self.assertEqual(body["sampling_rate"], 0.5)
-        self.assertEqual(body["estimated_observations_per_month"], round(4 / 7 * 30 * 0.5))
+        self.assertEqual(body["estimated_observations_per_month"], round(2 / 1 * 30 * 0.5))
 
     def test_estimate_others_sum_is_enabled_only_and_excludes_the_edited_scanner(self) -> None:
         self._ingest_session(days_ago=1)

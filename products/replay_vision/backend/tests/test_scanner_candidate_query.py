@@ -4,7 +4,13 @@ import pytest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event
 
-from posthog.schema import EventPropertyFilter, PropertyOperator, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import (
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyOperator,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 
 from posthog.hogql import ast
 
@@ -25,6 +31,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     _ESTIMATE_SCAN_WINDOW_DAYS,
+    _ESTIMATE_UNSAMPLED_SCAN_WINDOW_DAYS,
     estimate_scanner_session_volume,
     project_monthly_observations,
 )
@@ -454,6 +461,30 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         estimate = estimate_scanner_session_volume(team=team, query=RecordingsQuery())
 
         assert estimate.matched_sessions == 1
+
+    @pytest.mark.django_db
+    def test_volume_estimate_unsampled_or_operand_caps_scan_window(self, team) -> None:
+        # OR-operand filters can't use the events SAMPLE, so their full-price scan is bounded to a
+        # shorter window instead of the default one.
+        for session_id, days_ago in (("recent-match", 0.5), ("old-match", 2.5)):
+            first = _NOW - dt.timedelta(days=days_ago)
+            self._produce(team.id, session_id, first, first + dt.timedelta(minutes=10))
+            _create_event(
+                team=team,
+                event="$pageview",
+                distinct_id="d1",
+                timestamp=first,
+                properties={"$session_id": session_id},
+            )
+
+        query = RecordingsQuery(
+            operand=FilterLogicalOperator.OR_,
+            events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+        )
+        estimate = estimate_scanner_session_volume(team=team, query=query)
+
+        assert estimate.matched_sessions == 1
+        assert estimate.effective_window_days == _ESTIMATE_UNSAMPLED_SCAN_WINDOW_DAYS
 
     @pytest.mark.django_db
     def test_volume_estimate_projects_zero_for_old_but_quiet_teams(self, team) -> None:

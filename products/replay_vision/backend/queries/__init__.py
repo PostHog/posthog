@@ -9,6 +9,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
 )
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
+    ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS,
     ESTIMATE_STALE_AFTER,
     ScannerVolumeEstimate,
     estimate_scanner_session_volume,
@@ -20,6 +21,7 @@ __all__ = [
     "DEFAULT_CANDIDATE_LIMIT",
     "DEFAULT_MAX_EXECUTION_SECONDS",
     "ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS",
+    "ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS",
     "ESTIMATE_STALE_AFTER",
     "MIN_SAMPLING_RATE",
     "SAMPLE_RATE_PRECISION",

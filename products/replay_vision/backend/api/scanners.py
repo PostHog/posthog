@@ -69,6 +69,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.queries import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
+    ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS,
     ESTIMATE_STALE_AFTER,
     MIN_SAMPLING_RATE,
     estimate_scanner_session_volume,
@@ -1627,8 +1628,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
+        # The preview re-runs on every filter tweak, so it trades window width for cost; the persisted
+        # per-scanner estimate keeps the full window via the batch refresher.
         estimate = estimate_scanner_session_volume(
-            team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
+            team=self.team,
+            query=recordings_query,
+            sampling_mode=body.validated_data["sampling_mode"],
+            scan_window_days=ESTIMATE_INTERACTIVE_SCAN_WINDOW_DAYS,
         )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])
