@@ -30,6 +30,8 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
+    Aggregate,
+    Avg,
     BooleanField,
     CharField,
     Count,
@@ -39,11 +41,14 @@ from django.db.models import (
     Field,
     FloatField,
     IntegerField,
+    Max,
+    Min,
     OuterRef,
     Prefetch,
     Q,
     QuerySet,
     Subquery,
+    Sum,
     TextField,
     Value,
 )
@@ -1344,7 +1349,7 @@ def _resolve_person_source_schema(source: CustomPropertySource, user_access_cont
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
     schema = (
         schema_model.objects.filter(id=source.external_data_schema_id, team_id=source.team_id)
-        .select_related("source")
+        .select_related("source", "table")
         .first()
     )
     if schema is None:
@@ -1354,6 +1359,19 @@ def _resolve_person_source_schema(source: CustomPropertySource, user_access_cont
     ):
         return None
     return schema
+
+
+def _schema_table_name(schema: Any) -> str:
+    """The bound table as it is named in HogQL, so the UI shows the name the table picker offered.
+    Falls back to the schema name when the first sync hasn't created the table yet. The HogQL import
+    is deferred to keep the heavy database module off this module's import path."""
+    from posthog.hogql.database.database import (
+        get_data_warehouse_table_name,  # noqa: PLC0415 — keeps HogQL off the import path
+    )
+
+    if schema.table_id is None:
+        return schema.name
+    return get_data_warehouse_table_name(schema.source, schema.table.name)
 
 
 def _schema_schedule(schema: Any) -> tuple[float | None, datetime | None]:
@@ -1390,6 +1408,8 @@ def _to_custom_property_source_view(
     sync_frequency_interval_seconds: float | None = None
     next_sync_at: datetime | None = None
     latest_run: contracts.CustomPropertySyncRunView | None = None
+    external_data_source: UUID | None = None
+    table_name: str | None = None
     if isinstance(enrichment, _ResolveEnrichmentInline):
         schema = _resolve_person_source_schema(source, user_access_control)
         latest = source.sync_runs.order_by("-created_at").first() if schema is not None else None
@@ -1399,6 +1419,8 @@ def _to_custom_property_source_view(
     if schema is not None:
         sync_frequency_interval_seconds, next_sync_at = _schema_schedule(schema)
         latest_run = _to_sync_run_view(latest) if latest is not None else None
+        external_data_source = schema.source_id
+        table_name = _schema_table_name(schema)
 
     # A person source's sync status (raw error text, failure streak, last-synced time) is produced by
     # the underlying billable warehouse source, so it's warehouse-derived metadata gated the same way as
@@ -1427,6 +1449,8 @@ def _to_custom_property_source_view(
         sync_frequency_interval_seconds=sync_frequency_interval_seconds,
         next_sync_at=next_sync_at,
         latest_run=latest_run,
+        external_data_source=external_data_source,
+        table_name=table_name,
     )
 
 
@@ -1445,7 +1469,7 @@ def _batch_source_enrichment(
         schema.id: schema
         for schema in schema_model.objects.filter(
             id__in={s.external_data_schema_id for s in person_sources}, team_id=team_id
-        ).select_related("source")
+        ).select_related("source", "table")
     }
     # Latest run per source in one query: DISTINCT ON (source_id) keeps the newest row per source.
     latest_run_by_source_id: dict[Any, CustomPropertySyncRun] = {
@@ -2458,6 +2482,90 @@ def _apply_account_table_sort(
         else order.desc(nulls_last=True)
     )
     return queryset.order_by(primary_order, "id")
+
+
+class _PercentileCont(Aggregate):
+    function = "PERCENTILE_CONT"
+    template = "%(function)s(0.5) WITHIN GROUP (ORDER BY %(expressions)s)"
+    output_field = FloatField()
+
+
+def query_accounts_metrics(
+    *,
+    team_id: int,
+    user_access_control: "UserAccessControl",
+    filters: tuple[contracts.AccountTableFilter, ...],
+    metrics: tuple[contracts.AccountTableMetric, ...],
+) -> list[float | int | None]:
+    definition_ids = frozenset(
+        metric.definition_id
+        for metric in metrics
+        if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric)
+    )
+    custom_property_display_types = _validate_account_table_definitions(
+        team_id=team_id,
+        selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
+        filters=filters,
+        sort=None,
+    )
+    for definition_id in definition_ids:
+        if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
+            raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
+
+    accounts = _apply_account_table_filters(
+        _accounts_queryset(team_id, user_access_control),
+        team_id=team_id,
+        filters=filters,
+        custom_property_display_types=custom_property_display_types,
+    )
+    results: list[float | int | None] = [None] * len(metrics)
+    for index, metric in enumerate(metrics):
+        if isinstance(metric, contracts.AccountTableCountMetric):
+            results[index] = accounts.count()
+
+    aggregate_expressions: dict[str, Aggregate] = {}
+    for index, metric in enumerate(metrics):
+        alias = f"metric_{index}"
+        if isinstance(metric, contracts.AccountTableAggregateMetric):
+            aggregate_type = {
+                contracts.AccountTableAggregation.SUM: Sum,
+                contracts.AccountTableAggregation.AVERAGE: Avg,
+                contracts.AccountTableAggregation.MINIMUM: Min,
+                contracts.AccountTableAggregation.MAXIMUM: Max,
+                contracts.AccountTableAggregation.MEDIAN: _PercentileCont,
+            }[metric.aggregation]
+            aggregate_expressions[alias] = aggregate_type(
+                "value_num",
+                filter=Q(definition_id=metric.definition_id),
+            )
+        elif isinstance(metric, contracts.AccountTableCountThresholdMetric):
+            comparison = {
+                contracts.AccountTableThresholdOperator.GREATER_THAN: Q(value_num__gt=metric.value),
+                contracts.AccountTableThresholdOperator.GREATER_THAN_OR_EQUAL: Q(value_num__gte=metric.value),
+                contracts.AccountTableThresholdOperator.LESS_THAN: Q(value_num__lt=metric.value),
+                contracts.AccountTableThresholdOperator.LESS_THAN_OR_EQUAL: Q(value_num__lte=metric.value),
+                contracts.AccountTableThresholdOperator.EQUAL: Q(value_num=metric.value),
+                contracts.AccountTableThresholdOperator.NOT_EQUAL: ~Q(value_num=metric.value),
+            }[metric.operator]
+            aggregate_expressions[alias] = Count(
+                "account_id",
+                filter=Q(definition_id=metric.definition_id) & comparison,
+            )
+
+    if aggregate_expressions:
+        values = CustomPropertyValue.objects.for_team(team_id).filter(
+            account_id__in=accounts.order_by().values("id"),
+            is_deleted=False,
+            value_num__isnull=False,
+        )
+        aggregated = values.aggregate(**aggregate_expressions)
+        for index, metric in enumerate(metrics):
+            value = aggregated.get(f"metric_{index}")
+            if isinstance(metric, contracts.AccountTableAggregateMetric) and value is not None:
+                results[index] = float(value) * (metric.scale if metric.scale is not None else 1)
+            elif isinstance(metric, contracts.AccountTableCountThresholdMetric):
+                results[index] = int(value or 0)
+    return results
 
 
 def query_accounts_table(

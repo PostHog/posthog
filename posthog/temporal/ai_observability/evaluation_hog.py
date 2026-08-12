@@ -129,18 +129,18 @@ def build_hog_event_global(
     `evaluation_events`. The trace-only `events` compatibility global disables them so saved
     source keeps its original shape and memory cost.
     """
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    io = extract_event_io(event_type, properties)
     event_global: dict[str, Any] = {
         "uuid": event_uuid,
         "event": event_type,
         "timestamp": timestamp,
-        "input": coerce_hog_io_value(input_raw),
-        "output": coerce_hog_io_value(output_raw),
+        "input": coerce_hog_io_value(io.input_raw),
+        "output": coerce_hog_io_value(io.output_raw),
         "properties": {key: value for key, value in properties.items() if key not in HEAVY_PROPERTY_NAMES},
     }
     if include_text:
-        event_global["input_text"] = _extract_hog_message_text(input_raw)
-        event_global["output_text"] = _extract_hog_output_text(output_raw)
+        event_global["input_text"] = _extract_hog_message_text(io.input_raw)
+        event_global["output_text"] = _extract_hog_output_text(io.output_raw)
     return event_global
 
 
@@ -301,12 +301,12 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         properties = json.loads(properties)
 
     event_type = event_data["event"]
-    input_raw, output_raw = extract_event_io(event_type, properties)
+    io = extract_event_io(event_type, properties)
 
     globals_dict: dict[str, Any] = {
         # Generation-only compatibility globals kept for saved Hog source.
-        "input": coerce_hog_io_value(input_raw),
-        "output": coerce_hog_io_value(output_raw),
+        "input": coerce_hog_io_value(io.input_raw),
+        "output": coerce_hog_io_value(io.output_raw),
         "properties": properties,
         "event": {
             "uuid": event_data.get("uuid", ""),

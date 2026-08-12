@@ -44,7 +44,7 @@ import {
 } from 'react'
 
 import { IconComment, IconImage } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import {
     COMMON_INSERT_COMMAND_CATEGORY,
@@ -74,12 +74,22 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
+import { getNotebookWidgetViewMenuItem } from '../notebookWidgetMenu'
 import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
+import { MarkdownNotebookNodeAttributeInput } from './MarkdownNotebookNodeAttributeInput'
 import { notebookLogic } from './notebookLogic'
 
-const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set(['height', 'nodeId', '__init', 'children', 'tabId', 'placement'])
+const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set([
+    'height',
+    'nodeId',
+    '__init',
+    'children',
+    'tabId',
+    'placement',
+    'view',
+])
 
 const NUMERIC_MARKDOWN_NODE_ATTRIBUTE_KEYS: Partial<Record<NotebookNodeType, string[]>> = {
     [NotebookNodeType.Cohort]: ['id'],
@@ -249,6 +259,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
+            editableTitle: options?.editableTitle,
             // Nodes with a Settings panel keep their filters toggle on read-only canvases
             // (customer profiles), where the panel is the only way to configure them.
             viewModeFilters: !!options?.Settings,
@@ -324,7 +335,7 @@ export function getMarkdownNotebookNodeTitle(
     const attributes = getNodeAttributes(node.props, node.id, options, nodeType, false)
     const explicitTitle = getUnknownStringProp(attributes.title)
 
-    if (explicitTitle) {
+    if (explicitTitle && options?.editableTitle !== false) {
         return explicitTitle
     }
 
@@ -463,7 +474,89 @@ export function RealNotebookNodeEdit(props: NotebookComponentRenderProps): JSX.E
         return <RealNotebookNodeAttributeEdit {...props} notebookNodeType={notebookNodeType} options={options} />
     }
 
-    return <RealNotebookNodeComponent {...props} forceEditing editOnly />
+    return (
+        <>
+            {options.views ? (
+                <div className="MarkdownNotebook__component-form">
+                    <RealNotebookNodeViewSelect {...props} options={options} />
+                </div>
+            ) : null}
+            <RealNotebookNodeComponent {...props} forceEditing editOnly />
+        </>
+    )
+}
+
+function RealNotebookNodeViewSelect({
+    node,
+    updateProps,
+    options,
+}: Pick<NotebookComponentRenderProps, 'node' | 'updateProps'> & {
+    options: CreatePostHogWidgetNodeOptions<any>
+}): JSX.Element {
+    const defaultViewKey = options.defaultView?.key ?? ''
+    const widgetView =
+        typeof node.props.view === 'string' && (node.props.view === defaultViewKey || options.views?.[node.props.view])
+            ? node.props.view
+            : defaultViewKey
+
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-secondary">View</span>
+            <LemonSelect
+                aria-label="View"
+                fullWidth
+                value={widgetView}
+                onChange={(view) => updateProps({ view: view === defaultViewKey ? undefined : view })}
+                options={[
+                    {
+                        value: defaultViewKey,
+                        label: options.defaultView?.label ?? 'Default',
+                        tooltip: options.defaultView?.description,
+                    },
+                    ...Object.entries(options.views ?? {}).map(([value, view]) => ({
+                        value,
+                        label: view.label,
+                        tooltip: view.description,
+                    })),
+                ]}
+            />
+        </label>
+    )
+}
+
+function RealNotebookNodeAttributeField({
+    node,
+    updateProps,
+    notebookNodeType,
+    attributeKey,
+    value,
+    autoFocus,
+}: Pick<NotebookComponentRenderProps, 'node' | 'updateProps'> & {
+    notebookNodeType: NotebookNodeType
+    attributeKey: string
+    value: NotebookPropValue | undefined
+    autoFocus: boolean
+}): JSX.Element {
+    const label = getMarkdownNodeAttributeLabel(notebookNodeType, attributeKey)
+
+    return (
+        <label className="flex flex-col gap-1">
+            <span className="text-xs font-semibold text-secondary">{label}</span>
+            <MarkdownNotebookNodeAttributeInput
+                attributeKey={attributeKey}
+                label={label}
+                tagName={node.tagName}
+                value={getPrimitiveNotebookPropInputValue(value)}
+                onTextChange={(nextValue) =>
+                    updateProps({
+                        [attributeKey]: getSerializableAttributeInputValue(notebookNodeType, attributeKey, nextValue),
+                    })
+                }
+                onEntitySelect={(nextValue) => updateProps({ [attributeKey]: nextValue })}
+                autoFocus={autoFocus}
+            />
+        </label>
+    )
 }
 
 export function RealNotebookNodeAttributeEdit({
@@ -477,8 +570,11 @@ export function RealNotebookNodeAttributeEdit({
 }): JSX.Element {
     const attributes = getNodeAttributes(node.props, node.id, options, notebookNodeType, true)
     const attributeKeys = getEditableNodeAttributeKeys(options, attributes)
+    const idAttributeKey = attributeKeys.find((key) => key === 'id')
+    const remainingAttributeKeys = attributeKeys.filter((key) => key !== idAttributeKey)
+    const shouldAutoFocus = wasNotebookNodeJustInserted(node.id)
 
-    if (!attributeKeys.length) {
+    if (!attributeKeys.length && !options.views) {
         return (
             <div className="MarkdownNotebook__component-form text-secondary text-sm">
                 No editable filters for this block.
@@ -488,25 +584,30 @@ export function RealNotebookNodeAttributeEdit({
 
     return (
         <div className="MarkdownNotebook__component-form">
-            {attributeKeys.map((key, index) => {
-                const label = getMarkdownNodeAttributeLabel(notebookNodeType, key)
-                return (
-                    <label key={key} className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold text-secondary">{label}</span>
-                        <LemonInput
-                            aria-label={label}
-                            value={getPrimitiveNotebookPropInputValue(attributes[key])}
-                            onChange={(value) =>
-                                updateProps({
-                                    [key]: getSerializableAttributeInputValue(notebookNodeType, key, value),
-                                })
-                            }
-                            placeholder={label}
-                            autoFocus={index === 0 && wasNotebookNodeJustInserted(node.id)}
-                        />
-                    </label>
-                )
-            })}
+            {idAttributeKey ? (
+                <RealNotebookNodeAttributeField
+                    node={node}
+                    updateProps={updateProps}
+                    notebookNodeType={notebookNodeType}
+                    attributeKey={idAttributeKey}
+                    value={attributes[idAttributeKey]}
+                    autoFocus={shouldAutoFocus}
+                />
+            ) : null}
+            {options.views ? (
+                <RealNotebookNodeViewSelect node={node} updateProps={updateProps} options={options} />
+            ) : null}
+            {remainingAttributeKeys.map((key, index) => (
+                <RealNotebookNodeAttributeField
+                    key={key}
+                    node={node}
+                    updateProps={updateProps}
+                    notebookNodeType={notebookNodeType}
+                    attributeKey={key}
+                    value={attributes[key]}
+                    autoFocus={!idAttributeKey && index === 0 && shouldAutoFocus}
+                />
+            ))}
         </div>
     )
 }
@@ -580,6 +681,7 @@ export function MountedRealNotebookNodeComponent({
             messageListeners: options.messageListeners,
             startExpanded: options.startExpanded,
             titlePlaceholder: options.titlePlaceholder,
+            editableTitle: options.editableTitle,
             settingsPlacement: options.settingsPlacement,
         }),
         [attributes, mountedNotebookLogic, notebookNodeType, options, updateAttributes]
@@ -590,8 +692,25 @@ export function MountedRealNotebookNodeComponent({
         actions: nodeActions,
         customMenuItems: nodeMenuItems,
         settingsDisabledReason: nodeSettingsDisabledReason,
+        title: nodeTitle,
+        titleStatus: nodeTitleStatus,
     } = useValues(nodeLogic)
     const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+    const viewMenuItem = useMemo(
+        () => getNotebookWidgetViewMenuItem(options, attributes, updateAttributes),
+        [attributes, options, updateAttributes]
+    )
+    const toolbarExtras = useMemo(
+        () => ({
+            actions: nodeActions,
+            menuItems: nodeMenuItems,
+            editMenuItems: viewMenuItem ? [viewMenuItem] : null,
+            filtersDisabledReason: nodeSettingsDisabledReason,
+            title: nodeTitle,
+            titleStatus: nodeTitleStatus,
+        }),
+        [nodeActions, nodeMenuItems, nodeSettingsDisabledReason, nodeTitle, nodeTitleStatus, viewMenuItem]
+    )
 
     // The settings-panel instance (editOnly) shares the shell with the content instance;
     // only the latter publishes, so a hidden panel doesn't clear the other's extras.
@@ -601,12 +720,8 @@ export function MountedRealNotebookNodeComponent({
         if (editOnly || !setToolbarExtras) {
             return
         }
-        setToolbarExtras({
-            actions: nodeActions,
-            menuItems: nodeMenuItems,
-            filtersDisabledReason: nodeSettingsDisabledReason,
-        })
-    }, [editOnly, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, setToolbarExtras])
+        setToolbarExtras(toolbarExtras)
+    }, [editOnly, setToolbarExtras, toolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings
@@ -832,7 +947,14 @@ export function getNodeAttributes(
 
 export function getNodeAttributeProps(props: NotebookComponentProps): NotebookComponentProps {
     return Object.entries(props).reduce<NotebookComponentProps>((attributeProps, [key, value]) => {
-        if (key !== 'view' && key !== 'edit' && key !== 'hideFilters' && key !== 'hideResults') {
+        if (
+            (key !== 'view' || typeof value !== 'boolean') &&
+            key !== 'edit' &&
+            key !== 'hideFilters' &&
+            key !== 'hideResults' &&
+            key !== 'showFilters' &&
+            key !== 'showResults'
+        ) {
             attributeProps[key] = value
         }
         return attributeProps
