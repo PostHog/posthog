@@ -603,9 +603,13 @@ class TestFilters(BaseTest):
             HogQLFilters(filterTestAccounts=True),
             self.team,
         )
+        # Printing expands the cohort into a subquery. The point of the assertion is the left side:
+        # person scope binds the membership check to persons.id, and it resolves.
         self.assertEqual(
             self._print_ast(select),
-            f"SELECT id FROM persons WHERE id NOT IN COHORT {cohort.pk} LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            "SELECT id FROM persons WHERE notIn(id, (SELECT person_id FROM raw_cohort_people "
+            f"WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version "
+            f"HAVING greater(sum(sign), 0))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
     def test_replace_filters_persons_test_accounts_event_property_raises(self):
