@@ -2,15 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCopy, IconPlus, IconRefresh } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonCollapse,
-    LemonInput,
-    LemonSwitch,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -68,11 +60,59 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
     )
 }
 
+function RelaySenderField({ config }: { config: EmailConfigStatus }): JSX.Element {
+    const { updatingRelaySenderConfigIds } = useValues(supportSettingsLogic)
+    const { setEmailRelaySender } = useActions(supportSettingsLogic)
+    const adminRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Organization,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
+    const [value, setValue] = useState(config.trusted_relay_sender)
+
+    const isSaving = updatingRelaySenderConfigIds.includes(config.id)
+    const isUnchanged = value.trim().toLowerCase() === config.trusted_relay_sender
+
+    return (
+        <div>
+            <label className="font-medium text-sm" htmlFor={`relay-sender-${config.id}`}>
+                Relayed emails
+            </label>
+            <p className="text-xs text-muted-alt mb-1">
+                If one service emails this channel on behalf of your users, enter the address it sends from. Tickets
+                from that sender are attributed to its X-PostHog-Requester or Reply-To header instead of its own
+                address, so your replies reach the person who wrote in. Mail from anyone else is unaffected. Leave blank
+                to turn this off.
+            </p>
+            <div className="flex items-center gap-2">
+                <LemonInput
+                    id={`relay-sender-${config.id}`}
+                    value={value}
+                    onChange={setValue}
+                    placeholder="no-reply@relay.example.com"
+                    disabled={!!adminRestrictionReason || isSaving}
+                    className="max-w-[320px]"
+                />
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={isSaving}
+                    disabledReason={
+                        adminRestrictionReason ??
+                        (isSaving ? 'Saving…' : isUnchanged ? 'No changes to save' : undefined)
+                    }
+                    onClick={() => setEmailRelaySender(config.id, value.trim().toLowerCase())}
+                >
+                    Save
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
-    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId, updatingTrustReplyToConfigId } =
+    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId } =
         useValues(supportSettingsLogic)
-    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail, setEmailTrustReplyTo } =
-        useActions(supportSettingsLogic)
+    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -83,7 +123,6 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
     const isTesting = emailTestingConfigId === config.id
     const isSettingDefault = settingDefaultEmailConfigId === config.id
     const isSettingAnyDefault = settingDefaultEmailConfigId !== null
-    const isUpdatingTrustReplyTo = updatingTrustReplyToConfigId === config.id
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -161,22 +200,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
             </div>
 
             {/* Relayed sender attribution */}
-            <div>
-                <label className="font-medium text-sm">Relayed emails</label>
-                <p className="text-xs text-muted-alt mb-1">
-                    If a service sends email to this channel on behalf of your users, turn this on to attribute tickets
-                    to the X-PostHog-Requester or Reply-To address instead of the From address. Replies go to that
-                    address. Only honored when the sender passes SPF checks.
-                </p>
-                <LemonSwitch
-                    bordered
-                    checked={config.trust_reply_to}
-                    onChange={(checked) => setEmailTrustReplyTo(config.id, checked)}
-                    label="Trust Reply-To headers"
-                    loading={isUpdatingTrustReplyTo}
-                    disabledReason={adminRestrictionReason ?? (isUpdatingTrustReplyTo ? 'Saving…' : undefined)}
-                />
-            </div>
+            <RelaySenderField config={config} />
 
             {/* Default + disconnect */}
             <div className="flex justify-between items-center border-t pt-2">

@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -32,6 +33,7 @@ INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_EMAIL_BODY_LENGTH = 50_000
+MAX_EMAIL_ADDRESS_LENGTH = 320  # RFC 5321 maximum for a full address
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
 
@@ -153,8 +155,12 @@ def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]
 
 
 def _is_plausible_email(addr: str) -> bool:
-    """Reject obviously malformed addresses before trusting a recovery header."""
-    return bool(_BASIC_EMAIL_RE.match(addr))
+    """Reject obviously malformed addresses before trusting a recovery header.
+
+    The length bound keeps an oversized header value out of the EmailField write; 320 is
+    the RFC 5321 maximum for a full address.
+    """
+    return len(addr) <= MAX_EMAIL_ADDRESS_LENGTH and bool(_BASIC_EMAIL_RE.match(addr))
 
 
 def _recover_dmarc_rewritten_sender(
@@ -223,52 +229,115 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
+@frozen
+class _RelayedRequester:
+    """The end user a trusted relay named, alongside the relay that vouched for them."""
+
+    email: str
+    name: str
+    relay_email: str
+    relay_name: str
+
+
+def _post_get_insensitive(request: HttpRequest, name: str) -> str:
+    """Read a Mailgun-forwarded header field ignoring case.
+
+    Header field names are case-insensitive per RFC 5322, and X-PostHog-Requester is one
+    relay authors reproduce by hand, so its inner capitals are easy to get wrong.
+    """
+    wanted = name.lower()
+    for key in request.POST:
+        if key.lower() == wanted:
+            return request.POST.get(key, "")
+    return ""
+
+
+def _relay_skipped(config: EmailChannel, sender_email: str, reason: str) -> None:
+    """Record why an enabled relay channel did not recover a requester.
+
+    Without this an admin who configures a relay and sees nothing change has no way to
+    tell a rejected sender from a missing header from a failed SPF check.
+    """
+    logger.info(
+        "email_inbound_relayed_requester_skipped",
+        team_id=config.team_id,
+        reason=reason,
+        sender_email=sender_email,
+    )
+    return None
+
+
 def _recover_relayed_requester(
     request: HttpRequest,
     config: EmailChannel,
     sender_email: str,
     sender_name: str,
-) -> tuple[str, str]:
+    reserved_addresses: set[str],
+) -> _RelayedRequester | None:
     """Attribute the ticket to the relayed end user instead of the relay's own From address.
 
     Services that relay user messages into the channel send from a fixed address
     (From: no-reply@relay.example) and carry the real user in X-PostHog-Requester
-    or Reply-To. Without recovery the ticket — and every reply to it — targets the
+    or Reply-To. Without recovery the ticket, and every reply to it, targets the
     relay's no-reply mailbox.
 
-    Opt-in per channel (trust_reply_to), because plenty of ordinary mail sets
-    Reply-To where From attribution is the correct behavior.
+    Two conditions gate this, and both matter:
 
-    Only honored when the From sender passes SPF + domain alignment
-    (_sender_authenticated): the header assertion is exactly as trustworthy as the
-    sender making it. The recovered requester has authenticated nothing themselves,
-    so the caller re-derives identity_verified from the final sender_email — a
-    relayed ticket starts unverified and is promoted when the user replies directly.
+    1. The sender is the relay this channel named in `trusted_relay_sender`. SPF alone
+       cannot be the gate: it proves a sender is authenticated for its own domain, which
+       every sender is for theirs, so any stranger could otherwise name a requester and
+       redirect this team's replies to them.
+    2. That sender also passes SPF and envelope alignment, so the address in (1) cannot
+       simply be forged.
+
+    Returns None when the message is not from the trusted relay, leaving From attribution
+    untouched. The caller must treat a recovered requester as unauthenticated: the relay
+    proved who sent the mail, not that the requester controls the address it named.
     """
-    if not config.trust_reply_to:
-        return sender_email, sender_name
+    if not config.trusted_relay_sender:
+        return None
+
+    if not config.relay_sender_trusted(sender_email):
+        _relay_skipped(config, sender_email, "sender_not_trusted_relay")
+        return None
 
     if not _sender_authenticated(request, sender_email):
-        return sender_email, sender_name
+        _relay_skipped(config, sender_email, "relay_not_authenticated")
+        return None
 
+    saw_header = False
     for header in ("X-PostHog-Requester", "Reply-To"):
-        raw = request.POST.get(header, "")
+        raw = _post_get_insensitive(request, header)
         if not raw:
             continue
-        requester_name, requester_email = parseaddr(raw)
-        if not requester_email or not _is_plausible_email(requester_email):
-            continue
-        if requester_email.lower() in (config.from_email.lower(), sender_email.lower()):
-            continue
-        logger.info(
-            "email_inbound_relayed_requester_recovered",
-            team_id=config.team_id,
-            header=header,
-            from_header=request.POST.get("from", ""),
-        )
-        return requester_email, requester_name or requester_email.split("@")[0]
+        saw_header = True
+        # Reply-To is an address list per RFC 5322, and parseaddr yields nothing for a
+        # multi-address value, so a relay that keeps itself on the header would otherwise
+        # fall back to the no-reply mailbox this feature exists to avoid.
+        for requester_name, requester_email in getaddresses([raw]):
+            if not requester_email or not _is_plausible_email(requester_email):
+                continue
+            if requester_email.lower() in reserved_addresses:
+                continue
+            # Any PostHog inbound address, not just this channel's: replying to one
+            # delivers back into the product and opens a ticket holding the reply.
+            if _extract_inbound_token(requester_email.lower()):
+                continue
+            logger.info(
+                "email_inbound_relayed_requester_recovered",
+                team_id=config.team_id,
+                header=header,
+                relay_sender=sender_email,
+            )
+            return _RelayedRequester(
+                email=requester_email,
+                name=requester_name or requester_email.split("@")[0],
+                relay_email=sender_email,
+                relay_name=sender_name,
+            )
 
-    return sender_email, sender_name
+    _relay_skipped(config, sender_email, "no_usable_requester_header" if saw_header else "no_requester_header")
+    return None
 
 
 def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
@@ -405,11 +474,17 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     # senders whose domain has p=quarantine or p=reject).
     sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
 
-    # 6b. Opt-in relay support: attribute to X-PostHog-Requester / Reply-To when the
-    # relay itself is authenticated. Step 7b then re-evaluates authentication against
-    # the final sender_email, so a recovered requester never inherits the relay's
-    # SPF pass (identity_verified stays False until they reply directly).
-    sender_email, sender_name = _recover_relayed_requester(request, config, sender_email, sender_name)
+    # 6b. Opt-in relay support: a channel that named a trusted relay lets that relay say
+    # who the message is really from. Addresses we must never accept as the requester are
+    # our own: replying to one of them delivers back into PostHog instead of to a person.
+    reserved_addresses = {config.from_email.lower(), sender_email.lower()}
+    reserved_addresses.update(
+        address.lower() for address in EmailChannel.objects.filter(team=team).values_list("from_email", flat=True)
+    )
+    relayed = _recover_relayed_requester(request, config, sender_email, sender_name, reserved_addresses)
+
+    if relayed:
+        sender_email, sender_name = relayed.email, relayed.name
 
     # 6c. Parse other thread participants from To + Cc. We fold both into a single
     # list (dropping the support inbox itself and the sender) so a direct recipient
@@ -421,6 +496,10 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         channel_email=config.from_email,
         sender_email=sender_email,
     )
+    if relayed:
+        # Once sender_email is the requester, _collect_participants no longer recognises
+        # the relay, so a relay that Ccs itself would be copied on every reply forever.
+        cc_list = [address for address in cc_list if address != relayed.relay_email.lower()]
 
     # 7. Get content. Mailgun's stripped-text removes quoted parts, which is right for
     # replies (the quoted trail is the thread we already store) but wrong for a first
@@ -443,7 +522,13 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
 
     # 7b. Detect team member sender — only trust From when DKIM passes
     # AND the envelope-sender domain aligns with the From domain.
-    sender_authenticated = _sender_authenticated(request, sender_email)
+    #
+    # A relayed requester is never authenticated, whatever the envelope says. Re-running
+    # the check against the recovered address would pass whenever the relay and its users
+    # share a domain, which is the ordinary in-house relay shape: the requester would be
+    # marked verified, and one who happens to be a team member would have their message
+    # filed as an internal support note that never shows as unread.
+    sender_authenticated = False if relayed else _sender_authenticated(request, sender_email)
     posthog_user = _resolve_team_member(sender_email, team) if sender_authenticated else None
     is_team_member = posthog_user is not None
 
@@ -502,6 +587,11 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 "email_message_id": email_message_id,
                 "email_attachments": attachments if attachments else None,
             }
+            if relayed:
+                # Keep the address that actually sent the mail. Attribution is rewritten
+                # above, so without this the real sender survives nowhere on the record
+                # and a misattributed ticket cannot be traced back to its relay.
+                item_context["email_relay_from"] = relayed.relay_email
 
             comment = Comment.objects.create(
                 team=team,

@@ -35,12 +35,24 @@ class EmailChannel(UUIDModel):
     # explicitly (e.g. tickets opened from the widget). At most one per team (partial constraint below).
     is_default = models.BooleanField(default=False)
 
-    # Opt-in: attribute inbound tickets to the X-PostHog-Requester or Reply-To address instead
-    # of From, but only when the From sender passes SPF + domain alignment. For relays that send
-    # on a user's behalf (From: no-reply@relay.example, Reply-To: the real user).
-    trust_reply_to = models.BooleanField(default=False)
+    # Opt-in relay support, empty when disabled. Holds the one sender allowed to name the
+    # requester on someone else's behalf, either a full address or a bare domain. Inbound mail
+    # from that sender is attributed to its X-PostHog-Requester or Reply-To header instead of
+    # From. Naming the relay is what makes this safe: SPF alone proves a sender is authenticated
+    # for its own domain, which every sender on the internet is for theirs.
+    trusted_relay_sender = models.CharField(max_length=255, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def relay_sender_trusted(self, sender_email: str) -> bool:
+        """True when `sender_email` is the relay this channel delegates requester identity to."""
+        allowed = (self.trusted_relay_sender or "").strip().lower()
+        sender = (sender_email or "").strip().lower()
+        if not allowed or "@" not in sender:
+            return False
+        if "@" in allowed:
+            return sender == allowed
+        return sender.rsplit("@", 1)[-1] == allowed
 
     def mark_domain_unverified(self) -> None:
         """Flip domain_verified off after Mailgun reports the domain is no longer

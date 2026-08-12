@@ -1,5 +1,6 @@
 """Email channel settings API for connect/disconnect flows."""
 
+import re
 import uuid
 import secrets
 from email.utils import formataddr, make_msgid
@@ -35,6 +36,8 @@ from products.conversations.backend.models.team_conversations_email_config impor
 from products.conversations.backend.permissions import IsConversationsAdmin
 
 logger = structlog.get_logger(__name__)
+
+_RELAY_DOMAIN_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$")
 
 
 def _get_team_from_request(request: Request) -> tuple[User, Team] | Response:
@@ -90,7 +93,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
         "is_default": config.is_default,
-        "trust_reply_to": config.trust_reply_to,
+        "trusted_relay_sender": config.trusted_relay_sender,
     }
 
 
@@ -192,10 +195,32 @@ class ConfigIdSerializer(serializers.Serializer):
 
 class EmailUpdateSerializer(serializers.Serializer):
     config_id = serializers.UUIDField(help_text="ID of the email channel to update.")
-    trust_reply_to = serializers.BooleanField(
-        help_text="Attribute inbound tickets to the X-PostHog-Requester or Reply-To address "
-        "when the sender passes SPF and domain alignment checks."
+    trusted_relay_sender = serializers.CharField(
+        required=True,
+        allow_blank=True,
+        max_length=255,
+        trim_whitespace=True,
+        help_text=(
+            "Address or domain of a relay allowed to name the requester via the "
+            "X-PostHog-Requester or Reply-To header. Blank disables it."
+        ),
     )
+
+    def validate_trusted_relay_sender(self, value: str) -> str:
+        value = value.strip().lower()
+        if not value:
+            return value
+        # A malformed value matches no sender, which in the UI is indistinguishable from
+        # a working relay, so reject it here rather than let it read as configured.
+        invalid = serializers.ValidationError("Enter a valid email address or domain, for example no-reply@relay.com.")
+        if any(character.isspace() for character in value) or value.count("@") > 1:
+            raise invalid
+        local, _, domain = value.rpartition("@")
+        if "@" in value and not local:
+            raise invalid
+        if not _RELAY_DOMAIN_RE.match(domain):
+            raise invalid
+        return value
 
 
 class EmailStatusView(APIView):
@@ -461,7 +486,7 @@ class EmailSetDefaultView(APIView):
 
 
 class EmailUpdateView(APIView):
-    """Update per-channel settings. Currently only trust_reply_to."""
+    """Update per-channel settings. Currently only trusted_relay_sender."""
 
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
@@ -478,14 +503,14 @@ class EmailUpdateView(APIView):
         if not config:
             return Response({"error": "Email config not found"}, status=404)
 
-        config.trust_reply_to = serializer.validated_data["trust_reply_to"]
-        config.save(update_fields=["trust_reply_to"])
+        config.trusted_relay_sender = serializer.validated_data["trusted_relay_sender"]
+        config.save(update_fields=["trusted_relay_sender"])
 
         logger.info(
             "email_channel_updated",
             team_id=team.id,
             config_id=config.id,
-            trust_reply_to=config.trust_reply_to,
+            trusted_relay_sender=config.trusted_relay_sender,
             user_id=user.id,
         )
 
