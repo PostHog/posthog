@@ -1096,11 +1096,13 @@ def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int
     [
         # The schedule floor. Bounded, so the densest lane cannot turn the span into an
         # unbounded lease budget.
-        ("floor_interval", None, 30, 24),
+        ("floor_interval", None, 30, 25),
         # The outage case the breaker used to get wrong: hourly lanes accrued five failures
-        # inside an outage shorter than the 24h probe cooldown the pause then cost them.
-        ("hourly_interval", None, 60, 12),
-        ("two_hourly_interval", None, 120, 6),
+        # inside an outage shorter than the 24h probe cooldown the pause then cost them. The
+        # threshold sits one past the 12 runs the window fits, so an outage lasting exactly
+        # the tolerated span still cannot trip the lane.
+        ("hourly_interval", None, 60, 13),
+        ("two_hourly_interval", None, 120, 7),
         # Past the span the count floor takes over — a broken lane must not get more leases
         # just because it runs rarely.
         ("six_hourly_interval", None, 360, 5),
@@ -1108,15 +1110,23 @@ def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int
         ("monthly_interval", None, 43200, 5),
         # A cron wins at dispatch, but `run_interval_minutes` keeps whatever it held before —
         # so reading the column alone would size an hourly lane as a daily one.
-        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 12),
-        ("half_hourly_cron_hits_the_ceiling", "*/30 * * * *", 1440, 24),
+        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 13),
+        ("half_hourly_cron_hits_the_ceiling", "*/30 * * * *", 1440, 25),
         # Bursty: a 30-minute gap that repeats twice a day is not a lane that runs all day, and
         # must not be handed the tolerance of one — that is twelve days of leases on a wedge.
         ("bursty_cron_is_not_a_dense_lane", "0,30 0 * * *", 1440, 5),
         ("uneven_daily_cron", "0 9,17 * * *", 1440, 5),
+        # First-of-the-month or Sunday: the fullest window (six runs, 21:00 through 02:00) only
+        # exists where a matching Sunday touches a first — May 31st into June 1st in the sampled
+        # year. A sample truncated by occurrence count ends months earlier and sizes the lane
+        # off its ordinary three-run days.
+        ("sparse_cron_fullest_window_at_a_month_boundary", "0 0,1,2,21,22,23 1 * 0", 1440, 7),
+        # Valid but with no occurrence in the sampled year at all; sized as a single-run lane
+        # rather than crashing or zeroing out.
+        ("cron_with_no_occurrence_in_the_sample_year", "0 0 29 2 *", 1440, 5),
         # Both only reachable by an out-of-band write (the API validates cron and interval on
         # save); a run's breaker bookkeeping must not die on either.
-        ("malformed_cron_falls_back_to_the_interval", "not a cron", 60, 12),
+        ("malformed_cron_falls_back_to_the_interval", "not a cron", 60, 13),
         ("nonsensical_interval_falls_back_to_the_floor", None, 0, 5),
     ]
 )

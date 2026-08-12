@@ -3,9 +3,10 @@ from __future__ import annotations
 import time
 import asyncio
 import logging
-from bisect import bisect_left
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any
 
 from django.db.models import F
@@ -27,6 +28,7 @@ from products.signals.backend.scout_harness.derived_metadata import stamp_derive
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
+    FAILURE_STREAK_MAX_RUNS,
     FAILURE_STREAK_MIN_SPAN_MINUTES,
     STALE_RUN_CUTOFF_S,
     failure_streak_pause_threshold,
@@ -73,12 +75,18 @@ SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME = "SIGNALS_SCOUT_FULL_NETWORK"
 # up as one stage even though the tag names the individual scout.
 SCOUT_AI_STAGE_PREFIX = "scout:"
 
-# Occurrences `_failure_streak_runs_in_window` samples a cron schedule over. Fixed reference
-# (not `now`) so a lane's breaker threshold is a property of its schedule rather than of when it
-# happened to fail; enough occurrences to cover a weekly pattern's every-slot cycle, which is
-# the longest period the five-field grammar can express.
+# `_cron_runs_in_window` samples a cron schedule from a fixed reference (not `now`) so a lane's
+# breaker threshold is a property of its schedule rather than of when it happened to fail. The
+# horizon is one full pass of the month and day-of-month fields, which keeps cross-month
+# adjacencies in the sample: "first of the month or Sunday" packs its fullest window where a
+# matching Sunday touches a first, and a shorter occurrence-count sample never reaches one.
+# Day-of-week alignments unique to other calendar years can still be missed, which only ever
+# undercounts, so an exotic lane trips a little earlier instead of earning extra lease budget.
+# The sample cap covers the horizon at the 30-minute schedule floor with room to spare; denser
+# out-of-band schedules hit the `FAILURE_STREAK_MAX_RUNS` early exit long before it.
 _CRON_WINDOW_REFERENCE = datetime(2026, 1, 1, tzinfo=UTC)
-_CRON_WINDOW_SAMPLES = 100
+_CRON_WINDOW_HORIZON = timedelta(days=366)
+_CRON_WINDOW_MAX_SAMPLES = 20_000
 
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
@@ -889,33 +897,51 @@ def _failure_streak_runs_in_window(config: SignalScoutConfig) -> int:
 
     Cron gaps are uneven, and no single gap answers the question the breaker asks: "0,30 0 * * *"
     has a 30-minute gap but runs twice a day, so its tightest gap would buy it the tolerance of a
-    lane that runs all day. So walk the occurrences from a fixed reference and take the fullest
-    window any of them starts — the most failures an outage of that length can actually leave
-    behind. Windows are half-open, matching the evenly spaced count for a lane with no cron.
+    lane that runs all day. So count occurrences over a whole schedule cycle and take the fullest
+    window — the most failures an outage of that length can actually leave behind.
 
     A malformed expression can only arrive via an out-of-band write (the API validates on save);
     fall back to the rolling interval rather than fail a run's breaker bookkeeping over it.
     """
     if config.run_cron_schedule:
         try:
-            iterator = croniter(config.run_cron_schedule, _CRON_WINDOW_REFERENCE)
-            occurrences = [iterator.get_next(datetime) for _ in range(_CRON_WINDOW_SAMPLES)]
-            window = timedelta(minutes=FAILURE_STREAK_MIN_SPAN_MINUTES)
-            # Only windows that close inside the sample are countable — a truncated one
-            # undercounts. The 30-minute gap floor keeps the sample far wider than the window,
-            # so this holds for every schedule the API accepts.
-            counts = [
-                bisect_left(occurrences, start + window) - index
-                for index, start in enumerate(occurrences)
-                if start + window <= occurrences[-1]
-            ]
-            return max(counts) if counts else len(occurrences)
+            return _cron_runs_in_window(config.run_cron_schedule)
         except (CroniterError, ValueError):
             logger.warning(
                 "signals_scout: invalid cron schedule while sizing failure breaker",
                 extra={"scout_config_id": str(config.pk)},
             )
     return interval_runs_in_tolerance_window(config.run_interval_minutes)
+
+
+@lru_cache(maxsize=256)
+def _cron_runs_in_window(cron_schedule: str) -> int:
+    """Fullest `FAILURE_STREAK_MIN_SPAN_MINUTES` window of occurrences anywhere in the schedule's
+    sampled cycle. Cached because it is a pure function of the schedule string given the fixed
+    reference, and the densest schedules cost a few hundred milliseconds to walk.
+
+    Each window's count is read at its last occurrence: the occurrences within `window` looking
+    back from occurrence t are exactly the ones a window opened at its earliest member covers, so
+    the running deque sees every half-open window's count without materializing the sample. That
+    matches `interval_runs_in_tolerance_window`'s half-open count for a lane with no cron.
+    """
+    iterator = croniter(cron_schedule, _CRON_WINDOW_REFERENCE)
+    window = timedelta(minutes=FAILURE_STREAK_MIN_SPAN_MINUTES)
+    horizon = _CRON_WINDOW_REFERENCE + _CRON_WINDOW_HORIZON + window
+    in_window: deque[datetime] = deque()
+    # A schedule with no occurrence inside the horizon (e.g. February 29th) still runs once.
+    fullest = 1
+    for _ in range(_CRON_WINDOW_MAX_SAMPLES):
+        occurrence = iterator.get_next(datetime)
+        if occurrence > horizon:
+            break
+        while in_window and in_window[0] <= occurrence - window:
+            in_window.popleft()
+        in_window.append(occurrence)
+        fullest = max(fullest, len(in_window))
+        if fullest >= FAILURE_STREAK_MAX_RUNS:
+            break
+    return fullest
 
 
 def _record_failure_streak(config_id: Any) -> _FailureStreak | None:

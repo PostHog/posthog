@@ -49,9 +49,10 @@ FAILURE_STREAK_MIN_RUNS = 5
 # `failure_streak_pause_threshold` converts into a per-lane run count.
 FAILURE_STREAK_MIN_SPAN_MINUTES = 12 * 60
 
-# Ceiling on the derived threshold, so a lane that runs constantly can never turn the span
-# into an unbounded lease budget. The 30-minute floor on `run_interval_minutes` (and on the
-# minimum gap between cron occurrences) puts the densest real lane exactly here.
+# Cap on the runs-in-window the threshold scales on, so a lane that runs constantly can never
+# turn the span into an unbounded lease budget. The 30-minute floor on `run_interval_minutes`
+# (and on the minimum gap between cron occurrences) puts the densest real lane exactly here;
+# the derived threshold tops out one past it.
 FAILURE_STREAK_MAX_RUNS = 24
 
 
@@ -63,13 +64,15 @@ def failure_streak_pause_threshold(runs_in_tolerance_window: int) -> int:
     or lets broken slow lanes burn leases for months.
 
     Callers pass how many runs the lane's schedule actually fits inside
-    `FAILURE_STREAK_MIN_SPAN_MINUTES` — the most an outage of that length can consume, and so
-    the most the breaker has to sit through before a streak means "wedged" rather than "the
-    platform was down". Deliberately not derived from one gap between runs: a bursty schedule
-    can pair a tight gap with only a couple of runs a day, and sizing off the gap would hand
-    it the tolerance of a lane that runs all day, i.e. weeks of lease burn.
+    `FAILURE_STREAK_MIN_SPAN_MINUTES` — the most an outage of that length can consume. The
+    threshold sits one failure past that: a streak that merely equals the window's worth is
+    still consistent with a tolerated outage (an hourly lane books 12 failures inside 12 hours),
+    so only the next failure beyond it demonstrates a wedge rather than "the platform was
+    down". Deliberately not derived from one gap between runs: a bursty schedule can pair a
+    tight gap with only a couple of runs a day, and sizing off the gap would hand it the
+    tolerance of a lane that runs all day, i.e. weeks of lease burn.
     """
-    return max(FAILURE_STREAK_MIN_RUNS, min(FAILURE_STREAK_MAX_RUNS, runs_in_tolerance_window))
+    return max(FAILURE_STREAK_MIN_RUNS, min(FAILURE_STREAK_MAX_RUNS, runs_in_tolerance_window) + 1)
 
 
 def interval_runs_in_tolerance_window(interval_minutes: int) -> int:
