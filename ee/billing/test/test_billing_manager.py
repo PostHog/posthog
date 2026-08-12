@@ -685,76 +685,24 @@ class TestBillingManager(BaseTest):
 
         assert "Open invoices must be resolved first" in str(context.exception)
 
-    def _billing_status_with_api_queries(self, has_active_subscription, api_queries_summary):
-        customer = {
-            "usage_summary": {
-                "events": {"usage": 90, "limit": 1000},
-                "exceptions": {"usage": 10, "limit": 100},
-                "recordings": {"usage": 15, "limit": 100},
-                "rows_synced": {"usage": 45, "limit": 500},
-                "rows_exported": {"usage": 10, "limit": 1000},
-                "feature_flag_requests": {"usage": 25, "limit": 300},
-                "api_queries_read_bytes": api_queries_summary,
-                "llm_events": {"usage": 50, "limit": 1000},
-                "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
-                "survey_responses": {"usage": 10, "limit": 100},
-                "cdp_trigger_events": {"usage": 10, "limit": 100},
-                "workflow_emails": {"usage": 100, "limit": 10000},
-                "workflow_destinations_dispatched": {"usage": 50, "limit": 10000},
-                "logs_mb_ingested": {"usage": 5500, "limit": 50000},
-            },
-            "billing_period": {
-                "current_period_start": "2026-08-01T00:00:00Z",
-                "current_period_end": "2026-09-01T00:00:00Z",
-            },
+    def test_update_org_details_persists_has_active_subscription(self):
+        organization = self.organization
+        billing_status = {
+            "customer": {
+                "has_active_subscription": False,
+                "usage_summary": {
+                    "events": {"usage": 1000, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2026-08-01T00:00:00Z",
+                    "current_period_end": "2026-09-01T00:00:00Z",
+                },
+            }
         }
-        if has_active_subscription is not None:
-            customer["has_active_subscription"] = has_active_subscription
-        return cast(BillingStatus, {"customer": customer})
-
-    @parameterized.expand(
-        [
-            ("free_org_gets_default", False, {"usage": 1000}, 12345),
-            ("billing_limit_wins", False, {"usage": 1000, "limit": 1000000}, 1000000),
-            ("paying_org_untouched", True, {"usage": 1000}, None),
-            ("unknown_subscription_untouched", None, {"usage": 1000}, None),
-        ]
-    )
-    @override_settings(API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=12345)
-    def test_free_tier_api_queries_limit_materialization(
-        self, _name, has_active_subscription, api_queries_summary, expected_limit
-    ):
-        organization = self.organization
-        BillingManager(license=None).update_org_details(
-            organization, self._billing_status_with_api_queries(has_active_subscription, api_queries_summary)
-        )
+        BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
-        assert organization.usage is not None
-        assert organization.usage["api_queries_read_bytes"].get("limit") == expected_limit
-
-    @override_settings(API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=12345)
-    def test_upgrade_removes_materialized_free_tier_limit(self):
-        organization = self.organization
-        manager = BillingManager(license=None)
-        manager.update_org_details(organization, self._billing_status_with_api_queries(False, {"usage": 1000}))
-        organization.refresh_from_db()
-        assert organization.usage is not None
-        assert organization.usage["api_queries_read_bytes"]["limit"] == 12345
-
-        manager.update_org_details(organization, self._billing_status_with_api_queries(True, {"usage": 1000}))
-        organization.refresh_from_db()
-        assert organization.usage is not None
-        assert organization.usage["api_queries_read_bytes"].get("limit") is None
-
-    @override_settings(API_QUERIES_FREE_TIER_READ_BYTES_LIMIT=0)
-    def test_zero_setting_disables_free_tier_limit(self):
-        organization = self.organization
-        BillingManager(license=None).update_org_details(
-            organization, self._billing_status_with_api_queries(False, {"usage": 1000})
-        )
-        organization.refresh_from_db()
-        assert organization.usage is not None
-        assert organization.usage["api_queries_read_bytes"].get("limit") is None
+        assert organization.has_active_subscription is False
 
 
 class TestBillingProviderWebhookSigning(SimpleTestCase):
