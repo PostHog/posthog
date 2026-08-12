@@ -98,7 +98,21 @@ describe("task activity hooks", () => {
     });
   });
 
-  it("refreshes activity when the app regains focus", async () => {
+  it.each([
+    [
+      "the app regains focus",
+      (): void => {
+        act(() => focusManager.setFocused(false));
+        act(() => focusManager.setFocused(true));
+      },
+    ],
+    [
+      "an Activity surface opens",
+      (): void => {
+        renderHook(() => useTaskActivity(), { wrapper });
+      },
+    ],
+  ])("refreshes activity when %s", async (_name, refresh) => {
     mockClient.getTaskActivity
       .mockResolvedValueOnce({ results: [], unread_count: 0 })
       .mockResolvedValueOnce({
@@ -117,8 +131,7 @@ describe("task activity hooks", () => {
     );
     expect(hook.result.current.items).toEqual([]);
 
-    act(() => focusManager.setFocused(false));
-    act(() => focusManager.setFocused(true));
+    refresh();
 
     await waitFor(() =>
       expect(hook.result.current.items[0]).toMatchObject({

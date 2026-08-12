@@ -44,6 +44,7 @@ export function useTaskActivity(options?: { enabled?: boolean }): {
     enabled: !!client && (options?.enabled ?? true),
     staleTime: TASK_ACTIVITY_REFETCH_INTERVAL_MS,
     refetchInterval: TASK_ACTIVITY_REFETCH_INTERVAL_MS,
+    refetchOnMount: "always",
     refetchOnWindowFocus: "always",
     meta: AUTH_SCOPED_QUERY_META,
   });
