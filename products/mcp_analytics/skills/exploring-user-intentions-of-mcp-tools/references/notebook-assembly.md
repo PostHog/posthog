@@ -120,28 +120,48 @@ assert len(facets) == 428, f"expected 428 sessions, got {len(facets)}"
 
 This caught a real slip — one omitted row and four mistyped counts, showing up as 418 sessions instead of 428. Every percentage was wrong and nothing complained.
 
-### 4b. Join, do not duplicate
+### 4b. Publish the population as a second literal, not a joined query
 
-The Python cell publishes one frame. Every table after it is a SQL cell over that frame, joined to `corpus` when it needs the caller or the org:
+The Python cell publishes `facets`, keyed on `sid`. The caller and the org arrive as a **second Python literal** keyed on the same `sid`, and every population table is a SQL cell joining the two:
 
 ```sql
-SELECT c.org, f.theme, f.starting_intention, count(*) AS sessions
+SELECT p.org, f.theme, f.starting_intention, count(*) AS sessions
 FROM facets AS f
-JOIN corpus AS c ON f.sid = c.sid
-GROUP BY c.org, f.theme, f.starting_intention
+JOIN population AS p ON f.sid = p.sid
+GROUP BY p.org, f.theme, f.starting_intention
 ORDER BY sessions DESC
 ```
 
-This is verified in a live notebook: one SQL cell joins a Python-published frame to a SQL-published frame and returns the grouped result.
+**Joining the corpus cell instead does not work, and the reason is worth knowing before you design around it.** A SQL cell that another cell joins has to materialize into the notebook kernel, and materialization runs under its own caps ([`frame_materialize.py`](../../../../products/notebooks/backend/temporal/frame_materialize.py)): a 50 GB scan budget, a 2 GB result cap, 500k rows, 16 threads. A corpus query grouping 90 days of `$mcp_tool_call` by session id blows them and the cell fails with:
 
-Keep portable SQL in these cells (`sum(case when ... then ... else 0 end)`, and `min(col)` rather than `any(col)`) so the same query works whichever engine runs it.
+```text
+This query exceeds the frame materialization limits (scan or memory budget). Narrow it and re-run.
+```
 
-### 4c. The population tables
+Three things about that message matter:
+
+- **It does not say which budget you blew.** The same string is mapped from ClickHouse codes 158 `TOO_MANY_ROWS`, 241 `MEMORY_LIMIT_EXCEEDED` and 307 `TOO_MANY_BYTES`. The time limit and the 2 GB result cap have their own distinct messages, so receiving this one rules both of those out and nothing else.
+- **Narrowing the query may not help.** 50 GB is generous, and a high-cardinality `GROUP BY` over every session in the project with a `person.properties` join is a memory shape rather than a scan shape. Rewriting the corpus query as a single pass with no session subquery failed identically, which is what a memory-bound failure looks like.
+- **Do not narrow the window to buy headroom.** It changes which sessions the corpus holds, and the labelled frame is a fixed snapshot, so the two stop describing the same population. That trade is never worth it.
+
+The corpus cell still earns its place as the auditable copy of the same two columns. It just cannot be the join source.
+
+Keep portable SQL in the joining cells (`sum(case when ... then ... else 0 end)`, and `min(col)` rather than `any(col)`) so the same query works whichever engine runs it.
+
+### 4c. Pin the ClickHouse cells to absolute timestamps
+
+Both ClickHouse cells — the corpus and the caller share — should use an explicit `timestamp >= toDateTime(...) AND timestamp < toDateTime(...)` range rather than `now() - INTERVAL 90 DAY`.
+
+The labelled frame is a snapshot taken while you read the corpus. A rolling window keeps moving underneath it. On the `workflows-create` run the live count drifted from 761 sessions to 769 during the notebook's own construction, a few hours, while the labels stayed at 719. The header cell states the corpus size and markdown cells cannot be edited afterwards, so the drift is unfixable once it appears.
+
+Pick the upper bound so the pinned query reproduces the counts you labelled, and verify it before writing the intro: on that run the cutoff that returned exactly 761 / 734 / 719 / 340 was two hours earlier than the sizing query's own clock.
+
+### 4d. The population tables
 
 Three are worth publishing, and none of them belongs inside the intentions or themes table:
 
 - **Caller share for the tool.** One row per caller, as a share of all sessions and of organic sessions. A ClickHouse cell over `$mcp_tool_call` rather than over the facets frame, so the automated traffic you filtered out stays visible.
-- **Intentions per org.** The join above, carrying the theme. Read it for whether a theme is a pattern or one customer repeating.
+- **Intentions per org.** The join from 4b, carrying the theme. Read it for whether a theme is a pattern or one customer repeating.
 - **Concentration.** The check from the skill's step 6, run on the caller and the org.
 
 Callers concentrate far harder than the totals suggest, and that is the point. In the `notebooks-create` run, automated monitoring was 94% PostHog Desktop, product analysis and feedback review both above 60% Claude Code, web performance 43% plugin. Customer and account analysis was 68% Cowork and Claude.ai combined against 6% Claude Code, a sales workflow on entirely different surfaces from the engineering ones.
@@ -201,6 +221,10 @@ End the cell with the bare dataframe. An empty frame downstream fails as `Invali
 **That poll can lag the truth by minutes.** On a run that finished in 5 seconds, `notebooks-run-cell-result` kept reporting `running` for about three more.
 `notebooks-list-frames` showed the finished dataframe, with its real column list and row count, straight away.
 When a poll looks stuck, check the frames before reaching for `notebooks-run-cell-interrupt` — interrupting a cell that already succeeded costs you the kernel state for no reason.
+
+**Evaluating `any()` twice in one expression does not return the same row.** A caller column written as `multiIf(any(consumer) != '', concat('consumer:', any(consumer)), ...)` produced the prefix `consumer:` with an empty value: the condition saw a non-empty row and the branch saw an empty one. Compute the aggregates in an inner query and put the `multiIf` in the outer `SELECT`.
+
+**`notebooks-add-cell` takes `markdown` for a markdown cell, not `code`.** Passing `code` fails with `A markdown cell requires non-empty markdown`. SQL and python cells take `code`.
 
 **A Python frame lives in the kernel, and a SQL cell that joins it fails when it is gone.** The error is `Input registration failed: "local frame 'facets' is not in the kernel — run the node that creates it first"`, and it appears even after the Python cell reported `done` with a row count, because the frame did not survive to the join. `notebooks-list-frames` is truthful about this: it lists the frame only while it is really there. Re-run the Python cell, then run the SQL cell, and read `stale_dependents` in the update response to see what else now needs re-running.
 

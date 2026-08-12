@@ -125,6 +125,22 @@ The two columns answer different questions and neither substitutes for the other
 
 Check whether the row cap bit. `execute-sql` returns at most 500 rows, so a corpus that comes back at exactly 500 is a sample and must be labelled as one; anything below the cap is the complete population.
 
+**Page by session-id prefix to get past the cap.** Session ids are UUIDs, so their first hex character partitions the corpus into 16 roughly equal buckets that are arbitrary with respect to anything you care about. Count them first, then pull two or three buckets per query:
+
+```sql
+-- how many sessions per bucket, so each page has an expected row count
+SELECT substring(toString(sid), 1, 1) AS b, count() AS n FROM <corpus> GROUP BY b ORDER BY b
+```
+
+```sql
+-- then, per page
+... WHERE substring(toString(s.sid), 1, 1) IN ('0', '1') ...
+```
+
+A 719-session corpus came back complete in eight pages of about 90 rows this way, instead of a 500-row sample of 734.
+
+**Count the rows you get back against that expected number.** The result can be truncated well below 500 by response size rather than by the row cap: a first attempt at roughly 115 rows per page stopped mid-range with no error and no truncation notice. Only the per-bucket count told the difference between "that bucket is finished" and "the response was cut". Keep pages small enough that the two agree.
+
 ### 3. Check the skew before extracting anything
 
 Run a quick frequency pass over the intents first.
@@ -260,14 +276,19 @@ Shape:
 5. `notebooks-add-cell` (python) — the facets inlined once, keyed on `sid`, as `(sid, starting_intention, theme, data_touched, <third facet>)`
 6. `notebooks-add-cell` (sql) — starting intentions, a `GROUP BY` over that frame
 7. `notebooks-add-cell` (sql) — themes, the same frame one level up, listing the intentions each theme holds
-8. `notebooks-add-cell` (sql) — intentions per org, joined to the corpus on `sid`, carrying the theme
-9. `notebooks-add-cell` (sql) — the concentration checks from step 6
-10. `notebooks-add-cell` (markdown, optional) — example sessions resolved to trace URLs, per "Linking an intention to real sessions"
-11. `notebooks-add-cell` (markdown) — findings, and the skew correction from step 3
+8. `notebooks-add-cell` (python) — caller and org per session, a second literal keyed on the same `sid`
+9. `notebooks-add-cell` (sql) — intentions per org, joining those two frames, carrying the theme
+10. `notebooks-add-cell` (sql) — the concentration checks from step 6
+11. `notebooks-add-cell` (markdown, optional) — example sessions resolved to trace URLs, per "Linking an intention to real sessions"
+12. `notebooks-add-cell` (markdown) — findings, and the skew correction from step 3
 
 **Cells 6 and 7 carry no caller and no org.** The taxonomy states what people came to do. Mixing a population column into it answers two questions in one table and answers both worse. Cell 8 is where the two dimensions meet, and it is the only place they should.
 
-**Key the Python frame on `sid`. Do not pre-aggregate it.** One row per distinct facet combination is smaller, and it is a dead end. With a few hundred orgs mostly holding one session each, adding the org to the combination key inflates it to roughly the session count anyway. Keyed on `sid`, every later cut becomes a join to the corpus frame, the caller stops being duplicated into the literal, and the transcription no longer involves counting.
+**Key both Python frames on `sid`. Do not pre-aggregate them.** One row per distinct facet combination is smaller, and it is a dead end: with a few hundred orgs mostly holding one session each, adding the org to the combination key inflates it to roughly the session count anyway. Keyed on `sid`, every later cut is a join between the two frames and the transcription involves no counting.
+
+**The caller and org have to be a second literal, not a join to the corpus cell.** A SQL cell that another cell joins must materialize into the notebook kernel, and a query grouping 90 days of `$mcp_tool_call` by session id exceeds the materialization caps. Narrowing the window is not the fix — it changes which sessions the corpus holds and breaks the match with the labelled snapshot. See "Publish the population as a second literal" in [`references/notebook-assembly.md`](references/notebook-assembly.md).
+
+**Assert the two frames cover the same sessions.** `assert set(population['sid']) == set(facets['sid'])` is the only check that catches a transcription slip across two hand-written literals, and it is cheap.
 
 Pick the `dataframe_name` when you add the cell. `notebooks-update-cell` takes only `code`, so renaming a published frame later means deleting the cell and adding it again.
 
