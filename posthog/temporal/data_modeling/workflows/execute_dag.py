@@ -413,8 +413,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
 
-        # Safe to add without a workflow patch: this is the last command before the workflow
-        # returns, so a replayed history either stops short of it or has already completed.
         if skipped_jobs:
             await temporalio.workflow.execute_activity(
                 record_skipped_data_modeling_jobs_activity,
@@ -462,8 +460,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         get_dag_node_count_metric("failed").record(failed_nodes)
         get_dag_node_count_metric("skipped").record(skipped_nodes)
 
-        # Safe to add without a workflow patch, for the same reason as the skipped-jobs activity
-        # above: nothing follows it, so a replayed history cannot have passed it.
         await self._run_data_quality_checks(inputs, node_results)
 
         return ExecuteDAGResult(
@@ -487,13 +483,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         of which need the database. Asking first keeps a team with no checks, or an org that never
         opted in, from paying for a child workflow and a suite row on every materialization.
         """
-        checkable_node_ids = [
-            result.node_id
-            for result in node_results
-            # An ephemeral node materializes nothing, but it is still a view a check can query, and
-            # its DAG run is the only cadence it has.
-            if result.success and not result.skipped
-        ]
+        checkable_node_ids = [result.node_id for result in node_results if result.success and not result.skipped]
         if not checkable_node_ids:
             return
 
@@ -507,9 +497,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             if not checks_needed:
                 return
 
-            # No execution_timeout: an external one terminates the suite, which is exactly what
-            # stops it recording its own failure. The suite bounds itself with activity timeouts
-            # and retry caps, and the retention sweep reconciles anything left running.
             await temporalio.workflow.start_child_workflow(
                 CHECK_SUITE_WORKFLOW_NAME,
                 {

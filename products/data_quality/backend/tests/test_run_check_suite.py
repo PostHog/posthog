@@ -84,6 +84,17 @@ class TestCheckSuiteActivities(BaseTest):
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
         assert suite_run.subject_uuid == self.view.id
 
+    def test_a_suite_spanning_several_subjects_records_none_of_them(self) -> None:
+        other_view = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="refunds", query={"kind": "HogQLQuery"}
+        )
+
+        prepared = self._prepare(saved_query_ids=[str(self.view.id), str(other_view.id)])
+
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
+        assert suite_run.subject_uuid is None
+        assert suite_run.subject_type == ""
+
     def test_disabled_and_deleted_checks_are_not_selected(self) -> None:
         runnable = self._check()
         self._check(enabled=False)
@@ -133,7 +144,6 @@ class TestCheckSuiteActivities(BaseTest):
             )
 
         assert (outcome.passed, outcome.failed, outcome.errored) == (1, 1, 1)
-        # The failing check has default error severity, so it counts toward the materialization gate.
         assert outcome.failed_blocking == 1
         assert outcome.newly_failing_check_ids == [str(failing.id)]
         runs = DataQualityCheckRun.objects.for_team(self.team.id).filter(suite_run_id=prepared.suite_run_id)
@@ -141,8 +151,6 @@ class TestCheckSuiteActivities(BaseTest):
         assert runs.get(quality_check=erroring).status == CheckRunStatus.ERRORED
 
     def test_a_check_disabled_after_prepare_is_not_run(self) -> None:
-        # Prepare picks up both, then the user disables one before the batch executes. The batch
-        # reloads and must honor "disabled checks are never run" rather than trusting prepare's ids.
         stays = self._check()
         disabled_later = self._check(column_name="total")
         prepared = self._prepare()
@@ -214,8 +222,6 @@ class TestRunCheckSuiteWorkflow(BaseTest):
         assert [outcome.passed for outcome in finalize_inputs.outcomes] == [1, 0]
 
     def test_a_failed_batch_marks_the_prepared_suite_failed_and_reraises(self) -> None:
-        # Without the failure path an exhausted retry leaves the suite RUNNING forever, so a poller
-        # never sees a terminal state. The workflow must mark it failed, then still re-raise.
         prepared = PreparedSuite(suite_run_id="s-1", batches=[["a"]])
         boom = RuntimeError("batch exhausted its retries")
         execute_activity = AsyncMock(side_effect=[prepared, boom, None])
@@ -241,8 +247,6 @@ class TestRunCheckSuiteWorkflow(BaseTest):
         ]
     )
     def test_a_prepare_failure_marks_only_a_precreated_row(self, _name, suite_run_id, expected_activities) -> None:
-        # A prepare that never committed a row has nothing to finalize; one handed a pre-created row
-        # (the API path) must mark that row failed so its poller is not stranded.
         execute_activity = AsyncMock(side_effect=[RuntimeError("prepare exhausted its retries"), None])
 
         with patch.object(temporal_workflow, "execute_activity", new=execute_activity):

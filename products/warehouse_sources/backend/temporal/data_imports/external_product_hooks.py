@@ -233,9 +233,6 @@ class PersonPropertyBackfillActivityInputs:
 
 
 # --- Data-quality checks gate ---------------------------------------------------------
-# (team_id, table_id) -> whether a completed sync of this table should start a check suite.
-# data_quality registers the gate at app-ready; it answers false when the product flag is off or no
-# enabled check targets the table, so the import pipeline never starts an empty suite.
 
 DataQualityChecksGate = Callable[[int, "str | uuid.UUID"], bool]
 _data_quality_checks_gate: Optional[DataQualityChecksGate] = None

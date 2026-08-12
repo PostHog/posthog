@@ -26,7 +26,6 @@ class RunCheckSuiteInputs:
     table_ids: list[str] = dataclasses.field(default_factory=list)
     check_ids: list[str] = dataclasses.field(default_factory=list)
     node_ids: list[str] = dataclasses.field(default_factory=list)
-    # Set when the caller already created the row so it could hand back a pollable handle.
     suite_run_id: str | None = None
     data_modeling_job_id: str | None = None
     created_by_id: int | None = None
@@ -57,7 +56,6 @@ class BatchOutcome:
     failed: int = 0
     errored: int = 0
     skipped: int = 0
-    # Failures that may block a gated materialization: status=failed on an error-severity check.
     failed_blocking: int = 0
     newly_failing_check_ids: list[str] = dataclasses.field(default_factory=list)
 

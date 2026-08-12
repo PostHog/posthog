@@ -68,7 +68,6 @@ def run_check(check: DataQualityCheck, suite_run: DataQualitySuiteRun, team: Tea
 
 
 def _execute(check: DataQualityCheck, team: Team) -> CheckOutcome:
-    # A hard-deleted subject nulls the FK; there is no id left to resolve.
     if check.subject_uuid is None:
         check.subject_status = SubjectStatus.ORPHANED
         return CheckOutcome(status=CheckRunStatus.SKIPPED, error="The subject was deleted.")
@@ -89,7 +88,14 @@ def _execute(check: DataQualityCheck, team: Team) -> CheckOutcome:
         config=check.config,
         related_subject=resolve_subject(team.id, *related) if related else None,
     )
-    with tags_context(product=Product.DATA_CATALOG, feature=Feature.ENRICHMENT):
+    with tags_context(
+        product=Product.DATA_QUALITY,
+        feature=Feature.DATA_QUALITY_CHECK,
+        data_quality_check_id=str(check.id),
+        data_quality_check_type=check.check_type,
+        data_quality_subject_type=subject.subject_type,
+        data_quality_subject_id=subject.subject_uuid,
+    ):
         response = execute_hogql_query(query=compiled.query, team=team, query_type=QUERY_TYPE)
     return _interpret(compiled, check.config, response.results, response.columns or [])
 
@@ -148,8 +154,6 @@ def _record_run(
     started_at: datetime,
     duration_ms: int,
 ) -> None:
-    # Run rows denormalize the subject id (NOT NULL); a hard-deleted subject has none, and a
-    # skipped-because-gone check needs no history row -- the orphaned status on the check tells the story.
     if check.subject_uuid is None:
         return
     DataQualityCheckRun.objects.for_team(check.team_id).create(

@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.clickhouse.query_tagging import Feature, Product, QueryTags, get_query_tags
+
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -76,7 +78,6 @@ class TestCheckRunner(BaseTest):
             outcome = run_check(check, self.suite_run, self.team)
 
         assert outcome.status == expected
-        # A bounds check has no failing-row semantics, so the column stays empty rather than lying.
         assert outcome.failed_row_count is None
         assert outcome.observed_value == observed
 
@@ -101,7 +102,6 @@ class TestCheckRunner(BaseTest):
         assert check.subject_status == SubjectStatus.ORPHANED
 
     def test_a_hard_deleted_subject_is_skipped_without_a_history_row(self) -> None:
-        # A hard delete leaves no subject id to denormalize onto a run row, so none is written.
         check = self._check(saved_query_id=None)
 
         outcome = run_check(check, self.suite_run, self.team)
@@ -130,6 +130,24 @@ class TestCheckRunner(BaseTest):
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
         assert run.status == CheckRunStatus.PASSED
         assert run.observed_value == 42.0
+
+    def test_the_check_query_is_tagged_with_this_product_and_the_check_it_came_from(self) -> None:
+        check = self._check()
+        captured: list[QueryTags] = []
+
+        def capture(*args, **kwargs) -> _Response:
+            captured.append(get_query_tags())
+            return _Response(["failure_count", "observed_value"], [0, 0])
+
+        with patch(RUNNER_QUERY, side_effect=capture):
+            run_check(check, self.suite_run, self.team)
+
+        tags = captured[0]
+        assert (tags.product, tags.feature) == (Product.DATA_QUALITY, Feature.DATA_QUALITY_CHECK)
+        assert tags.data_quality_check_id == str(check.id)
+        assert tags.data_quality_check_type == CheckType.NOT_NULL
+        assert tags.data_quality_subject_type == SubjectType.VIEW
+        assert tags.data_quality_subject_id == str(self.view.id)
 
     def test_the_stored_query_selects_failing_rows(self) -> None:
         check = self._check()

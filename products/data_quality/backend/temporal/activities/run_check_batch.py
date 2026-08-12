@@ -24,16 +24,10 @@ async def run_check_batch_activity(inputs: RunCheckBatchInputs) -> BatchOutcome:
 def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     team = Team.objects.get(id=inputs.team_id)
     suite_run = DataQualitySuiteRun.objects.for_team(inputs.team_id).get(id=inputs.suite_run_id)
-    # Re-filter on enabled/deleted rather than trusting the ids prepare handed us: a large suite can
-    # run for many minutes, and a check disabled or soft-deleted in that window must not execute,
-    # per the model's "disabled checks are never run" contract.
     checks = DataQualityCheck.objects.for_team(inputs.team_id).filter(
         id__in=inputs.check_ids, enabled=True, deleted=False
     )
 
-    # A retry after the previous attempt committed rows but died before Temporal recorded its result
-    # would otherwise leave two runs per check in one suite, double-counting the report. One suite
-    # run means one row per check, so clear this batch's rows before re-running it.
     DataQualityCheckRun.objects.for_team(inputs.team_id).filter(
         suite_run=suite_run, quality_check_id__in=inputs.check_ids
     ).delete()
@@ -42,8 +36,6 @@ def _run_batch(inputs: RunCheckBatchInputs) -> BatchOutcome:
     failed_blocking = 0
     newly_failing: list[str] = []
     for check in checks:
-        # run_check records a compile or query failure as an errored run rather than raising: one
-        # broken check must not fail the activity and take its whole batch down with it.
         result = run_check(check, suite_run, team)
         counts[result.status] += 1
         if result.status is CheckRunStatus.FAILED and check.severity == CheckSeverity.ERROR:

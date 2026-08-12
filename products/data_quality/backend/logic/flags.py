@@ -26,8 +26,7 @@ def is_data_quality_checks_enabled(team: "Team") -> bool:
 
 def is_data_quality_checks_enabled_for_team_id(team_id: int) -> bool:
     """Flag check for callers that only hold a team id (trigger gates, activities)."""
-    # Deferred so this module imports before the app registry is ready.
-    from posthog.models.team import Team  # noqa: PLC0415
+    from posthog.models.team import Team  # noqa: PLC0415 — the app registry is not ready at import time
 
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
     if team is None:

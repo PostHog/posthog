@@ -14,8 +14,7 @@ from .flags import is_data_quality_checks_enabled_for_team_id
 
 def source_sync_checks_needed(team_id: int, table_id: "str | uuid.UUID") -> bool:
     """Whether a completed sync of this table should start a check suite."""
-    # Deferred so this module imports before the app registry is ready.
-    from ..models import DataQualityCheck  # noqa: PLC0415
+    from ..models import DataQualityCheck  # noqa: PLC0415 — the app registry is not ready at import time
 
     if not is_data_quality_checks_enabled_for_team_id(team_id):
         return False
@@ -24,8 +23,7 @@ def source_sync_checks_needed(team_id: int, table_id: "str | uuid.UUID") -> bool
 
 def materialization_checks_needed(team_id: int, node_ids: Iterable["str | uuid.UUID"]) -> bool:
     """Whether a DAG run that materialized these nodes should start a check suite."""
-    # Deferred so this module imports before the app registry is ready.
-    from ..models import DataQualityCheck  # noqa: PLC0415
+    from ..models import DataQualityCheck  # noqa: PLC0415 — the app registry is not ready at import time
 
     if not is_data_quality_checks_enabled_for_team_id(team_id):
         return False

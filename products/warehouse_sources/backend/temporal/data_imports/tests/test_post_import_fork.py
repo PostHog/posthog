@@ -335,8 +335,6 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
 
 
 async def test_each_completed_sync_gets_its_own_data_quality_suite():
-    # Keyed per schema, a suite still running from the previous sync would swallow this one's
-    # start, and that suite may already have checked the older data. Every sync gets its own id.
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
         PostImportContext,
         PostImportWorkflowInputs,

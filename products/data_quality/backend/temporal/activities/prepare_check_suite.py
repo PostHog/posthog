@@ -16,8 +16,6 @@ from ..contracts import PreparedSuite, RunCheckSuiteInputs
 
 LOGGER = get_logger(__name__)
 
-# Checks are individually cheap, so batching keeps activity overhead from dominating. Small enough
-# that one slow warehouse query cannot push a batch past its start-to-close timeout.
 CHECKS_PER_BATCH = 25
 
 
@@ -27,8 +25,6 @@ async def prepare_check_suite_activity(inputs: RunCheckSuiteInputs) -> PreparedS
 
 
 def _prepare(inputs: RunCheckSuiteInputs) -> PreparedSuite:
-    # Defense in depth: every trigger path is already flag-gated, but any future entry point that
-    # forgets the gate must degrade to an empty suite, not run checks for an unflagged org.
     checks = _select_checks(inputs) if is_data_quality_checks_enabled_for_team_id(inputs.team_id) else []
     suite_run = _suite_run(inputs)
 
@@ -58,26 +54,29 @@ def _suite_run(inputs: RunCheckSuiteInputs) -> DataQualitySuiteRun:
         if existing is not None:
             return existing
 
-    subject_type, subject_uuid = _single_subject(inputs)
     return runs.create(
         team_id=inputs.team_id,
         trigger=inputs.trigger,
         created_by_id=inputs.created_by_id,
-        subject_type=subject_type,
-        subject_uuid=subject_uuid,
         data_modeling_job_id=inputs.data_modeling_job_id,
         workflow_id=info.workflow_id or "",
         workflow_run_id=info.workflow_run_id or "",
         started_at=datetime.now(UTC),
+        **_single_subject_fields(inputs),
     )
 
 
-def _single_subject(inputs: RunCheckSuiteInputs) -> tuple[str, str | None]:
+def _single_subject_fields(inputs: RunCheckSuiteInputs) -> dict[str, str]:
+    """The subject columns to record, empty when the run spans more than one subject.
+
+    Leaving them out lets the model's own column defaults stand, which is what "this run has no one
+    subject" looks like on the row.
+    """
     if len(inputs.saved_query_ids) == 1 and not inputs.table_ids:
-        return SubjectType.VIEW, inputs.saved_query_ids[0]
+        return {"subject_type": SubjectType.VIEW, "subject_uuid": inputs.saved_query_ids[0]}
     if len(inputs.table_ids) == 1 and not inputs.saved_query_ids:
-        return SubjectType.TABLE, inputs.table_ids[0]
-    return "", None
+        return {"subject_type": SubjectType.TABLE, "subject_uuid": inputs.table_ids[0]}
+    return {}
 
 
 def _select_checks(inputs: RunCheckSuiteInputs) -> list[str]:

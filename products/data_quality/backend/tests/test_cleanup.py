@@ -57,7 +57,6 @@ class TestRetentionSweep(BaseTest):
         return self._age(DataQualityCheckRun, run, age_days)
 
     def _age(self, model, instance, age_days: float):
-        # created_at is auto_now_add, so age has to be written after the insert.
         created_at = datetime.now(UTC) - timedelta(days=age_days)
         model.objects.unscoped().filter(id=instance.id).update(created_at=created_at)
         instance.refresh_from_db()
@@ -78,7 +77,6 @@ class TestRetentionSweep(BaseTest):
         assert run.compiled_query == expected
 
     def test_an_aged_run_survives_while_it_is_the_newest_for_its_check(self) -> None:
-        # Losing this would erase a subject's health whenever nothing ran it for a year.
         run = self._run(age_days=CHECK_RUN_RETENTION_DAYS + 1)
 
         outcome = _cleanup()
@@ -113,7 +111,6 @@ class TestRetentionSweep(BaseTest):
         assert DataQualitySuiteRun.objects.unscoped().filter(id=suite.id).exists()
 
     def test_an_aged_suite_with_nothing_pointing_at_it_is_deleted(self) -> None:
-        # Without this the suite table grows forever as its check runs are swept away beneath it.
         self._suite(age_days=SUITE_RUN_RETENTION_DAYS + 1)
         recent = self._suite(age_days=SUITE_RUN_RETENTION_DAYS - 1)
 
@@ -129,7 +126,6 @@ class TestRetentionSweep(BaseTest):
         ]
     )
     def test_a_running_suite_is_failed_once_it_is_stale(self, _name, age_days, expected_status) -> None:
-        # A workflow that is terminated cannot mark its own row, so a poller would see RUNNING forever.
         suite = self._suite(age_days=age_days, status=SuiteRunStatus.RUNNING)
 
         _cleanup()

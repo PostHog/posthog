@@ -60,7 +60,6 @@ class TestTriggerGates(BaseTest):
         assert materialization_checks_needed(self.team.id, [str(self.node.id)]) is True
 
     def test_a_node_without_a_saved_query_needs_no_suite(self) -> None:
-        # Source-table nodes materialize but have no saved query, so no check can point at them.
         self._check()
         source_node = Node.objects.create(
             team=self.team, dag=DAG.objects.create(team=self.team, name="other"), name="raw_events"

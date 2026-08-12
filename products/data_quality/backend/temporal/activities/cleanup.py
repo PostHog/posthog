@@ -13,18 +13,9 @@ from ..contracts import CleanupOutcome
 
 LOGGER = get_logger(__name__)
 
-# The compiled query is the biggest column on a run row and is only useful while someone might
-# still re-run it to see the offending rows.
 COMPILED_QUERY_RETENTION_DAYS = 30
-# A year of numeric history is the training window future anomaly-detection check types need.
 CHECK_RUN_RETENTION_DAYS = 365
-# A suite run is a poll handle plus a report header; once its check runs age out it has no history
-# left to back, so this is really a floor before an empty suite is eligible, not its own history
-# window. A completed suite outlives it as long as any of its check runs survive above.
 SUITE_RUN_RETENTION_DAYS = 90
-# A suite the workflow cannot finalize itself -- terminated, worker lost, deploy mid-run -- would
-# otherwise poll as RUNNING forever. Well past the longest a legitimate suite can take: batches are
-# capped at 30 minutes each and run a handful at a time.
 STALE_SUITE_HOURS = 24
 STALE_SUITE_ERROR = "The workflow stopped without recording a result."
 
@@ -45,9 +36,6 @@ def _cleanup() -> CleanupOutcome:
         .update(compiled_query="")
     )
 
-    # Delete an aged-out run only when a newer one exists for the same check, so a subject's health
-    # survives retention even if nothing has run it for a year. Runs whose definition is gone have
-    # no health to preserve and age out unconditionally.
     has_newer_run = runs.filter(quality_check_id=OuterRef("quality_check_id"), created_at__gt=OuterRef("created_at"))
     runs_deleted, _ = (
         runs.filter(created_at__lt=now - timedelta(days=CHECK_RUN_RETENTION_DAYS))
@@ -55,9 +43,6 @@ def _cleanup() -> CleanupOutcome:
         .delete()
     )
 
-    # Delete an aged-out suite only once nothing points at it, so a completed suite survives as long
-    # as any of its check runs do and empty runs (which never had check runs) age out on the floor
-    # above. Without this the suite table grows forever while its check runs are swept away.
     backs_a_run = DataQualityCheckRun.objects.unscoped().filter(suite_run_id=OuterRef("id"))
     suites_deleted, _ = (
         DataQualitySuiteRun.objects.unscoped()
@@ -69,7 +54,6 @@ def _cleanup() -> CleanupOutcome:
     stale_failed = (
         DataQualitySuiteRun.objects.unscoped()
         .filter(status=SuiteRunStatus.RUNNING, created_at__lt=now - timedelta(hours=STALE_SUITE_HOURS))
-        # A queryset update bypasses auto_now, so updated_at is set explicitly.
         .update(status=SuiteRunStatus.FAILED, error=STALE_SUITE_ERROR, finished_at=now, updated_at=now)
     )
 

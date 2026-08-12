@@ -84,7 +84,6 @@ def _mark_failed(inputs: MarkSuiteFailedInputs) -> None:
     updated = (
         DataQualitySuiteRun.objects.for_team(inputs.team_id)
         .filter(id=inputs.suite_run_id, status=SuiteRunStatus.RUNNING)
-        # A queryset update bypasses auto_now, so updated_at is set explicitly.
         .update(
             status=SuiteRunStatus.FAILED,
             error=inputs.error,

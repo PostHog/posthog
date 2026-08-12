@@ -110,8 +110,6 @@ class PostImportContext:
     enrichment_needed: bool = False
     statistics_needed: bool = False
     steps: list[str] | None = None
-    # The schema's warehouse table, for the data-quality suite selector. None on contexts recorded
-    # before the field existed, in which case the step is skipped.
     table_id: str | None = None
 
 
@@ -179,8 +177,6 @@ async def _start_emit_signals(inputs: PostImportWorkflowInputs, ctx: PostImportC
     # The gate guarantees these when the key is recorded; the guard is type narrowing only.
     if ctx.source_type is None or ctx.schema_name is None:
         return
-    # Started by registered workflow name (not class import) so warehouse_sources
-    # doesn't import the signals product, which depends on it. See external_product_hooks.
     try:
         await workflow.start_child_workflow(
             "emit-data-import-signals",
@@ -279,14 +275,6 @@ async def _start_ducklake_copy(inputs: PostImportWorkflowInputs, ctx: PostImport
 async def _start_data_quality_checks(inputs: PostImportWorkflowInputs, ctx: PostImportContext) -> None:
     if ctx.table_id is None:
         return
-    # Started by registered workflow name so warehouse_sources doesn't import data_quality, which
-    # depends on it. Keyed per job so every completed sync gets audited: a suite still running from
-    # the previous sync may already have executed its checks against the older data, so colliding
-    # with it would drop this load's audit. The job id is the idempotency key, which leaves the
-    # collision below meaning only "this same job already started its suite".
-    # No execution_timeout: an external one terminates the suite, which is exactly what stops it
-    # recording its own failure. The suite bounds itself with activity timeouts and retry caps, and
-    # the retention sweep reconciles anything left running.
     try:
         await workflow.start_child_workflow(
             "data-quality-run-suite",

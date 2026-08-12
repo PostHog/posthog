@@ -23,8 +23,6 @@ from ..contracts import (
     RunCheckSuiteInputs,
 )
 
-# Checks run arbitrary warehouse queries, so a handful at a time is enough to keep a big suite
-# moving without a team's checks monopolizing the worker.
 MAX_CONCURRENT_BATCHES = 4
 
 
@@ -40,10 +38,6 @@ class RunCheckSuiteWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RunCheckSuiteInputs) -> CheckSuiteResult:
-        # Once a step exhausts its retries the workflow raises, so a suite that got as far as a row
-        # is moved off RUNNING to FAILED before that. Otherwise a caller polling the handle sees it
-        # running forever. The suite_run_id comes from prepare when it got that far, else from the
-        # input the caller pre-created; a prepare failure with neither leaves no row to finalize.
         suite_run_id = inputs.suite_run_id
         try:
             prepared: PreparedSuite = await workflow.execute_activity(

@@ -88,8 +88,6 @@ class TestPostMaterializationChecks:
                 )
 
     async def test_every_node_the_run_brought_up_to_date_is_handed_to_the_check_suite(self, ateam) -> None:
-        # An ephemeral node materializes nothing, so it carries no row count, but it is still a view
-        # a check can query and the DAG run is its only cadence. A failed node has nothing to check.
         materialized, failing, ephemeral = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
         _mock_workflow_should_fail.add(failing)
 
@@ -111,16 +109,12 @@ class TestPostMaterializationChecks:
         assert _suite_runs_started == []
 
     async def test_no_suite_starts_when_the_gate_says_the_team_has_no_checks_to_run(self, ateam) -> None:
-        # The gate owns the feature flag, so an org that never opted in must not pay for a child
-        # workflow and a suite row on every materialization.
         result = await self._run_dag(ateam.pk, [str(uuid.uuid4())], checks_needed=False)
 
         assert result.successful_nodes == 1
         assert _suite_runs_started == []
 
     async def test_a_check_suite_that_cannot_start_does_not_fail_the_dag(self, ateam) -> None:
-        # The suite workflow is deliberately unregistered, so starting the abandoned child is the
-        # failure mode this asserts the materialization survives.
         result = await self._run_dag(ateam.pk, [str(uuid.uuid4())], register_suite=False)
 
         assert result.successful_nodes == 1
