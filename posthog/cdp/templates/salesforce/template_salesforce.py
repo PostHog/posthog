@@ -300,8 +300,9 @@ for (let rawField in splitByString(',', inputs.fields ?? '')) {
 let selectList := arrayStringConcat(selected, ', ')
 let escapedValue := escapeSoql(matchValue)
 
-// Two rows are enough to tell a unique match from an ambiguous one, and keep the
-// result inside the size limit for workflow variables.
+// Two rows are enough to tell a unique match from an ambiguous one. This bounds the
+// row count only. One long field still exceeds the workflow variable limit, which is
+// why the returned fields are listed explicitly rather than selected wholesale.
 let soql := f'SELECT {selectList} FROM {object} WHERE {matchField} = \'{escapedValue}\' LIMIT 2'
 let queryString := encodeForUrl(soql)
 
@@ -362,7 +363,7 @@ return {
             "key": "fields",
             "type": "string",
             "label": "Fields to return",
-            "description": "Comma separated fields to return on the matched record. `Id` is always included. Keep the list short, because workflow variables have a size limit.",
+            "description": "Comma separated fields to return on the matched record. `Id` is always included. Workflow variables share a 5 KB limit, so avoid long text fields here, or set a result path on the output variable to store only what you need.",
             "default": "Id",
             "secret": False,
             "required": False,
