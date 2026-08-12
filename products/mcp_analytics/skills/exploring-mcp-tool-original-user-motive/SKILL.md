@@ -1,5 +1,5 @@
 ---
-name: exploring-user-intentions-of-mcp-tools
+name: exploring-mcp-tool-original-user-motive
 description: >
   Build a starting-point taxonomy for an MCP tool — what users were trying to
   accomplish before they reached the tool — and publish it as a PostHog
@@ -15,7 +15,7 @@ description: >
   measurably lose the goal's altitude, so do not delegate that field to them.
 ---
 
-# Exploring user intentions of MCP tools
+# Exploring an MCP tool's original user motive
 
 > **Internal analyst tool. Do not seed it into customer teams.**
 > It queries PostHog's own MCP telemetry across all organizations, and its
