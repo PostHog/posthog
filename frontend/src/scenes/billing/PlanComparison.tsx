@@ -15,7 +15,12 @@ import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
 import { BillingFeatureType, BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { convertLargeNumberToWords, getProration } from './billing-utils'
+import {
+    convertLargeNumberToWords,
+    EVENTS_DATA_RETENTION_FEATURE_KEY,
+    getEventsDataRetentionPeriodForPlan,
+    getProration,
+} from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -126,6 +131,13 @@ export const PlanComparison = ({
     }
     const fullyFeaturedPlan = plans[plans.length - 1]
 
+    // Product analytics lists its own retention window as a feature, so only borrow it for the other products.
+    const eventsDataRetentionPeriods = fullyFeaturedPlan?.features?.some(
+        (feature) => feature.key === EVENTS_DATA_RETENTION_FEATURE_KEY
+    )
+        ? []
+        : plans.map((plan) => getEventsDataRetentionPeriodForPlan(billing, plan))
+
     return (
         <table className="PlanComparison w-full table-fixed" ref={planComparisonRef}>
             <thead>
@@ -185,6 +197,20 @@ export const PlanComparison = ({
                         {plans?.map((plan) => (
                             <td key={`${plan.plan_key}-tiers-td`}>
                                 <PricingTiers plan={plan} product={product} />
+                            </td>
+                        ))}
+                    </tr>
+                )}
+                {eventsDataRetentionPeriods.some((period) => period !== null) && (
+                    <tr className="PlanTable__tr__border">
+                        <th scope="row">
+                            <Tooltip title="How far back you can query your events. Older events aren't included in insights.">
+                                <span className="cursor-default">Events data retention</span>
+                            </Tooltip>
+                        </th>
+                        {plans?.map((plan, i) => (
+                            <td key={`${plan.plan_key}-events-data-retention`} className="text-sm font-medium">
+                                {eventsDataRetentionPeriods[i]}
                             </td>
                         ))}
                     </tr>

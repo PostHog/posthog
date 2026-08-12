@@ -8,10 +8,20 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
 import { membershipLevelToName } from 'lib/utils/permissioning'
-import { wordPluralize } from 'lib/utils/strings'
+import { pluralize, wordPluralize } from 'lib/utils/strings'
 import { Params } from 'scenes/sceneTypes'
 
-import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import {
+    AvailableFeature,
+    BillingFeatureType,
+    BillingPeriod,
+    BillingPlanType,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTierType,
+    BillingType,
+} from '~/types'
 
 import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
@@ -28,6 +38,46 @@ export const isProductVariantSecondary = (productType: string): boolean =>
         'workflows_destinations',
         'logs_retention_30d',
     ].includes(productType)
+
+export const EVENTS_DATA_RETENTION_FEATURE_KEY = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
+
+/** Humanize a retention entitlement, e.g. "1 year" or "7 years". */
+const formatDataRetentionPeriod = (feature: BillingFeatureType | undefined): string | null => {
+    if (!feature?.limit || !feature.unit) {
+        return null
+    }
+    // Billing sends the unit already pluralized for windows longer than one ('year' vs 'years'), so strip it back
+    // to a singular and let the limit decide.
+    return pluralize(feature.limit, feature.unit.replace(/s$/, ''))
+}
+
+const isFreePlan = (plan: BillingPlanType): boolean =>
+    plan.included_if === 'no_active_subscription' || (!!plan.free_allocation && !plan.tiers)
+
+/**
+ * Events retention is an entitlement on product analytics, so plan comparisons for other products (the platform
+ * tiers on the billing overview) have to borrow it: a free tier gets product analytics' free window, any paid tier
+ * gets its paid window.
+ */
+export const getEventsDataRetentionPeriodForPlan = (
+    billing: BillingType | null,
+    plan: BillingPlanType
+): string | null => {
+    const productAnalyticsPlans = billing?.products?.find(
+        (product) => product.type === ProductKey.PRODUCT_ANALYTICS
+    )?.plans
+    if (!productAnalyticsPlans?.length) {
+        return null
+    }
+
+    const matchingPlan = isFreePlan(plan)
+        ? productAnalyticsPlans.find(isFreePlan)
+        : productAnalyticsPlans.filter((candidate) => !isFreePlan(candidate)).pop()
+
+    return formatDataRetentionPeriod(
+        matchingPlan?.features?.find((feature) => feature.key === EVENTS_DATA_RETENTION_FEATURE_KEY)
+    )
+}
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
     // If subscribed and has tiers, check if the first tier is free
