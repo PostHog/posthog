@@ -7,13 +7,16 @@ import { render, screen, cleanup } from '@testing-library/react'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
 import { ErrorTrackingWidget } from './ErrorTrackingWidget'
 
 jest.mock('products/error_tracking/frontend/components/ErrorTrackingIssueList/ErrorTrackingIssueList', () => ({
-    ErrorTrackingIssueList: (): JSX.Element => <div>Issue list</div>,
+    ErrorTrackingIssueList: ({ filterGroup }: { filterGroup?: unknown }): JSX.Element => (
+        <div data-filter-group={JSON.stringify(filterGroup)}>Issue list</div>
+    ),
 }))
 
 describe('ErrorTrackingWidget', () => {
@@ -58,6 +61,45 @@ describe('ErrorTrackingWidget', () => {
 
         expect(screen.getByText('Issue list')).toBeInTheDocument()
         expect(screen.getByText('1 of 1 issue')).toBeInTheDocument()
+    })
+
+    it('forwards widget property filters to the issue list', () => {
+        render(
+            <ErrorTrackingWidget
+                tileId={1}
+                config={{
+                    limit: 10,
+                    widgetFilters: {
+                        browser: {
+                            filterId: 'browser',
+                            propertyName: '$browser',
+                            optionId: 'chrome',
+                            value: 'Chrome',
+                            operator: PropertyOperator.Exact,
+                        },
+                    },
+                }}
+                loading={false}
+                result={{ results: [issue] }}
+            />
+        )
+
+        expect(JSON.parse(screen.getByText('Issue list').dataset.filterGroup ?? '')).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$browser',
+                            operator: PropertyOperator.Exact,
+                            value: ['Chrome'],
+                        },
+                    ],
+                },
+            ],
+        })
     })
 
     it('renders a celebratory empty state when there are no issues', () => {
