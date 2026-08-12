@@ -657,11 +657,15 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
-            // When we select a preset, update the scopes
+            // When we select a preset, update the scopes and access mode.
+            // The URL deep-link path sets access_type the same way, so keep the two in sync.
             if (key === 'preset' && value) {
                 const preset = API_KEY_SCOPE_PRESETS.find((preset) => preset.value === value)
                 if (preset) {
                     actions.setEditingKeyValue('scopes', preset.scopes)
+                    if (preset.access_type) {
+                        actions.setEditingKeyValue('access_type', preset.access_type)
+                    }
                 }
             }
 

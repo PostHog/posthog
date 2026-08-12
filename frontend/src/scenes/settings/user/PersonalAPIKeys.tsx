@@ -19,7 +19,6 @@ import {
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
@@ -64,19 +63,9 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
 
     const isNew = editingKeyId === 'new'
 
-    const submitDisabledReason = !editingKeyChanged
-        ? 'No changes to save'
-        : !editingKey.label
-          ? 'Add a label'
-          : !editingKey.scopes?.length
-            ? 'Select at least one scope'
-            : !editingKey.access_type
-              ? 'Select access mode'
-              : editingKey.access_type === 'organizations' && !editingKey.scoped_organizations?.length
-                ? 'Select at least one organization'
-                : editingKey.access_type === 'teams' && !editingKey.scoped_teams?.length
-                  ? 'Select at least one project'
-                  : undefined
+    // Keep the button clickable while fields are incomplete so a click runs form validation and
+    // shows the error next to each field, instead of a silent dead click on an aria-disabled button.
+    const submitDisabledReason = !editingKeyChanged ? 'No changes to save' : undefined
 
     return (
         <Form logic={personalAPIKeysLogic} formKey="editingKey">
@@ -187,7 +176,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                     </div>
 
                     <LemonField name="scopes">
-                        {({ error }) => (
+                        {() => (
                             <>
                                 <p className="mb-0">
                                     Personal API keys are scoped to limit what actions they are able to do. We highly
@@ -198,12 +187,6 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                     Your personal API key can never take actions for which your account is missing
                                     permissions.
                                 </p>
-
-                                {error && (
-                                    <div className="text-danger flex items-center gap-1 text-sm">
-                                        <IconErrorOutline className="text-xl" /> {error}
-                                    </div>
-                                )}
 
                                 {allAccessSelected ? (
                                     <LemonBanner

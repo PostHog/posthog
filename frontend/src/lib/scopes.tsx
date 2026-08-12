@@ -333,7 +333,7 @@ export const API_KEY_SCOPE_PRESETS: {
         label: 'Read-only access',
         scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
     },
-    { value: 'all_access', label: 'All access', scopes: ['*'] },
+    { value: 'all_access', label: 'All access', scopes: ['*'], access_type: 'all' },
 ]
 
 export const APIScopeActionLabels: Record<APIScopeAction, string> = {

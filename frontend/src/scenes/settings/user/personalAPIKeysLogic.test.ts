@@ -122,6 +122,20 @@ describe('personalAPIKeysLogic', () => {
         }
     )
 
+    it.each([
+        ['all_access', ['*']],
+        ['mcp_server', undefined],
+    ])('selecting the %s preset sets access_type so the form is not silently invalid', async (preset, scopes) => {
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setEditingKeyValue('preset', preset)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.editingKey.access_type).toBe('all')
+        if (scopes) {
+            expect(logic.values.editingKey.scopes).toEqual(scopes)
+        }
+    })
+
     it('leaves the auto-selected feature_flag:write removable', async () => {
         logic.actions.setEditingKeyId('new')
         logic.actions.setScopeRadioValue('survey', 'write')
