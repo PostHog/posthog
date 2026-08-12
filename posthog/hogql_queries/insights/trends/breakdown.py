@@ -17,6 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import apply_path_cleaning
 from posthog.hogql.timings import HogQLTimings
@@ -39,6 +40,22 @@ from posthog.models.team.team import Team
 
 def hogql_to_string(expr: ast.Expr) -> ast.Call:
     return ast.Call(name="toString", args=[expr])
+
+
+def cohort_breakdown_value_to_int(value: str | int) -> int:
+    """Coerce a cohort breakdown value to its cohort ID. "all" maps to 0.
+
+    A cohort breakdown value must be a cohort ID. A non-numeric value reaches this point when the
+    query carries a cohort breakdown but the value is a display label or a stale property value —
+    for example a cohort object shaped as ``{"id": ...}`` instead of a bare ID. Raise a handled
+    QueryError so the request returns an actionable message instead of an unhandled ValueError 500.
+    """
+    if value == "all":
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise QueryError(f'Cannot break down by cohort for the value "{value}". Expected a cohort ID.')
 
 
 class Breakdown:
@@ -225,7 +242,7 @@ class Breakdown:
             and self.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED
         ):
             breakdown_ids: list[ast.Expr] = [
-                ast.Constant(value=int(breakdown))
+                ast.Constant(value=cohort_breakdown_value_to_int(breakdown))
                 for breakdown in self._breakdown_filter.breakdown
                 if breakdown != "all"
             ]
@@ -414,7 +431,7 @@ class Breakdown:
         group_type_index: int | None = None,
     ):
         if breakdown_type == "cohort":
-            cohort_breakdown = 0 if value == "all" else int(value)
+            cohort_breakdown = cohort_breakdown_value_to_int(value)
 
             return ast.Alias(
                 alias=alias,

@@ -55,6 +55,7 @@ from posthog.caching.insights_api import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
+from posthog.hogql_queries.insights.trends.breakdown import cohort_breakdown_value_to_int
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trend_validation_rules import (
@@ -674,10 +675,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         series_object["label"] = label_value
                     series_object["breakdown_value"] = remapped_label
                 elif self.query.breakdownFilter.breakdown_type == "cohort":
-                    cohort_id = get_value("breakdown_value", val)
+                    cohort_id = cohort_breakdown_value_to_int(get_value("breakdown_value", val))
                     cohort_name = (
                         "all users"
-                        if str(cohort_id) == "0"
+                        if cohort_id == 0
                         else Cohort.objects.get(pk=cohort_id, team__project_id=self.team.project_id).name
                     )
 
@@ -685,7 +686,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         series_object["label"] = "{} - {}".format(series_object["label"], cohort_name)
                     else:
                         series_object["label"] = cohort_name
-                    series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
+                    series_object["breakdown_value"] = "all" if cohort_id == 0 else cohort_id
                 else:
                     remapped_label = get_value("breakdown_value", val)
                     if remapped_label == "" or remapped_label is None:
