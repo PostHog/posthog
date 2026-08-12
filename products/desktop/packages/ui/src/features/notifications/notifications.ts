@@ -122,8 +122,8 @@ export class NotificationBus {
         target: descriptor.target,
       });
     }
-    if (settings.dockBadgeNotifications)
-      this.notifications.showUnreadIndicator();
+    // The dock/taskbar badge count is driven by DockBadgeContribution, which
+    // mirrors the real unread task-activity count; this bus never sets it.
     if (settings.dockBounceNotifications) this.notifications.requestAttention();
   }
 

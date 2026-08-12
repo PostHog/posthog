@@ -39,11 +39,9 @@ export class ElectronNotifier implements INotifier {
     notification.show();
   }
 
-  public setUnreadIndicator(on: boolean): void {
-    if (on) {
-      app.dock?.setBadge("•");
-    } else {
-      app.dock?.setBadge("");
+  public setBadgeCount(count: number): void {
+    app.setBadgeCount(count);
+    if (count === 0) {
       this.mainWindow.getBrowserWindow()?.flashFrame(false);
     }
   }

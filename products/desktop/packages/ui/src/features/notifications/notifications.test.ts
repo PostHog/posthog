@@ -38,7 +38,7 @@ function makeBus(overrides?: {
   activeTarget?: NotificationTarget;
 }) {
   const notify = vi.fn();
-  const showUnreadIndicator = vi.fn();
+  const setBadgeCount = vi.fn();
   const requestAttention = vi.fn();
   const play = vi.mocked(playCompletionSound);
   play.mockClear();
@@ -64,12 +64,12 @@ function makeBus(overrides?: {
   };
 
   const bus = new NotificationBus(
-    { notify, showUnreadIndicator, requestAttention },
+    { notify, setBadgeCount, requestAttention },
     settingsPort,
     viewPort,
   );
 
-  return { bus, notify, showUnreadIndicator, requestAttention, play };
+  return { bus, notify, requestAttention, play };
 }
 
 describe("NotificationBus tier routing (via notifyPermissionRequest)", () => {
@@ -168,14 +168,13 @@ describe("notifyPromptComplete", () => {
 });
 
 describe("native tier settings gating (app unfocused)", () => {
-  it("skips the OS notification when desktopNotifications is off, still dings dock", () => {
-    const { bus, notify, showUnreadIndicator, requestAttention } = makeBus({
+  it("skips the OS notification when desktopNotifications is off, still bounces the dock", () => {
+    const { bus, notify, requestAttention } = makeBus({
       hasFocus: false,
       settings: { desktopNotifications: false },
     });
     bus.notifyPermissionRequest("My task", TASK_ID);
     expect(notify).not.toHaveBeenCalled();
-    expect(showUnreadIndicator).toHaveBeenCalledTimes(1);
     expect(requestAttention).toHaveBeenCalledTimes(1);
   });
 

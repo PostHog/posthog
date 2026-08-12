@@ -9,13 +9,12 @@ import {
 } from "@posthog/platform/main-window";
 import type { NotificationTarget } from "@posthog/platform/notifications";
 import { type INotifier, NOTIFIER_SERVICE } from "@posthog/platform/notifier";
-import { inject, injectable, postConstruct } from "inversify";
+import { inject, injectable } from "inversify";
 import { OPEN_TARGET_LINK_SERVICE } from "../links/identifiers";
 import type { OpenTargetLinkService } from "../links/open-target-link";
 
 @injectable()
 export class NotificationService {
-  private hasBadge = false;
   private readonly log: ScopedLogger;
 
   constructor(
@@ -29,11 +28,6 @@ export class NotificationService {
     logger: RootLogger,
   ) {
     this.log = logger.scope("notification");
-  }
-
-  @postConstruct()
-  init(): void {
-    this.mainWindow.onFocus(() => this.clearDockBadge());
   }
 
   send(
@@ -74,22 +68,15 @@ export class NotificationService {
     this.log.info("Notification sent", { title, body, silent, target });
   }
 
-  showDockBadge(): void {
-    if (this.hasBadge) return;
-    this.hasBadge = true;
-    this.notifier.setUnreadIndicator(true);
-    this.log.info("Dock badge shown");
+  // `count` is the caller's source of truth (e.g. the renderer's unread task
+  // activity count) — this is a thin forward, not a running tally.
+  setBadgeCount(count: number): void {
+    this.notifier.setBadgeCount(count);
+    this.log.info("Dock badge count set", { count });
   }
 
   bounceDock(): void {
     this.notifier.requestAttention();
     this.log.info("Dock bounce triggered");
-  }
-
-  private clearDockBadge(): void {
-    if (!this.hasBadge) return;
-    this.hasBadge = false;
-    this.notifier.setUnreadIndicator(false);
-    this.log.info("Dock badge cleared");
   }
 }

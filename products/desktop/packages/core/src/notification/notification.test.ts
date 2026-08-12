@@ -14,21 +14,17 @@ function makeLogger() {
 
 function createDeps(supported = true) {
   let lastNotify: NotifyOptions | undefined;
-  let focusHandler: (() => void) | undefined;
 
   const notifier: INotifier = {
     isSupported: vi.fn(() => supported),
     notify: vi.fn((options: NotifyOptions) => {
       lastNotify = options;
     }),
-    setUnreadIndicator: vi.fn(),
+    setBadgeCount: vi.fn(),
     requestAttention: vi.fn(),
   };
 
   const mainWindow = {
-    onFocus: vi.fn((handler: () => void) => {
-      focusHandler = handler;
-    }),
     isMinimized: vi.fn(() => false),
     restore: vi.fn(),
     focus: vi.fn(),
@@ -49,7 +45,6 @@ function createDeps(supported = true) {
     mainWindow,
     openTargetLink,
     getLastNotify: () => lastNotify,
-    getFocusHandler: () => focusHandler,
   };
 }
 
@@ -102,29 +97,14 @@ describe("NotificationService.send", () => {
 });
 
 describe("NotificationService dock badge", () => {
-  it("sets the unread indicator once and is idempotent", () => {
-    const { service, notifier } = createDeps();
-
-    service.showDockBadge();
-    service.showDockBadge();
-
-    expect(notifier.setUnreadIndicator).toHaveBeenCalledTimes(1);
-    expect(notifier.setUnreadIndicator).toHaveBeenCalledWith(true);
-  });
-
-  it("clears the badge on window focus only when a badge is set", () => {
-    const { service, notifier, getFocusHandler } = createDeps();
-    service.init();
-
-    getFocusHandler()?.();
-    expect(notifier.setUnreadIndicator).not.toHaveBeenCalled();
-
-    service.showDockBadge();
-    vi.mocked(notifier.setUnreadIndicator).mockClear();
-
-    getFocusHandler()?.();
-    expect(notifier.setUnreadIndicator).toHaveBeenCalledWith(false);
-  });
+  it.each([0, 1, 42])(
+    "forwards the badge count to the notifier unchanged (%i)",
+    (count) => {
+      const { service, notifier } = createDeps();
+      service.setBadgeCount(count);
+      expect(notifier.setBadgeCount).toHaveBeenCalledWith(count);
+    },
+  );
 
   it("requests attention when bouncing the dock", () => {
     const { service, notifier } = createDeps();

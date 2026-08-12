@@ -33,11 +33,13 @@ export const notificationRouter = router({
         .get<NotificationService>(NOTIFICATION_SERVICE)
         .send(input.title, input.body, input.silent, input.target),
     ),
-  showDockBadge: publicProcedure.mutation(({ ctx }) =>
-    ctx.container
-      .get<NotificationService>(NOTIFICATION_SERVICE)
-      .showDockBadge(),
-  ),
+  setBadgeCount: publicProcedure
+    .input(z.object({ count: z.number() }))
+    .mutation(({ ctx, input }) =>
+      ctx.container
+        .get<NotificationService>(NOTIFICATION_SERVICE)
+        .setBadgeCount(input.count),
+    ),
   bounceDock: publicProcedure.mutation(({ ctx }) =>
     ctx.container.get<NotificationService>(NOTIFICATION_SERVICE).bounceDock(),
   ),

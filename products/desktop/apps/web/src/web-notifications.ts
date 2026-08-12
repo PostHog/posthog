@@ -50,11 +50,16 @@ export const webNotifications: INotifications = {
 
   // Web equivalent of a dock badge: the Badging API (installed PWAs). No-op
   // where unsupported.
-  showUnreadIndicator(): void {
-    const setAppBadge = (
-      navigator as Navigator & { setAppBadge?: () => Promise<void> }
-    ).setAppBadge;
-    void setAppBadge?.call(navigator).catch(() => {});
+  setBadgeCount(count: number): void {
+    const nav = navigator as Navigator & {
+      setAppBadge?: (count?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+    if (count > 0) {
+      void nav.setAppBadge?.(count).catch(() => {});
+    } else {
+      void nav.clearAppBadge?.().catch(() => {});
+    }
   },
 
   // No browser equivalent of bouncing a dock icon.

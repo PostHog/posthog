@@ -8,7 +8,7 @@ export interface NotifyOptions {
 export interface INotifier {
   isSupported(): boolean;
   notify(options: NotifyOptions): void;
-  setUnreadIndicator(on: boolean): void;
+  setBadgeCount(count: number): void;
   requestAttention(): void;
 }
 

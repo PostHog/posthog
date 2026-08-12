@@ -848,7 +848,7 @@ function TestSection({
                     Notification that opens the latest task
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => notifications?.showUnreadIndicator()}
+                    onClick={() => notifications?.setBadgeCount(1)}
                     disabled={nativeUnavailable}
                   >
                     Dock badge

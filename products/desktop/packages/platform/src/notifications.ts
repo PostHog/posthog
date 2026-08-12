@@ -15,7 +15,7 @@ export interface NotificationOptions {
 
 export interface INotifications {
   notify(options: NotificationOptions): void;
-  showUnreadIndicator(): void;
+  setBadgeCount(count: number): void;
   requestAttention(): void;
 }
 
