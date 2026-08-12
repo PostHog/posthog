@@ -22,12 +22,37 @@ class Element(models.Model):
 
 parse_attributes_regex = re.compile(r"(?P<attribute>(?P<key>.*?)\=\"(?P<value>.*?[^\\])\")", re.MULTILINE)
 
-# Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes
-split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:\\.|[^"])*")+')
+# Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes.
+# Every branch of the quoted-string alternation starts on a distinct character, so a given
+# input has exactly one parse. An alternation where two branches can both consume a backslash
+# forces the engine to enumerate every way of tiling a run of them, which costs exponential
+# time in the length of the run.
+split_chain_regex = re.compile(r'(?:[^\s;"]|"(?:[^"\\]|\\.|\\(?=\n))*\\?")+')
+
+# elements_chain is copied verbatim from the event's $elements_chain property, so its length
+# is controlled by whoever sent the event. Splitting is linear in the chain, but attribute
+# parsing grows faster than linearly with a single element's attribute run, so bound the input.
+# Elements are ordered target-first, so truncating drops the outermost ancestors rather than
+# the element that was actually interacted with.
+MAX_ELEMENTS_CHAIN_LENGTH = 16_384
 
 # Below splits the tag/classes from attributes
 # Needs a regex because classes can have : too
 split_class_attributes = re.compile(r"(.*?)($|:([a-zA-Z\-\_0-9]*=.*))")
+
+
+def _split_chain(chain: str) -> list[str]:
+    if len(chain) <= MAX_ELEMENTS_CHAIN_LENGTH:
+        return split_chain_regex.findall(chain)
+    # cutting at the last separator keeps the final element whole, so an over-long chain
+    # loses its outermost ancestors instead of gaining a fragment parsed as a real element.
+    # A separator sitting near the start means one enormous element follows it, and cutting
+    # there would throw away almost everything, so keep the raw window in that case.
+    truncated = chain[:MAX_ELEMENTS_CHAIN_LENGTH]
+    separator = truncated.rfind(";")
+    if separator > MAX_ELEMENTS_CHAIN_LENGTH // 2:
+        truncated = truncated[:separator]
+    return split_chain_regex.findall(truncated)
 
 
 def _escape(input: str) -> str:
@@ -63,7 +88,7 @@ def chain_to_elements(chain: str) -> list[Element]:
     Converts an elements chain string into a list of Element objects.
     """
     elements = []
-    for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
+    for idx, el_string in enumerate(_split_chain(chain)):
         el_string_split = re.findall(split_class_attributes, el_string)[0]
         attributes = re.finditer(parse_attributes_regex, el_string_split[2]) if len(el_string_split) > 2 else []
 
@@ -151,7 +176,7 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
     map to matching keys (see build_attributes_filter).
     """
     element_dicts: list[dict] = []
-    for idx, el_string in enumerate(split_chain_regex.findall(chain)):
+    for idx, el_string in enumerate(_split_chain(chain)):
         el_string_match = split_class_attributes.search(el_string)
         tag_part = el_string_match.group(1) if el_string_match else ""
         attrs_part = el_string_match.group(3) if el_string_match else None

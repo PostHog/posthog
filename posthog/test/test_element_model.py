@@ -2,11 +2,13 @@ from typing import cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.api.element import ElementSerializer
 from posthog.models.element import Element, chain_to_elements, elements_to_string
-from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
+from posthog.models.element.element import MAX_ELEMENTS_CHAIN_LENGTH, build_attributes_filter, chain_to_element_dicts
 
 
 class TestElement(ClickhouseTestMixin, BaseTest):
@@ -156,3 +158,51 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         self.assertEqual(elements[0].tag_name, "a")
         self.assertEqual(elements[0].href, "/a-url")
         self.assertEqual(elements[0].attr_class, ["small", "xy:z"])
+
+
+SEGMENT = 'div:nth-child="0"nth-of-type="0"'
+
+
+class TestChainSplitting(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("value holding only a backslash", r'a:text="\"', [("a", None)]),
+            ("backslash before a newline inside a value", 'a:text="x\\\ny"nth-child="1"', [("a", None)]),
+            (
+                "value ending in a backslash swallows what follows",
+                r'a:text="back\";div:nth-child="0"',
+                [("a", r"back\";div:nth-child=")],
+            ),
+        ]
+    )
+    def test_chain_splitting_is_stable_for_backslash_edge_cases(
+        self, _name: str, chain: str, expected: list[tuple[str | None, str | None]]
+    ) -> None:
+        elements = chain_to_elements(chain)
+        assert [(element.tag_name, element.text) for element in elements] == expected
+        assert chain_to_element_dicts(chain) == cast(list[dict], ElementSerializer(elements, many=True).data)
+
+    def test_chain_at_the_length_limit_parses_every_element(self) -> None:
+        segments = MAX_ELEMENTS_CHAIN_LENGTH // (len(SEGMENT) + 1)
+        chain = ";".join([SEGMENT] * segments)
+        assert len(chain) <= MAX_ELEMENTS_CHAIN_LENGTH
+        assert len(chain_to_elements(chain)) == segments
+
+    def test_oversized_chain_is_truncated_rather_than_parsed_whole(self) -> None:
+        segments = MAX_ELEMENTS_CHAIN_LENGTH // (len(SEGMENT) + 1)
+        elements = chain_to_elements(";".join([SEGMENT] * segments * 3))
+
+        assert len(elements) < segments * 3
+        # a half-parsed element at the cut would show up as a missing tag or attribute
+        assert all(el.tag_name == "div" and el.nth_child == 0 and el.nth_of_type == 0 for el in elements)
+        # what survives is a function of the limit, not of how much was sent
+        assert len(chain_to_elements(";".join([SEGMENT] * segments * 10))) == len(elements)
+        assert len(chain_to_element_dicts(";".join([SEGMENT] * segments * 3))) == len(elements)
+
+    def test_oversized_chain_whose_only_separator_is_near_the_start(self) -> None:
+        chain = "a;" + "b" * (MAX_ELEMENTS_CHAIN_LENGTH * 3)
+        elements = chain_to_elements(chain)
+
+        # cutting at that separator would throw the whole window away
+        assert [el.tag_name for el in elements[:1]] == ["a"]
+        assert len(elements[-1].tag_name or "") > MAX_ELEMENTS_CHAIN_LENGTH // 2
