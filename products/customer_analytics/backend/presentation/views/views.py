@@ -72,6 +72,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     EventStreamSerializer,
     EventStreamTestMessageSerializer,
     FeatureRequestCreateSerializer,
+    FeatureRequestProductAreaListQuerySerializer,
     FeatureRequestProductAreaSerializer,
     FeatureRequestSerializer,
     MeetingSerializer,
@@ -212,20 +213,12 @@ class FeatureRequestProductAreaViewSet(
         if not self.user_access_control.check_access_level_for_resource("customer_analytics", "manager"):
             raise PermissionDenied("Manager access to Customer Analytics is required to manage product areas.")
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="include_inactive",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Include inactive product areas. Defaults to false.",
-            ),
-        ],
+    @validated_request(
+        query_serializer=FeatureRequestProductAreaListQuerySerializer,
         responses={200: FeatureRequestProductAreaSerializer(many=True)},
     )
-    def list(self, request: Request, *args, **kwargs) -> Response:
-        include_inactive = request.query_params.get("include_inactive", "").lower() == "true"
+    def list(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        include_inactive = request.validated_query_data["include_inactive"]
         product_areas = api.list_feature_request_product_areas(
             self.team_id,
             include_inactive=include_inactive,

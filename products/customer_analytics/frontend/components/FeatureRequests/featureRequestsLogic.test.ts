@@ -7,7 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import * as generatedApi from '../../generated/api'
 import type { FeatureRequestApi } from '../../generated/api.schemas'
-import { featureRequestsLogic } from './featureRequestsLogic'
+import { FEATURE_REQUESTS_PAGE_SIZE, featureRequestsLogic } from './featureRequestsLogic'
 
 const createdRequest: FeatureRequestApi = {
     id: 'request-1',
@@ -95,7 +95,29 @@ describe('featureRequestsLogic', () => {
             .toDispatchActions(['loadFeatureRequests', 'loadFeatureRequestsSuccess'])
             .toFinishAllListeners()
 
-        expect(logic.values.featureRequests).toEqual([renamedRequest])
+        expect(logic.values.featureRequestsResponse.results).toEqual([renamedRequest])
+    })
+
+    it('loads the requested page with 20 requests per page', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
+            count: 21,
+            next: null,
+            previous: null,
+            results: [createdRequest],
+        })
+
+        await expectLogic(logic, () => logic.actions.setFeatureRequestsPage(2))
+            .toDispatchActions(['loadFeatureRequests', 'loadFeatureRequestsSuccess'])
+            .toFinishAllListeners()
+
+        expect(listSpy).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: FEATURE_REQUESTS_PAGE_SIZE,
+            offset: FEATURE_REQUESTS_PAGE_SIZE,
+        })
+        expect(logic.values.featureRequestsPage).toBe(2)
+        expect(logic.values.featureRequestsResponse.count).toBe(21)
+        expect(logic.values.featureRequestsResponse.results).toEqual([createdRequest])
     })
 
     it('ignores a second submit while the first request is in flight', async () => {

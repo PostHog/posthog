@@ -123,6 +123,14 @@ class FeatureRequestProductAreaSerializer(DataclassSerializer):
         fields = ["id", "name", "display_order", "is_active", "created_at", "updated_at"]
 
 
+class FeatureRequestProductAreaListQuerySerializer(serializers.Serializer):
+    include_inactive = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Include inactive product areas. Defaults to false.",
+    )
+
+
 class FeatureRequestAccountSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="ID of the affected Customer Analytics account.")
     name = serializers.CharField(read_only=True, help_text="Name of the affected account.")

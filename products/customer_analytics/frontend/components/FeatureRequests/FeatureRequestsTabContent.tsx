@@ -26,7 +26,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { FeatureRequestApi, FeatureRequestProductAreaApi } from '../../generated/api.schemas'
-import { featureRequestsLogic } from './featureRequestsLogic'
+import { FEATURE_REQUESTS_PAGE_SIZE, featureRequestsLogic } from './featureRequestsLogic'
 
 function CreateRequestModal(): JSX.Element {
     const {
@@ -382,7 +382,10 @@ function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.
             <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
                 <div className="min-w-0">
                     <FeatureRequestDetailSection icon={<IconDocument />} title="Description">
-                        <LemonMarkdown className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3">
+                        <LemonMarkdown
+                            disableImages
+                            className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3"
+                        >
                             {request.description}
                         </LemonMarkdown>
                     </FeatureRequestDetailSection>
@@ -419,15 +422,16 @@ function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.
 
 export function FeatureRequestsTabContent(): JSX.Element {
     const {
-        featureRequests,
-        featureRequestsLoading,
+        featureRequestsResponse,
+        featureRequestsResponseLoading,
         featureRequestsError,
+        featureRequestsPage,
         activeRequest,
         activeRequestLoading,
         activeRequestError,
         activeRequestId,
     } = useValues(featureRequestsLogic)
-    const { openCreateRequest, openProductAreas, loadFeatureRequests, loadActiveRequest } =
+    const { openCreateRequest, openProductAreas, loadFeatureRequests, loadActiveRequest, setFeatureRequestsPage } =
         useActions(featureRequestsLogic)
 
     const editorDisabledReason = getAccessControlDisabledReason(
@@ -515,11 +519,24 @@ export function FeatureRequestsTabContent(): JSX.Element {
                 </LemonBanner>
             )}
             <LemonTable
-                dataSource={featureRequests}
+                dataSource={featureRequestsResponse.results}
                 columns={columns}
                 rowKey="id"
-                loading={featureRequestsLoading}
+                loading={featureRequestsResponseLoading}
                 emptyState="No feature requests yet"
+                nouns={['feature request', 'feature requests']}
+                pagination={{
+                    controlled: true,
+                    currentPage: featureRequestsPage,
+                    pageSize: FEATURE_REQUESTS_PAGE_SIZE,
+                    entryCount: featureRequestsResponse.count,
+                    onBackward:
+                        featureRequestsPage > 1 ? () => setFeatureRequestsPage(featureRequestsPage - 1) : undefined,
+                    onForward:
+                        featureRequestsPage * FEATURE_REQUESTS_PAGE_SIZE < featureRequestsResponse.count
+                            ? () => setFeatureRequestsPage(featureRequestsPage + 1)
+                            : undefined,
+                }}
             />
             <CreateRequestModal />
             <ProductAreasModal />

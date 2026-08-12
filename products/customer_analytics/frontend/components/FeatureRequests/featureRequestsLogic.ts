@@ -17,7 +17,14 @@ import {
     featureRequestsList,
     featureRequestsRetrieve,
 } from '../../generated/api'
-import type { AccountApi, FeatureRequestApi, FeatureRequestProductAreaApi } from '../../generated/api.schemas'
+import type {
+    AccountApi,
+    FeatureRequestApi,
+    FeatureRequestProductAreaApi,
+    PaginatedFeatureRequestListApi,
+} from '../../generated/api.schemas'
+
+export const FEATURE_REQUESTS_PAGE_SIZE = 20
 
 const newIdempotencyKey = (): string => uuid()
 
@@ -42,9 +49,10 @@ export interface featureRequestsLogicValues {
     currentTeamId: string
     description: string
     editingProductAreaId: string | null
-    featureRequests: FeatureRequestApi[]
     featureRequestsError: string | null
-    featureRequestsLoading: boolean
+    featureRequestsPage: number
+    featureRequestsResponse: PaginatedFeatureRequestListApi
+    featureRequestsResponseLoading: boolean
     idempotencyKey: string
     productAreaActive: boolean
     productAreaDisplayOrder: number
@@ -112,10 +120,10 @@ export interface featureRequestsLogicActions {
         errorObject?: any
     }
     loadFeatureRequestsSuccess: (
-        featureRequests: FeatureRequestApi[],
+        featureRequestsResponse: PaginatedFeatureRequestListApi,
         payload?: any
     ) => {
-        featureRequests: FeatureRequestApi[]
+        featureRequestsResponse: PaginatedFeatureRequestListApi
         payload?: any
     }
     loadProductAreas: () => any
@@ -153,6 +161,9 @@ export interface featureRequestsLogicActions {
     }
     setDescription: (description: string) => {
         description: string
+    }
+    setFeatureRequestsPage: (page: number) => {
+        page: number
     }
     setIdempotencyKey: (idempotencyKey: string) => {
         idempotencyKey: string
@@ -225,6 +236,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
     connect(() => ({ values: [teamLogic, ['currentTeam']] })),
     actions({
         setActiveRequestId: (requestId: string | null) => ({ requestId }),
+        setFeatureRequestsPage: (page: number) => ({ page }),
         openCreateRequest: true,
         closeCreateRequest: true,
         setTitle: (title: string) => ({ title }),
@@ -246,13 +258,14 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setSavingProductArea: (savingProductArea: boolean) => ({ savingProductArea }),
     }),
     loaders(({ values }) => ({
-        featureRequests: [
-            [] as FeatureRequestApi[],
+        featureRequestsResponse: [
+            { count: 0, next: null, previous: null, results: [] } as PaginatedFeatureRequestListApi,
             {
-                loadFeatureRequests: async () => {
-                    const response = await featureRequestsList(String(values.currentTeam?.id), { limit: 100 })
-                    return response.results
-                },
+                loadFeatureRequests: async () =>
+                    featureRequestsList(String(values.currentTeam?.id), {
+                        limit: FEATURE_REQUESTS_PAGE_SIZE,
+                        offset: (values.featureRequestsPage - 1) * FEATURE_REQUESTS_PAGE_SIZE,
+                    }),
             },
         ],
         activeRequest: [
@@ -285,6 +298,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
     })),
     reducers({
         activeRequestId: [null as string | null, { setActiveRequestId: (_, { requestId }) => requestId }],
+        featureRequestsPage: [1, { setFeatureRequestsPage: (_, { page }) => page }],
         accountSearch: ['', { setAccountSearch: (_, { accountSearch }) => accountSearch }],
         accountsError: [
             null as string | null,
@@ -428,6 +442,9 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        setFeatureRequestsPage: () => {
+            actions.loadFeatureRequests()
+        },
         openCreateRequest: () => {
             actions.setIdempotencyKey(newIdempotencyKey())
             actions.loadAccounts('')
@@ -456,7 +473,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     idempotency_key: values.idempotencyKey,
                 })
                 actions.closeCreateRequest()
-                actions.loadFeatureRequests()
+                actions.setFeatureRequestsPage(1)
                 router.actions.push(urls.customerAnalyticsFeatureRequests(created.id))
             } catch {
                 lemonToast.error("Couldn't save the request. Check the fields and try again.")

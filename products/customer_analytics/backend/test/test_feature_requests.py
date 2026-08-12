@@ -156,6 +156,11 @@ class TestFeatureRequestsAPI(APIBaseTest):
         self.assertEqual(blocked.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(FeatureRequest.objects.for_team(self.team.id).count(), 1)
 
+    def test_product_area_list_rejects_invalid_include_inactive(self) -> None:
+        response = self.client.get(self.product_areas_url, {"include_inactive": "sometimes"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_only_manager_can_create_and_update_product_areas(self) -> None:
         editor = User.objects.create_and_join(self.organization, "feature-request-editor@example.com", "testtest")
         self._set_access_level(editor, "editor")
