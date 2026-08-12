@@ -37,7 +37,11 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
+from products.warehouse_sources.backend.models.external_data_schema import (
+    AUTO_DISABLED_JOB_ERROR,
+    ExternalDataSchema,
+    update_should_sync,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     EmitSignalsActivityInputs,
@@ -156,6 +160,28 @@ Any_Source_Errors: dict[str, str | None] = {
 }
 
 
+UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
+
+
+def _customer_facing_error(cause: BaseException | None) -> str:
+    """`latest_error` text a customer reads, without the leaked internal exception class name.
+
+    Temporal renders a wrapped activity failure as ``<ExceptionClass>: <message>`` (see
+    `ApplicationError.__str__`), so ``str(cause)`` prefixes the customer-facing error with an
+    internal Python class name that means nothing to them: ``RESTClientRetryableError`` for a
+    REST source that exhausted its retries on an HTTP 429/5xx, ``NonReportableError`` for a
+    retryable connection drop, or a raw driver ``OperationalError``. The wrapped ``message``
+    carries the same detail without that prefix. This only affects errors we don't rewrite via
+    the non-retryable map below (retryable exhaustion and unclassified failures); ``internal_error``
+    still records the full ``str(cause)`` for debugging.
+    """
+    # A wrapped ActivityError can carry no cause; `str(None)` would show the customer "None".
+    if cause is None:
+        return UNEXPECTED_ERROR_MESSAGE
+    message = getattr(cause, "message", None)
+    return message or str(cause)
+
+
 @dataclasses.dataclass
 class UpdateExternalDataJobStatusInputs:
     team_id: int
@@ -264,10 +290,6 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                     "error": inputs.internal_error,
                 },
             )
-            await database_sync_to_async_pool(update_should_sync)(
-                schema_id=inputs.schema_id, team_id=inputs.team_id, should_sync=False
-            )
-
             friendly_errors = [
                 friendly_error
                 for error, friendly_error in non_retryable_errors.items()
@@ -277,6 +299,17 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
             if friendly_errors and friendly_errors[0] is not None:
                 logger.exception(friendly_errors[0])
                 inputs.latest_error = friendly_errors[0]
+
+            # Computed after the friendly error so the teardown records the same message
+            # the job will show. Excluding this workflow keeps the disable's teardown from
+            # cancelling the very run that is already finishing through its failure path.
+            await database_sync_to_async_pool(update_should_sync)(
+                schema_id=inputs.schema_id,
+                team_id=inputs.team_id,
+                should_sync=False,
+                disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
+                disable_exclude_workflow_id=activity.info().workflow_id,
+            )
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,
@@ -844,12 +877,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # Handle other activity errors normally
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause)
-                update_inputs.latest_error = str(e.cause)
+                update_inputs.latest_error = _customer_facing_error(e.cause)
                 raise
         except Exception as e:
             # Catch all
             update_inputs.internal_error = str(e)
-            update_inputs.latest_error = "An unexpected error has ocurred"
+            update_inputs.latest_error = UNEXPECTED_ERROR_MESSAGE
             update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         finally:

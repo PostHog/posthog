@@ -630,7 +630,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 Do NOT use Claude Code's default attribution (no "Co-Authored-By" trailers, no "Generated with [Claude Code]" lines).
 
 Instead, add the following trailers to EVERY commit message (after a blank line at the end):
-  Generated-By: PostHog Code
+  Generated-By: PostHog Desktop
   Task-Id: ${taskId}
 
 Example:
@@ -638,18 +638,18 @@ Example:
 git commit -m "$(cat <<'EOF'
 fix: resolve login redirect loop
 
-Generated-By: PostHog Code
+Generated-By: PostHog Desktop
 Task-Id: ${taskId}
 EOF
 )"
 \`\`\`
 
-When creating new branches, prefix them with \`posthog-code/\` (e.g. \`posthog-code/fix-login-redirect\`).
+When creating new branches, prefix them with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`).
 
 When creating pull requests, add the following footer at the end of the PR description:
 \`\`\`
 ---
-*Created with [PostHog Code](https://posthog.com/code?ref=pr)*
+*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)*
 \`\`\`
 
 When you mention a pull request in any reply or summary, always hyperlink it to its full URL (e.g. a Markdown link like [#123](https://github.com/org/repo/pull/123)) rather than plain text, so readers can open it directly.
@@ -2345,6 +2345,7 @@ For git operations while detached:
       gatewayUrl,
       region,
       (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     );
   }
 
@@ -2356,6 +2357,7 @@ For git operations while detached:
     const gatewayModels = await fetchGatewayModels({
       gatewayUrl,
       authToken: (await this.agentAuthAdapter.gatewayAuthToken()) ?? undefined,
+      projectId: this.agentAuthAdapter.gatewayProjectId() ?? undefined,
     });
     const configOptions = buildCloudTaskConfigOptions(
       gatewayModels,
