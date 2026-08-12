@@ -871,7 +871,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             elif isinstance(e.cause, exceptions.ApplicationError) and e.cause.type == "NonRetryableException":
                 update_inputs.status = ExternalDataJob.Status.FAILED
                 update_inputs.internal_error = str(e.cause.cause)
-                update_inputs.latest_error = str(e.cause.cause)
+                # `_customer_facing_error` here too (like the else branch): a non-retryable error whose
+                # friendly mapping is None keeps its raw message, and the finalization activity won't
+                # overwrite it — so `str(e.cause.cause)` would leak the wrapped exception class name.
+                update_inputs.latest_error = _customer_facing_error(e.cause.cause)
                 raise
             else:
                 # Handle other activity errors normally

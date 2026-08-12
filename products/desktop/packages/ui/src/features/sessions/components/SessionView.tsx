@@ -803,7 +803,7 @@ export function SessionView({
                         <PromptInput
                           ref={editorRef}
                           sessionId={sessionId}
-                          placeholder="Type a message... @ to mention files, ! for bash mode, / for skills"
+                          placeholder="Type a message... ! for bash mode, / for skills"
                           disabled={!isRunning && !handoffInProgress}
                           submitDisabledExternal={
                             handoffInProgress ||

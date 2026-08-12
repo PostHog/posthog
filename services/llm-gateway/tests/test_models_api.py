@@ -418,7 +418,10 @@ class TestFreeTierModelListing:
         assert premium["restriction_reason"] == "paid_plan_required"
         # exact, not subset: the default free model must survive the allowlist
         # and the annotation, or free-tier callers have no usable model
-        assert {m["id"] for m in body["data"] if m["allowed"]} == {"@cf/zai-org/glm-5.2"}
+        assert {m["id"] for m in body["data"] if m["allowed"]} == {
+            "@cf/zai-org/glm-5.2",
+            "deepseek-ai/deepseek-v4-flash-0731",
+        }
         # codex reads the `models` mirror; the marks must be there too
         assert body["models"] == body["data"]
 

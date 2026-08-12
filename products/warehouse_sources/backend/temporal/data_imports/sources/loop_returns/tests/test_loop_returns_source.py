@@ -119,12 +119,36 @@ class TestLoopReturnsSource:
             for key in self.source.get_non_retryable_errors()
         )
 
+    @pytest.mark.parametrize(
+        ("pinned", "expected_version"),
+        [
+            # No pin resolves to the default (the current GA date version), a `v1` pin is honored
+            # verbatim so a customer still on the alias keeps hitting `/api/v1`, and an explicit
+            # `2026-07` pin passes straight through. A broken dispatch would move a pinned source.
+            (None, "2026-07"),
+            ("v1", "v1"),
+            ("2026-07", "2026-07"),
+        ],
+    )
     @mock.patch(VALIDATE_PATH)
-    def test_validate_credentials_passes_the_schema_through(self, mock_validate: mock.MagicMock) -> None:
+    def test_validate_credentials_threads_the_resolved_version(
+        self, mock_validate: mock.MagicMock, pinned: Optional[str], expected_version: str
+    ) -> None:
         mock_validate.return_value = (True, None)
 
-        assert self.source.validate_credentials(self.config, self.team_id, schema_name="destinations") == (True, None)
-        mock_validate.assert_called_once_with("loop_test_key", "v1", schema_name="destinations")
+        assert self.source.validate_credentials(
+            self.config, self.team_id, schema_name="destinations", api_version=pinned
+        ) == (True, None)
+        mock_validate.assert_called_once_with("loop_test_key", expected_version, schema_name="destinations")
+
+    def test_v1_is_deprecated_without_a_sunset_date(self) -> None:
+        # Loop publishes no calendar sunset for the alias, so the pin stays fully supported; the
+        # metadata only lights up the generic in-product deprecation warning.
+        deprecation = self.source.get_version_deprecation("v1")
+
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation("2026-07") is None
 
     @pytest.mark.parametrize("start_date", ["not-a-date", "2024-13-01", "1000-01-01"])
     @mock.patch(VALIDATE_PATH)
