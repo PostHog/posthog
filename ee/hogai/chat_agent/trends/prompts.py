@@ -16,11 +16,20 @@ Follow this instruction to create a query:
 For trends queries, use an appropriate ChartDisplayType for the output. For example:
 - if the plan indicates dynamics in time like a line graph, use `ActionsLineGraph`.
 - if the plan indicates cumulative dynamics across time, use `ActionsLineGraphCumulative`.
-- if the plan can be answered with a single number, use `BoldNumber`.
+- if the plan can be answered with a single number, use `Metric`. It shows the headline number with a sparkline and a period-over-period change pill, so the reader gets the value and its direction together. It needs a single output series - either one series, or one formula over several series - and no breakdown.
+- only fall back to `BoldNumber` for a single number when `Metric` cannot render it: the plan has more than one output series, has a breakdown, or explicitly asks for the bare number with no trend context.
 - if the plan requests a table, use `ActionsTable`.
 - if the data is categorical, use `ActionsBar`.
 - if the data is easy to understand in a pie chart, use `ActionsPie`.
 - if there is only one series and the plan involves data from particular countries, use `WorldMap`.
+
+<metric_display>
+When you pick `Metric`, configure it so the headline number and the change pill read correctly:
+* Set `metricSummary` to the number the plan asks for: `total` for a count or sum over the period, `average` for an average per interval, `latest` for a current or point-in-time value.
+* Leave `compareFilter` alone. The change pill sets up its own comparison against the previous period.
+* For a measure where lower is better (latency, error rate, cost, churn, drop-off), set `metricChangeIncreaseColor` to `#db3707` and `metricChangeDecreaseColor` to `#388600`, so a rise reads as bad. Leave both unset otherwise.
+* Pick an `interval` that gives the sparkline enough points to show a shape. A 30-day range reads better by day than by month.
+</metric_display>
 
 When the plan asks for a ratio, rate, or percentage (e.g. a bounce rate, a conversion rate, or "share of X"), express it as the raw ratio and let the axis format render the percentage:
 * Build the value as the plain ratio in the 0-1 range — either a `math` aggregation that returns 0-1 (e.g. `avg` of `$is_bounce`) or a formula like `A/B`. Do not multiply by 100 in the formula.
@@ -40,7 +49,13 @@ Actions are user-defined event filters. If the plan includes an action series, y
 ### How many users do I have?
 
 ```
-{"query":{"dateRange":{"date_from":"-30d"},"interval":"month","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"BoldNumber"}}}
+{"query":{"dateRange":{"date_from":"-30d"},"interval":"day","kind":"TrendsQuery","series":[{"event":"user signed up","kind":"EventsNode","math":"total"}],"trendsFilter":{"display":"Metric","metricSummary":"total"}}}
+```
+
+### How stale are dashboard results this month, by the median of the "refreshAge" property?
+
+```
+{"query":{"dateRange":{"date_from":"-30d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"event":"viewed dashboard","kind":"EventsNode","math":"median","math_property":"refreshAge"}],"trendsFilter":{"aggregationAxisFormat":"duration","display":"Metric","metricSummary":"average","metricChangeIncreaseColor":"#db3707","metricChangeDecreaseColor":"#388600"}}}
 ```
 
 ### Show a bar chart of the organic search traffic for the last month grouped by week.
@@ -101,7 +116,7 @@ Series:
 </generated_plan>
 
 <output>
-{"query":{"dateRange":{"date_from":"-7d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"id":29489,"kind":"ActionsNode","math":"dau","properties":[{"key":"service_id","operator":"exact","type":"event","value":4}]}],"trendsFilter":{"display":"BoldNumber"}}}
+{"query":{"dateRange":{"date_from":"-7d"},"filterTestAccounts":true,"interval":"day","kind":"TrendsQuery","series":[{"id":29489,"kind":"ActionsNode","math":"dau","properties":[{"key":"service_id","operator":"exact","type":"event","value":4}]}],"trendsFilter":{"display":"Metric","metricSummary":"total"}}}
 </output>
 
 ---

@@ -165,6 +165,12 @@ Examples:
 Trends insights enable users to plot data from people, events, and properties however they want. They're useful for finding patterns in data, as well as monitoring users' product to ensure everything is running smoothly. Users can use multiple independent series in a single query to see trends. They can also use a formula to calculate a metric. Each series has its own set of property filters, so you must define them for each series. Trends insights do not require breakdowns or filters by default.
 </general_knowledge>
 
+<display_type>
+When the answer is a single number, ask for the `Metric` display type. It pairs the headline number with a sparkline and a period-over-period change pill, so the reader sees the value and its direction at once. It needs a single output series - either one series, or one formula over several series - and no breakdown.
+
+Ask for `BoldNumber` only when `Metric` cannot render the plan: more than one output series, a breakdown, or an explicit request for the bare number with no trend context.
+</display_type>
+
 <aggregation>
 **Determine the math aggregation** the user is asking for, such as totals, averages, ratios, or custom formulas. If not specified, choose a reasonable default based on the event type (e.g., total count). By default, the total count should be used. You can aggregate data by events, event's property values,{{#groups}} {{.}}s,{{/groups}} or users. If you're aggregating by users or groups, there's no need to check for their existence, as events without required associations will automatically be filtered out.
 
@@ -303,7 +309,7 @@ Time period: from and/or to dates or durations. For example: `last 1 week`, `las
 Time interval: hour/day/week/month/year
 
 (optional visualization settings)
-Display type: (ActionsLineGraph/ActionsBar/ActionsAreaGraph/ActionsLineGraphCumulative/BoldNumber/ActionsBarValue/ActionsPie/ActionsTable/WorldMap)
+Display type: (ActionsLineGraph/ActionsBar/ActionsAreaGraph/ActionsLineGraphCumulative/Metric/BoldNumber/ActionsBarValue/ActionsPie/ActionsTable/WorldMap)
 Show legend: yes/no
 Show values on series: yes/no
 Y-axis scale: linear/log10

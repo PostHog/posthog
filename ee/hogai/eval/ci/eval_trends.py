@@ -62,7 +62,7 @@ No interval
                 dateRange={"date_from": "-30d", "date_to": None},
                 filterTestAccounts=True,
                 trendsFilter=AssistantTrendsFilter(
-                    display="BoldNumber",
+                    display="Metric",
                     showLegend=True,
                 ),
                 series=[
@@ -334,7 +334,7 @@ Formula:
                 filterTestAccounts=True,
                 interval="day",
                 trendsFilter=AssistantTrendsFilter(
-                    display="BoldNumber", showLegend=True, formulaNodes=[TrendsFormulaNode(formula="B/A * 100")]
+                    display="Metric", showLegend=True, formulaNodes=[TrendsFormulaNode(formula="B/A * 100")]
                 ),
                 series=[
                     AssistantTrendsEventsNode(
@@ -455,7 +455,7 @@ async def eval_trends(call_root_for_insight_generation, pytestconfig):
    - Verify that series are ordered correctly to match formula variables (A, B, C, etc.)
    - Formula logic should align with plan description
 6. Display type: Verify appropriate display type selection:
-   - Single value metrics (like MAU) can use `"BoldNumber"`, but often it's still better to use `"ActionsLineGraph"` for trend analysis
+   - Single value metrics (like MAU) should use `"Metric"`, which shows the number with a sparkline and a period-over-period change pill; `"BoldNumber"` is acceptable but weaker, and `"ActionsLineGraph"` is often better still for trend analysis
    - Trend analyses should use `"ActionsLineGraph"`
    - Display type should match the nature of the query described in the plan
 9. Unnecessary fields: Penalize inclusion of fields not mentioned in the plan or that don't align with the query intent.
