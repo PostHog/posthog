@@ -314,21 +314,20 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             created_by=self.user,
         )
         client = self._sandbox_client(bound_task.id, user=actor)
-        headers = {"HTTP_X_POSTHOG_TASK_ID": str(bound_task.id)}
 
         public_read = client.get(
             f"/api/projects/{self.team.id}/canvases/{creator_public_canvas.id}/",
-            **headers,
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
         public_write = client.patch(
             f"/api/projects/{self.team.id}/canvases/{creator_public_canvas.id}/",
             {"name": "Not allowed"},
             format="json",
-            **headers,
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
         personal_read = client.get(
             f"/api/projects/{self.team.id}/canvases/{creator_personal_canvas.id}/",
-            **headers,
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
 
         assert public_read.status_code == status.HTTP_200_OK
@@ -346,13 +345,12 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             origin_product=Task.OriginProduct.USER_CREATED,
         )
         client = self._sandbox_client(bound_task.id, user=actor)
-        headers = {"HTTP_X_POSTHOG_TASK_ID": str(bound_task.id)}
 
         create_response = client.post(
             f"/api/projects/{self.team.id}/canvases/",
             {"name": "Actor canvas", "channel_id": str(self.channel.id)},
             format="json",
-            **headers,
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
         assert create_response.status_code == status.HTTP_201_CREATED
         canvas_id = create_response.json()["id"]
@@ -361,13 +359,13 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
             {"name": "Updated by actor"},
             format="json",
-            **headers,
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
         publish_response = client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/publish/",
             {"project": self._project()},
             format="json",
-            **headers,
+            HTTP_X_POSTHOG_TASK_ID=str(bound_task.id),
         )
 
         assert update_response.status_code == status.HTTP_200_OK
