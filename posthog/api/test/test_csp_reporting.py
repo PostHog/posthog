@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.api.csp_reporting import MAX_PROPERTIES_CHARS
+
 # The block the untrusted report has to stay inside. The suffix is per-request so a report cannot
 # close the block by embedding its own copy of the tag.
 UNTRUSTED_BLOCK = re.compile(r"<(untrusted_csp_report_[0-9a-f]+)>\n?(.*?)\n?</\1>", re.DOTALL)
@@ -50,8 +52,6 @@ class TestCSPReportingExplain(APIBaseTest):
             ("list", ["script-src"]),
             ("number", 42),
             ("boolean", True),
-            ("oversized_text", "x" * 200_000),
-            ("oversized_object", {"$csp_original_policy": "x" * 200_000}),
         ]
     )
     def test_rejects_properties_without_calling_the_model(self, _name, properties):
@@ -86,6 +86,27 @@ class TestCSPReportingExplain(APIBaseTest):
         assert match is not None, user_message
         assert user_message.count(f"</{match.group(1)}>") == 1
         assert user_message.endswith(f"</{match.group(1)}>")
+
+    @parameterized.expand(
+        [
+            ("text", "x" * 200_000),
+            ("object", {"$csp_original_policy": "x" * 200_000}),
+        ]
+    )
+    def test_an_oversized_report_is_cut_to_fit_rather_than_refused(self, _name, properties):
+        # Ingest accepts a body far larger than the prompt bound, so refusing here would leave an
+        # accepted violation permanently unexplainable.
+        response = self._explain(properties)
+
+        assert response.status_code == 200, response.json()
+        user_message = self._user_message()
+        assert len(user_message) < MAX_PROPERTIES_CHARS + 1_000
+        assert "stops at a size limit" in user_message
+
+    def test_a_report_that_fits_carries_no_truncation_notice(self):
+        self._explain(REALISTIC_REPORT)
+
+        assert "stops at a size limit" not in self._user_message()
 
     def test_each_request_uses_a_fresh_block_tag(self):
         self._explain(REALISTIC_REPORT)

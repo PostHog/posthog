@@ -46,4 +46,15 @@ describe('ExplainCSPViolationButton', () => {
         expect(mockMarkdownProps[0].children).toContain('attacker.example.net')
         expect(mockMarkdownProps[0].disableImages).toBe(true)
     })
+
+    // A refused request used to leave the popover open and empty, which reads the same as a broken
+    // feature and gives the engineer nothing to act on.
+    it('shows a message when the request fails', async () => {
+        jest.spyOn(api.cspReporting, 'explain').mockRejectedValue(new Error('Bad Request'))
+
+        render(<ExplainCSPViolationButton properties={{}} label="Explain" />)
+        fireEvent.click(screen.getByText('Explain'))
+
+        await waitFor(() => expect(screen.getByText(/failed to get a CSP explanation/)).toBeInTheDocument())
+    })
 })

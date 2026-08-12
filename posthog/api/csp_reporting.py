@@ -15,7 +15,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # A violation's properties are a normalized copy of one report plus the raw body it arrived in, and
 # every field in them is written by whoever posted that report to the public /report endpoint. This
 # bound keeps a single click from billing an unbounded prompt. It sits well above a real report,
-# whose policy, URLs, and raw body together run to a few kilobytes.
+# whose policy, URLs, and raw body together run to a few kilobytes. Ingest accepts a larger body than
+# this, so the report is cut to fit rather than refused: a violation that was accepted has to stay
+# explainable.
 MAX_PROPERTIES_CHARS = 50_000
 
 # The report is wrapped in a block the model is told to treat as data. The tag carries a per-request
@@ -61,15 +63,19 @@ Do not include any additional commentary, metadata, or headings.
 """
 
 
-def build_explain_messages(report: str) -> list[ChatCompletionMessageParam]:
+def build_explain_messages(report: str, truncated: bool = False) -> list[ChatCompletionMessageParam]:
     block_tag = f"{UNTRUSTED_BLOCK_TAG_PREFIX}_{secrets.token_hex(8)}"
     system_prompt = PROMPT_TEMPLATE.format(
         CSP_REPORT_TYPES_MAPPING_TABLE=CSP_REPORT_TYPES_MAPPING_TABLE,
         block_tag=block_tag,
     )
+    user_content = f"<{block_tag}>\n{report}\n</{block_tag}>"
+    if truncated:
+        # Outside the closing tag, so a report cannot forge or suppress it.
+        user_content += "\nThe block above stops at a size limit, so its JSON may be incomplete."
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"<{block_tag}>\n{report}\n</{block_tag}>"},
+        {"role": "user", "content": user_content},
     ]
 
 
@@ -91,15 +97,13 @@ class CSPReportingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             return response.Response({"error": "properties must be an object or a JSON string"}, status=400)
 
-        if len(report) > MAX_PROPERTIES_CHARS:
-            return response.Response(
-                {"error": f"properties must be at most {MAX_PROPERTIES_CHARS} characters"}, status=400
-            )
+        truncated = len(report) > MAX_PROPERTIES_CHARS
+        report = report[:MAX_PROPERTIES_CHARS]
 
         llm_response = openai.chat.completions.create(
             model="gpt-4.1-2025-04-14",
             temperature=0.1,  # Using 0.1 to reduce hallucinations, but >0 to allow for some creativity
-            messages=build_explain_messages(report),
+            messages=build_explain_messages(report, truncated=truncated),
             user="ph/csp/explain",
             stream=False,
         )

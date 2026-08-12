@@ -12,6 +12,12 @@ export type ExplainCSPViolationButtonProps = LemonButtonProps & {
     label: string
 }
 
+const explanationFailed = (
+    <div className="flex items-center justify-center min-h-40 gap-4 text-l">
+        Sorry! We failed to get a CSP explanation. Please try again later
+    </div>
+)
+
 export const ExplainCSPViolationButton = ({
     properties,
     label,
@@ -42,12 +48,11 @@ export const ExplainCSPViolationButton = ({
                     </>
                 )
             } else {
-                setResult(
-                    <div className="flex items-center justify-center min-h-40 gap-4 text-l">
-                        Sorry! We failed to get a CSP explanation. Please try again later
-                    </div>
-                )
+                setResult(explanationFailed)
             }
+        } catch {
+            // Without this the popover opens empty and a refused request looks the same as a broken feature.
+            setResult(explanationFailed)
         } finally {
             setLoading(false)
         }
