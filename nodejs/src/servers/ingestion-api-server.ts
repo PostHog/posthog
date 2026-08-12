@@ -14,7 +14,7 @@ import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhou
 import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
-import { PersonHogClient, parseRolloutTeamIds } from '~/common/personhog/client'
+import { PersonHogClient } from '~/common/personhog/client'
 import { createIdentityClients } from '~/common/personhog/identity-clients'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
@@ -408,14 +408,7 @@ export class IngestionApiServer implements NodeServer {
                 maxConcurrentUpdates: this.config.PERSONHOG_STORE_MAX_CONCURRENT_UPDATES,
                 updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             })
-            const teams = parseRolloutTeamIds(this.config.PERSONS_STORE_MODE_TEAMS)
-            personsStore = new RoutingPersonsStore(
-                this.personsStore,
-                this.personhogStore,
-                personsStoreMode,
-                teams.size > 0 ? teams : null,
-                personRepository
-            )
+            personsStore = new RoutingPersonsStore(this.personsStore, this.personhogStore, personsStoreMode)
         }
 
         this.groupStore = new BatchWritingGroupStore(groupRepository, clickhouseGroupRepository, {

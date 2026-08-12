@@ -1,5 +1,4 @@
 import { personhogStoreShadowErrorsCounter, personhogStoreShadowSkipsCounter } from '~/common/persons/metrics'
-import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { InternalPerson } from '~/types'
 
@@ -73,17 +72,11 @@ describe('RoutingPersonsStore', () => {
         // is the constructor's requirement, not an escape from checking.
         const personhogMock = mockStore()
         const personhog = personhogMock as unknown as PersonhogPersonsStore
-        const personRepository: Pick<PersonRepository, 'inTransaction'> = {
-            inTransaction: jest.fn((_description, cb) => cb(fakeTx)) as PersonRepository['inTransaction'],
-        }
-        return { pg, personhogMock, personhog, personRepository }
+        return { pg, personhogMock, personhog }
     }
 
-    const makeStore = (
-        stores: ReturnType<typeof makeStores>,
-        mode: 'personhog' | 'shadow',
-        teams: ReadonlySet<number> | null
-    ) => new RoutingPersonsStore(stores.pg, stores.personhog, mode, teams, stores.personRepository)
+    const makeStore = (stores: ReturnType<typeof makeStores>, mode: 'personhog' | 'shadow') =>
+        new RoutingPersonsStore(stores.pg, stores.personhog, mode)
 
     it('rejects an unknown mode at parse time', () => {
         expect(() => parsePersonsStoreMode('both')).toThrow('PERSONS_STORE_MODE')
@@ -103,21 +96,19 @@ describe('RoutingPersonsStore', () => {
     })
 
     describe('personhog mode', () => {
-        it('routes allowlisted teams to personhog and the rest to pg', async () => {
+        it('routes every team to personhog', async () => {
             const stores = makeStores()
-            const store = makeStore(stores, 'personhog', new Set([1]))
+            const store = makeStore(stores, 'personhog')
 
             await store.fetchForUpdate(1, 'a', 0)
-            expect(stores.personhogMock.fetchForUpdate).toHaveBeenCalledWith(1, 'a', 0)
-            expect(stores.pg.fetchForUpdate).not.toHaveBeenCalled()
-
             await store.fetchForUpdate(2, 'b', 0)
-            expect(stores.pg.fetchForUpdate).toHaveBeenCalledWith(2, 'b', 0)
+            expect(stores.personhogMock.fetchForUpdate).toHaveBeenCalledTimes(2)
+            expect(stores.pg.fetchForUpdate).not.toHaveBeenCalled()
         })
 
         it('a transactional create stays on pg for an allowlisted team', async () => {
             const stores = makeStores()
-            const store = makeStore(stores, 'personhog', new Set([1]))
+            const store = makeStore(stores, 'personhog')
             await store.createPerson(
                 undefined as never,
                 {},
@@ -139,7 +130,7 @@ describe('RoutingPersonsStore', () => {
         it('a personhog flush failure propagates, because the store is authoritative', async () => {
             const stores = makeStores()
             stores.personhogMock.flush.mockRejectedValue(new Error('leader down'))
-            const store = makeStore(stores, 'personhog', null)
+            const store = makeStore(stores, 'personhog')
             await expect(store.flush()).rejects.toThrow('leader down')
         })
     })
@@ -149,7 +140,7 @@ describe('RoutingPersonsStore', () => {
             const stores = makeStores()
             stores.pg.fetchForUpdate.mockResolvedValue(person(1, '7'))
             stores.personhogMock.fetchForUpdate.mockResolvedValue(person(1, '99'))
-            const store = makeStore(stores, 'shadow', null)
+            const store = makeStore(stores, 'shadow')
 
             const result = await store.fetchForUpdate(1, 'a', 0)
 
@@ -161,7 +152,7 @@ describe('RoutingPersonsStore', () => {
             const stores = makeStores()
             stores.pg.fetchForUpdate.mockResolvedValue(person(1, '7'))
             stores.personhogMock.fetchForUpdate.mockRejectedValue(new Error('identity down'))
-            const store = makeStore(stores, 'shadow', null)
+            const store = makeStore(stores, 'shadow')
 
             const result = await store.fetchForUpdate(1, 'a', 0)
 
@@ -172,7 +163,7 @@ describe('RoutingPersonsStore', () => {
         it('a shadow flush failure is swallowed', async () => {
             const stores = makeStores()
             stores.personhogMock.flush.mockRejectedValue(new Error('leader down'))
-            const store = makeStore(stores, 'shadow', null)
+            const store = makeStore(stores, 'shadow')
             await expect(store.flush()).resolves.toEqual([])
         })
     })
@@ -197,7 +188,7 @@ describe('RoutingPersonsStore', () => {
             stores.personhogMock.fetchForUpdate.mockResolvedValue(person(1, '99'))
             stores.personhogMock.applyEventOps.mockResolvedValue([person(1, '99'), []])
             stores.personhogMock.updatePersonWithPropertiesDiffForUpdate.mockResolvedValue([person(1, '99'), [], true])
-            const store = makeStore(stores, 'shadow', null)
+            const store = makeStore(stores, 'shadow')
 
             await call(store)
 
@@ -209,7 +200,7 @@ describe('RoutingPersonsStore', () => {
             const stores = makeStores()
             stores.pg.applyEventOps.mockResolvedValue([person(1, '7'), []])
             stores.personhogMock.fetchForUpdate.mockResolvedValue(null)
-            const store = makeStore(stores, 'shadow', null)
+            const store = makeStore(stores, 'shadow')
 
             const [result] = await store.applyEventOps(person(1, '7'), ops, 'd1', 0)
 
@@ -239,7 +230,7 @@ describe('RoutingPersonsStore', () => {
             ],
         ] as const)('%s reaches the personhog store for a routed team', async (_name, call, member) => {
             const stores = makeStores()
-            const store = makeStore(stores, 'personhog', new Set([1]))
+            const store = makeStore(stores, 'personhog')
 
             await call(store)
 
@@ -247,53 +238,46 @@ describe('RoutingPersonsStore', () => {
             expect(stores.pg[member as keyof PersonsStore]).not.toHaveBeenCalled()
         })
 
-        it.each([
-            ['a pg-routed team in personhog mode', 'personhog', new Set([99])],
-            ['shadow mode', 'shadow', null],
-        ] as const)('%s runs merges on pg, unshadowed', async (_name, mode, teams) => {
+        it('shadow mode runs merges on pg and swallows the personhog placeholder', async () => {
             const stores = makeStores()
-            const store = makeStore(stores, mode, teams as ReadonlySet<number> | null)
+            stores.personhogMock.deletePersons.mockRejectedValue(new Error('no personhog RPC: merge saga'))
+            const store = makeStore(stores, 'shadow')
 
             await store.deletePersons([person(1)], 'd')
 
             expect(stores.pg.deletePersons).toHaveBeenCalled()
-            expect(stores.personhogMock.deletePersons).not.toHaveBeenCalled()
+            expect(personhogStoreShadowErrorsCounter.labels).toHaveBeenCalledWith({ verb: 'deletePersons' })
         })
     })
 
-    describe('inTransaction wraps this store, so transactional verbs still route', () => {
-        it('a routed team merge inside a transaction reaches the personhog store', async () => {
+    describe('inTransaction routes by mode', () => {
+        it('personhog mode reaches the personhog store, whose placeholder answers', () => {
             const stores = makeStores()
-            const store = makeStore(stores, 'personhog', new Set([1]))
+            const store = makeStore(stores, 'personhog')
+            const cb = () => Promise.resolve('x')
 
-            await store.inTransaction('merge', async (tx) => {
-                await tx.deletePerson(person(1), 'd')
-            })
+            void store.inTransaction('merge', cb)
 
-            // The wrapper re-entered routing: the personhog store saw the
-            // delete, and pg never received a mutation keyed on a
-            // personhog-world row id.
-            expect(stores.personhogMock.deletePerson).toHaveBeenCalledWith(person(1), 'd', fakeTx)
-            expect(stores.pg.deletePerson).not.toHaveBeenCalled()
+            expect(stores.personhogMock.inTransaction).toHaveBeenCalledWith('merge', cb)
+            expect(stores.pg.inTransaction).not.toHaveBeenCalled()
         })
 
-        it('an unrouted team merge inside a transaction reaches pg with the transaction', async () => {
+        it('shadow mode runs the transaction on pg exactly once, unshadowed', () => {
             const stores = makeStores()
-            const store = makeStore(stores, 'personhog', new Set([99]))
+            const store = makeStore(stores, 'shadow')
+            const cb = () => Promise.resolve('x')
 
-            await store.inTransaction('merge', async (tx) => {
-                await tx.deletePerson(person(1), 'd')
-            })
+            void store.inTransaction('merge', cb)
 
-            expect(stores.pg.deletePerson).toHaveBeenCalledWith(person(1), 'd', fakeTx)
-            expect(stores.personhogMock.deletePerson).not.toHaveBeenCalled()
+            expect(stores.pg.inTransaction).toHaveBeenCalledWith('merge', cb)
+            expect(stores.personhogMock.inTransaction).not.toHaveBeenCalled()
         })
     })
 
     it('shutdown closes the personhog side even when pg shutdown fails', async () => {
         const stores = makeStores()
         stores.pg.shutdown.mockRejectedValue(new Error('pg teardown failed'))
-        const store = makeStore(stores, 'shadow', null)
+        const store = makeStore(stores, 'shadow')
 
         await expect(store.shutdown()).rejects.toThrow('pg teardown failed')
         expect(stores.personhogMock.shutdown).toHaveBeenCalled()
@@ -301,7 +285,7 @@ describe('RoutingPersonsStore', () => {
 
     it('releaseBatch releases both worlds', () => {
         const stores = makeStores()
-        const store = makeStore(stores, 'shadow', null)
+        const store = makeStore(stores, 'shadow')
         store.releaseBatch(4)
         expect(stores.pg.releaseBatch).toHaveBeenCalledWith(4)
         expect(stores.personhogMock.releaseBatch).toHaveBeenCalledWith(4)

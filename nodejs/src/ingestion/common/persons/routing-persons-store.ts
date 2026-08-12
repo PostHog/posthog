@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 import { personhogStoreShadowErrorsCounter, personhogStoreShadowSkipsCounter } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { InternalPersonWithDistinctId, LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
-import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
@@ -73,14 +72,8 @@ export class RoutingPersonsStore implements PersonsStore {
     constructor(
         private pg: PersonsStore,
         private personhog: PersonhogPersonsStore,
-        private mode: 'personhog' | 'shadow',
-        private teams: ReadonlySet<number> | null,
-        private personRepository: Pick<PersonRepository, 'inTransaction'>
+        private mode: 'personhog' | 'shadow'
     ) {}
-
-    private modeFor(teamId: number): PersonsStoreMode {
-        return this.teams === null || this.teams.has(teamId) ? this.mode : 'pg'
-    }
 
     /**
      * Run the personhog side of a shadowed verb: sequential, awaited, and
@@ -110,7 +103,7 @@ export class RoutingPersonsStore implements PersonsStore {
         personhog: () => Promise<T>,
         opts?: { tx?: unknown; shadow?: () => Promise<unknown> }
     ): Promise<T> {
-        const mode = opts?.tx ? 'pg' : this.modeFor(teamId)
+        const mode = opts?.tx ? 'pg' : this.mode
         if (mode === 'personhog') {
             return personhog()
         }
@@ -149,17 +142,16 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * The transaction wrapper is built around this store, not the
-     * Postgres one, so every verb inside a merge transaction re-enters
-     * routing with the transaction attached. Delegating to the Postgres
-     * store here would hand the callback a wrapper around that store,
-     * and nothing inside the transaction would route again — which is
-     * how personhog-world person ids could reach Postgres row keys.
+     * Routes by mode like every other verb; the callback runs exactly
+     * once, so shadow mode delegates to Postgres alone rather than
+     * executing it a second time against the personhog store. In
+     * personhog mode the store's own placeholder answers until the
+     * merge saga lands.
      */
     inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransaction) => Promise<T>): Promise<T> {
-        return this.personRepository.inTransaction(description, (tx: PersonRepositoryTransaction) =>
-            transaction(new PersonsStoreTransaction(this, tx))
-        )
+        return this.mode === 'personhog'
+            ? this.personhog.inTransaction(description, transaction)
+            : this.pg.inTransaction(description, transaction)
     }
 
     fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
@@ -318,26 +310,17 @@ export class RoutingPersonsStore implements PersonsStore {
         )
     }
 
-    /**
-     * Merge execution routes to the team's world and nowhere else: pg
-     * and shadow teams run it on Postgres, and a personhog-routed team
-     * reaches the personhog store, whose members are the merge saga's
-     * loud placeholders until it lands. Shadowing is deliberately absent
-     * — a merge mirrored into the other world would key on foreign row
-     * ids. Transaction context is no exemption: the transaction wrapper
-     * re-enters this store, and a routed team's merge must fail before
-     * any Postgres mutation, not run inside one.
-     */
-    private mergeWorld(teamId: number): PersonsStore {
-        return this.modeFor(teamId) === 'personhog' ? this.personhog : this.pg
-    }
-
     deletePerson(
         person: InternalPerson,
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
-        return this.mergeWorld(person.team_id).deletePerson(person, distinctId, tx)
+        return this.route(
+            'deletePerson',
+            person.team_id,
+            () => this.pg.deletePerson(person, distinctId, tx),
+            () => this.personhog.deletePerson(person, distinctId, tx)
+        )
     }
 
     claimLifecycleMarks(
@@ -347,7 +330,12 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.mergeWorld(teamId).claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
+        return this.route(
+            'claimLifecycleMarks',
+            teamId,
+            () => this.pg.claimLifecycleMarks(opId, teamId, persons, distinctId, tx),
+            () => this.personhog.claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
+        )
     }
 
     releaseLifecycleMarks(
@@ -356,11 +344,21 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.mergeWorld(teamId).releaseLifecycleMarks(opId, teamId, distinctId, tx)
+        return this.route(
+            'releaseLifecycleMarks',
+            teamId,
+            () => this.pg.releaseLifecycleMarks(opId, teamId, distinctId, tx),
+            () => this.personhog.releaseLifecycleMarks(opId, teamId, distinctId, tx)
+        )
     }
 
     isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
-        return this.mergeWorld(person.team_id).isPersonLive(person, distinctId, tx)
+        return this.route(
+            'isPersonLive',
+            person.team_id,
+            () => this.pg.isPersonLive(person, distinctId, tx),
+            () => this.personhog.isPersonLive(person, distinctId, tx)
+        )
     }
 
     updatePersonForMerge(
@@ -370,7 +368,12 @@ export class RoutingPersonsStore implements PersonsStore {
         batchId: number,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
-        return this.mergeWorld(person.team_id).updatePersonForMerge(person, update, distinctId, batchId, tx)
+        return this.route(
+            'updatePersonForMerge',
+            person.team_id,
+            () => this.pg.updatePersonForMerge(person, update, distinctId, batchId, tx),
+            () => this.personhog.updatePersonForMerge(person, update, distinctId, batchId, tx)
+        )
     }
 
     addDistinctId(
@@ -380,7 +383,12 @@ export class RoutingPersonsStore implements PersonsStore {
         tx: PersonRepositoryTransaction | undefined,
         batchId: number
     ): Promise<PersonMessage[]> {
-        return this.mergeWorld(person.team_id).addDistinctId(person, distinctId, version, tx, batchId)
+        return this.route(
+            'addDistinctId',
+            person.team_id,
+            () => this.pg.addDistinctId(person, distinctId, version, tx, batchId),
+            () => this.personhog.addDistinctId(person, distinctId, version, tx, batchId)
+        )
     }
 
     moveDistinctIds(
@@ -391,7 +399,12 @@ export class RoutingPersonsStore implements PersonsStore {
         tx: PersonRepositoryTransaction,
         batchId: number
     ): Promise<MoveDistinctIdsResult> {
-        return this.mergeWorld(source.team_id).moveDistinctIds(source, target, distinctId, limit, tx, batchId)
+        return this.route(
+            'moveDistinctIds',
+            source.team_id,
+            () => this.pg.moveDistinctIds(source, target, distinctId, limit, tx, batchId),
+            () => this.personhog.moveDistinctIds(source, target, distinctId, limit, tx, batchId)
+        )
     }
 
     moveDistinctIdsFromPersons(
@@ -401,7 +414,12 @@ export class RoutingPersonsStore implements PersonsStore {
         tx: PersonRepositoryTransaction,
         batchId: number
     ): Promise<MoveDistinctIdsResult> {
-        return this.mergeWorld(target.team_id).moveDistinctIdsFromPersons(sources, target, distinctId, tx, batchId)
+        return this.route(
+            'moveDistinctIdsFromPersons',
+            target.team_id,
+            () => this.pg.moveDistinctIdsFromPersons(sources, target, distinctId, tx, batchId),
+            () => this.personhog.moveDistinctIdsFromPersons(sources, target, distinctId, tx, batchId)
+        )
     }
 
     deletePersons(
@@ -412,7 +430,12 @@ export class RoutingPersonsStore implements PersonsStore {
         if (persons.length === 0) {
             return this.pg.deletePersons(persons, distinctId, tx)
         }
-        return this.mergeWorld(persons[0].team_id).deletePersons(persons, distinctId, tx)
+        return this.route(
+            'deletePersons',
+            persons[0].team_id,
+            () => this.pg.deletePersons(persons, distinctId, tx),
+            () => this.personhog.deletePersons(persons, distinctId, tx)
+        )
     }
 
     countDistinctIdsForPersons(
@@ -421,7 +444,12 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx: PersonRepositoryTransaction
     ): Promise<Map<string, number>> {
-        return this.mergeWorld(teamId).countDistinctIdsForPersons(teamId, personIds, distinctId, tx)
+        return this.route(
+            'countDistinctIdsForPersons',
+            teamId,
+            () => this.pg.countDistinctIdsForPersons(teamId, personIds, distinctId, tx),
+            () => this.personhog.countDistinctIdsForPersons(teamId, personIds, distinctId, tx)
+        )
     }
 
     updateCohortsAndFeatureFlagsForMerge(
@@ -431,12 +459,18 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.mergeWorld(teamID).updateCohortsAndFeatureFlagsForMerge(
+        return this.route(
+            'updateCohortsAndFeatureFlagsForMerge',
             teamID,
-            sourcePersonID,
-            targetPersonID,
-            distinctId,
-            tx
+            () => this.pg.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, distinctId, tx),
+            () =>
+                this.personhog.updateCohortsAndFeatureFlagsForMerge(
+                    teamID,
+                    sourcePersonID,
+                    targetPersonID,
+                    distinctId,
+                    tx
+                )
         )
     }
 
@@ -447,12 +481,25 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<void> {
-        return this.mergeWorld(teamID).updateCohortsAndFeatureFlagsForMergeBatch(
+        return this.route(
+            'updateCohortsAndFeatureFlagsForMergeBatch',
             teamID,
-            sourcePersonIDs,
-            targetPersonID,
-            distinctId,
-            tx
+            () =>
+                this.pg.updateCohortsAndFeatureFlagsForMergeBatch(
+                    teamID,
+                    sourcePersonIDs,
+                    targetPersonID,
+                    distinctId,
+                    tx
+                ),
+            () =>
+                this.personhog.updateCohortsAndFeatureFlagsForMergeBatch(
+                    teamID,
+                    sourcePersonIDs,
+                    targetPersonID,
+                    distinctId,
+                    tx
+                )
         )
     }
 
@@ -462,11 +509,16 @@ export class RoutingPersonsStore implements PersonsStore {
         limit: number | undefined,
         tx: PersonRepositoryTransaction
     ): Promise<string[]> {
-        return this.mergeWorld(person.team_id).fetchPersonDistinctIds(person, distinctId, limit, tx)
+        return this.route(
+            'fetchPersonDistinctIds',
+            person.team_id,
+            () => this.pg.fetchPersonDistinctIds(person, distinctId, limit, tx),
+            () => this.personhog.fetchPersonDistinctIds(person, distinctId, limit, tx)
+        )
     }
 
     personPropertiesSize(personId: string, teamId: number): Promise<number> {
-        return this.modeFor(teamId) === 'personhog'
+        return this.mode === 'personhog'
             ? this.personhog.personPropertiesSize(personId, teamId)
             : this.pg.personPropertiesSize(personId, teamId)
     }
@@ -477,14 +529,10 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
-        const pgEntries = teamDistinctIds.filter((entry) => this.modeFor(entry.teamId) !== 'personhog')
-        const personhogEntries = teamDistinctIds.filter((entry) => this.modeFor(entry.teamId) !== 'pg')
-        if (pgEntries.length > 0) {
-            await this.pg.prefetchPersons(pgEntries)
+        if (this.mode === 'shadow') {
+            await this.pg.prefetchPersons(teamDistinctIds)
         }
-        if (personhogEntries.length > 0) {
-            await this.shadowedOrDirect('prefetchPersons', () => this.personhog.prefetchPersons(personhogEntries))
-        }
+        await this.shadowedOrDirect('prefetchPersons', () => this.personhog.prefetchPersons(teamDistinctIds))
     }
 
     /**
