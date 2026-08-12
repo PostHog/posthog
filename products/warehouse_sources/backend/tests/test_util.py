@@ -260,6 +260,13 @@ class TestBucketSettingsAreAllTriaged(SimpleTestCase):
         overlap = set(_POSTHOG_OWNED_BUCKET_SETTING_NAMES) & set(_BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE)
         assert not overlap, f"{sorted(overlap)} listed as both node-role-readable and not"
 
+    def test_every_exclusion_has_a_non_empty_reason(self) -> None:
+        # The setting-is-triaged test above only checks _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE's
+        # keys, so an empty or whitespace-only reason would still count as "triaged" there - this is
+        # what actually enforces that every exclusion documents the access-path check it stands on.
+        blank = {name for name, reason in _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE.items() if not reason.strip()}
+        assert not blank, f"{sorted(blank)} are excluded with no reason given"
+
 
 class TestGetViewOrTableByName(BaseTest):
     def _create_warehouse_table(self, *, name, url_pattern, source=None, credential=None) -> DataWarehouseTable:
