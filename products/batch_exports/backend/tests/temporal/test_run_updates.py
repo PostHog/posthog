@@ -449,8 +449,12 @@ async def test_finish_batch_export_run_produces_failed_internal_event(activity_e
     assert len(internal_event_payloads) == 1
     assert [payload["event"]["event"] for payload in internal_event_payloads[0]] == ["$batch_export_run_failed"]
     assert internal_event_payloads[0][0]["event"]["properties"] == {
-        "id": str(batch_export.id),
-        "run_id": str(run_id),
+        "batch_export_id": str(batch_export.id),
+        "batch_export_name": batch_export.name,
+        "batch_export_run_id": str(run_id),
+        "data_interval_start": start.isoformat(),
+        "data_interval_end": end.isoformat(),
+        "destination_type": "S3",
         "error": "Oh No!",
     }
 
@@ -574,8 +578,12 @@ async def test_start_batch_export_run_produces_failed_billing_internal_event(act
     assert len(internal_event_payloads) == 1
     assert [payload["event"]["event"] for payload in internal_event_payloads[0]] == ["$batch_export_run_failed_billing"]
     assert internal_event_payloads[0][0]["event"]["properties"] == {
-        "id": str(batch_export.id),
-        "run_id": str(run.id),
+        "batch_export_id": str(batch_export.id),
+        "batch_export_name": batch_export.name,
+        "batch_export_run_id": str(run.id),
+        "data_interval_start": start.isoformat(),
+        "data_interval_end": end.isoformat(),
+        "destination_type": "S3",
         "error": "Over billing limit",
     }
 

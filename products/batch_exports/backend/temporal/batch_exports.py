@@ -528,6 +528,11 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
             status=BatchExportRun.Status.FAILED_BILLING,
             backfill_id=uuid.UUID(inputs.backfill_id) if inputs.backfill_id else None,
         )
+        # Pre-fetch fields in async context, otherwise they would be lazily
+        # fetched below using blocking calls.
+        await run.arefresh_from_db(
+            from_queryset=BatchExportRun.objects.select_related("batch_export", "batch_export__destination")
+        )
 
         logger.info("Over billing limit")
         EXTERNAL_LOGGER.warning("Batch export run failed due to exceeding billing limits. No data has been exported.")
@@ -544,6 +549,10 @@ async def start_batch_export_run(inputs: StartBatchExportRunInputs) -> BatchExpo
             inputs.team_id,
             inputs.batch_export_id,
             str(run.id),
+            run.batch_export.name if run.batch_export is not None else "Batch export on demand",
+            run.data_interval_start,
+            run.data_interval_end,
+            run.batch_export.destination.type if run.batch_export is not None else "On demand",
             0,
             "Over billing limit",
             # TODO: Should we auto-pause on billing limit exceeded?
@@ -703,6 +712,14 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
             inputs.team_id,
             inputs.batch_export_id,
             inputs.id,
+            batch_export_run.batch_export.name
+            if batch_export_run.batch_export is not None
+            else "Batch export on demand",
+            batch_export_run.data_interval_start,
+            batch_export_run.data_interval_end,
+            batch_export_run.batch_export.destination.type
+            if batch_export_run.batch_export is not None
+            else "On demand",
             inputs.records_completed or 0,
             batch_export_run.latest_error or "Unknown error",
             was_paused,
@@ -779,6 +796,10 @@ def make_internal_events_payload(
     team_id: int,
     batch_export_id: str,
     batch_export_run_id: str,
+    batch_export_name: str,
+    data_interval_start: dt.datetime | None,
+    data_interval_end: dt.datetime,
+    destination_type: str,
     rows_exported: int,
     error: str | None,
     was_paused: bool,
@@ -789,9 +810,16 @@ def make_internal_events_payload(
     a batch export is paused. Initially intended only to communicate failure
     states, but with support for all possible batch export status.
     """
-    base_properties = {"id": batch_export_id, "run_id": batch_export_run_id}
+    base_properties = {
+        "batch_export_id": batch_export_id,
+        "batch_export_run_id": batch_export_run_id,
+        "batch_export_name": batch_export_name,
+        "data_interval_start": data_interval_start.isoformat() if data_interval_start is not None else None,
+        "data_interval_end": data_interval_end.isoformat(),
+        "destination_type": destination_type,
+    }
 
-    extra_properties: dict[str, str | int] = {}
+    extra_properties: dict[str, str | int | None] = {}
     match status:
         case BatchExportRun.Status.COMPLETED:
             event = "$batch_export_run_completed"
@@ -806,7 +834,8 @@ def make_internal_events_payload(
         case _:
             event = "$batch_export_run_failed"
             assert error is not None
-            extra_properties["error"] = error
+            # Truncation roughly matching other products, realistically we shouldn't hit it
+            extra_properties["error"] = error[:1000]
 
     properties = {**base_properties, **extra_properties}
     payloads = [
