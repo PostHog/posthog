@@ -155,6 +155,7 @@ interface SettingsStore {
   toastNotifications: boolean;
   completionSound: CompletionSound;
   completionVolume: number;
+  scaleSoundWithTaskLength: boolean;
   customSounds: CustomSound[];
   setDesktopNotifications: (enabled: boolean) => void;
   setDockBadgeNotifications: (enabled: boolean) => void;
@@ -162,6 +163,7 @@ interface SettingsStore {
   setToastNotifications: (enabled: boolean) => void;
   setCompletionSound: (sound: CompletionSound) => void;
   setCompletionVolume: (volume: number) => void;
+  setScaleSoundWithTaskLength: (enabled: boolean) => void;
   addCustomSound: (sound: CustomSound) => void;
   removeCustomSound: (id: string) => void;
   renameCustomSound: (id: string, name: string) => void;
@@ -274,6 +276,7 @@ export const NOTIFICATION_DEFAULTS = {
   toastNotifications: true,
   completionSound: "none" as CompletionSound,
   completionVolume: 80,
+  scaleSoundWithTaskLength: false,
   spokenNotifications: false,
   spokenNotifyNeedsInput: true,
   spokenNotifyCompletion: true,
@@ -386,6 +389,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setElevenLabsVoiceId: (voiceId) => set({ elevenLabsVoiceId: voiceId }),
       setElevenLabsKeyConfigured: (configured) =>
         set({ elevenLabsKeyConfigured: configured }),
+      setScaleSoundWithTaskLength: (enabled) =>
+        set({ scaleSoundWithTaskLength: enabled }),
       addCustomSound: (sound) =>
         set((state) => ({ customSounds: [...state.customSounds, sound] })),
       removeCustomSound: (id) =>
@@ -557,6 +562,7 @@ export const useSettingsStore = create<SettingsStore>()(
         toastNotifications: state.toastNotifications,
         completionSound: state.completionSound,
         completionVolume: state.completionVolume,
+        scaleSoundWithTaskLength: state.scaleSoundWithTaskLength,
         customSounds: state.customSounds,
         spokenNotifications: state.spokenNotifications,
         spokenNotifyNeedsInput: state.spokenNotifyNeedsInput,

@@ -7302,7 +7302,7 @@ describe("SessionService", () => {
 
         expect(
           mockNotificationService.notifyPromptComplete,
-        ).toHaveBeenCalledWith("Test Task", "end_turn", "task-123");
+        ).toHaveBeenCalledWith("Test Task", "end_turn", "task-123", undefined);
         expect(
           mockSessionStoreSetters.dequeueMessagesAsText,
         ).not.toHaveBeenCalled();

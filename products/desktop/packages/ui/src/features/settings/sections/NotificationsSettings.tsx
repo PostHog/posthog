@@ -84,6 +84,7 @@ export function NotificationsSettings() {
     toastNotifications,
     completionSound,
     completionVolume,
+    scaleSoundWithTaskLength,
     customSounds,
     setDesktopNotifications,
     setDockBadgeNotifications,
@@ -91,6 +92,7 @@ export function NotificationsSettings() {
     setToastNotifications,
     setCompletionSound,
     setCompletionVolume,
+    setScaleSoundWithTaskLength,
     removeCustomSound,
     renameCustomSound,
   } = useSettingsStore();
@@ -176,6 +178,18 @@ export function NotificationsSettings() {
     [completionSound, setCompletionSound],
   );
 
+  const handleScaleSoundChange = useCallback(
+    (checked: boolean) => {
+      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+        setting_name: "scale_sound_with_task_length",
+        new_value: checked,
+        old_value: scaleSoundWithTaskLength,
+      });
+      setScaleSoundWithTaskLength(checked);
+    },
+    [scaleSoundWithTaskLength, setScaleSoundWithTaskLength],
+  );
+
   const resetToDefaults = useCallback(() => {
     setDesktopNotifications(NOTIFICATION_DEFAULTS.desktopNotifications);
     setDockBadgeNotifications(NOTIFICATION_DEFAULTS.dockBadgeNotifications);
@@ -183,6 +197,7 @@ export function NotificationsSettings() {
     setToastNotifications(NOTIFICATION_DEFAULTS.toastNotifications);
     setCompletionSound(NOTIFICATION_DEFAULTS.completionSound);
     setCompletionVolume(NOTIFICATION_DEFAULTS.completionVolume);
+    setScaleSoundWithTaskLength(NOTIFICATION_DEFAULTS.scaleSoundWithTaskLength);
     toast.success("Notification settings reset to defaults");
   }, [
     setDesktopNotifications,
@@ -191,6 +206,7 @@ export function NotificationsSettings() {
     setToastNotifications,
     setCompletionSound,
     setCompletionVolume,
+    setScaleSoundWithTaskLength,
   ]);
 
   const soundItems = [
@@ -372,25 +388,38 @@ export function NotificationsSettings() {
           )}
 
           {completionSound !== "none" && (
-            <SettingsCardRow label="Volume">
-              <div className="flex items-center gap-3">
-                <Slider
-                  aria-label="Sound volume"
-                  value={[completionVolume]}
-                  onValueChange={(next: number | readonly number[]) => {
-                    const raw = Array.isArray(next) ? next[0] : next;
-                    if (typeof raw === "number") setCompletionVolume(raw);
-                  }}
-                  min={0}
-                  max={100}
-                  step={1}
-                  className="w-[120px]"
+            <>
+              <SettingsCardRow label="Volume">
+                <div className="flex items-center gap-3">
+                  <Slider
+                    aria-label="Sound volume"
+                    value={[completionVolume]}
+                    onValueChange={(next: number | readonly number[]) => {
+                      const raw = Array.isArray(next) ? next[0] : next;
+                      if (typeof raw === "number") setCompletionVolume(raw);
+                    }}
+                    min={0}
+                    max={100}
+                    step={1}
+                    className="w-[120px]"
+                  />
+                  <span className="w-8 text-right text-[12px] text-gray-10 tabular-nums">
+                    {completionVolume}%
+                  </span>
+                </div>
+              </SettingsCardRow>
+
+              <SettingsCardRow
+                label="Match speed to task length"
+                description="Quick tasks play the sound faster, long ones slower"
+              >
+                <Switch
+                  size="sm"
+                  checked={scaleSoundWithTaskLength}
+                  onCheckedChange={handleScaleSoundChange}
                 />
-                <span className="w-8 text-right text-[12px] text-gray-10 tabular-nums">
-                  {completionVolume}%
-                </span>
-              </div>
-            </SettingsCardRow>
+              </SettingsCardRow>
+            </>
           )}
         </SettingsCard>
       </SettingsSection>

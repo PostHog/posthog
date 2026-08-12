@@ -193,7 +193,7 @@ describe("streamed event batching", () => {
     expect(h.events()).toHaveLength(2);
   });
 
-  it("notifies when the prompt mutation clears state before the response flushes", () => {
+  it("keeps the turn duration when the prompt mutation clears state before the response flushes", () => {
     const h = createHarness();
 
     h.emit(promptEcho(1, 1_000));
@@ -207,6 +207,7 @@ describe("streamed event batching", () => {
       "Local Task",
       "end_turn",
       TASK_ID,
+      5_000,
     );
   });
 });

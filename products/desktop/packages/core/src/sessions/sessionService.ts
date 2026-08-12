@@ -3013,6 +3013,9 @@ export class SessionService {
           const stopReason =
             (msg as { params?: { stopReason?: string } }).params?.stopReason ??
             "end_turn";
+          const turnStartedAtTs =
+            this.liveTurnContent.get(taskRunId)?.startedAtTs ??
+            session.promptStartedAt;
           this.d.store.updateSession(taskRunId, {
             isPromptPending: false,
             promptStartedAt: null,
@@ -3030,6 +3033,7 @@ export class SessionService {
                   session.taskTitle,
                   stopReason,
                   session.taskId,
+                  turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
                 );
                 this.speakDeterministic(taskRunId, session, "done");
               }
@@ -3162,6 +3166,9 @@ export class SessionService {
     } else {
       this.d.store.appendEvents(taskRunId, [acpMsg]);
     }
+    const turnStartedAtTs =
+      this.liveTurnContent.get(taskRunId)?.startedAtTs ??
+      session.promptStartedAt;
     this.updatePromptStateFromEvents(taskRunId, [acpMsg], { isLive: true });
 
     const msg = acpMsg.message;
@@ -3202,6 +3209,7 @@ export class SessionService {
           session.taskTitle,
           stopReason,
           session.taskId,
+          turnStartedAtTs ? acpMsg.ts - turnStartedAtTs : undefined,
         );
         if (stopReason === "end_turn") {
           this.speakDeterministic(taskRunId, session, "done");

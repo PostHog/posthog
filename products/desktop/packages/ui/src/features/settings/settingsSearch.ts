@@ -119,6 +119,12 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   },
   {
     category: "notifications",
+    label: "Match speed to task length",
+    page: "Notifications",
+    keywords: ["sound speed", "playback rate", "scale sound", "task length"],
+  },
+  {
+    category: "notifications",
     label: "Spoken narration",
     page: "Notifications",
     keywords: ["voice", "speech", "speak", "elevenlabs", "narration"],
