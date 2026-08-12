@@ -852,6 +852,26 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _wants_team_gateway_options(data: dict) -> bool:
         return not data.get("team_enabled", True)
 
+    def _install_target_owner_id(self, data: dict) -> int | None:
+        """Owner of the connection this install flow would end up delegating.
+
+        A personal install is keyed on the caller, so it is always the caller's.
+        A shared install reuses a row keyed on (team, url) that another member
+        may own, and there is no such row yet when the install creates one.
+        """
+        user_id = cast(User, self.request.user).id
+        if data.get("scope", "personal") != "shared":
+            return user_id
+        url = (data.get("url") or "").strip()
+        template_id = data.get("template_id")
+        if not url and template_id:
+            template = MCPServerTemplate.objects.filter(id=template_id, is_active=True).first()
+            url = template.url if template is not None else ""
+        if not url:
+            return user_id
+        existing = MCPServerInstallation.objects.filter(team_id=self.team_id, url=url, scope="shared").first()
+        return existing.user_id if existing is not None else user_id
+
     def _validate_gateway_options(self, data: dict) -> None:
         """Validate team-level options and agent grants before creating rows."""
         if self._wants_team_gateway_options(data) and not self._is_project_admin():
@@ -866,6 +886,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         built_in_agent_ids = {account.id for account in sync_built_in_agents(self.team)}
         if not agent_ids.issubset(built_in_agent_ids):
             raise serializers.ValidationError({"agent_ids": "Select only the PostHog agents listed for this project."})
+
+        # Rejected here rather than while applying the grants: by then the
+        # install has already written the gateway rows and the credential, and
+        # a 4xx would leave that half-finished install behind.
+        if self._install_target_owner_id(data) != cast(User, self.request.user).id:
+            raise serializers.ValidationError(
+                {"agent_ids": "You can only share a connection you set up yourself with an agent."}
+            )
 
     def _apply_gateway_options(self, installation: MCPServerInstallation, data: dict) -> None:
         """Register the installation with the gateway and apply install-time
@@ -883,7 +911,8 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 {"agent_ids": "One or more selected PostHog agents are no longer available. Refresh and try again."}
             )
 
-        server = link_installation_to_gateway(installation, created_by=cast(User, self.request.user))
+        user = cast(User, self.request.user)
+        server = link_installation_to_gateway(installation, created_by=user)
 
         if self._wants_team_gateway_options(data):
             team_enabled = data.get("team_enabled", True)
@@ -895,10 +924,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
                 service_account=account,
                 gateway_server=server,
+                user=user,
                 defaults={
                     "team_id": self.team_id,
                     "installation": installation,
-                    "granted_by": cast(User, self.request.user),
+                    "granted_by": user,
                 },
             )
 
