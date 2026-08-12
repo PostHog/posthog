@@ -300,12 +300,77 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
+            # TEMPORARY: diagnosing Docker Hub "unauthenticated pull rate limit" failures.
+            # Prints which rate-limit bucket the CI credentials land in. Never prints the
+            # credentials themselves, nor the derived JWT (a live bearer token, unmasked).
+            # Remove together with the two probe steps below once the root cause is fixed.
+            - name: 'PROBE: credential shape and rate-limit bucket'
+              continue-on-error: true
+              run: |
+                  set -euo pipefail
+                  IMG=library/postgres; TAG=15.12-alpine
+                  echo "DOCKERHUB_USER (a var, not a secret): '${DOCKERHUB_USERNAME:-<unset>}'"
+                  if [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+                      echo "DOCKERHUB_TOKEN: UNSET - that alone would explain anonymous pulls"
+                      exit 0
+                  fi
+                  echo "DOCKERHUB_TOKEN: set, length ${#DOCKERHUB_TOKEN}"
+                  case "$DOCKERHUB_TOKEN" in
+                      dckr_oat_*) echo "token type: organization access token (dckr_oat_)" ;;
+                      dckr_pat_*) echo "token type: PERSONAL access token (dckr_pat_) - org entitlement may not apply" ;;
+                      *)          echo "token type: unrecognized prefix (legacy password?)" ;;
+                  esac
+                  echo "--- anonymous baseline for this runner's egress IP ---"
+                  ANON=$(curl -sS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$IMG:pull" | jq -r '.token // empty')
+                  curl -sS -I -H "Authorization: Bearer $ANON" \
+                      -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+                      "https://registry-1.docker.io/v2/$IMG/manifests/$TAG" \
+                      | grep -iE '^HTTP|ratelimit' || echo "(no ratelimit headers)"
+                  echo "--- same request, authenticated with the CI credentials ---"
+                  RESP=$(curl -sS -u "${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}" \
+                      "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$IMG:pull")
+                  AUTHED=$(printf '%s' "$RESP" | jq -r '.token // empty')
+                  if [ -z "$AUTHED" ]; then
+                      echo "AUTH FAILED - no token returned:"
+                      printf '%s' "$RESP" | jq -r '.details // .errors // "unparseable"'
+                      exit 0
+                  fi
+                  echo "auth ok (jwt length ${#AUTHED})"
+                  curl -sS -I -H "Authorization: Bearer $AUTHED" \
+                      -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+                      "https://registry-1.docker.io/v2/$IMG/manifests/$TAG" \
+                      | grep -iE '^HTTP|ratelimit' || echo "(no ratelimit headers)"
+                  echo
+                  echo "Entitled looks like: 'docker-ratelimit-source: posthog' and NO ratelimit-limit header."
+                  echo "Anonymous looks like: an IP source and 'ratelimit-limit: 100;w=3600'."
+
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            # TEMPORARY: if login lands somewhere docker compose does not read, pulls go out anonymous.
+            - name: 'PROBE: credential store docker compose will actually read'
+              continue-on-error: true
+              run: |
+                  set -euo pipefail
+                  echo "HOME=$HOME  DOCKER_CONFIG=${DOCKER_CONFIG:-<unset>}"
+                  CONFIG="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+                  echo "config path: $CONFIG"
+                  if [ ! -f "$CONFIG" ]; then
+                      echo "NO CONFIG FILE - login did not persist where compose will look"
+                      exit 0
+                  fi
+                  # Keys only. Never dump 'auths' values: base64 of user:token, and unmasked.
+                  echo "--- registries with stored auth ---"
+                  jq -r '.auths // {} | keys[]' "$CONFIG"
+                  jq -r '{credsStore: (.credsStore // "<none>"), credHelpers: (.credHelpers // {})}' "$CONFIG"
+                  echo "--- does an explicit authenticated pull work here? ---"
+                  docker pull postgres:15.12-alpine >/dev/null 2>&1 \
+                      && echo "docker pull postgres:15.12-alpine: OK" \
+                      || echo "docker pull postgres:15.12-alpine: FAILED"
 
             - name: Start stack with Docker Compose
               env:
