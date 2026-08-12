@@ -1,9 +1,8 @@
-import { CaretDown, DownloadSimple, Paperclip, X } from "@phosphor-icons/react";
+import { CaretDown, DownloadSimple, Package, X } from "@phosphor-icons/react";
 import {
   groupRunArtifactVersions,
   type RunArtifactVersions,
   runArtifactVersionKey,
-  runArtifactVersionLabel,
 } from "@posthog/core/canvas/runArtifactSchemas";
 import {
   SESSION_SERVICE,
@@ -19,9 +18,8 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Text,
 } from "@posthog/quill";
-import { formatRelativeTimeShort, type TaskRunArtifact } from "@posthog/shared";
+import { formatRelativeTimeLong, type TaskRunArtifact } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   getAuthIdentity,
@@ -32,7 +30,6 @@ import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStor
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
-import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -41,31 +38,42 @@ import { useCompletedArtifactUploads } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
 
-/**
- * The menu sits at the right edge of the thread, and its popup is capped at the space left
- * there and clips what does not fit, so the age is the compact form rather than the row's.
- */
-function wasEditedByCurrentUser(
+interface CurrentUser {
+  id?: number;
+  first_name?: string | null;
+}
+
+// Labels mirror the artifact pane (TaskArtifactsList) so the same file reads
+// the same way on both surfaces.
+function uploaderLabel(
   artifact: TaskRunArtifact,
-  currentUserId: number | undefined,
-): boolean {
-  return (
-    artifact.uploaded_by === "user" &&
-    currentUserId !== undefined &&
-    artifact.uploaded_by_user_id === currentUserId
-  );
+  currentUser: CurrentUser | undefined,
+): string {
+  if (artifact.uploaded_by !== "user") return "Agent";
+  if (
+    currentUser?.id !== undefined &&
+    artifact.uploaded_by_user_id === currentUser.id
+  ) {
+    return currentUser.first_name?.trim() || "You";
+  }
+  return "Teammate";
+}
+
+/** Compact one-based version label: v1 is oldest, v{total} is newest. */
+function versionShortLabel(index: number, total: number): string {
+  return `v${total - index}`;
 }
 
 function versionMenuLabel(
   artifact: TaskRunArtifact,
   index: number,
   total: number,
-  currentUserId: number | undefined,
+  currentUser: CurrentUser | undefined,
 ): string {
   return [
-    runArtifactVersionLabel(index, total),
-    wasEditedByCurrentUser(artifact, currentUserId) ? "Edited by you" : null,
-    artifact.uploaded_at ? formatRelativeTimeShort(artifact.uploaded_at) : null,
+    versionShortLabel(index, total),
+    uploaderLabel(artifact, currentUser),
+    artifact.uploaded_at ? formatRelativeTimeLong(artifact.uploaded_at) : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -195,114 +203,170 @@ export function CloudArtifactDownloads({
     const canDownload = Boolean(selected.id);
     const canChangeDismissal = group.versions.every((version) => version.id);
 
+    const metaText = [
+      uploaderLabel(selected, currentUser),
+      selected.uploaded_at
+        ? formatRelativeTimeLong(selected.uploaded_at)
+        : null,
+      size,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
     return (
+      // Compact take on the artifact pane's ArtifactCard (TaskArtifactsList):
+      // role="button" because the version picker and trailing actions are real
+      // buttons and HTML forbids nesting those.
+      // biome-ignore lint/a11y/useSemanticElements: nested real buttons forbid a <button> card
       <div
         key={group.name}
-        className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-background px-2 py-1.5"
-      >
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-          disabled={!canDownload}
-          onClick={() => {
-            if (!taskId || !selected.id) return;
+        role="button"
+        tabIndex={canDownload ? 0 : undefined}
+        aria-disabled={canDownload ? undefined : true}
+        aria-label={`View ${group.name}`}
+        className={`flex w-full items-center gap-2.5 rounded-lg border border-border bg-muted py-1.5 pr-1.5 pl-2 text-[13px] transition-colors ${
+          canDownload
+            ? "cursor-pointer hover:border-gray-6 hover:bg-gray-3"
+            : ""
+        }`}
+        onClick={() => {
+          if (!taskId || !selected.id) return;
+          openArtifactTab(taskId, {
+            runId,
+            artifactId: selected.id,
+            name: selected.name,
+          });
+        }}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (
+            canDownload &&
+            taskId &&
+            selected.id &&
+            (event.key === "Enter" || event.key === " ")
+          ) {
+            event.preventDefault();
             openArtifactTab(taskId, {
               runId,
               artifactId: selected.id,
               name: selected.name,
             });
-          }}
-        >
-          <FileIcon filename={selected.name} size={16} />
-          <Text className="truncate text-[13px]">{selected.name}</Text>
-          {size !== null && (
-            <Text className="shrink-0 text-[12px] text-gray-10">{size}</Text>
-          )}
-          {wasEditedByCurrentUser(selected, currentUser?.id) && (
-            <Text className="shrink-0 text-[12px] text-gray-10">
-              Edited by you
-            </Text>
-          )}
-          <RelativeTimestamp timestamp={selected.uploaded_at} />
-        </button>
-        {group.versions.length > 1 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  aria-label={`Choose a version of ${group.name}`}
-                >
-                  {runArtifactVersionLabel(
-                    selectedIndex,
-                    group.versions.length,
-                  )}
-                  <CaretDown size={12} />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end">
-              {group.versions.map((version, index) => (
-                <DropdownMenuItem
-                  key={runArtifactVersionKey(version)}
-                  onClick={() =>
-                    setSelectedVersionByName((current) => ({
-                      ...current,
-                      [group.name]: runArtifactVersionKey(version),
-                    }))
-                  }
-                >
-                  {versionMenuLabel(
-                    version,
-                    index,
-                    group.versions.length,
-                    currentUser?.id,
-                  )}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        {group.dismissed ? (
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={dismissal.isPending || !canChangeDismissal}
-            onClick={() => dismissal.mutate({ group, dismissed: false })}
+          }
+        }}
+      >
+        <div className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-gray-4">
+          {/* The icon again, blown up and blurred: the tile tints itself with
+              the icon's own colors, so new icons never need a color mapping. */}
+          <div
+            aria-hidden
+            className="absolute inset-0 flex scale-[2.4] items-center justify-center opacity-40 blur-[9px] saturate-[1.8] dark:opacity-70"
           >
-            Restore
-          </Button>
-        ) : (
-          <>
+            <FileIcon filename={group.name} size={16} />
+          </div>
+          <div className="relative flex items-center justify-center">
+            <FileIcon filename={group.name} size={16} />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{group.name}</div>
+          <div className="flex items-center gap-1 whitespace-nowrap text-[12px] text-muted-foreground">
+            {metaText && <span className="truncate">{metaText}</span>}
+            {group.versions.length > 1 && (
+              <>
+                {metaText && <span>·</span>}
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={`Choose a version of ${group.name}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="flex shrink-0 cursor-pointer items-center gap-0.5 text-foreground"
+                      >
+                        {versionShortLabel(
+                          selectedIndex,
+                          group.versions.length,
+                        )}
+                        <CaretDown size={10} />
+                      </button>
+                    }
+                  />
+                  {/* w-max: the default popup width tracks the anchor, and this
+                      trigger is a couple of characters wide, so version labels
+                      would be cut off. */}
+                  <DropdownMenuContent align="start" className="w-max">
+                    {group.versions.map((version, index) => (
+                      <DropdownMenuItem
+                        key={runArtifactVersionKey(version)}
+                        onClick={() =>
+                          setSelectedVersionByName((current) => ({
+                            ...current,
+                            [group.name]: runArtifactVersionKey(version),
+                          }))
+                        }
+                      >
+                        {versionMenuLabel(
+                          version,
+                          index,
+                          group.versions.length,
+                          currentUser,
+                        )}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          {group.dismissed ? (
             <Button
-              size="icon-sm"
+              size="sm"
               variant="outline"
-              aria-label={`Download ${group.name}`}
-              disabled={!canDownload || downloadingId !== null}
-              onClick={() => {
-                if (!taskId || !selected.id) return;
-                void download({
-                  taskId,
-                  runId,
-                  artifactId: selected.id,
-                  name: selected.name,
-                });
+              disabled={dismissal.isPending || !canChangeDismissal}
+              onClick={(event) => {
+                event.stopPropagation();
+                dismissal.mutate({ group, dismissed: false });
               }}
             >
-              <DownloadSimple size={14} />
+              Restore
             </Button>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              aria-label={`Dismiss ${group.name}`}
-              disabled={dismissal.isPending || !canChangeDismissal}
-              onClick={() => dismissal.mutate({ group, dismissed: true })}
-            >
-              <X size={14} />
-            </Button>
-          </>
-        )}
+          ) : (
+            <>
+              <Button
+                size="icon-sm"
+                variant="default"
+                aria-label={`Download ${group.name}`}
+                disabled={!canDownload || downloadingId !== null}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (!taskId || !selected.id) return;
+                  void download({
+                    taskId,
+                    runId,
+                    artifactId: selected.id,
+                    name: selected.name,
+                  });
+                }}
+              >
+                <DownloadSimple size={14} />
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="default"
+                aria-label={`Dismiss ${group.name}`}
+                disabled={dismissal.isPending || !canChangeDismissal}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  dismissal.mutate({ group, dismissed: true });
+                }}
+              >
+                <X size={14} />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     );
   };
@@ -318,7 +382,7 @@ export function CloudArtifactDownloads({
             className="relative"
             aria-label={`Artifacts (${visibleGroups.length})`}
           >
-            <Paperclip size={16} />
+            <Package size={16} />
             {visibleGroups.length > 0 && (
               <span className="-top-1 -right-1 absolute flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 font-semibold text-[9px] text-primary-foreground">
                 {visibleGroups.length}

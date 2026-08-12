@@ -142,9 +142,8 @@ describe("CloudArtifactDownloads", () => {
     openFiles();
 
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
-    expect(screen.getByText("12 KB")).toBeInTheDocument();
+    expect(screen.getByText(/12 KB/)).toBeInTheDocument();
     expect(screen.queryByText("handoff.pack")).not.toBeInTheDocument();
-    expect(screen.queryByText("Edited by you")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("Download report.pdf"));
 
@@ -224,9 +223,9 @@ describe("CloudArtifactDownloads", () => {
     renderDownloads();
     openFiles();
 
-    expect(screen.queryByText("Edited by you")).not.toBeInTheDocument();
     fireEvent.click(screen.getByLabelText("Choose a version of report.md"));
-    expect(screen.getByText(/Version 1 · Edited by you ·/)).toBeInTheDocument();
+    expect(screen.getByText(/^v1 · You ·/)).toBeInTheDocument();
+    expect(screen.getByText(/^v2 · Agent ·/)).toBeInTheDocument();
   });
 
   it("opens an artifact preview in a new tab", () => {
@@ -298,7 +297,7 @@ describe("CloudArtifactDownloads", () => {
     renderDownloads();
     openFiles();
 
-    expect(screen.getByText("1 KB")).toBeInTheDocument();
+    expect(screen.getByText(/1 KB$/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("report.pdf"));
     expect(openArtifactTab).toHaveBeenCalledWith("task-1", {
       runId: "run-1",
@@ -330,12 +329,12 @@ describe("CloudArtifactDownloads", () => {
     renderDownloads();
     openFiles();
 
-    expect(screen.getByText("2 KB")).toBeInTheDocument();
+    expect(screen.getByText(/2 KB$/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByLabelText("Choose a version of report.pdf"));
-    fireEvent.click(screen.getByText(/^Version 1/));
+    fireEvent.click(screen.getByText(/^v1 ·/));
 
-    expect(screen.getByText("1 KB")).toBeInTheDocument();
+    expect(screen.getByText(/1 KB$/)).toBeInTheDocument();
   });
 
   it("disables dismissal until every version has an id", () => {
