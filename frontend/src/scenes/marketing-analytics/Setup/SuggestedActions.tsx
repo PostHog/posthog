@@ -75,7 +75,9 @@ export function SuggestedActions(): JSX.Element {
                             size="small"
                             loading={isBatchApplying}
                             onClick={reviewSafeBatch}
-                            tooltip="High-confidence, reversible changes only. Opens a preview of exactly what they change."
+                            // "Safe" is about what can go in one batch, not a verdict on
+                            // the rest — say so, because the label alone reads as one.
+                            tooltip="Reversible changes we're confident enough about to apply together — you still get a preview of exactly what they change. The rest aren't risky, they need a decision only you can make."
                         >
                             Review {safeBatch.length} safe change{safeBatch.length === 1 ? '' : 's'}
                         </LemonButton>

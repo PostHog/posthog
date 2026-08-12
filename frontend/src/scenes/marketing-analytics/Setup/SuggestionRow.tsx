@@ -85,12 +85,17 @@ export function SuggestionRow({
 
     const isApplying = applyingIds.includes(suggestion.id)
     const urlFix = findOp(suggestion.also_recommended, 'fix_platform_urls')
-    const ctaLabel = suggestion.apply ? (CTA_LABEL[suggestion.apply.op] ?? 'Review change') : null
     // Nothing to apply doesn't mean nothing to do. The plan already says where the fix
     // lives — `deep_link` for the ones that live outside this tab (a broken sync, an
     // unselected table), the owning section for the rest. Without this the row offers
     // Dismiss and nothing else, which reads as "we found it, you're on your own".
     const section = SECTION_BY_KIND[suggestion.kind]
+    // Setup re-hosts every component the marketing settings page hosts, so
+    // `open_settings` on a suggestion we have a section for is a detour out of the tab
+    // and back into the same editor. Once we're already in that section the editor is
+    // on screen below the row, and no button beats a redundant one.
+    const settlesInTab = suggestion.apply?.op === 'open_settings' && !!section
+    const ctaLabel = suggestion.apply && !settlesInTab ? (CTA_LABEL[suggestion.apply.op] ?? 'Review change') : null
     const sectionCta = !ctaLabel && section && section !== currentSection ? section : null
 
     return (

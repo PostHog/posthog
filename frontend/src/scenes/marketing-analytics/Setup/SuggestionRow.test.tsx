@@ -56,6 +56,25 @@ describe('SuggestionRow', () => {
         await waitFor(() => expect(screen.getByText('Integration health')).toBeTruthy())
     })
 
+    /** Setup re-hosts the settings components, so sending someone out to a new tab to
+     * reach the same editor is a detour. */
+    it('keeps an open_settings fix inside the tab', async () => {
+        render(
+            <SuggestionRow
+                suggestion={
+                    {
+                        ...suggestion({ kind: 'fix_conversion_goal' }),
+                        apply: { op: 'open_settings', anchor: 'environment-marketing-analytics' },
+                    } as Suggestion
+                }
+                onReview={() => {}}
+            />
+        )
+
+        await waitFor(() => expect(screen.getByText('Conversion goals')).toBeTruthy())
+        expect(screen.queryByText('Open settings')).toBeNull()
+    })
+
     it('does not offer the section it is already rendered in', async () => {
         render(
             <SuggestionRow
