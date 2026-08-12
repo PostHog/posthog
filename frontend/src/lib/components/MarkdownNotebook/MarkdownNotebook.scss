@@ -610,8 +610,8 @@
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: 1.5rem;
+    height: 1.5rem;
     appearance: none;
     cursor: pointer;
     background: transparent;
@@ -642,7 +642,10 @@
     min-width: 0;
     padding: 0.125rem 0.375rem;
     overflow: hidden;
-    font-size: 0.875rem;
+
+    // Sits above the card titles a section wraps (1rem) and below an authored h3 (1.25rem),
+    // so the section reads as the container rather than as one more card.
+    font-size: 1.125rem;
     font-weight: 600;
     line-height: 1.4;
     color: var(--color-text-primary);
