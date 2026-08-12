@@ -1,5 +1,5 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import { GLM_MODEL_FLAG, KIMI_MODEL_FLAG } from "@posthog/shared";
+import { KIMI_MODEL_FLAG } from "@posthog/shared";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex } from "@radix-ui/themes";
@@ -54,7 +54,6 @@ export function LoopModelFields({
   onReasoningEffortChange,
   disabled,
 }: LoopModelFieldsProps) {
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const configOptions = useLoopModelConfigOptions(adapter);
 
@@ -62,12 +61,11 @@ export function LoopModelFields({
     () => [
       { value: DEFAULT_MODEL_VALUE, label: "Default (recommended)" },
       ...loopModelOptions(adapter, configOptions, {
-        glmEnabled,
         kimiEnabled,
         pinnedModel: model,
       }),
     ],
-    [adapter, configOptions, glmEnabled, kimiEnabled, model],
+    [adapter, configOptions, kimiEnabled, model],
   );
 
   const reasoningOptions = useMemo(

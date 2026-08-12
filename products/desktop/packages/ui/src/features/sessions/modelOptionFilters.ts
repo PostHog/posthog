@@ -31,14 +31,6 @@ function stripModelOptions(
   };
 }
 
-export function stripGlmModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, (value) =>
-    value.toLowerCase().includes("glm"),
-  );
-}
-
 export function stripDeepseekModelOption(
   option: SessionConfigOption,
 ): SessionConfigOption {

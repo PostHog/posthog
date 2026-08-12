@@ -17,13 +17,11 @@ import {
   type Adapter,
   DEEPSEEK_MODEL_FLAG,
   FAST_MODE_FLAG,
-  GLM_MODEL_FLAG,
   getCloudUrlFromRegion,
   KIMI_MODEL_FLAG,
 } from "@posthog/shared";
 import {
   stripDeepseekModelOption,
-  stripGlmModelOption,
   stripKimiModelOption,
 } from "@posthog/ui/features/sessions/modelOptionFilters";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -62,7 +60,6 @@ function getOptionByCategory(
  */
 export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
   const hostClient = useHostTRPCClient();
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
   const deepseekEnabled = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
@@ -116,12 +113,9 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
 
         const options = serverOptions
           .map((option) => {
-            const withoutGlm = glmEnabled
-              ? option
-              : stripGlmModelOption(option);
             const withoutDeepseek = deepseekEnabled
-              ? withoutGlm
-              : stripDeepseekModelOption(withoutGlm);
+              ? option
+              : stripDeepseekModelOption(option);
             return kimiEnabled
               ? withoutDeepseek
               : stripKimiModelOption(withoutDeepseek);
@@ -249,7 +243,6 @@ export function usePreviewConfig(adapter: Adapter): PreviewConfigResult {
     apiHost,
     hostClient,
     hasHydrated,
-    glmEnabled,
     deepseekEnabled,
     kimiEnabled,
     fastModeFlagEnabled,
