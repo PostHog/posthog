@@ -2,7 +2,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 
 import { EventsNode, FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { HogQLQueryString, hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -42,6 +42,14 @@ export type WorkflowConversionSeries = {
     converted: number[]
 }
 
+// Whether any part of the goal is met by something the person does, rather than by their properties
+// changing. That decides which of the two counting paths below can see the conversion.
+export function hasEventGoal(conversion: HogFlow['conversion']): boolean {
+    const goalEvents: any[] = conversion?.events?.[0]?.filters?.events ?? []
+    const goalActions: any[] = conversion?.events?.[0]?.filters?.actions ?? []
+    return goalEvents.some((event) => event.id) || goalActions.some((action) => action.id)
+}
+
 /**
  * The goal as a funnel step: the events that mean the person converted.
  *
@@ -50,9 +58,8 @@ export type WorkflowConversionSeries = {
  * emitted while a run is parked in cyclotron, so a workflow with no delay step never emits one and
  * reads as 0% conversion however many people converted.
  *
- * Property-based goals have no such stream to match: they are evaluated against person properties as
- * the run executes, and `$workflows_conversion` is the only record that it happened. Those stay
- * matched on the event, which is reliable for them because the executor emits it inline.
+ * A goal that also has property conditions keeps them here as one more way to qualify, which catches
+ * a property conversion recorded on a later pass. Property-only goals never reach this path.
  *
  * A funnel step takes a flat, AND-ed property list — there is no per-step OR group in the schema — so
  * a goal naming several events is expressed as one unnamed step whose event identity is an OR'd HogQL
@@ -109,6 +116,69 @@ export function buildConversionGoalStep(conversion: HogFlow['conversion'], workf
 }
 
 /**
+ * Property-only goals, counted by pairing each run's enrollment with its conversion on the run id.
+ *
+ * Both events are emitted by the executor itself, so the pairing is exact and needs no ordering
+ * between them. Runs are bucketed by when they enrolled, matching the funnel path.
+ */
+async function loadPropertyGoalSeries(
+    request: WorkflowConversionRequest,
+    timezone: string
+): Promise<WorkflowConversionSeries> {
+    const windowClause = hogql.raw(
+        request.windowMinutes && request.windowMinutes > 0
+            ? `AND converted_at <= enrolled_at + toIntervalMinute(${Math.floor(request.windowMinutes)})`
+            : ''
+    )
+
+    const query = hogql`
+        SELECT
+            dateTrunc(${request.interval}, toTimeZone(enrolled_at, ${timezone}), ${timezone}) AS bucket,
+            count() AS enrolled,
+            countIf(converted_at >= enrolled_at ${windowClause}) AS converted
+        FROM (
+            SELECT
+                properties.$workflow_run_id AS run_id,
+                minIf(timestamp, event = ${ENROLLED_EVENT}) AS enrolled_at,
+                minIf(timestamp, event = ${CONVERSION_EVENT}) AS converted_at
+            FROM events
+            WHERE event IN (${ENROLLED_EVENT}, ${CONVERSION_EVENT})
+                AND properties.$workflow_id = ${request.workflowId}
+                AND properties.$workflow_run_id != ''
+                AND timestamp >= toDateTime(${request.dateFrom})
+            GROUP BY run_id
+            -- A conversion whose run started before the range must not invent a denominator row.
+            HAVING enrolled_at > toDateTime(0)
+                AND enrolled_at < toDateTime(${request.dateTo})
+        )
+        GROUP BY bucket
+        ORDER BY bucket
+    ` as HogQLQueryString
+
+    const response = await api.queryHogQL(
+        query,
+        { scene: 'Workflow', productKey: 'messaging' },
+        {
+            refresh: 'force_blocking',
+        }
+    )
+
+    const labels: string[] = []
+    const enrolled: number[] = []
+    const converted: number[] = []
+    for (const [bucket, enrolledCount, convertedCount] of response.results ?? []) {
+        labels.push(
+            dayjs(bucket)
+                .tz(timezone)
+                .format(request.interval === 'day' ? 'YYYY-MM-DD' : 'YYYY-MM-DD HH:mm')
+        )
+        enrolled.push(enrolledCount ?? 0)
+        converted.push(convertedCount ?? 0)
+    }
+    return { labels, enrolled, converted }
+}
+
+/**
  * Conversion rate as a two-step funnel: entering the workflow, then meeting the goal.
  *
  * The funnel counts people, not runs — a person enrolled twice in a bucket is one entrant. That is
@@ -125,6 +195,14 @@ export async function loadWorkflowConversionSeries(
     const goalStep = buildConversionGoalStep(request.conversion, request.workflowId)
     if (!goalStep) {
         return { labels: [], enrolled: [], converted: [] }
+    }
+
+    // A goal made only of person-property conditions is evaluated inline as the run executes, so its
+    // conversion event is stamped in the same instant as the enrollment event. A funnel needs its
+    // second step to come after the first, so it would score every one of those runs as unconverted.
+    // They carry a run id, which pairs exactly, so count them that way instead.
+    if (!hasEventGoal(request.conversion)) {
+        return await loadPropertyGoalSeries(request, timezone)
     }
 
     const windowMinutes =

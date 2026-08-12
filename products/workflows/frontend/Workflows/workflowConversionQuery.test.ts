@@ -103,6 +103,25 @@ describe('workflowConversionQuery', () => {
         expect((await loadWorkflowConversionSeries(baseRequest, 'UTC')).converted).toEqual([0, 3])
     })
 
+    // The executor stamps a property conversion with the same timestamp as the enrollment, so a
+    // funnel scores every one of those runs as unconverted and the tile reads 0%. Property-only goals
+    // have to pair on the run id instead.
+    it('counts a property-only goal by pairing on the run id, not with a funnel', async () => {
+        const queryHogQL = jest
+            .spyOn(api, 'queryHogQL')
+            .mockResolvedValue({ results: [['2026-01-02T00:00:00Z', 3, 1]] } as any)
+
+        const result = await loadWorkflowConversionSeries(
+            { ...baseRequest, conversion: { window_minutes: null, filters: [{ key: 'plan' }] } as any },
+            'UTC'
+        )
+
+        expect(query).not.toHaveBeenCalled()
+        expect(result.enrolled).toEqual([3])
+        expect(result.converted).toEqual([1])
+        queryHogQL.mockRestore()
+    })
+
     it('skips the query when the workflow has no conversion goal', async () => {
         const result = await loadWorkflowConversionSeries({ ...baseRequest, conversion: undefined }, 'UTC')
 
