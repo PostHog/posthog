@@ -83,21 +83,12 @@ def _score_and_mirror(
     is_recheck: bool,
     distinct_id: Optional[str],
 ) -> tuple[Optional[int], Optional[str]]:
-    """Score one org and decide whether to mirror the score onto the signer's person profile.
+    """Score one org; on the recheck, also mirror the score onto the signer's person profile.
 
-    Clay's bridge columns are read as an optional input on every attempt — used when present,
-    never waited for. Clay's own write lands after ours far more often than not, so most orgs
-    score on our fields alone at signup; the +4h recheck re-reads the bridge and can upgrade the
-    score if Clay's columns landed since. The person mirror stays recheck-only, and is skipped
-    entirely when the person already carries a Clay-written score.
-
-    Clearbit's person-profile fallback (est_revenue, company_type) is also recheck-only: its hog
-    function typically hasn't fired yet at first-attempt time, and reading it needs the same
-    person fetch the mirror check already does, so both ride the one lookup. Clay wins when both
-    are present, keeping already-dual-written orgs scoring identically to before this fallback.
-
-    Wrapped so a bridge-read or score failure degrades to no score rather than taking down the
-    firmographic write below — see enrich_organization's docstring.
+    Every attempt reads Clay's bridge columns as optional input, never waiting for them. The
+    recheck adds one person lookup that serves two things: the mirror-ownership check and the
+    Clearbit fallback for est_revenue and company_type (Clay wins when both exist). Any read or
+    score failure degrades to writing firmographics without a score — see enrich_organization.
     """
     try:
         clay = read_clay_bridge_inputs(organization_id=organization_id)
