@@ -100,8 +100,8 @@ def _tracked_services(repo_root: Path, services_dir: Path) -> list[str]:
 
 
 def _covering_run_text(wf: Workflow) -> str:
-    # scan targets may live in `run:` text or in a composite action's `with:`
-    # values (e.g. the semgrep-ci action's `args`)
+    # scan targets may live in `run:` text or in a composite action's `args`
+    # input (the semgrep-ci action)
     parts: list[str] = []
     for job in wf.jobs:
         if job.name not in COVERING_JOBS:
@@ -110,5 +110,14 @@ def _covering_run_text(wf: Workflow) -> str:
             if step.run is not None:
                 parts.append(step.run)
             if step.with_ is not None:
-                parts.extend(value for value in step.with_.values() if isinstance(value, str))
+                args = step.with_.get("args")
+                if isinstance(args, str):
+                    parts.extend(_include_patterns(args))
     return "\n".join(parts)
+
+
+def _include_patterns(args: str) -> list[str]:
+    # Only `--include` values count as coverage: an `--exclude /services/<name>`
+    # or an unrelated input naming a service must not satisfy the check.
+    tokens = args.split()
+    return [value for flag, value in zip(tokens, tokens[1:]) if flag == "--include"]
