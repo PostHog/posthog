@@ -12,6 +12,7 @@ from requests.exceptions import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot import (
     HubspotResumeConfig,
+    HubspotUnparsableCursorError,
     _backfill_associations_into_results,
     _batch_read_associations,
     _flatten_result,
@@ -500,6 +501,33 @@ class TestGetRowsViaSearch:
         assert body["filterGroups"][0]["filters"][0]["operator"] == "GTE"
         assert body["filterGroups"][0]["filters"][1]["operator"] == "LTE"
         assert "after" not in body
+
+    def test_unparsable_cursor_raises_instead_of_stalling(self) -> None:
+        # A record HubSpot returns whose cursor property cannot be parsed must fail the run,
+        # not be ingested while the watermark stays frozen (which reports a healthy zero-row sync).
+        manager = _make_manager()
+        logger = MagicMock()
+        bad_row = {"id": "7", "properties": {"hs_object_id": "7", "hs_lastmodifieddate": "not a date"}}
+        side_effect, _captured = _setup_search_post([_make_response(200, _search_page([bad_row]))])
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
+            with pytest.raises(HubspotUnparsableCursorError):
+                list(
+                    get_rows_via_search(
+                        api_key="k",
+                        refresh_token="r",
+                        endpoint="deals",
+                        logger=logger,
+                        resumable_source_manager=manager,
+                        db_incremental_field_last_value=_RECENT_SEED_ISO,
+                        include_custom_props=False,
+                        now_ms=_FIXED_NOW_MS,
+                        api_version=HUBSPOT_API_VERSION_V3,
+                    )
+                )
 
     def test_seed_from_db_incremental_field_last_value(self) -> None:
         manager = _make_manager()

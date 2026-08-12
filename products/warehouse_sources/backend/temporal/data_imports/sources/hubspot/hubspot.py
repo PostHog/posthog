@@ -61,6 +61,16 @@ SEARCH_PROPERTIES_LIMIT = 250
 WINDOW_SIZE_MS = SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000
 
 
+class HubspotUnparsableCursorError(Exception):
+    """A record returned by the cursor-filtered search has a missing or unparsable cursor value.
+
+    The incremental search sorts and range-filters on the cursor property, so every returned
+    record must carry a value the watermark can advance on. When one does not, the run cannot
+    move its cursor past that record and would otherwise re-query the same window on every later
+    run while reporting a healthy, zero-row completion. Fail loudly instead of stalling silently.
+    """
+
+
 @dataclasses.dataclass
 class HubspotResumeConfig:
     # Full-refresh / seed incremental (GET) path
@@ -674,11 +684,16 @@ def get_rows_via_search(
                 _backfill_missing_properties(row, expected_properties)
 
             row_cursor_ms = _iso_to_ms(row.get(cursor_prop))
-            if row_cursor_ms is not None:
-                if row_cursor_ms > last_cursor_ms:
-                    last_cursor_ms = row_cursor_ms
-                if row_cursor_ms > sub_slice_max_cursor:
-                    sub_slice_max_cursor = row_cursor_ms
+            if row_cursor_ms is None:
+                raise HubspotUnparsableCursorError(
+                    f"HubSpot {endpoint}: record id={row.get('hs_object_id')} has a missing or unparsable "
+                    f"cursor property {cursor_prop!r} (value={row.get(cursor_prop)!r}); cannot advance the "
+                    f"incremental cursor. Fix the record's {cursor_prop} in HubSpot or reset the sync."
+                )
+            if row_cursor_ms > last_cursor_ms:
+                last_cursor_ms = row_cursor_ms
+            if row_cursor_ms > sub_slice_max_cursor:
+                sub_slice_max_cursor = row_cursor_ms
 
             batcher.batch(row)
             if batcher.should_yield():
