@@ -63,7 +63,6 @@ describe('createValidateEventUuidTimestampStep', () => {
                     uuidTimestamp: DateTime.fromMillis(embeddedMs, { zone: 'utc' }).toISO(),
                     divergenceDays: expect.any(Number),
                 },
-                key: 'posthog-python',
             })
         }
     })

@@ -49,6 +49,7 @@ export function createValidateEventUuidTimestampStep<T extends { event: Pipeline
         const rawLib = event.properties?.['$lib']
         const lib = typeof rawLib === 'string' ? rawLib : ''
 
+        // No debounce key: $lib is client-controlled, so keying on it would bypass the hourly limit and grow the limiter map without bound.
         const warnings: PipelineWarning[] = [
             {
                 type: 'event_uuid_timestamp_divergent',
@@ -61,8 +62,6 @@ export function createValidateEventUuidTimestampStep<T extends { event: Pipeline
                     uuidTimestamp: DateTime.fromMillis(embeddedMs, { zone: 'utc' }).toISO(),
                     divergenceDays: Math.round(divergenceMs / MS_PER_DAY),
                 },
-                // Surface each sending library independently.
-                key: lib,
             },
         ]
 
