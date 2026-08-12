@@ -501,6 +501,9 @@ tools:
     warehouse-saved-queries-cancel-create:
         operation: warehouse_saved_queries_cancel_create
         enabled: false
+    warehouse-saved-queries-check-incremental-create:
+        operation: warehouse_saved_queries_check_incremental_create
+        enabled: false
     warehouse-saved-queries-dependencies-retrieve:
         operation: warehouse_saved_queries_dependencies_retrieve
         enabled: false
