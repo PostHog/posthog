@@ -105,6 +105,14 @@ export function buildCspMetaTag(
  * outside either. That leaves collecting them in-document and posting them to
  * the parent, which relays to the host.
  *
+ * Serving the frame over the `mcp-sandbox:` protocol to get real headers on it
+ * does not help, and is worth not retrying: on Electron 42 a header-delivered
+ * policy is enforced but never reported. In a document served that way, with
+ * both `report-uri` and `report-to` naming an https endpoint, a violation the
+ * page's own `ReportingObserver` saw produced no request, while a `sendBeacon`
+ * to the same endpoint went out — so the reporting pipeline is what is absent,
+ * not the network.
+ *
  * The payload is the Reporting API's own JSON, so the host can forward it to
  * PostHog's `/report/` endpoint unchanged, exactly as a browser would.
  */
