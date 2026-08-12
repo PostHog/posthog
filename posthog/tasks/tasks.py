@@ -1653,7 +1653,7 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
         deleted = delete_cached_fields(str(org_id))
         logger.info(f"Flushed cache for org {org_id}: {deleted}")
 
-        record_count = discovery._get_org_record_count()
+        record_count = discovery._get_record_count()
         estimated_sampled_records = int(record_count * (SAMPLING_PERCENTAGE / 100))
         total_batches = (estimated_sampled_records + BATCH_SIZE - 1) // BATCH_SIZE
 

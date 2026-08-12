@@ -576,10 +576,15 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             self._filter_manager = AdvancedActivityLogFilterManager()
         return self._filter_manager
 
+    def _field_discovery_team_id(self) -> Optional[int]:
+        return self.team_id
+
     @property
     def field_discovery(self) -> AdvancedActivityLogFieldDiscovery:
         if self._field_discovery is None:
-            self._field_discovery = AdvancedActivityLogFieldDiscovery(self.organization.id)
+            self._field_discovery = AdvancedActivityLogFieldDiscovery(
+                self.organization.id, team_id=self._field_discovery_team_id()
+            )
         return self._field_discovery
 
     def _make_filters_serializable(self, filters_data: dict) -> dict[str, Any]:
@@ -778,6 +783,11 @@ class OrganizationAdvancedActivityLogsViewSet(AdvancedActivityLogsViewSet):
         # parents_query_dict is {"organization_id": <uuid>} on this nested route, so let
         # TeamAndOrgViewSetMixin filter the queryset by organization_id automatically.
         return False
+
+    def _field_discovery_team_id(self) -> Optional[int]:
+        # This route is admin-gated and has no single team, so discovery stays organization-wide.
+        # `self.team_id` is not resolvable here either, because parents_query_dict carries no team_id.
+        return None
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         queryset = queryset.select_related("user")

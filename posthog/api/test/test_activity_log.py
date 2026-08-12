@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.advanced_activity_logs.fields_cache import cache_fields, delete_cached_fields, get_cached_fields
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
@@ -432,6 +433,106 @@ class TestOrganizationAdvancedActivityLogsAvailableFilters(APIBaseTest):
         assert {"FeatureFlag", "Insight"}.issubset(scopes)
         activities = {entry["value"] for entry in body["static_filters"]["activities"]}
         assert {"created", "updated"}.issubset(activities)
+
+
+class TestAdvancedActivityLogsAvailableFiltersScoping(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = False
+        self.user.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.AUDIT_LOGS, "name": "Activity logs"}]
+        self.organization.save()
+
+        self.other_team = Team.objects.create(organization=self.organization, name="Other project")
+        self.other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="other-project-actor@posthog.com",
+            password="",
+        )
+
+        self._log(self.team.id, "Dashboard", "created", {"project_a_field": "a"}, self.user)
+        self._log(self.other_team.id, "Insight", "deleted", {"project_b_field": "b"}, self.other_user)
+        # Restricted for non-staff by activity_visibility_restrictions, but inside this project.
+        self._log(self.team.id, "User", "created", {"restricted_field": "r"}, self.user)
+
+        self._clear_caches()
+        self.addCleanup(self._clear_caches)
+
+    def _clear_caches(self) -> None:
+        delete_cached_fields(str(self.organization.id))
+        delete_cached_fields(str(self.organization.id), team_id=self.team.id)
+
+    def _log(self, team_id: int, scope: str, activity: str, detail: dict, user: User) -> None:
+        ActivityLog.objects.create(
+            organization_id=self.organization.id,
+            team_id=team_id,
+            user=user,
+            scope=scope,
+            activity=activity,
+            item_id="item-1",
+            detail=detail,
+        )
+
+    def _available_filters(self) -> Any:
+        return self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/available_filters/")
+
+    @staticmethod
+    def _values(body: dict, key: str) -> set[str]:
+        return {entry["value"] for entry in body["static_filters"][key]}
+
+    @staticmethod
+    def _detail_field_names(body: dict, scope: str) -> set[str]:
+        return {field["name"] for field in body["detail_fields"].get(scope, {}).get("fields", [])}
+
+    def test_available_filters_are_scoped_to_the_requested_project(self) -> None:
+        res = self._available_filters()
+
+        assert res.status_code == status.HTTP_200_OK
+        body = res.json()
+        assert self._values(body, "scopes") == {"Dashboard"}
+        assert self._values(body, "activities") == {"created"}
+        assert self._values(body, "users") == {str(self.user.uuid)}
+        assert self._detail_field_names(body, "Dashboard") == {"project_a_field"}
+        assert "Insight" not in body["detail_fields"]
+
+    def test_available_filters_are_cached_under_a_project_scoped_key(self) -> None:
+        assert self._available_filters().status_code == status.HTTP_200_OK
+
+        assert get_cached_fields(str(self.organization.id)) is None
+        cached = get_cached_fields(str(self.organization.id), team_id=self.team.id)
+        assert cached is not None
+        assert {entry["value"] for entry in cached["static_filters"]["scopes"]} == {"Dashboard"}
+
+    def test_available_filters_omit_detail_fields_of_restricted_scopes(self) -> None:
+        res = self._available_filters()
+
+        assert res.status_code == status.HTTP_200_OK
+        assert "User" not in res.json()["detail_fields"]
+
+    def test_available_filters_do_not_serve_the_organization_wide_cache(self) -> None:
+        cache_fields(
+            str(self.organization.id),
+            {
+                "static_filters": {
+                    "users": [{"value": str(self.other_user.uuid), "label": "Other"}],
+                    "scopes": [{"value": "Insight"}],
+                    "activities": [{"value": "deleted"}],
+                    "clients": [{"value": "other-project-client"}],
+                },
+                "detail_fields": {"Insight": {"fields": [{"name": "project_b_field", "types": ["string"]}]}},
+            },
+            record_count=0,
+        )
+
+        with patch("posthog.api.advanced_activity_logs.field_discovery.SMALL_ORG_THRESHOLD", 0):
+            res = self._available_filters()
+
+        assert res.status_code == status.HTTP_200_OK
+        body = res.json()
+        assert self._values(body, "scopes") == set()
+        assert self._values(body, "users") == set()
+        assert self._values(body, "clients") == set()
+        assert body["detail_fields"] == {}
 
 
 class TestActivityLogBearerAuthAttribution(APIBaseTest):

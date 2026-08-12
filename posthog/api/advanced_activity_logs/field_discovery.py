@@ -23,14 +23,28 @@ DetailFieldsResult = dict[str, ScopeFields]
 
 
 class AdvancedActivityLogFieldDiscovery:
-    def __init__(self, organization_id: UUIDT):
+    """Derives the filter options an activity log caller may choose from.
+
+    `team_id` narrows every query and the cache key to a single project. It stays `None` for the
+    organization-wide callers (the org-scoped endpoint and the background cache task), which are
+    allowed to see across projects.
+    """
+
+    def __init__(self, organization_id: UUIDT, team_id: int | None = None):
         self.organization_id = organization_id
+        self.team_id = team_id
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
-        record_count = self._get_org_record_count()
+        # The filter options themselves come from the caller's authorized queryset below, so they can
+        # never name a project, scope, or actor whose rows that caller cannot read. This count only
+        # chooses between the cached and the live branch, so it stays on the plain scoped count:
+        # counting the authorized queryset instead would evaluate the visibility, loop and canvas
+        # exclusions (JSON predicates on `detail`) over every row, on the organization-wide request
+        # this branch exists to keep cheap.
+        record_count = self._get_record_count()
 
         if record_count > SMALL_ORG_THRESHOLD:
-            cached = get_cached_fields(str(self.organization_id))
+            cached = get_cached_fields(str(self.organization_id), self.team_id)
             if cached:
                 return cached
             return {
@@ -39,14 +53,14 @@ class AdvancedActivityLogFieldDiscovery:
             }
 
         static_filters = self._get_static_filters(base_queryset)
-        detail_fields = self._analyze_detail_fields_memory()
+        detail_fields = self._analyze_detail_fields_memory(base_queryset)
 
         result = {
             "static_filters": static_filters,
             "detail_fields": detail_fields,
         }
 
-        cache_fields(str(self.organization_id), result, record_count)
+        cache_fields(str(self.organization_id), result, record_count, self.team_id)
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
@@ -89,8 +103,8 @@ class AdvancedActivityLogFieldDiscovery:
         clients = set(clients_query)
         return [{"value": client} for client in sorted(c for c in clients if c)]
 
-    def _analyze_detail_fields_memory(self) -> DetailFieldsResult:
-        fields = self._discover_fields_memory(batch_size=BATCH_SIZE, use_sampling=False)
+    def _analyze_detail_fields_memory(self, base_queryset: QuerySet) -> DetailFieldsResult:
+        fields = self._discover_fields_memory(base_queryset, batch_size=BATCH_SIZE)
         converted_fields = self._convert_to_discovery_format(fields)
 
         result: DetailFieldsResult = {}
@@ -101,12 +115,12 @@ class AdvancedActivityLogFieldDiscovery:
 
         return result
 
-    def _get_org_record_count(self) -> int:
-        return ActivityLog.objects.filter(organization_id=self.organization_id).count()
+    def _get_record_count(self) -> int:
+        return self._get_base_queryset().count()
 
     def get_activity_logs_queryset(self, hours_back: int | None = None) -> QuerySet:
         """Get the base queryset for activity logs, optionally filtered by time."""
-        queryset = ActivityLog.objects.filter(organization_id=self.organization_id, detail__isnull=False)
+        queryset = self._get_base_queryset().filter(detail__isnull=False)
 
         if hours_back is not None:
             cutoff_time = timezone.now() - timedelta(hours=hours_back)
@@ -116,17 +130,25 @@ class AdvancedActivityLogFieldDiscovery:
 
     def get_sampled_records(self, limit: int, offset: int = 0) -> list[dict]:
         """Get sampled records using SQL TABLESAMPLE for large datasets."""
+        params: list[Any] = [str(self.organization_id)]
+        team_clause = ""
+        if self.team_id is not None:
+            team_clause = "AND team_id = %s"
+            params.append(self.team_id)
+        params.extend([limit, offset])
+
         query = f"""
             SELECT scope, detail
             FROM posthog_activitylog TABLESAMPLE SYSTEM ({SAMPLING_PERCENTAGE})
             WHERE organization_id = %s
+            {team_clause}
             AND detail IS NOT NULL
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s
         """
 
         with connection.cursor() as cursor:
-            cursor.execute(query, [str(self.organization_id), limit, offset])
+            cursor.execute(query, params)
             records = []
             for row in cursor.fetchall():
                 scope, detail = row
@@ -149,7 +171,7 @@ class AdvancedActivityLogFieldDiscovery:
         batch_fields = self._extract_fields_from_records(records)
         batch_converted = self._convert_to_discovery_format(batch_fields)
 
-        existing_cache = get_cached_fields(str(self.organization_id))
+        existing_cache = get_cached_fields(str(self.organization_id), self.team_id)
         if existing_cache and "detail_fields" in existing_cache:
             current_detail_fields = existing_cache["detail_fields"]
             self._merge_fields_into_result(current_detail_fields, batch_converted)
@@ -178,11 +200,14 @@ class AdvancedActivityLogFieldDiscovery:
             "detail_fields": current_detail_fields,
         }
 
-        record_count = self._get_org_record_count()
-        cache_fields(str(self.organization_id), cache_data, record_count)
+        record_count = self._get_record_count()
+        cache_fields(str(self.organization_id), cache_data, record_count, self.team_id)
 
-    def _get_base_queryset(self):
-        return ActivityLog.objects.filter(organization_id=self.organization_id)
+    def _get_base_queryset(self) -> QuerySet:
+        queryset = ActivityLog.objects.filter(organization_id=self.organization_id)
+        if self.team_id is not None:
+            queryset = queryset.filter(team_id=self.team_id)
+        return queryset
 
     def _merge_fields_into_result(self, result: DetailFieldsResult, fields: list[tuple[str, str, list[str]]]) -> None:
         for scope, field_name, field_types in fields:
@@ -218,22 +243,18 @@ class AdvancedActivityLogFieldDiscovery:
         return result
 
     def _discover_fields_memory(
-        self, batch_size: int = 10000, use_sampling: bool = True
+        self, base_queryset: QuerySet, batch_size: int = BATCH_SIZE
     ) -> dict[str, set[tuple[str, str]]]:
         all_fields: dict[str, set[tuple[str, str]]] = {}
-        total_records = self._get_record_count_for_memory()
+        # The caller's queryset carries select_related for the list serializer, which values() cannot use.
+        detail_queryset = base_queryset.select_related(None).filter(detail__isnull=False)
+        total_records = detail_queryset.count()
 
         if total_records == 0:
             return all_fields
 
-        if use_sampling:
-            sampled_records = int(total_records * (SAMPLING_PERCENTAGE / 100))
-            records_to_process = sampled_records
-        else:
-            records_to_process = total_records
-
-        for offset in range(0, records_to_process, batch_size):
-            batch_fields = self._process_batch_memory(offset, batch_size, use_sampling)
+        for offset in range(0, total_records, batch_size):
+            batch_fields = self._process_batch_memory(detail_queryset, offset, batch_size)
             self._merge_fields_memory(all_fields, batch_fields)
             del batch_fields
             gc.collect()
@@ -261,16 +282,12 @@ class AdvancedActivityLogFieldDiscovery:
         return batch_fields
 
     def _process_batch_memory(
-        self, offset: int, limit: int, use_sampling: bool = True
+        self, detail_queryset: QuerySet, offset: int, limit: int
     ) -> dict[str, set[tuple[str, str]]]:
-        """Legacy method for backward compatibility."""
-        if use_sampling:
-            records = self.get_sampled_records(limit, offset)
-        else:
-            records = [
-                {"scope": record["scope"], "detail": record["detail"]}
-                for record in self.get_activity_logs_queryset().values("scope", "detail")[offset : offset + limit]
-            ]
+        records = [
+            {"scope": record["scope"], "detail": record["detail"]}
+            for record in detail_queryset.values("scope", "detail")[offset : offset + limit]
+        ]
 
         return self._extract_fields_from_records(records)
 
@@ -328,9 +345,6 @@ class AdvancedActivityLogFieldDiscovery:
             if scope not in all_fields:
                 all_fields[scope] = set()
             all_fields[scope].update(fields)
-
-    def _get_record_count_for_memory(self) -> int:
-        return ActivityLog.objects.filter(organization_id=self.organization_id, detail__isnull=False).count()
 
     def _convert_to_discovery_format(self, fields: dict[str, set[tuple[str, str]]]) -> list[tuple[str, str, list[str]]]:
         result = []
