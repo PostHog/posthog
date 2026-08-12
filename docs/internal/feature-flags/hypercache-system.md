@@ -115,13 +115,13 @@ flags_hypercache = HyperCache(
 
 The `_get_feature_flags_for_service` function fetches all flags for a team (including inactive, but excluding deleted and encrypted remote config flags) and returns the cache payload. The Rust service filters out inactive flags at request time via `filtered_out_flag_ids`.
 
-Because that filtering happens before the matcher reads `filters`, an inactive flag's filters can never affect a response, so `_blank_inactive_filters` replaces them with an empty `{"groups": []}` before the payload is written.
-The flag entry itself stays, so a dependency condition on a disabled flag still resolves to false instead of raising `DependencyNotFound`.
-`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same blanking, so the two writers produce identical bytes and share one etag.
-While only one of the two carries the blanking, they disagree on inactive flags' `filters`, so the etag alternates and `FlagDefinitionsCache` reloads on each flip.
-This is scoped to teams whose invalidation routes to Kafka (`KAFKA_ROUTING_FLAG`), the only teams the Rust builder writes for.
-Every other team has Python as its sole writer and sees no disagreement.
-Deploy Django ahead of the Rust images: an older Python verifier lacks the `tolerate_blanked_filters` exemption, so it reports a blanked entry as `DATA_MISMATCH` and repairs it back to full filters, which the next Rust build undoes.
+Because that filtering happens before the matcher reads `filters`, an inactive flag can never affect a response, so the payload keeps only evaluable flags plus the inactive flags that another flag's dependency conditions reference.
+A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a dependent with `flag_evaluates_to: false` on a disabled flag still matches instead of missing a dependency.
+`_drop_unreferenced_unevaluable_flags` removes the rest, `evaluation_metadata` is computed on the surviving set, and `_blank_inactive_filters` replaces the kept unevaluable flags' `filters` with an empty `{"groups": []}` before the payload is written.
+`build_flags_cache` in `rust/feature-flags/src/flags/cache_builder.rs` writes the same entry and applies the same drop and blanking.
+Parity is per team, not per byte: each team has one primary writer (teams whose invalidation routes to Kafka via `KAFKA_ROUTING_FLAG` get the Rust builder, every other team Python), the Python verifier remains a repair writer for every team, and the two serializers order keys differently — so what must match is the flag set, fields, and metadata, not the bytes or etag.
+Old-shape entries that still carry unreferenced inactive rows stay valid: the matcher never reads those rows, and `verify_team_flags` suppresses them instead of reporting `STALE_IN_CACHE`, so they converge through flag edits and TTL rather than a fleet-wide repair.
+Deploy Django ahead of the Rust images: an older Python verifier reports a Rust-written entry's dropped rows as missing, repairs them back, and the next Rust build removes them again. The reverse skew is safe — the newer verifier tolerates the extra rows old writers leave.
 
 ### Cache payload structure
 
