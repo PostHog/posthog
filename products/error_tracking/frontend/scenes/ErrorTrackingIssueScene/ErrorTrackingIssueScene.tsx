@@ -28,8 +28,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { escapeHogQLString } from '~/queries/utils'
-import { FilterLogicalOperator, PropertyFilterType, ReplayTabs } from '~/types'
+import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -47,7 +46,7 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { getIssueReplayDateRange } from '../../utils'
+import { getIssueReplayDateRange, getIssueReplayFilterGroup } from '../../utils'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -124,20 +123,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 onClick={() => {
                                                     const url = urls.replay(ReplayTabs.Home, {
                                                         ...getIssueReplayDateRange(issue.first_seen, lastSeen),
-                                                        filter_group: {
-                                                            type: FilterLogicalOperator.And,
-                                                            values: [
-                                                                {
-                                                                    type: FilterLogicalOperator.And,
-                                                                    values: [
-                                                                        {
-                                                                            key: `issue_id = ${escapeHogQLString(issue.id)}`,
-                                                                            type: PropertyFilterType.HogQL,
-                                                                        },
-                                                                    ],
-                                                                },
-                                                            ],
-                                                        },
+                                                        filter_group: getIssueReplayFilterGroup(issue.id),
                                                     })
                                                     newInternalTab(url)
                                                 }}
@@ -173,20 +159,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 <ViewRecordingsPlaylistButton
                                                     filters={{
                                                         ...getIssueReplayDateRange(issue.first_seen, lastSeen),
-                                                        filter_group: {
-                                                            type: FilterLogicalOperator.And,
-                                                            values: [
-                                                                {
-                                                                    type: FilterLogicalOperator.And,
-                                                                    values: [
-                                                                        {
-                                                                            key: `issue_id = ${escapeHogQLString(issue.id)}`,
-                                                                            type: PropertyFilterType.HogQL,
-                                                                        },
-                                                                    ],
-                                                                },
-                                                            ],
-                                                        },
+                                                        filter_group: getIssueReplayFilterGroup(issue.id),
                                                     }}
                                                     size="small"
                                                     type="secondary"
