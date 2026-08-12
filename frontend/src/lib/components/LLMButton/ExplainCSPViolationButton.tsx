@@ -29,11 +29,14 @@ export const ExplainCSPViolationButton = ({
             if (r) {
                 setResult(
                     <>
-                        <LemonMarkdown wrapCode={true}>{r.response}</LemonMarkdown>
+                        <LemonMarkdown wrapCode={true} disableImages={true}>
+                            {r.response}
+                        </LemonMarkdown>
                         <div className="flex items-center mt-2 p-2 border border-border-strong rounded">
                             <IconWarning className="text-warning-dark flex-shrink-0 mr-2" />
                             <span className="text-xs text-muted">
-                                Security advice from robots should always be double-checked by humans
+                                An AI wrote this from a violation report, and anyone on the internet can send those
+                                reports. Check the advice before you change your policy.
                             </span>
                         </div>
                     </>
