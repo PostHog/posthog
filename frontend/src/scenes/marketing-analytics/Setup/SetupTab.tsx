@@ -15,7 +15,8 @@ import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/f
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
 import { runNavigateOp } from './navigateOps'
-import { SectionSuggestions, suggestionsForSection } from './SectionSuggestions'
+import { suggestionsForSection } from './sectionRouting'
+import { SectionSuggestions } from './SectionSuggestions'
 import { SETUP_SECTIONS } from './SETUP_SECTIONS'
 import { SuggestionModal } from './SuggestionModal'
 

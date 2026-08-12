@@ -3,10 +3,15 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import {
+    SetupSection,
+    marketingAnalyticsLogic,
+} from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { ApplyOp, Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
 import { CAPABILITY_COPY } from './ReadinessHeader'
+import { SECTION_BY_KIND, SECTION_LABEL } from './sectionRouting'
 import { SuggestionIcon } from './SuggestionIcon'
 
 function findOp(ops: ApplyOp[], op: string): ApplyOp | undefined {
@@ -62,9 +67,13 @@ export function SuggestionRow({
     suggestion,
     onReview,
     isDismissed = false,
+    currentSection,
 }: {
     suggestion: Suggestion
     onReview: (suggestion: Suggestion) => void
+    /** Set when the row is rendered inside a section, so it doesn't offer to send you
+     * where you already are. */
+    currentSection?: SetupSection
     /** Rendered inside the hidden list: the same row, with the dismissal reversed
      * rather than repeated. Offering "Dismiss" on an already-dismissed row would be a
      * no-op button, and hiding the CTA would make the list read-only for no reason. */
@@ -72,10 +81,17 @@ export function SuggestionRow({
 }): JSX.Element {
     const { applyingIds } = useValues(setupPlanLogic)
     const { dismissSuggestion, restoreSuggestion } = useActions(setupPlanLogic)
+    const { setSetupSection } = useActions(marketingAnalyticsLogic)
 
     const isApplying = applyingIds.includes(suggestion.id)
     const urlFix = findOp(suggestion.also_recommended, 'fix_platform_urls')
     const ctaLabel = suggestion.apply ? (CTA_LABEL[suggestion.apply.op] ?? 'Review change') : null
+    // Nothing to apply doesn't mean nothing to do. The plan already says where the fix
+    // lives — `deep_link` for the ones that live outside this tab (a broken sync, an
+    // unselected table), the owning section for the rest. Without this the row offers
+    // Dismiss and nothing else, which reads as "we found it, you're on your own".
+    const section = SECTION_BY_KIND[suggestion.kind]
+    const sectionCta = !ctaLabel && section && section !== currentSection ? section : null
 
     return (
         <div className="flex items-start gap-3 py-3 px-3 border-b last:border-b-0">
@@ -117,6 +133,16 @@ export function SuggestionRow({
                 {ctaLabel && (
                     <LemonButton type="primary" size="small" loading={isApplying} onClick={() => onReview(suggestion)}>
                         {ctaLabel}
+                    </LemonButton>
+                )}
+                {!ctaLabel && suggestion.deep_link && (
+                    <LemonButton type="secondary" size="small" to={suggestion.deep_link} targetBlank>
+                        Open source
+                    </LemonButton>
+                )}
+                {!suggestion.deep_link && sectionCta && (
+                    <LemonButton type="secondary" size="small" onClick={() => setSetupSection(sectionCta)}>
+                        {SECTION_LABEL[sectionCta]}
                     </LemonButton>
                 )}
                 {isDismissed ? (

@@ -1,7 +1,7 @@
 import { SetupSection } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
-import { SECTION_BY_KIND, suggestionsForSection } from './SectionSuggestions'
+import { SECTION_BY_KIND, suggestionsForSection } from './sectionRouting'
 
 const suggestion = (kind: string, id = kind): Suggestion =>
     ({

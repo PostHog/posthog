@@ -9,6 +9,7 @@ import { ExternalDataSourceConfiguration } from 'scenes/web-analytics/tabs/marke
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { SetupSection } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
+import { SECTION_LABEL } from './sectionRouting'
 import { SuggestedActions } from './SuggestedActions'
 
 export interface SetupSectionDef {
@@ -31,13 +32,13 @@ export interface SetupSectionDef {
 export const SETUP_SECTIONS: SetupSectionDef[] = [
     {
         key: SetupSection.SUGGESTIONS,
-        label: 'Suggested setup',
+        label: SECTION_LABEL[SetupSection.SUGGESTIONS],
         description: '',
         content: <SuggestedActions />,
     },
     {
         key: SetupSection.SOURCES,
-        label: 'Ad platforms & sources',
+        label: SECTION_LABEL[SetupSection.SOURCES],
         description: 'Connect ad platforms and map their spend columns.',
         content: (
             <>
@@ -48,13 +49,13 @@ export const SETUP_SECTIONS: SetupSectionDef[] = [
     },
     {
         key: SetupSection.CONVERSION_GOALS,
-        label: 'Conversion goals',
+        label: SECTION_LABEL[SetupSection.CONVERSION_GOALS],
         description: 'The events that count as a conversion, and what each one is worth.',
         content: <ConversionGoalsConfiguration />,
     },
     {
         key: SetupSection.UTM_MAPPING,
-        label: 'UTM & campaign mapping',
+        label: SECTION_LABEL[SetupSection.UTM_MAPPING],
         // Until now these three were reachable only through a modal behind the
         // `advance-marketing-analytics-settings` flag, which is why UTM problems were
         // hard to fix by hand.
@@ -69,19 +70,19 @@ export const SETUP_SECTIONS: SetupSectionDef[] = [
     },
     {
         key: SetupSection.INTEGRATION_HEALTH,
-        label: 'Integration health',
+        label: SECTION_LABEL[SetupSection.INTEGRATION_HEALTH],
         description: 'Where ad-platform campaigns and UTM tags disagree.',
         content: <UtmAuditTab />,
     },
     {
         key: SetupSection.ATTRIBUTION,
-        label: 'Attribution',
+        label: SECTION_LABEL[SetupSection.ATTRIBUTION],
         description: 'Attribution mode and lookback window.',
         content: <AttributionSettings />,
     },
     {
         key: SetupSection.GENERAL,
-        label: 'General',
+        label: SECTION_LABEL[SetupSection.GENERAL],
         description: 'Currency and other project-wide settings.',
         content: <BaseCurrency />,
     },
