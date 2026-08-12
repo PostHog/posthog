@@ -1361,7 +1361,6 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2025-12-16T11:00:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_per_alert_results_match_single_query_across_random_inputs(self):
         # Generative property test: the batched query must produce the same
         # per-alert bucket counts as running each alert through `AlertCheckQuery`
@@ -1669,7 +1668,6 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("bucketed",), ("periods",), ("rolling",)])
     @freeze_time("2025-12-16T10:33:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_heterogeneous_cohort_matches_single_alert_results(self, path: str):
         # Cohort mixing a match-everything alert (its predicate is ~always true),
         # a service alert, an attribute alert, and a zero-match alert. Guards the
@@ -1699,7 +1697,6 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
             assert got == single, f"alert={alert.name} path={path}"
 
     @freeze_time("2025-12-16T13:30:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_max_cohort_size_query_builds_and_matches(self):
         # A full-size cohort duplicates every predicate into the hoisted OR
         # chain on top of its countIf copy: guards the doubled predicate text
@@ -1729,11 +1726,10 @@ class TestBatchedAlertCheckQuery(ClickhouseTestMixin, APIBaseTest):
 
 
 # Predicate hoisting: the batched query's outer WHERE carries the OR of
-# per-alert predicates (behind HOIST_BATCHED_ALERT_PREDICATES) so ClickHouse
-# can prune with the primary key and skip indexes. The redundant-looking OR
-# is the point: removing it reverts to scanning the whole time window, the
-# shape that made attribute-filter alerts exceed the 5 GiB read cap and
-# auto-disable in production.
+# per-alert predicates so ClickHouse can prune with the primary key and skip
+# indexes. The redundant-looking OR is the point: removing it reverts to
+# scanning the whole time window, the shape that made attribute-filter alerts
+# exceed the 5 GiB read cap and auto-disable in production.
 class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
     ATTR_KEY = "job_kind"
     ATTR_VALUE = "usage-rollup"
@@ -1742,15 +1738,6 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
     NCA = datetime(2026, 2, 3, 10, 5, 0, tzinfo=UTC)
 
     CLASS_DATA_LEVEL_SETUP = True
-
-    def setUp(self):
-        super().setUp()
-        # HOIST_BATCHED_ALERT_PREDICATES defaults off (staged rollout); these
-        # tests guard the hoisted behavior, so force it on. The kill-switch and
-        # planner tests re-patch it per assertion.
-        patcher = patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     @classmethod
     def setUpTestData(cls):
@@ -1934,27 +1921,12 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         assert "service_name" in where
         assert not re.search(r"(?<![a-zA-Z0-9_])or\(", where), where
 
-    def test_hoisting_disabled_by_kill_switch(self):
-        # The env kill switch must actually restore the old time-only WHERE;
-        # if it silently stops applying, prod has no rollback lever.
+    def _explain_index_usage(self) -> tuple[set[str], set[str]]:
         alert = self._make_alert(filters=self._incident_filters(self.ATTR_VALUE))
         date_from = self.NCA - dt.timedelta(minutes=15)
-        with patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", False):
-            query = BatchedAlertCheckQuery(
-                team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
-            )
-        sql, _ = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
-        where = self._outer_where_sql(sql)
-        assert "service_name" not in where
-        assert "attributes_map_str" not in where
-
-    def _explain_index_usage(self, *, hoist: bool) -> tuple[set[str], set[str]]:
-        alert = self._make_alert(filters=self._incident_filters(self.ATTR_VALUE))
-        date_from = self.NCA - dt.timedelta(minutes=15)
-        with patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", hoist):
-            query = BatchedAlertCheckQuery(
-                team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
-            )
+        query = BatchedAlertCheckQuery(
+            team=self.team, alerts=[alert], date_from=date_from, date_to=self.NCA, projection_eligible=False
+        )
         sql, values = self._print_query(query._build_count_per_range_query(_rolling_check_ranges(self.NCA, 5, 5, 3)))
         # Apply the runtime CH settings; index selection can diverge from real
         # queries without them (same recipe as posthog/hogql/test/test_property_skip_indexes.py).
@@ -1991,9 +1963,8 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
 
     def test_hoisted_predicates_visible_to_planner(self):
         # Plan-level check, because the SQL can contain the predicate in a form
-        # the planner cannot use: with hoisting on, the primary key prunes on
-        # service_name and the mapValues(attributes_map_str) bloom filter is
-        # consulted; with the kill switch off, neither engages.
+        # the planner cannot use: the primary key must prune on service_name
+        # and the mapValues(attributes_map_str) bloom filter must be consulted.
         # `logs` is a Distributed wrapper; the skip indexes live on whichever
         # MergeTree backs it, so look them up by expression instead of by name
         # or table (index names differ between logs schema generations).
@@ -2004,13 +1975,10 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
         attr_indexes = {row[0] for row in attr_index_rows}
         assert attr_indexes, "expected the logs tables to define skip indexes over attributes_map_str"
 
-        hoisted_skips, hoisted_pk = self._explain_index_usage(hoist=True)
-        plain_skips, plain_pk = self._explain_index_usage(hoist=False)
+        hoisted_skips, hoisted_pk = self._explain_index_usage()
 
         assert "service_name" in hoisted_pk
         assert hoisted_skips & attr_indexes, f"skip indexes in plan: {hoisted_skips}"
-        assert "service_name" not in plain_pk
-        assert not (plain_skips & attr_indexes)
 
     @parameterized.expand(
         [
@@ -2174,7 +2142,6 @@ class TestBatchedQueryPredicateHoisting(ClickhouseTestMixin, APIBaseTest):
 # a shard has no matching parts for the check window.
 class TestBatchedQueryPredicateHoistingEmptyScan(ClickhouseTestMixin, APIBaseTest):
     @freeze_time("2026-02-03T10:05:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_body_and_resource_filter_with_no_matching_logs(self):
         alert = LogsAlertConfiguration.objects.create(
             team=self.team,

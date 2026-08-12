@@ -19,7 +19,6 @@ from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -134,12 +133,6 @@ def _make_alert(team, filters: dict, name: str) -> LogsAlertConfiguration:
 class _HoistingSweepBase(ClickhouseTestMixin, APIBaseTest):
     class Meta:
         abstract = True
-
-    def setUp(self):
-        super().setUp()
-        patcher = patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
 
     def _assert_batched_matches_per_alert(self, alerts: list[LogsAlertConfiguration]) -> dict[str, int]:
         batched = BatchedAlertCheckQuery(
@@ -397,10 +390,9 @@ if os.environ.get("RUN_PBT"):
             # predicate) and execution can raise; either counts, as long as the
             # batched path fails whenever the per-alert path does.
             def run_batched():
-                with patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True):
-                    query = BatchedAlertCheckQuery(
-                        team=self.team, alerts=alerts, date_from=DATE_FROM, date_to=NCA, projection_eligible=False
-                    )
+                query = BatchedAlertCheckQuery(
+                    team=self.team, alerts=alerts, date_from=DATE_FROM, date_to=NCA, projection_eligible=False
+                )
                 return query.execute_rolling_checks(nca=NCA, window_minutes=5, cadence_minutes=5, period_count=3)
 
             if per_alert_error is not None:

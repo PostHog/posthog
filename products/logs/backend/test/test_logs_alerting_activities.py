@@ -609,11 +609,10 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert bad_prefetch.query_duration_ms is not None and bad_prefetch.query_duration_ms >= 0
 
     @freeze_time("2026-01-01T10:05:00Z")
-    @patch("products.logs.backend.alert_check_query.HOIST_BATCHED_ALERT_PREDICATES", True)
     def test_attribute_filter_single_alert_cohort_succeeds_end_to_end(self):
         # The shape that broke in production: a size-1, projection-ineligible
         # cohort whose alert filters on a log attribute. Runs the real batched
-        # query via _run_cohort_query with predicate hoisting enabled, so it
+        # query via _run_cohort_query, so it
         # catches wiring drift between the activity call site and
         # BatchedAlertCheckQuery that tests constructing the query class
         # directly cannot.
