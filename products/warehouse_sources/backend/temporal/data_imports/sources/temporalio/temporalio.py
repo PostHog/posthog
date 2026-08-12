@@ -81,7 +81,12 @@ _RETRYABLE_RPC_STATUSES = frozenset(
 # single read (ListWorkflowExecutions / GetWorkflowExecutionHistory), not the server rejecting the
 # request. It's the client-side analog of the DEADLINE_EXCEEDED case above, so ride it out too.
 # Match the phrase rather than the whole CANCELLED status so a genuine cancellation still surfaces.
-_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired")
+#
+# tonic also surfaces status CANCELLED with the message "operation was canceled" when the
+# underlying transport connection is closed mid-request (a known upstream pattern, e.g.
+# temporalio/sdk-core#807) — another connection blip, not an intentional cancellation. Match the
+# phrase, not the whole status, for the same reason as above.
+_RETRYABLE_RPC_MESSAGES = ("h2 protocol error", "Timeout expired", "operation was canceled")
 
 
 def _is_retryable_rpc_error(error: RPCError) -> bool:

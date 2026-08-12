@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
@@ -35,9 +36,11 @@ from products.tasks.backend.logic.services.connection_token import (
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     Sandbox,
+    SandboxBase,
     SandboxConfig,
     SandboxTemplate,
     get_sandbox_class,
+    sandbox_repo_path,
 )
 from products.tasks.backend.logic.services.sandbox_usage import measure_sandbox_cpu_usage, open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
@@ -149,6 +152,35 @@ class CheckoutBranchInSandboxInput:
     github_token: str
     shallow_clone: bool
     used_snapshot: bool
+
+
+def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str) -> None:
+    """Build Desktop workspace exports from the task's checked-out source.
+
+    The dev-stack image warms pnpm's content-addressed store but deliberately does
+    not retain checkout-specific node_modules or dist directories. Prepare only the
+    internal PostHog checkout that uses that image, after its final branch is in place.
+    """
+    if (
+        ctx.custom_image_name != DEV_STACK_IMAGE_NAME
+        or repository.casefold() != "posthog/posthog"
+        or sandbox.config.image_fallback
+    ):
+        return
+
+    repo_path = f"{sandbox_repo_path(repository)}/products/desktop"
+    emit_agent_log(ctx.run_id, "debug", "Preparing Desktop workspace dependencies")
+    result = sandbox.execute(
+        f"cd {shlex.quote(repo_path)} && pnpm bootstrap:cloud-task",
+        timeout_seconds=10 * 60,
+    )
+    if result.exit_code != 0:
+        output = (result.stderr or result.stdout)[-2_000:]
+        raise ApplicationError(
+            f"Failed to prepare Desktop workspace: {output}",
+            type="DesktopCloudTaskBootstrapError",
+            non_retryable=True,
+        )
 
 
 @dataclass
@@ -823,6 +855,13 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         if clone_result.exit_code != 0:
             raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
 
+        # A fresh single-repository run checks its requested branch out in the next
+        # activity. Resumes clone that branch directly, and multi-repo runs do not run
+        # the checkout activity, so prepare them here once their final source exists.
+        will_checkout_later = len(ctx.repositories) == 1 and bool(ctx.branch) and not is_resume
+        if not will_checkout_later:
+            _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
+
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
 
 
@@ -907,6 +946,8 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         if result.exit_code != 0:
             logger.warning("Branch checkout failed", extra={"branch": input.branch, "stderr": result.stderr})
             raise RuntimeError(f"Failed to checkout branch {input.branch}")
+
+        _prepare_posthog_desktop_cloud_task(ctx, sandbox, input.repository)
 
         return CheckoutBranchInSandboxOutput(checkout_ms=checkout_timer.elapsed_ms)
 

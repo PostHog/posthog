@@ -2,15 +2,25 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonSegmentedButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonInput,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    Link,
+} from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSearchableSelect } from 'lib/lemon-ui/LemonSelect/LemonSearchableSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -405,6 +415,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const everyMatch = actionForm.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
     const isScorer = scanner?.scanner_type === 'scorer'
@@ -433,7 +444,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 
             <LemonSegmentedButton
                 size="small"
-                className="max-w-full overflow-x-auto"
+                className="max-w-full"
                 value={actionForm.alert_frequency}
                 onChange={(value) => {
                     setActionFormValue('alert_frequency', value)
@@ -520,6 +531,14 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
             ) : null}
             {actionFormErrors?.min_score ? (
                 <span className="text-xs text-danger">{String(actionFormErrors.min_score)}</span>
+            ) : null}
+            {featureFlags[FEATURE_FLAGS.REPLAY_VISION_SEND_REASONING] ? (
+                <LemonCheckbox
+                    checked={actionForm.alert_include_reasoning}
+                    onChange={(checked) => setActionFormValue('alert_include_reasoning', checked)}
+                    label="Include the observation's reasoning in the message"
+                    data-attr="vision-action-alert-include-reasoning"
+                />
             ) : null}
             <span className="text-xs text-muted">
                 {everyMatch
