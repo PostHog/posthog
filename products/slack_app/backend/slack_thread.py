@@ -463,8 +463,9 @@ class SlackThreadHandler:
     def post_footer(self) -> None:
         """Post the footer alone, for an answer with no message of its own to close.
 
-        Only the file-delivery path needs this: the answer rode along as a file upload's
-        initial comment, which takes no blocks, so the footer has nothing to attach to.
+        Only the composed chart delivery needs this: the answer rode along in the message
+        carrying the chart cards, whose blocks are built during delivery, so the footer
+        has nothing to attach to.
         """
         footer = self._footer_block()
         if not footer:

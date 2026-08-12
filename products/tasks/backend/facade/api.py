@@ -33,6 +33,7 @@ from django.db.models import (
     Case,
     CharField,
     Count,
+    DateTimeField,
     Exists,
     F,
     Func,
@@ -46,6 +47,7 @@ from django.db.models import (
     When,
 )
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
@@ -382,6 +384,8 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "initial_permission_mode",
         "mode",
         "model",
+        "pending_user_artifact_ids",
+        "pending_user_message",
         "pr_authorship_mode",
         "pr_base_branch",
         "provider",
@@ -1046,9 +1050,21 @@ def collect_task_run_state_metrics(
     The caller (a core celery task) owns which statuses count as open/age/terminal and the
     recency window; this returns the raw numbers grouped by (status, environment,
     parent origin_product) so no ORM leaks across the boundary.
+
+    A QUEUED run's age counts from ``queued_at``, not from row creation:
+    ``prepare_for_cloud_handoff`` re-queues an existing run without resetting ``created_at``,
+    so a desktop-to-cloud handoff would otherwise report the whole prior run's lifetime as
+    queue wait. Rows queued before ``queued_at`` existed fall back to ``created_at``, which is
+    exact for a run that was only ever queued once. Every other non-terminal status counts
+    from creation, where elapsed lifetime is the useful age.
     """
     now = django_timezone.now()
     window_start = now - timedelta(seconds=window_seconds)
+    age_anchor = Case(
+        When(status=TaskRun.Status.QUEUED, then=Coalesce(F("queued_at"), F("created_at"))),
+        default=F("created_at"),
+        output_field=DateTimeField(),
+    )
     return contracts.TaskRunStateMetricsDTO(
         runs_in_status=_gauge_rows(
             TaskRun.objects.filter(status__in=open_statuses)
@@ -1060,8 +1076,8 @@ def collect_task_run_state_metrics(
         oldest_open_age_seconds=_gauge_rows(
             TaskRun.objects.filter(status__in=age_statuses)
             .values("status", "environment", "task__origin_product")
-            .annotate(oldest_created_at=Min("created_at")),
-            "oldest_created_at",
+            .annotate(oldest_waiting_since=Min(age_anchor)),
+            "oldest_waiting_since",
             with_status=True,
             now=now,
         ),
@@ -2079,12 +2095,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # queued repo-less run.
         "github_read_access",
         # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
-        # and drives loop bookkeeping in handle_loop_run_terminal. A run update must never be able
-        # to forge or repoint it, or a caller could steer terminal side effects at another loop.
+        # and drives loop bookkeeping in handle_loop_run_terminal. The completion marker prevents
+        # terminal bookkeeping from running twice. A caller must not be able to forge either.
         "loop_id",
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         "ai_stage",
@@ -4127,6 +4144,7 @@ def resume_task_run_in_cloud(
         prior_status = run.status
         prior_environment = run.environment
         prior_completed_at = run.completed_at
+        prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_handoff()
 
@@ -4146,9 +4164,20 @@ def resume_task_run_in_cloud(
             run.status = prior_status
             run.environment = prior_environment
             run.completed_at = prior_completed_at
+            run.queued_at = prior_queued_at
             run.state = prior_state
             run.error_message = "Failed to start cloud workflow"
-            run.save(update_fields=["status", "environment", "completed_at", "state", "error_message", "updated_at"])
+            run.save(
+                update_fields=[
+                    "status",
+                    "environment",
+                    "completed_at",
+                    "queued_at",
+                    "state",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
         run.publish_stream_state_event()
         return "workflow_failed", None, None
 
@@ -4706,6 +4735,7 @@ def create_task(
                 description=description or None,
                 artifact_ids=pending_user_artifact_ids,
                 auto_publish=warm_auto_publish,
+                reasoning_effort=warm_reasoning_effort,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
@@ -5038,8 +5068,9 @@ def _find_idling_warm_run(
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
-    Reuse also requires the warm Run's runtime, sandbox environment, and custom image selections to
-    match the request. A mismatch returns ``None`` so the caller cold-creates on the correct sandbox.
+    Reuse also requires the warm Run's runtime, model, sandbox environment, and custom image selections to
+    match the request. Reasoning effort is deliberately excluded: activation applies the final effort before
+    the first turn. Other mismatches return ``None`` so the caller cold-creates on the correct sandbox.
     The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
     matched in Python over the small candidate set.
     """
@@ -5065,7 +5096,6 @@ def _find_idling_warm_run(
     wanted = (
         runtime_adapter or None,
         model or None,
-        reasoning_effort or None,
         str(sandbox_environment_id) if sandbox_environment_id else None,
         str(custom_image_id) if custom_image_id else None,
     )
@@ -5079,7 +5109,6 @@ def _find_idling_warm_run(
         have = (
             state.get("runtime_adapter") or None,
             state.get("model") or None,
-            state.get("reasoning_effort") or None,
             state.get("sandbox_environment_id") or None,
             state.get("custom_image_id") or None,
         )
@@ -5158,6 +5187,7 @@ def _activate_warm_run(
     artifact_ids: list[str],
     description: str | None = None,
     auto_publish: bool | None = None,
+    reasoning_effort: str | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -5174,10 +5204,18 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
+    activation_state_updates: dict[str, object] = {}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
-        TaskRun.update_state_atomic(run.id, updates={"auto_publish": auto_publish})
+        activation_state_updates["auto_publish"] = auto_publish
+    if reasoning_effort is not None:
+        activation_state_updates["reasoning_effort"] = reasoning_effort
+    TaskRun.update_state_atomic(
+        run.id,
+        updates=activation_state_updates,
+        remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
+    )
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
@@ -5380,7 +5418,6 @@ def run_task(
             warm_runtime_matches = (
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
-                warm_state.get("reasoning_effort") or None,
                 warm_state.get("context_window") or None,
                 warm_state.get("fast_mode") or None,
                 warm_state.get("sandbox_environment_id") or None,
@@ -5388,7 +5425,6 @@ def run_task(
             ) == (
                 validated_data.get("runtime_adapter") or None,
                 validated_data.get("model") or None,
-                validated_data.get("reasoning_effort") or None,
                 validated_data.get("context_window") or None,
                 validated_data.get("fast_mode") or None,
                 str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
@@ -5421,6 +5457,7 @@ def run_task(
                         description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
+                        reasoning_effort=validated_data.get("reasoning_effort"),
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     sandbox_environment_id = validated_data.get("sandbox_environment_id")

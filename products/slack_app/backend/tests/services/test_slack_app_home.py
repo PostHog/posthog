@@ -116,12 +116,12 @@ def admin_user():
 
 @pytest.fixture(autouse=True)
 def _stub_picker_facade():
-    """Stub `tasks.facade.run_config` and the LLM-gateway model fetch.
+    """Stub the tasks run-config facade and the LLM-gateway model fetch.
 
-    The tasks facade pulls in `tasks.temporal` on import, which the test env
-    can't satisfy. The gateway fetch would hit a real network. Both get
-    replaced with deterministic in-memory fakes covering every model the
-    renderer and handler tests reference.
+    The facade pulls in `tasks.temporal` on import, which the test env can't
+    satisfy. The gateway fetch would hit a real network. Both are replaced with
+    deterministic in-memory fakes covering every model the renderer and handler
+    tests reference.
     """
 
     class _Effort:
@@ -217,26 +217,31 @@ def _stub_picker_facade():
         _GatewayModel(id="gpt-5", owned_by="openai"),
         _GatewayModel(id="gpt-5.5", owned_by="openai"),
     )
-    llm_models_name = "products.slack_app.backend.services.llm_models"
-    fake_llm_models: Any = ModuleType(llm_models_name)
-    fake_llm_models.list_slack_app_models = lambda: gateway_models
-    fake_llm_models.GatewayModel = _GatewayModel
+    # The catalogue reads the run-config internals directly rather than through the facade,
+    # so those lookups are replaced one at a time. Standing the facade stub in for the whole
+    # module would blank every other name on it — the GitHub helpers `facade.api` defers to
+    # among them.
+    utils_name = "products.tasks.backend.temporal.process_task.utils"
+    model_catalogue = importlib.import_module("products.tasks.backend.logic.services.model_catalogue")
 
     saved_facade = sys.modules.get(facade_name)
-    saved_llm = sys.modules.get(llm_models_name)
     sys.modules[facade_name] = fake
-    sys.modules[llm_models_name] = fake_llm_models
+    # The provider → adapter map is cached for the process, so the fake only governs once
+    # the cache is dropped on the way in and back out.
+    model_catalogue._runtime_adapter_by_provider.cache_clear()
     try:
-        yield
+        with (
+            patch(f"{utils_name}.get_supported_reasoning_efforts", fake_get_supported),
+            patch(f"{utils_name}.get_provider_for_runtime_adapter", fake_get_provider),
+            patch.object(model_catalogue, "list_gateway_models", return_value=gateway_models),
+        ):
+            yield
     finally:
+        model_catalogue._runtime_adapter_by_provider.cache_clear()
         if saved_facade is None:
             sys.modules.pop(facade_name, None)
         else:
             sys.modules[facade_name] = saved_facade
-        if saved_llm is None:
-            sys.modules.pop(llm_models_name, None)
-        else:
-            sys.modules[llm_models_name] = saved_llm
 
 
 # ---------------------------------------------------------------------------
