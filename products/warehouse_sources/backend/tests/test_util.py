@@ -57,6 +57,7 @@ class TestReconstructOrderedColumns(SimpleTestCase):
     IDENTITY_MATCHING_S3_BUCKET="ph-identity-matching",
     OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET="ph-web-analytics",
     QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET="ph-query-log-archive",
+    BATCH_EXPORT_INTERNAL_STAGING_BUCKET="ph-batch-export-staging",
 )
 class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
     @parameterized.expand(
@@ -81,6 +82,13 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
             ("identity_matching_bucket", "https://ph-identity-matching.s3.us-east-1.amazonaws.com/x.parquet"),
             ("web_analytics_bucket", "https://ph-web-analytics.s3.us-east-1.amazonaws.com/team_1/data.native"),
             ("query_log_archive_bucket", "https://ph-query-log-archive.s3.amazonaws.com/day=2026-01-01/data.parquet"),
+            # ClickHouse writes every team's staged batch-export data here with no explicit
+            # credentials whenever the deployment is cloud (internal_stage.py's own docstring:
+            # "we omit credentials and ClickHouse uses the default credential provider chain").
+            (
+                "batch_export_staging_bucket",
+                "https://ph-batch-export-staging.s3.us-east-1.amazonaws.com/some-run/export_0.arrow",
+            ),
         ]
     )
     def test_rejects_urls_that_address_posthog_storage(self, _name: str, url_pattern: str) -> None:
@@ -88,6 +96,27 @@ class TestValidateWarehouseTableUrlPattern(SimpleTestCase):
 
         assert not is_valid
         assert "internal storage" in error_message
+
+    @parameterized.expand(
+        [
+            (
+                "percent_encoded_first_character",
+                "https://s3.us-east-1.amazonaws.com/%70h-warehouse/x.parquet",
+            ),
+            (
+                "percent_encoded_slash_smuggling_a_second_segment",
+                "https://s3.us-east-1.amazonaws.com/ph-warehouse%2Fteam_2_model_x/y.parquet",
+            ),
+        ]
+    )
+    def test_rejects_percent_encoding_in_the_bucket_position(self, _name: str, url_pattern: str) -> None:
+        # urlparse never decodes the path, so a client that does decode it (ClickHouse's URI parser
+        # does) could resolve "%70h-warehouse" to "ph-warehouse" - an owned bucket - while this
+        # parser still sees the undecoded, unmatched string. Reject the encoding outright.
+        is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
+
+        assert not is_valid
+        assert "percent-encoded" in error_message
 
     @override_settings(BUCKET_URL="s3://ph-modeling-storage")
     def test_rejects_a_bucket_url_that_diverges_from_datawarehouse_bucket(self) -> None:

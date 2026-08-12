@@ -626,7 +626,15 @@ _NOT_OUR_STORAGE = (
 # and QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET are here because each is read or written by ClickHouse's own
 # `s3(...)` / `BACKUP ... TO S3(...)` with no explicit access key in the query, the same credential-less
 # shape the original vulnerability exploited - not because a customer's url_pattern can reach them today.
+#
+# BATCH_EXPORT_INTERNAL_STAGING_BUCKET is the same shape: internal_stage.py's get_s3_function_call
+# omits credentials whenever _get_s3_credentials() returns None, which it does on every cloud
+# deployment (_uses_object_storage_endpoint() is false there) - "we omit credentials and ClickHouse
+# uses the default credential provider chain" per that function's own docstring. That every team's
+# batch-export data lands there under aioboto3 elsewhere doesn't change that ClickHouse itself
+# writes there keylessly first.
 _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
+    "BATCH_EXPORT_INTERNAL_STAGING_BUCKET",
     "BUCKET_PATH",
     "BUCKET_URL",
     "CLICKHOUSE_BACKUPS_BUCKET",
@@ -643,11 +651,19 @@ _POSTHOG_OWNED_BUCKET_SETTING_NAMES = (
 # codebase at all - never through ClickHouse's `s3(...)`/`BACKUP...S3(...)`, the credential-less
 # access pattern that makes a bucket reachable by the node role. Each reason names what was actually
 # checked; "no reader found" means exactly that, not a claim that none exists in a non-Python service.
+#
+# This registry can only ever cover buckets a Django setting names. A bucket the node role can read
+# but whose name comes from elsewhere - a database row, a control-plane API call - is invisible to
+# it by construction; posthog/dags/events_backfill_to_duckling.py resolves a per-organization bucket
+# that way, with the same "ClickHouse uses its EC2 instance role, no credentials needed" shape. The
+# load-bearing control against that class is TableSerializer requiring a credential whenever
+# url_pattern is set or changed (products/data_warehouse/backend/presentation/views/table.py), not
+# this list - this registry only backstops the credential-less-by-design tables PostHog's own code
+# creates (self-managed uploads, pipeline syncs), where the URL is known in advance.
 _BUCKET_SETTINGS_NOT_READABLE_BY_THE_NODE_ROLE = {
     "AGENT_BUNDLES_S3_BUCKET": "no reader found in this codebase; defaults to OBJECT_STORAGE_BUCKET",
     "AI_BLOB_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by ai_observability/backend/api/ai_blob.py",
-    "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "read via aioboto3 by the Temporal batch-exports workflow",
-    "BATCH_EXPORT_INTERNAL_STAGING_BUCKET": "read via aioboto3 by the Temporal batch-exports workflow",
+    "BATCH_EXPORTS_FILE_DOWNLOAD_BUCKET": "written via a pre-signed URL over an assumed STS role, and read via aioboto3 - never by ClickHouse",
     "BILLING_USAGE_REPORTS_S3_BUCKET": "read via posthog.storage.object_storage (boto3), by posthog/temporal/usage_report/storage.py",
     "DAGSTER_AI_EVALS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/posthog_ai/dags/utils.py",
     "DAGSTER_FAVICONS_S3_BUCKET": "read via boto3 (s3.get_client()) by products/web_analytics/dags/cache_favicons.py",
@@ -709,6 +725,11 @@ def _validate_url_pattern_is_not_posthog_storage(
         # it looks like. No source needs to pattern-match a bucket name.
         if any(character in _GLOB_METACHARACTERS for character in bucket):
             return False, "The bucket name in a URL pattern must be exact. Wildcards belong in the file path."
+        # urlparse never decodes the path, so a percent-encoded bucket segment (e.g. %70osthog-...
+        # for the literal "p") reaches this comparison undecoded while ClickHouse's URI parser
+        # decodes it first - rejecting any encoding here is cheaper than trusting the two to agree.
+        if "%" in bucket:
+            return False, "The bucket name in a URL pattern can't contain percent-encoded characters."
         if bucket in owned_buckets:
             return False, _NOT_OUR_STORAGE
 
