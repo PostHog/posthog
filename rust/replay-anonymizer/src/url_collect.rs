@@ -38,7 +38,7 @@ use crate::url_policy::{try_canonicalize, MAX_URL_LEN};
 /// collector declined, and a decline is exactly what a repeat should not pay for twice. Past this
 /// the memo stops growing and repeats fall back to the full check, which is slower and bounded
 /// rather than unbounded.
-const MAX_MEMO_ENTRIES: usize = 1024;
+const MAX_MEMO_ENTRIES: usize = 2048;
 
 /// Distinct URLs collected from one message.
 ///

@@ -195,6 +195,23 @@ describe('produceCollectedUrlsStep', () => {
         expect(decode(queued[0])).toHaveLength(1)
     })
 
+    it('splits on the count bound even when the bytes would fit', async () => {
+        // The fetcher refuses a record above its own count cap, whole. Byte packing alone would let
+        // the collector's per-message cap in another crate decide how many entries a record holds.
+        const step = createProduceCollectedUrlsStep(outputs, 100_000)
+        const many = Array.from({ length: 600 }, (_v, i) =>
+            collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${i}.png`)
+        )
+
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: many })
+
+        const sent = decode(queued[0])
+        expect(sent.length).toBeGreaterThan(1)
+        for (const record of sent) {
+            expect(record.value.urls.length).toBeLessThanOrEqual(512)
+        }
+    })
+
     it('splits when the urls are long enough to fill a record', async () => {
         const step = createProduceCollectedUrlsStep(outputs, 100_000)
         const long = 'x'.repeat(2000)
@@ -205,8 +222,10 @@ describe('produceCollectedUrlsStep', () => {
         await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: many })
 
         expect(queued[0].length).toBeGreaterThan(1)
+        const [first] = queued[0]
+        expect(first.value.length).toBeGreaterThan(400 * 1024)
         for (const record of queued[0]) {
-            expect(record.value.length).toBeLessThan(1024 * 1024)
+            expect(record.value.length).toBeLessThan(1_000_000)
         }
     })
 

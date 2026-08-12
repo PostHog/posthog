@@ -17,8 +17,9 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
- * Bytes of URL payload one record may carry, against librdkafka's 1 MB default for
- * `message.max.bytes`. The rest of the budget absorbs the envelope and the JSON punctuation.
+ * Bytes of URL payload one record may carry, against the 1,000,000 byte default for
+ * `message.max.bytes`, which this producer does not override. The rest absorbs the envelope and
+ * the JSON punctuation.
  *
  * A record is packed to this size rather than to a fixed number of URLs. A URL may be anything up
  * to `MAX_URL_LEN`, so a count that is safe for the longest URLs wastes most of a record on the
@@ -26,9 +27,14 @@ const PRODUCED_REF_CACHE_MAX = 500_000
  */
 const MAX_RECORD_URL_BYTES = 512 * 1024
 
-/** One record on the fetch topic. The Kafka key is the registrable domain, so every URL here
- *  belongs to one operator. Hosts can differ within it: a CDN sharding over img1..img8 keeps one
- *  budget but still needs its own robots.txt and connection limit per host. */
+/**
+ * URLs one record may carry, whatever their size. The byte budget alone would let the collector's
+ * per-message cap decide this, and that cap lives in another crate, so raising it there would start
+ * producing records the fetcher refuses whole as `oversized_record` with nothing on this side to
+ * show it. This must stay below MAX_URLS_PER_RECORD in `ml-mirror-image-fetch/collected-urls-record.ts`.
+ */
+const MAX_RECORD_URLS = 512
+
 /** One URL as it rides on the fetch topic. */
 export interface RecordUrl {
     ref: string
@@ -36,6 +42,9 @@ export interface RecordUrl {
     host: string
 }
 
+/** One record on the fetch topic. The Kafka key is the registrable domain, so every URL here
+ *  belongs to one operator. Hosts can differ within it: a CDN sharding over img1..img8 keeps one
+ *  budget but still needs its own robots.txt and connection limit per host. */
 export interface CollectedUrlsMessage {
     /**
      * The wire format version. The fetcher reads this topic from another deployment, so the two
@@ -204,7 +213,7 @@ function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
     let bytes = 0
     for (const entry of entries) {
         const size = entryBytes(entry)
-        if (current.length > 0 && bytes + size > maxBytes) {
+        if (current.length > 0 && (bytes + size > maxBytes || current.length >= MAX_RECORD_URLS)) {
             out.push(current)
             current = []
             bytes = 0
@@ -218,7 +227,13 @@ function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
     return out
 }
 
-/** The JSON punctuation around the three fields, so packing measures what the record will hold. */
+/**
+ * The JSON punctuation around the three fields, so packing measures what the record will hold.
+ *
+ * This counts raw bytes, and `JSON.stringify` widens a quote or a backslash, so the estimate is a
+ * lower bound. Canonicalization percent-encodes those upstream, and the budget sits at about half
+ * the broker limit, so the gap has room. `ml_url_record_bytes` is what would show it closing.
+ */
 const ENTRY_OVERHEAD_BYTES = '{"ref":"","url":"","host":""},'.length
 
 function entryBytes(entry: RecordUrl): number {

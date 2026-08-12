@@ -16,6 +16,9 @@ export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' |
  *  ships. */
 export type MlUrlLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed' | 'ref_unusable'
 
+/** Matches the ghost-probe rate in `RefDedupCache`, for the same reason. */
+const URL_BYTES_SAMPLE_RATE = 16
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -109,7 +112,7 @@ export class SessionRecordingIngesterMetrics {
     private static readonly mlUrlsPerMessage = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_urls_per_message',
         help: 'URLs collected from one message that carried at least one. The counter alone gives a mean; sizing the fetch lane needs the tail',
-        buckets: [1, 2, 5, 10, 25, 50, 100, 256],
+        buckets: [1, 2, 5, 10, 25, 50, 100, 256, 512],
     })
 
     private static readonly mlImageBytesProduced = new Counter({
@@ -180,9 +183,15 @@ export class SessionRecordingIngesterMetrics {
      */
     private static readonly mlUrlBytes = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_url_bytes',
-        help: 'Bytes in one collected remote image URL. The tail sizes the per-record packing budget, because a record is filled by bytes rather than by a fixed number of URLs',
+        help: 'Bytes in one collected remote image URL, sampled. The tail sizes the per-record packing budget, because a record is filled by bytes rather than by a fixed number of URLs. Read the shape, not the count: one URL in URL_BYTES_SAMPLE_RATE is observed',
         buckets: [64, 128, 256, 512, 1024, 2048],
     })
+    /**
+     * One message can carry hundreds of URLs, and a histogram observation costs several short-lived
+     * allocations, so observing every one puts the payload's own size on the mirror's hot path. The
+     * distribution is what this metric is for, and sampling preserves it at these volumes.
+     */
+    private static urlBytesSeen = 0
     private static readonly mlUrlsPerRecord = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_urls_per_record',
         help: 'URLs packed into one record on the fetch topic. Bounded in practice by the collector cap per message, since a record holds one domain from one message',
@@ -190,12 +199,14 @@ export class SessionRecordingIngesterMetrics {
     })
     private static readonly mlUrlRecordBytes = new Histogram({
         name: 'recording_blob_ingestion_v2_ml_url_record_bytes',
-        help: 'Serialized bytes of one record on the fetch topic. Read against the producer message.max.bytes of 1 MB: the packing budget is what keeps this under it',
-        buckets: [1024, 8192, 65536, 262144, 524288, 1048576],
+        help: 'Serialized bytes of one record on the fetch topic. Read against librdkafka message.max.bytes, which this producer leaves at its 1,000,000 byte default: the packing budget is what keeps a record under it',
+        buckets: [1024, 8192, 65536, 262144, 524288, 1_000_000],
     })
 
     public static observeMlUrlBytes(bytes: number): void {
-        this.mlUrlBytes.observe(bytes)
+        if (this.urlBytesSeen++ % URL_BYTES_SAMPLE_RATE === 0) {
+            this.mlUrlBytes.observe(bytes)
+        }
     }
     public static observeMlUrlRecord(urls: number, bytes: number): void {
         this.mlUrlsPerRecord.observe(urls)
