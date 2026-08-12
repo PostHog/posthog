@@ -304,6 +304,100 @@ describe("PiAgentServer", () => {
     });
   });
 
+  it("injects auto-publish instructions into the first native Pi prompt", async () => {
+    const sendCommand = vi.fn(
+      async (_command: Record<string, unknown>) => ({}),
+    );
+    const server = new PiAgentServer(
+      config({ autoPublish: true, createPr: true }),
+    ) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: { getState: vi.fn(async () => ({ isStreaming: false })) },
+        sendCommand,
+      },
+    };
+
+    await server.executeCommand("user_message", { content: "fix it" });
+    await server.executeCommand("user_message", { content: "one more thing" });
+
+    expect(sendCommand.mock.calls[0]?.[0].message).toContain(
+      "auto-publish enabled",
+    );
+    expect(sendCommand.mock.calls[0]?.[0].message).toContain(
+      "gh pr create --draft",
+    );
+    expect(sendCommand.mock.calls[1]?.[0].message).toBe("one more thing");
+  });
+
+  it("retries Pi auto-publish instructions when the first send fails", async () => {
+    const sendCommand = vi
+      .fn(async (_command: Record<string, unknown>) => ({}))
+      .mockRejectedValueOnce(new Error("send failed"));
+    const server = new PiAgentServer(
+      config({ autoPublish: true, createPr: true }),
+    ) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: { getState: vi.fn(async () => ({ isStreaming: false })) },
+        sendCommand,
+      },
+    };
+
+    await expect(
+      server.executeCommand("user_message", { content: "fix it" }),
+    ).rejects.toThrow("send failed");
+    await server.executeCommand("user_message", { content: "fix it" });
+
+    expect(sendCommand.mock.calls[0]?.[0].message).toContain(
+      "auto-publish enabled",
+    );
+    expect(sendCommand.mock.calls[1]?.[0].message).toContain(
+      "auto-publish enabled",
+    );
+  });
+
+  it.each([
+    [{ autoPublish: false }, "auto-publish disabled"],
+    [{ autoPublish: true, createPr: false }, "PR creation disabled"],
+  ])(
+    "does not inject Pi auto-publish instructions when %s",
+    async (overrides, _label) => {
+      const sendCommand = vi.fn(
+        async (_command: Record<string, unknown>) => ({}),
+      );
+      const server = new PiAgentServer(config(overrides)) as unknown as {
+        session: unknown;
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      server.session = {
+        runtime: {
+          client: { getState: vi.fn(async () => ({ isStreaming: false })) },
+          sendCommand,
+        },
+      };
+
+      await server.executeCommand("user_message", { content: "fix it" });
+
+      expect(sendCommand.mock.calls[0]?.[0].message).toBe("fix it");
+    },
+  );
+
   it("hydrates cloud artifacts into native Pi prompt inputs", async () => {
     const repositoryPath = await mkdtemp(join(tmpdir(), "pi-attachments-"));
     const sendCommand = vi.fn(

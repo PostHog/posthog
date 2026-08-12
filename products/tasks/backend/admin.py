@@ -1,13 +1,17 @@
+from typing import cast
+
 from django.contrib import admin, messages
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
+from posthog.models.user import User
 from posthog.storage import object_storage
 
 from . import loop_service
 from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
+from .visibility import task_run_visibility_q, task_visibility_q
 
 
 @admin.register(Task)
@@ -27,6 +31,14 @@ class TaskAdmin(admin.ModelAdmin):
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )
 
+    def get_queryset(self, request: HttpRequest):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(team__organization_id__in=cast(User, request.user).organizations.values("id"))
+            .filter(task_visibility_q(request.user.id))
+        )
+
 
 @admin.register(TaskRun)
 class TaskRunAdmin(admin.ModelAdmin):
@@ -42,6 +54,14 @@ class TaskRunAdmin(admin.ModelAdmin):
         ("Data", {"fields": ("output", "state")}),
         ("Dates", {"fields": ("created_at", "updated_at", "completed_at")}),
     )
+
+    def get_queryset(self, request: HttpRequest):
+        return (
+            super()
+            .get_queryset(request)
+            .filter(task__team__organization_id__in=cast(User, request.user).organizations.values("id"))
+            .filter(task_run_visibility_q(request.user.id))
+        )
 
     def get_urls(self) -> list:
         # Prepended so it isn't shadowed by the default `<path:object_id>/` route.

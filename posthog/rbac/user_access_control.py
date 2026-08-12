@@ -19,6 +19,7 @@ from posthog.settings import EE_AVAILABLE
 
 if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
+    from posthog.user_permissions import UserPermissions
 
     from ee.models import AccessControl
 
@@ -462,6 +463,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
     if name == "datawarehousesavedquery":
         return "warehouse_view"
     if name == "datawarehousesavedqueryfolder":
+        return "warehouse_view"
+    if name == "datawarehouseexpression":
         return "warehouse_view"
     if name == "datawarehousetable":
         return "warehouse_table"
@@ -1161,12 +1164,17 @@ class UserAccessControl:
     # Filtering querysets
     # ------------------------------------------------------------
 
-    def filter_queryset_by_access_level(self, queryset: QuerySet, include_all_if_admin: bool = False) -> QuerySet:
+    def filter_queryset_by_access_level(
+        self, queryset: QuerySet, include_all_if_admin: bool = False, resource: Optional[APIScopeObject] = None
+    ) -> QuerySet:
         # Filter queryset based on access controls, handling cases where user has "none" resource access
         # but may have specific object access
 
         model = cast(Model, queryset.model)
-        resource = model_to_resource(model)
+        # Callers that already know the resource must pass it: model_to_resource cannot map every
+        # model name (LLMPrompt lowercases to "llmprompt"), and an unmapped model returns the
+        # queryset unfiltered
+        resource = resource or model_to_resource(model)
 
         if not resource:
             return queryset
@@ -1661,3 +1669,21 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
                 )
 
         return attrs
+
+
+def visible_teams_for_user(
+    organization: Organization,
+    user_access_control: Optional["UserAccessControl"],
+    user_permissions: "UserPermissions",
+) -> QuerySet[Team]:
+    """Teams in `organization` the user can see.
+
+    Both access control systems apply, and filtering on only one of them leaks projects the
+    other hides. Callers that need visible teams should use this rather than reimplementing it.
+    """
+    teams = (
+        user_access_control.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+        if user_access_control
+        else organization.teams.none()
+    )
+    return teams.filter(id__in=user_permissions.team_ids_visible_for_user)

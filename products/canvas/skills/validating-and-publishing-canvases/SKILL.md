@@ -3,10 +3,11 @@ name: validating-and-publishing-canvases
 description: >
   Validate and publish a canvas source project safely: the source-project shape, declared
   capabilities, reading the current version pointer, iterating on validation diagnostics, guarded
-  publishing with expected_current_version_id, waiting out the queued build, and recovering from a
-  409 version_conflict or a 429 capacity limit without overwriting concurrent work. Use whenever a
-  canvas edit is ready to save, a canvas publish or build returns diagnostics or a conflict, or a
-  task needs to understand canvas version history.
+  publishing with expected_current_version_id, staging a draft build and promoting it, waiting out
+  the queued build, and recovering from a 409 version_conflict or a 429 capacity limit without
+  overwriting concurrent work. Use whenever a canvas edit is ready to save, a draft build is wanted,
+  a canvas publish or build returns diagnostics or a conflict, or a task needs to understand canvas
+  version history.
 ---
 
 # Validating and publishing canvases
@@ -58,7 +59,11 @@ Diagnostics carry `severity`, a stable `code`, a `message`, and (for file-specif
 
 ## Publish guarded
 
-Two ways to save, both guarded:
+Publishing goes live immediately, so it is for a canvas's **first version** or for a change the
+user explicitly asked to make live. A canvas that already has a live version defaults to a draft
+instead — see "Draft, then promote" below.
+
+Two ways to publish, both guarded:
 
 - **Whole project** — `canvas-publish-create` with the complete `project`.
 - **Per-file edits** — `canvas-edit-create` with `operations` (each sets a
@@ -91,6 +96,37 @@ every few seconds (up to ~2 minutes) until the build you queued is terminal:
 - `failed` — read the build's error diagnostics, fix the project, and publish again. A failed
   build never replaces the last good one, so the canvas keeps rendering the previous version —
   finishing the task here would leave the user with a stale canvas and a silent failure.
+
+## Draft, then promote
+
+Publishing goes live the moment its build is ready. For a canvas that **already has a live
+version**, that is not the default: stage the change as a draft and let the user promote it.
+Publish directly only for a canvas's first version (nothing is live to protect) or when the user
+explicitly asked to make the change live. A draft is a real, buildable version that is never the
+head: the live canvas keeps rendering the current version until someone promotes the draft. This
+is different from `canvas-validate-create`, which only compile-checks and produces no build or
+preview.
+
+1. **Stage** — `canvas-draft-create` with the complete `project` (same shape, capabilities, and
+   validation as a publish). No `expected_current_version_id`: a draft is based on nothing and
+   conflicts with nothing. The response returns the draft's `version_id`, its queued `build`, and
+   `capability_widening` — the insights, capture events, inline queries, and network origins the
+   draft declares beyond the live version. Surface a non-empty widening to the user before
+   promoting; it is the access the change would newly grant.
+2. **Wait for the build** — poll `canvas-builds-retrieve` until the draft's build is terminal, the
+   same way you would after a publish. A failed draft build is fixed by staging a new draft, not by
+   promoting.
+3. **Preview** — read the draft's files with `canvas-source-retrieve` passing its `version_id`; once
+   its build is `ready` the app renders that draft when the version is opened. The draft is **not**
+   in `canvas-versions-retrieve` (that lists published history only) and cannot be reverted onto —
+   list pending drafts with `canvas-drafts-retrieve`.
+4. **Promote** — only when the user approved the draft or explicitly asked to go live; the
+   default is to stop after staging and report the draft. `canvas-promote-create` makes the
+   draft the live head. Pass
+   `expected_current_version_id` (the live `current_version_id` from `canvas-source-retrieve`); it
+   is guarded exactly like a publish and 409s on a moved head (recover as below). A draft whose
+   build is still `ready` goes live with no rebuild; otherwise a fresh build is queued, so wait for
+   it as in step 2. Promote is the only path from a draft to live.
 
 ## Recovering from 409 version_conflict
 

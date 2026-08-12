@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     align_incoming_decimals_to_delta,
     first_per_pk_table,
     normalize_column_name,
+    raise_on_nullability_drift,
     realign_decimal_buffers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -338,6 +339,11 @@ class DeltaWriter:
             # stored types up front so the merge cast is a no-op, or raise a clean reset signal.
             data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
+            # A source that starts emitting nulls in a column the table created non-nullable is a
+            # schema change under the table; neither deltalite nor delta-rs can relax it in place, so
+            # raise the same reset signal to get the table fully re-synced.
+            raise_on_nullability_drift(data, delta_table.schema())
+
             existing_delta_table = delta_table
 
             await self._logger.adebug(f"write: merging...")
@@ -472,28 +478,45 @@ class DeltaWriter:
                     mode="ignore",
                 )
 
+            if mode == "append":
+                # Each batch of a full_refresh (or first incremental sync) infers its own decimal
+                # types independently, same as the incremental-merge and append-continuation paths
+                # above. Without reconciling to the table's already-established type here, a later
+                # batch whose inferred scale is wider than an earlier one hits delta-rs's
+                # merge-schema SchemaMismatchError, since schema_mode="merge" can't widen a stored
+                # column's type in place.
+                data = align_incoming_decimals_to_delta(data, delta_table.schema())
+
             try:
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await execute_with_conflict_retry(
                     delta_table,
-                    data,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode=mode,
-                    schema_mode=schema_mode,
-                    commit_properties=commit_properties,
+                    lambda: _write_deltalake(
+                        delta_table,
+                        data,
+                        partition_by=PARTITION_KEY if use_partitioning else None,
+                        mode=mode,
+                        schema_mode=schema_mode,
+                        commit_properties=commit_properties,
+                    ),
+                    "write: overwrite",
+                    self._logger,
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
 
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await execute_with_conflict_retry(
                     delta_table,
-                    data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode="overwrite",
-                    commit_properties=commit_properties,
+                    lambda: _write_deltalake(
+                        delta_table,
+                        data,
+                        partition_by=None,
+                        mode=mode,
+                        schema_mode="overwrite",
+                        commit_properties=commit_properties,
+                    ),
+                    "write: overwrite (schema retry)",
+                    self._logger,
                 )
         elif write_type == "append":
             if delta_table is None:
@@ -518,14 +541,18 @@ class DeltaWriter:
 
             await self._logger.adebug(f"write: write_type = append")
 
-            await asyncio.to_thread(
-                _write_deltalake,
+            await execute_with_conflict_retry(
                 delta_table,
-                data,
-                partition_by=PARTITION_KEY if use_partitioning else None,
-                mode="append",
-                schema_mode="merge",
-                commit_properties=commit_properties,
+                lambda: _write_deltalake(
+                    delta_table,
+                    data,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="append",
+                    schema_mode="merge",
+                    commit_properties=commit_properties,
+                ),
+                "write: append",
+                self._logger,
             )
 
         delta_table = await self._table.get_delta_table()
