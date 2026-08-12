@@ -18,6 +18,10 @@ import { AddDirectoryDialog } from "@posthog/ui/features/folder-picker/AddDirect
 import { ErrorDetailsDialog } from "@posthog/ui/features/notifications/ErrorDetailsDialog";
 import { OnboardingFlow } from "@posthog/ui/features/onboarding/components/OnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import {
+  OnboardingV2Demo,
+  useOnboardingV2Demo,
+} from "@posthog/ui/features/onboarding-v2-demo/OnboardingV2Demo";
 import { SettingsDialog } from "@posthog/ui/features/settings/SettingsDialog";
 import { UpdateBanner } from "@posthog/ui/features/sidebar/components/UpdateBanner";
 import { PendingPromptRecovery } from "@posthog/ui/features/task-detail/components/PendingPromptRecovery";
@@ -49,6 +53,7 @@ function App({ devToolbar }: AppProps) {
   const hasCompletedOnboarding = useOnboardingStore(
     (state) => state.hasCompletedOnboarding,
   );
+  const onboardingDemo = useOnboardingV2Demo();
   const isAuthenticated = authState.status === "authenticated";
   const hasCodeAccess = authState.hasCodeAccess;
   // Analytics init + dev inbox console moved to host CONTRIBUTIONs
@@ -160,6 +165,18 @@ function App({ devToolbar }: AppProps) {
 
   // Rendering: onboarding (includes auth + invite code gate) → main app
   const renderContent = () => {
+    if (onboardingDemo.active) {
+      return (
+        <motion.div
+          key="onboarding-v2-demo"
+          initial={{ opacity: 1 }}
+          className="h-full"
+        >
+          <OnboardingV2Demo onExit={onboardingDemo.exit} />
+        </motion.div>
+      );
+    }
+
     if (!hasCompletedOnboarding) {
       return (
         <motion.div
