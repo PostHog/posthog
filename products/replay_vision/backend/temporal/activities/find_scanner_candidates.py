@@ -75,7 +75,12 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     deep_candidates: list[CandidateSession] = []
     deep_swept_through: dt.datetime | None = None
     deep_limit = limit - len(candidates)
-    if deep_limit > 0:
+    if scanner.last_deep_swept_at is None:
+        # Seed the deep clock at the fast watermark; everything before this deploy was swept
+        # full-width. This happens whatever the headroom, because the fast watermark advances on every
+        # tick: seeding only once headroom frees up would leave the range in between with no deep pass.
+        deep_swept_through = scanner.last_swept_at
+    elif deep_limit > 0:
         deep_candidates, deep_swept_through = _deep_sweep(scanner, query, deep_limit)
 
     record_sweep_outcome(
@@ -103,10 +108,7 @@ def _deep_sweep(
     `DEEP_SWEEP_INTERVAL`, excluding sessions the scanner already observed. Bounded above by
     `last_swept_at` so it never overlaps the fast keyset's territory.
     """
-    if scanner.last_deep_swept_at is None:
-        # Start the deep clock at the fast watermark; everything before this deploy was swept full-width.
-        return [], scanner.last_swept_at
-
+    assert scanner.last_deep_swept_at is not None  # seeded by the caller before the first pass runs
     now = timezone.now()
     if now - scanner.last_deep_swept_at < DEEP_SWEEP_INTERVAL or scanner.last_deep_swept_at >= scanner.last_swept_at:
         return [], None

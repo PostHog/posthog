@@ -253,6 +253,32 @@ class TestFindScannerCandidatesActivity:
         assert [c.session_id for c in result.deep_candidates] == ["deep-a"]
         assert result.deep_swept_through == scanner.last_swept_at
 
+    def test_deep_watermark_seeds_even_when_fast_batch_takes_all_headroom(self) -> None:
+        scanner = _make_scanner()
+        assert scanner.last_deep_swept_at is None
+        fast = [
+            CandidateSession(session_id=f"sess-{i}", session_end=dt.datetime(2026, 5, 1, 10, 0, i, tzinfo=dt.UTC))
+            for i in range(2)
+        ]
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = fast
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
+            )
+
+        MockDeep.assert_not_called()
+        # Without this the fast watermark keeps advancing while the deep clock stays unset, and the
+        # range in between never gets a full-width pass.
+        assert result.deep_swept_through == scanner.last_swept_at
+
     @parameterized.expand(
         [
             ("headroom_left_over", 3, 5, 2),
