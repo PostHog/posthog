@@ -2,6 +2,7 @@ import os
 import json
 import tempfile
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from types import SimpleNamespace
 from typing import Any
 
@@ -15,6 +16,7 @@ from posthog.schema import QueryTiming, RetentionResult, RetentionValue
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     CellDiff,
+    Command,
     CorrectnessDiff,
     InsightFinding,
     ObjectStorageLineSink,
@@ -772,6 +774,52 @@ class TestFetchQueryLogStats(TestCase):
 
         self.assertEqual(batches, [["early", "late"], ["late"]])
         self.assertEqual(sorted(found), ["early", "late"])
+
+
+class TestReportDurability(TestCase):
+    # These runs happen on ephemeral prod pods, and the resource-stats lookup can take minutes:
+    # writing the report only after it meant a pod dying mid-lookup discarded the whole run's
+    # verdict, and a local-only report file dies with the container regardless.
+    @staticmethod
+    def _run(report_path, on_lookup=None):
+        finding = InsightFinding(
+            insight_id=1,
+            short_id="s1",
+            team_id=2,
+            name="",
+            url="",
+            status="OK",
+            legacy_query_ids=["q1"],
+            dwh_query_ids=["q2"],
+        )
+        command = Command(stdout=StringIO())
+        # Parsed rather than hand-built, so the options dict matches what a real invocation passes.
+        options = vars(
+            command.create_parser("manage.py", "compare_retention_legacy_vs_dwh").parse_args(
+                ["--report-path", report_path]
+            )
+        )
+        with (
+            patch.object(Command, "_load_progress", return_value=[finding]),
+            patch.object(Command, "_select_insights", return_value=[]),
+            patch.object(Command, "_attach_resource_stats", side_effect=on_lookup or (lambda *a: None)),
+        ):
+            command.handle(**options)
+
+    def test_report_exists_before_the_resource_stats_lookup_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            report_path = os.path.join(directory, "report.md")
+            seen: dict[str, Any] = {}
+            self._run(report_path, on_lookup=lambda *a: seen.update(existed=os.path.exists(report_path)))
+
+            self.assertTrue(seen.get("existed"))
+
+    def test_report_can_be_written_to_object_storage(self):
+        fake = FakeObjectStorage()
+        with patch("posthog.management.commands.compare_retention_legacy_vs_dwh.object_storage", fake):
+            self._run("s3://retention_compare/perf_report.md")
+
+        self.assertIn("# Retention legacy vs DWH-variant comparison", fake.store["retention_compare/perf_report.md"])
 
 
 class TestResourceStats(TestCase):

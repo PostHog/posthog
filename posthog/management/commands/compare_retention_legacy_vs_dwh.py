@@ -1940,8 +1940,19 @@ class Command(BaseCommand):
             "still hit max_execution_time on a busy cluster; batches fail independently, so only the failing "
             "slice loses its stats.",
         )
-        parser.add_argument("--report-path", type=str, default=None, help="Markdown report path")
-        parser.add_argument("--json-path", type=str, default=None, help="Optional machine-readable JSON dump path")
+        parser.add_argument(
+            "--report-path",
+            type=str,
+            default=None,
+            help="Markdown report path. Accepts an s3://<key> object-storage path, which outlives the pod — "
+            "worth using on an ephemeral toolbox pod, where a local file dies with the container.",
+        )
+        parser.add_argument(
+            "--json-path",
+            type=str,
+            default=None,
+            help="Optional machine-readable JSON dump path (also accepts s3://<key>)",
+        )
         parser.add_argument("--base-url", type=str, default="https://us.posthog.com", help="Base URL for insight links")
         parser.add_argument("--max-source-json-chars", type=int, default=6000, help="Trim embedded query JSON")
         parser.add_argument("--fail-on-mismatch", action="store_true", help="Exit non-zero if any MISMATCH is found")
@@ -2013,20 +2024,21 @@ class Command(BaseCommand):
             if progress_sink is not None:
                 progress_sink.close()
 
+        report_path = options["report_path"] or f"retention_dwh_comparison_{run_id}.md"
+        # Emit the report BEFORE reading resource stats. That lookup is best-effort and, against the
+        # archive table, can run long enough to outlive an ephemeral pod — writing the report only
+        # afterwards meant a killed lookup threw away a completed run's entire verdict. Rendering is
+        # in-memory and cheap, so paying for it twice buys a timing-only report that always exists.
+        aggregate, run_meta = self._emit_report(report_path, findings, options)
+
         if options["clickhouse_stats"] and not options["no_perf"] and all_query_ids:
             self._attach_resource_stats(findings, all_query_ids, options)
+            aggregate, run_meta = self._emit_report(report_path, findings, options)
         if options["progress_path"]:
             # Rewrite with resource stats attached, so a later --resume or report regeneration
             # does not depend on the query log still retaining this run's rows.
             save_progress_findings(options["progress_path"], findings)
 
-        aggregate = build_perf_aggregate(findings, worst_n=DEFAULT_WORST_N)
-        run_meta = self._build_run_meta(findings, options)
-        report = render_markdown_report(findings, aggregate, run_meta)
-
-        report_path = options["report_path"] or f"retention_dwh_comparison_{run_id}.md"
-        with open(report_path, "w") as handle:
-            handle.write(report)
         if options["json_path"]:
             self._write_json(options["json_path"], findings, aggregate, run_meta)
 
@@ -2349,6 +2361,14 @@ class Command(BaseCommand):
         ]
         return ", ".join(f"{key}={options[key]}" for key in keys)
 
+    def _emit_report(
+        self, report_path: str, findings: list[InsightFinding], options: dict[str, Any]
+    ) -> tuple[PerfAggregate, dict[str, Any]]:
+        aggregate = build_perf_aggregate(findings, worst_n=DEFAULT_WORST_N)
+        run_meta = self._build_run_meta(findings, options)
+        write_state_text(report_path, render_markdown_report(findings, aggregate, run_meta))
+        return aggregate, run_meta
+
     def _write_json(
         self, path: str, findings: list[InsightFinding], aggregate: PerfAggregate, run_meta: dict[str, Any]
     ) -> None:
@@ -2365,8 +2385,7 @@ class Command(BaseCommand):
             },
             "findings": [dataclasses.asdict(f) for f in findings],
         }
-        with open(path, "w") as handle:
-            json.dump(payload, handle, indent=2, default=str)
+        write_state_text(path, json.dumps(payload, indent=2, default=str))
 
     def _print_heartbeat(self, index: int, total: int, started_at: float, findings: list[InsightFinding]) -> None:
         """Elapsed/ETA line every HEARTBEAT_EVERY insights, so a long run with quiet (all-OK)
@@ -2423,6 +2442,19 @@ class Command(BaseCommand):
                 f"Median wall ratio: {_fmt_ratio(wall_median)} | median bytes ratio: {_fmt_ratio(bytes_median)} | "
                 f"improvements: {aggregate.n_improvements}"
             )
+            # The rollout verdict lives in these percentiles, so print them rather than leaving them
+            # only in the report file — on an ephemeral pod stdout is the copy that survives.
+            self._print_ratio_distribution("wall ratio", aggregate.wall_ratio_dist)
+            self._print_ratio_distribution("bytes ratio", aggregate.bytes_ratio_dist)
         self.stdout.write(self.style.SUCCESS(f"Report: {report_path}"))
         if json_path:
             self.stdout.write(self.style.SUCCESS(f"JSON: {json_path}"))
+
+    def _print_ratio_distribution(self, label: str, dist: dict[str, float]) -> None:
+        if not dist:
+            self.stdout.write(f"  {label:<12} n/a (no paired measurements)")
+            return
+        self.stdout.write(
+            f"  {label:<12} n={int(dist['n'])} min={dist['min']:.2f}× p25={dist['p25']:.2f}× "
+            f"p50={dist['median']:.2f}× p75={dist['p75']:.2f}× p90={dist['p90']:.2f}× max={dist['max']:.2f}×"
+        )
