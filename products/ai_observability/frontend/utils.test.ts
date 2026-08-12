@@ -2163,6 +2163,7 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             ['the schema response key', { response: 'Sunny, 25°C' }],
             ['the spec example result key', { result: 'Sunny, 25°C' }],
             ['both keys, preferring response', { response: 'Sunny, 25°C', result: 'stale' }],
+            ['a null response falling back to result', { response: null, result: 'Sunny, 25°C' }],
         ])('normalizes tool_call_response parts into tool messages from %s', (_label, resultFields) => {
             const message = {
                 role: 'user',
@@ -2179,6 +2180,23 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, norm
             expect(normalizeMessage(message, 'user')).toEqual([
                 { role: 'tool', content: 'Sunny, 25°C', tool_call_id: 'call_abc' },
             ])
+        })
+
+        it('keeps an empty string response over a stale result', () => {
+            const message = {
+                role: 'user',
+                parts: [
+                    {
+                        type: 'tool_call_response',
+                        id: 'call_abc',
+                        name: 'get_weather',
+                        response: '',
+                        result: 'stale',
+                    },
+                ],
+            }
+
+            expect(normalizeMessage(message, 'user')).toEqual([{ role: 'tool', content: '', tool_call_id: 'call_abc' }])
         })
 
         it.each(['response', 'result'])('stringifies non-string tool_call_response %s values', (field) => {

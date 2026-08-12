@@ -101,9 +101,7 @@ def _flatten_parts_message(msg: dict) -> list[dict]:
                 }
             )
         elif part_type == "tool_call_response":
-            tool_response = part.get("response")
-            if tool_response is None:
-                tool_response = part.get("result", "")
+            tool_response = next((part[key] for key in ("response", "result") if part.get(key) is not None), "")
             if not isinstance(tool_response, str):
                 tool_response = json.dumps(tool_response, default=str)
             tool_results.append({"role": "tool", "content": tool_response, "tool_call_id": part.get("id")})
