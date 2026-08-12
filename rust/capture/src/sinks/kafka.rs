@@ -1185,6 +1185,7 @@ mod tests {
         use super::*;
         use crate::sinks::kafka::{test_topics, KafkaSinkBase, SCATTER_GATHER_MIN_BATCH};
         use crate::sinks::producer::MockKafkaProducer;
+        use crate::sinks::sink::{Outcome, Sink};
         use rstest::rstest;
 
         const MAIN_TOPIC: &str = "events_plugin_ingestion";
@@ -3114,8 +3115,6 @@ mod tests {
 
         #[tokio::test]
         async fn publish_reports_uuid_aligned_results() {
-            use crate::sinks::sink::{Outcome, Sink};
-
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
@@ -3136,8 +3135,6 @@ mod tests {
 
         #[tokio::test]
         async fn publish_enqueue_failure_is_batch_uniform() {
-            use crate::sinks::sink::{Outcome, Sink};
-
             const FAIL_IDX: usize = 1;
             let producer = MockKafkaProducer::new_failing_at(FAIL_IDX);
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
@@ -3162,6 +3159,34 @@ mod tests {
                 ));
             }
             assert_eq!(producer.get_records().len(), FAIL_IDX);
+        }
+
+        #[tokio::test]
+        async fn publish_ack_failure_is_batch_uniform() {
+            const FAIL_IDX: usize = 1;
+            let producer = MockKafkaProducer::new_failing_ack_at(FAIL_IDX);
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            let payloads = sink
+                .prepare_batch(build_batch(3))
+                .await
+                .expect("prepare_batch failed");
+            let input_uuids: Vec<_> = payloads.iter().map(|p| p.uuid).collect();
+
+            let results = sink.publish(payloads).await;
+
+            // The producer accepted every record — all three were enqueued —
+            // but one delivery report failed, so the whole batch reports the
+            // failure, acked-before-failure events included.
+            assert_eq!(results.len(), 3);
+            for (result, uuid) in results.iter().zip(&input_uuids) {
+                assert_eq!(result.uuid, *uuid, "results must align with input order");
+                assert!(matches!(
+                    result.outcome,
+                    Outcome::Failed(CaptureError::RetryableSinkError)
+                ));
+            }
+            assert_eq!(producer.get_records().len(), 3);
         }
 
         /// Per-event-type topic routing is covered by `assert_routing` for
