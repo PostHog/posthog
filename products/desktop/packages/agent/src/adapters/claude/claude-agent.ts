@@ -1038,6 +1038,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                   },
                 });
                 head.settled = true;
+                declinePendingSteers(head);
                 session.turnQueue = session.turnQueue.filter((t) => t !== head);
                 head.resolve({ stopReason: "end_turn" });
                 break;
@@ -1146,35 +1147,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               },
             );
 
-            const result = handleResultMessage(message);
-
-            if (
-              !isTaskNotification &&
-              session.activeTurn &&
-              hasUnconsumedSteers(session.activeTurn)
-            ) {
-              const deferred = session.activeTurn;
-              stopReason = result.stopReason ?? "end_turn";
-              deferred.deferredResult = { stopReason, usage: sessionUsage() };
-              deferred.steerTimer ??= setTimeout(() => {
-                if (session.activeTurn !== deferred) {
-                  return;
-                }
-                this.logger.warn("Steer never reached the model", {
-                  sessionId,
-                  pendingSteers: deferred.pendingSteers.size,
-                });
-                settleActive(
-                  deferred.deferredResult ?? { stopReason: "end_turn" },
-                );
-              }, STEER_DELIVERY_GRACE_MS);
-              this.logger.debug(
-                "Deferring turn completion until pending steers are consumed",
-                { sessionId, pendingSteers: deferred.pendingSteers.size },
-              );
-              break;
-            }
-
             if (
               (message as { stop_reason?: string }).stop_reason === "refusal"
             ) {
@@ -1204,10 +1176,41 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
+            const result = handleResultMessage(message);
             if (result.error) {
               if (!isTaskNotification) {
                 failActive(result.error);
               }
+              break;
+            }
+
+            // Runs after the refusal and error branches so a failed turn is
+            // reported as such rather than deferred and later settled as a
+            // success by the grace timer.
+            if (
+              !isTaskNotification &&
+              session.activeTurn &&
+              hasUnconsumedSteers(session.activeTurn)
+            ) {
+              const deferred = session.activeTurn;
+              stopReason = result.stopReason ?? "end_turn";
+              deferred.deferredResult = { stopReason, usage: sessionUsage() };
+              deferred.steerTimer ??= setTimeout(() => {
+                if (session.activeTurn !== deferred) {
+                  return;
+                }
+                this.logger.warn("Steer never reached the model", {
+                  sessionId,
+                  pendingSteers: deferred.pendingSteers.size,
+                });
+                settleActive(
+                  deferred.deferredResult ?? { stopReason: "end_turn" },
+                );
+              }, STEER_DELIVERY_GRACE_MS);
+              this.logger.debug(
+                "Deferring turn completion until pending steers are consumed",
+                { sessionId, pendingSteers: deferred.pendingSteers.size },
+              );
               break;
             }
 
@@ -1356,7 +1359,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             }
 
             if (message.type === "assistant") {
-              if (session.activeTurn) {
+              // Subagent output is a separate model context, so it is no
+              // evidence the steer reached this turn's model.
+              if (session.activeTurn && message.parent_tool_use_id === null) {
                 confirmConsumedSteers(session.activeTurn);
               }
               const inner = message.message as unknown as {
@@ -1515,6 +1520,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         continue;
       }
       turn.settled = true;
+      declinePendingSteers(turn);
       session.turnQueue = session.turnQueue.filter((t) => t !== turn);
       session.pendingOrphanResults += 1;
       turn.resolve(this.cancelledResponse());
