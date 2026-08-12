@@ -4,7 +4,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.test import SimpleTestCase
+
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
@@ -19,6 +22,7 @@ from products.data_modeling.backend.logic.saved_query_dag_sync import promote_da
 from products.data_modeling.backend.logic.schedule_reconcile import (
     apply_saved_query_frequency_anchor,
     convert_dag_to_tiers,
+    delete_dag_schedules,
     maybe_reconcile_dag,
     reconcile_dag_schedules,
 )
@@ -30,6 +34,7 @@ from products.data_modeling.backend.test.helpers import (
     no_existing_schedules,
     saved_query_node as _saved_query_node,
     table_node as _table_node,
+    temporal_listing,
     warehouse_source_node as _warehouse_source_node,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -517,3 +522,55 @@ class TestPromoteDagViewNodesToMatview(BaseTest):
 
         stranded.refresh_from_db()
         assert stranded.type == NodeType.MAT_VIEW
+
+
+class TestDeleteDagSchedules(SimpleTestCase):
+    def _run(self, schedule_ids, *, delete=None):
+        temporal = temporal_listing(schedule_ids)
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=delete or mock.AsyncMock()) as deleter,
+        ):
+            return delete_dag_schedules("dag-1"), deleter
+
+    def test_deletes_every_listed_schedule_whatever_its_id_scheme(self):
+        # the listing is authoritative, so a tier, a bare legacy id and an off-scheme id all go
+        teardown, deleter = self._run(["dag-1:3600", "dag-1", "dag-1-legacy"])
+
+        assert teardown.ok
+        assert teardown.deleted == ("dag-1", "dag-1-legacy", "dag-1:3600")
+        assert deleter.await_count == 3
+
+    def test_already_deleted_schedule_is_not_a_failure(self):
+        delete = mock.AsyncMock(side_effect=RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+        teardown, _ = self._run(["dag-1:3600"], delete=delete)
+
+        assert teardown.ok
+        assert teardown.deleted == ()
+
+    def test_listing_failure_reports_not_ok_and_deletes_nothing(self):
+        # the caller keys "may I drop the DAG row?" off ok: the listing is the only way back to
+        # these schedules once the row is gone
+        temporal = mock.Mock()
+        temporal.list_schedules = mock.AsyncMock(side_effect=RuntimeError("temporal down"))
+        with (
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as deleter,
+        ):
+            teardown = delete_dag_schedules("dag-1")
+
+        assert not teardown.ok
+        assert teardown.deleted == ()
+        deleter.assert_not_awaited()
+
+    def test_one_failed_delete_reports_not_ok_but_still_deletes_the_others(self):
+        def _fail_the_tier(_temporal, schedule_id):
+            if schedule_id == "dag-1:3600":
+                raise RPCError("boom", RPCStatusCode.INTERNAL, b"")
+
+        delete = mock.AsyncMock(side_effect=_fail_the_tier)
+        teardown, deleter = self._run(["dag-1:3600", "dag-1:86400"], delete=delete)
+
+        assert not teardown.ok
+        assert teardown.deleted == ("dag-1:86400",)
+        assert deleter.await_count == 2
