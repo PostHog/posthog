@@ -492,10 +492,13 @@ class TestEvaluateAlert:
     async def test_evaluate_does_not_retry_when_the_query_ran_out_of_memory(self, alert) -> None:
         # The query hit its own memory ceiling, so a second attempt fails identically and only adds
         # load to a cluster that is already struggling with this query.
-        with patch(
-            "posthog.temporal.alerts.activities.check_alert_for_insight",
-            side_effect=_memory_limit_error(is_per_query_limit=True),
-        ) as mock_check:
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=_memory_limit_error(is_per_query_limit=True),
+            ) as mock_check,
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
@@ -504,6 +507,9 @@ class TestEvaluateAlert:
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.error is not None
+        # The stored message is the same copy for both ceilings, so which one it was has to reach
+        # error tracking or the retry decision can't be reviewed afterwards.
+        assert mock_capture.call_args.kwargs["additional_properties"]["memory_limit_scope"] == "query"
 
     async def test_evaluate_non_retryable_when_alert_deleted_mid_workflow(self) -> None:
         env = ActivityEnvironment()

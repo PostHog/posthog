@@ -17,6 +17,7 @@ from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS, is_transient_memory_limit
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -214,6 +215,13 @@ _TRANSIENT_MEMORY_LIMIT_RETRY_DELAY_SECONDS = 5.0
 _TRANSIENT_MEMORY_LIMIT_RETRY_MAX_ELAPSED_SECONDS = 60.0
 
 
+def _memory_limit_scope(error: Exception) -> str | None:
+    """Which ClickHouse memory ceiling the query hit, or None when it did not run out of memory."""
+    if not isinstance(error, ClickHouseQueryMemoryLimitExceeded):
+        return None
+    return "query" if error.is_per_query_limit else "cluster"
+
+
 def _check_alert_for_insight_with_retry(alert: AlertConfiguration) -> AlertEvaluationResult:
     for attempt in range(1, _TRANSIENT_MEMORY_LIMIT_MAX_ATTEMPTS + 1):
         started_at = time.monotonic()
@@ -324,13 +332,22 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
                 error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
-            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
+            # Which memory ceiling ClickHouse hit survives only on the exception object, because
+            # both ceilings carry the same user-facing copy into the message stored on the check.
+            # Log it so the retry decision stays answerable afterwards without reading query_log.
+            logger.exception(
+                "Alert failed to evaluate",
+                alert_id=alert.id,
+                exc_info=err,
+                memory_limit_scope=_memory_limit_scope(err),
+            )
             capture_exception(
                 err,
                 additional_properties={
                     "alert_configuration_id": str(alert.id),
                     "insight_id": alert.insight_id,
                     "team_id": alert.team_id,
+                    "memory_limit_scope": _memory_limit_scope(err),
                 },
             )
             error = {"message": str(err), "traceback": traceback.format_exc()}
