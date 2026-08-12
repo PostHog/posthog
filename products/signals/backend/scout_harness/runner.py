@@ -1134,9 +1134,9 @@ def _capture_config_auto_paused(
                 "scout_config_id": str(config.id),
                 "run_id": str(run_id),
                 "consecutive_failure_count": failure_count,
-                # Per-lane now, not a fleet constant — a wedge count is only readable next to
-                # the threshold the lane was actually held to, and the threshold only next to
-                # the schedule it was derived from (the cron when set, else the interval).
+                # A wedge count is only readable next to the threshold the lane was actually
+                # held to, and the threshold only next to the schedule it was derived from
+                # (the cron when set, else the interval).
                 "failure_streak_threshold": failure_streak_threshold,
                 "run_interval_minutes": config.run_interval_minutes,
                 "run_cron_schedule": config.run_cron_schedule,
