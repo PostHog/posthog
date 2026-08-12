@@ -222,12 +222,13 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("severity", {"severity": "high"}),
             ("name", {"name": "Updated issue"}),
             ("description", {"description": "Updated description"}),
         ]
     )
     @freeze_time("2025-01-02")
-    def test_issue_update_stamps_denormalized_fields(self, _name: str, fields: dict[str, str]) -> None:
+    def test_issue_update_stamps_clickhouse_visible_fields(self, _name: str, fields: dict[str, str]) -> None:
         issue = self.create_issue(["fingerprint"])
 
         response = self.client.patch(
@@ -245,7 +246,7 @@ class TestErrorTracking(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
-            data={"status": "active", "name": None, "description": None},
+            data={"status": "active", "severity": None, "name": None, "description": None},
         )
 
         assert response.status_code == status.HTTP_200_OK

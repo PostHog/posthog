@@ -42,7 +42,7 @@ class InvalidIssueStatusError(Exception):
     pass
 
 
-_CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS = ("status", "name", "description")
+_CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS = ("status", "severity", "name", "description")
 
 
 def _get_issue(team_id: int, issue_id: UUID | str, *, select_related: tuple[str, ...] = ()) -> ErrorTrackingIssue:
@@ -141,7 +141,7 @@ def update_issue(
                 detail=Detail(name=issue.name, changes=changes),
             )
 
-    if state_updated or severity_updated:
+    if state_updated:
         sync_issues_to_clickhouse(issue_ids=[issue.id], team_id=team_id)
 
     return issue
