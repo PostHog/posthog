@@ -270,7 +270,7 @@ def _assign_one(
                 raise AssigneeValidationError("Assignee role does not belong to this organization.")
 
         serialized_assignment_after = {
-            "id": assignee["id"] if assignee["type"] == "user" else str(assignee["id"]),
+            "id": int(assignee["id"]) if assignee["type"] == "user" else str(assignee["id"]),
             "type": assignee["type"],
         }
         if serialized_assignment_before == serialized_assignment_after:

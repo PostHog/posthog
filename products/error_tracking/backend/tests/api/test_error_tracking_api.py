@@ -792,18 +792,40 @@ class TestErrorTracking(APIBaseTest):
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_assigning_same_assignee_does_not_stamp_issue(self) -> None:
+    @patch("products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse")
+    @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
+    @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
+    def test_assigning_same_user_with_string_id_does_not_mutate_issue(
+        self, mock_email: Mock, mock_realtime: Mock, mock_sync: Mock
+    ) -> None:
         issue = self.create_issue()
         ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
-            data={"assignee": {"id": self.user.id, "type": "user"}},
+            data={"assignee": {"id": str(self.user.id), "type": "user"}},
         )
 
         assert response.status_code == status.HTTP_200_OK
         issue.refresh_from_db()
         assert issue.state_updated_at is None
+        self._assert_logs_the_activity(issue.id, [])
+        mock_email.delay.assert_not_called()
+        mock_realtime.assert_not_called()
+        mock_sync.assert_not_called()
+
+    def test_unassigning_unassigned_issue_does_not_mutate_issue(self) -> None:
+        issue = self.create_issue()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": None},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        issue.refresh_from_db()
+        assert issue.state_updated_at is None
+        self._assert_logs_the_activity(issue.id, [])
 
     @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
     @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
