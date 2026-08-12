@@ -310,6 +310,31 @@ class TestStarExpansion:
         assert "timestamp" in result.key_candidates
         assert "c" not in result.key_candidates
 
+    def test_key_candidates_carry_coarse_types(self) -> None:
+        result = self._check("SELECT event, timestamp FROM events")
+
+        assert result.key_candidate_types["timestamp"] == "datetime"
+        assert result.key_candidate_types["event"] == "string"
+
+    @parameterized.expand(
+        [
+            ("boolean", "SELECT timestamp, timestamp > now() AS flag FROM events", "flag"),
+            ("array", "SELECT timestamp, [1, 2] AS xs FROM events", "xs"),
+            ("tuple", "SELECT timestamp, (1, 2) AS pair FROM events", "pair"),
+        ]
+    )
+    def test_unorderable_columns_are_not_candidates(self, _name: str, query: str, column: str) -> None:
+        result = self._check(query)
+
+        assert column not in result.key_candidates
+        assert "timestamp" in result.key_candidates
+
+    def test_without_a_database_types_are_unknown_and_nothing_is_filtered(self) -> None:
+        result = check_incremental_eligibility("SELECT timestamp, flag FROM events", None)
+
+        assert result.key_candidate_types == {}
+        assert "flag" in result.key_candidates
+
     @parameterized.expand(
         [
             ("no_database", "SELECT * FROM events", False),

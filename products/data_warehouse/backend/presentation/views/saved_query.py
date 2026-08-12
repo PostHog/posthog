@@ -1140,7 +1140,14 @@ class IncrementalEligibilitySerializer(serializers.Serializer):
     key_candidates = serializers.ListField(
         child=serializers.CharField(),
         help_text="Output columns that could be used as the incremental key. Excludes aggregates, "
-        "and for a union only includes columns every branch produces.",
+        "columns whose type cannot advance as a watermark (booleans, arrays), and for a union only "
+        "includes columns every branch produces.",
+    )
+    key_candidate_types = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Coarse type per key candidate, keyed by column name: datetime, date, integer, "
+        "decimal, float, string, or uuid. A candidate with no entry has a type the check could "
+        "not determine.",
     )
     blockers = serializers.ListField(
         child=serializers.CharField(),
@@ -1453,6 +1460,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 {
                     "eligible": result.eligible,
                     "key_candidates": result.key_candidates,
+                    "key_candidate_types": result.key_candidate_types,
                     "blockers": result.blockers,
                     "warnings": result.warnings,
                 }

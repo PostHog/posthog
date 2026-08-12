@@ -48,11 +48,35 @@ NON_DETERMINISTIC_FUNCTIONS = {
 
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
 
+_CONSTANT_TYPE_LABELS: dict[type, str] = {
+    ast.DateTimeType: "datetime",
+    ast.DateType: "date",
+    ast.IntegerType: "integer",
+    ast.DecimalType: "decimal",
+    ast.FloatType: "float",
+    ast.StringType: "string",
+    ast.UUIDType: "uuid",
+    ast.BooleanType: "boolean",
+    ast.ArrayType: "array",
+    ast.TupleType: "tuple",
+    ast.MapType: "map",
+    ast.IntervalType: "interval",
+    ast.AggregateStateType: "aggregate",
+}
+
+# Types that cannot advance as a watermark: two booleans, an array, or a map have no "highest value
+# so far" for the next run to start from. Strings stay: keys like toString(toDate(timestamp)) are
+# supported, and lexicographic order advances for them. Unknown types stay too, since a wrong
+# exclusion hides a working column while a wrong inclusion just fails validation.
+_UNORDERABLE_TYPE_LABELS = {"boolean", "array", "tuple", "map", "interval", "aggregate"}
+
 
 @dataclass(frozen=True, kw_only=True)
 class EligibilityResult:
     eligible: bool
     key_candidates: list[str] = field(default_factory=list)
+    # Coarse type per candidate, for the picker's type tags. Missing entry: type unknown.
+    key_candidate_types: dict[str, str] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -76,10 +100,14 @@ def check_incremental_eligibility(
         return EligibilityResult(eligible=False, blockers=[f"This query could not be parsed: {err}"])
 
     raw_selects = _leaf_selects(node)
-    selects = _resolved_selects(node, database)
-    if selects is None:
-        selects = raw_selects
+    resolved_selects = _resolved_selects(node, database)
+    selects = resolved_selects if resolved_selects is not None else raw_selects
     key_candidates = _key_candidates(selects)
+    key_candidate_types = (
+        _key_candidate_types(resolved_selects, database) if resolved_selects is not None and database else {}
+    )
+    # A column whose type cannot advance would only ever fail validation, so don't offer it.
+    key_candidates = [name for name in key_candidates if key_candidate_types.get(name) not in _UNORDERABLE_TYPE_LABELS]
 
     blockers: list[str] = []
     warnings: list[str] = []
@@ -96,6 +124,7 @@ def check_incremental_eligibility(
         return EligibilityResult(
             eligible=not blockers,
             key_candidates=key_candidates,
+            key_candidate_types=key_candidate_types,
             blockers=_unique(blockers),
             warnings=_unique(warnings),
         )
@@ -110,6 +139,7 @@ def check_incremental_eligibility(
     return EligibilityResult(
         eligible=not blockers,
         key_candidates=key_candidates,
+        key_candidate_types=key_candidate_types,
         blockers=_unique(blockers),
         warnings=_unique(warnings),
     )
@@ -180,6 +210,31 @@ def _key_candidates(selects: list[ast.SelectQuery]) -> list[str]:
     # Preserve the first branch's SELECT order rather than set order, so the picker reads like the query.
     ordered = [name for item in selects[0].select if (name := _output_name(item)) is not None]
     return [name for name in dict.fromkeys(ordered) if name in common]
+
+
+def _key_candidate_types(selects: list[ast.SelectQuery], database: "Database") -> dict[str, str]:
+    """Coarse type labels for the picker's type tags, from the resolved AST.
+
+    Reads the first branch only: a union whose branches disagree on a column's type is already a
+    modeling problem, and the first branch is where the candidate order comes from too.
+    """
+    context = HogQLContext(team_id=None, database=database)
+    labels: dict[str, str] = {}
+    for item in selects[0].select:
+        name = _output_name(item)
+        if name is None:
+            continue
+        expr = item.expr if isinstance(item, ast.Alias) else item
+        if expr.type is None:
+            continue
+        try:
+            constant_type = expr.type.resolve_constant_type(context)
+        except Exception:
+            continue
+        label = _CONSTANT_TYPE_LABELS.get(type(constant_type))
+        if label is not None:
+            labels[name] = label
+    return labels
 
 
 def _output_name(item: ast.Expr) -> Optional[str]:

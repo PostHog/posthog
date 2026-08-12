@@ -11,6 +11,7 @@ import { materializationJobsLogic } from './materializationJobsLogic'
 const ELIGIBLE_CHECK = {
     eligible: true,
     key_candidates: ['timestamp', 'id'],
+    key_candidate_types: { timestamp: 'datetime', id: 'integer' },
     blockers: [],
     warnings: [],
 }

@@ -1447,13 +1447,20 @@ export interface CheckIncrementalApi {
 }
 
 /**
+ * Coarse type per key candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
+ */
+export type IncrementalEligibilityApiKeyCandidateTypes = { [key: string]: string }
+
+/**
  * Whether a query can be materialized incrementally, and what stands in the way.
  */
 export interface IncrementalEligibilityApi {
     /** True when nothing blocks incremental materialization. */
     eligible: boolean
-    /** Output columns that could be used as the incremental key. Excludes aggregates, and for a union only includes columns every branch produces. */
+    /** Output columns that could be used as the incremental key. Excludes aggregates, columns whose type cannot advance as a watermark (booleans, arrays), and for a union only includes columns every branch produces. */
     key_candidates: string[]
+    /** Coarse type per key candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine. */
+    key_candidate_types: IncrementalEligibilityApiKeyCandidateTypes
     /** Reasons this query cannot be incremental. Each names the construct responsible. */
     blockers: string[]
     /** Things that still work but are worth knowing, such as a filter that cannot be pushed down so each run reads as much data as a full refresh. */

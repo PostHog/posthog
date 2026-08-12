@@ -4,6 +4,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { DataWarehouseSavedQueryIncrementalCheck } from '~/types'
 
@@ -104,13 +105,22 @@ function RefreshModeRadio({
     )
 }
 
+function ColumnWithType({ column, columnType }: { column: string; columnType?: string }): JSX.Element {
+    return (
+        <span className="flex items-center gap-2">
+            {column}
+            {columnType && <LemonTag type="muted">{columnType}</LemonTag>}
+        </span>
+    )
+}
+
 function IncrementalKeyInput({
-    candidates,
+    check,
     value,
     onChange,
     dataAttr,
 }: {
-    candidates: string[]
+    check: DataWarehouseSavedQueryIncrementalCheck
     value: string | null
     onChange: (value: string | null) => void
     dataAttr: string
@@ -119,7 +129,10 @@ function IncrementalKeyInput({
         <LemonSelect
             value={value}
             onChange={onChange}
-            options={candidates.map((column) => ({ value: column, label: column }))}
+            options={check.key_candidates.map((column) => ({
+                value: column,
+                label: <ColumnWithType column={column} columnType={check.key_candidate_types?.[column]} />,
+            }))}
             placeholder="Select a column"
             data-attr={dataAttr}
             fullWidth
@@ -128,12 +141,12 @@ function IncrementalKeyInput({
 }
 
 function UniqueKeyInput({
-    candidates,
+    check,
     value,
     onChange,
     dataAttr,
 }: {
-    candidates: string[]
+    check: DataWarehouseSavedQueryIncrementalCheck
     value: string[]
     onChange: (value: string[]) => void
     dataAttr: string
@@ -143,7 +156,11 @@ function UniqueKeyInput({
             mode="multiple"
             value={value}
             onChange={onChange}
-            options={candidates.map((column) => ({ key: column, label: column }))}
+            options={check.key_candidates.map((column) => ({
+                key: column,
+                label: column,
+                labelComponent: <ColumnWithType column={column} columnType={check.key_candidate_types?.[column]} />,
+            }))}
             placeholder="Select one or more columns"
             data-attr={dataAttr}
         />
@@ -189,7 +206,7 @@ export function IncrementalConfigOptions({
                 <div className="deprecated-space-y-2">
                     <LemonField.Pure label="Track new rows by" help={INCREMENTAL_KEY_HELP}>
                         <IncrementalKeyInput
-                            candidates={check.key_candidates}
+                            check={check}
                             value={draft.incrementalKey}
                             onChange={(incrementalKey) => onChange({ incrementalKey })}
                             dataAttr="materialization-incremental-key"
@@ -197,7 +214,7 @@ export function IncrementalConfigOptions({
                     </LemonField.Pure>
                     <LemonField.Pure label="Columns that identify a row" help={UNIQUE_KEY_HELP}>
                         <UniqueKeyInput
-                            candidates={check.key_candidates}
+                            check={check}
                             value={draft.uniqueKey}
                             onChange={(uniqueKey) => onChange({ uniqueKey })}
                             dataAttr="materialization-incremental-unique-key"
@@ -245,7 +262,7 @@ export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps)
                             <LemonField name="incrementalKey" label="Track new rows by" help={INCREMENTAL_KEY_HELP}>
                                 {({ value: key, onChange: onKeyChange }) => (
                                     <IncrementalKeyInput
-                                        candidates={check.key_candidates}
+                                        check={check}
                                         value={key}
                                         onChange={onKeyChange}
                                         dataAttr="sql-editor-input-save-view-incremental-key"
@@ -259,7 +276,7 @@ export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps)
                             >
                                 {({ value: uniqueKey, onChange: onUniqueKeyChange }) => (
                                     <UniqueKeyInput
-                                        candidates={check.key_candidates}
+                                        check={check}
                                         value={uniqueKey}
                                         onChange={onUniqueKeyChange}
                                         dataAttr="sql-editor-input-save-view-incremental-unique-key"
