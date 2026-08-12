@@ -154,6 +154,7 @@ def send_comment_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, rec
                 task=task,
                 organization_id=team.organization_id,
                 slack_user_id_by_email=_mention_resolver(
+                    organization_id=team.organization_id,
                     integration=integration,
                     slack=slack,
                     cache=mention_cache,
@@ -284,22 +285,34 @@ def _slack_user_id_by_email(*, email: str, integration: Integration, slack: Slac
 
 def _mention_resolver(
     *,
+    organization_id: str | UUID,
     integration: Integration,
     slack: SlackIntegration,
     cache: dict[tuple[int, str], str | None],
     lookup_allowances: dict[int, int],
 ) -> Callable[[str], str | None]:
-    """Map a mentioned teammate's email to a Slack member of this workspace, so the DM body can
-    render them as a Slack mention rather than a bare name. Unresolvable addresses stay as names."""
+    """Map a mentioned teammate's email to a Slack member of this workspace.
+
+    Comment content is author-controlled, so only current organization members can reach Slack's
+    email lookup. Unresolvable or untrusted addresses stay as plain display names.
+    """
 
     def resolve(email: str) -> str | None:
-        key = (integration.id, email.strip().lower())
+        normalized_email = email.strip().lower()
+        key = (integration.id, normalized_email)
         if key in cache:
             return cache[key]
         if lookup_allowances.get(integration.id, 0) <= 0:
             return None
         lookup_allowances[integration.id] -= 1
-        cache[key] = _slack_user_id_by_email(email=email, integration=integration, slack=slack)
+        if not OrganizationMembership.objects.filter(
+            organization_id=organization_id,
+            user__email__iexact=normalized_email,
+            user__is_active=True,
+        ).exists():
+            cache[key] = None
+            return None
+        cache[key] = _slack_user_id_by_email(email=normalized_email, integration=integration, slack=slack)
         return cache[key]
 
     return resolve
