@@ -20,7 +20,7 @@ import requests
 from google.auth.exceptions import RefreshError
 from parameterized import parameterized
 from rest_framework import status
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
@@ -56,6 +56,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source import (
+    ExternalDataSourceViewSet,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     get_oauth_integration_kinds,
@@ -10439,6 +10440,65 @@ class TestDisableCDC(APIBaseTest):
         assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
         assert non_cdc_schema.should_sync is True
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.purge_buffer_prefix")
+    def test_disable_cdc_requires_editor_on_every_table(self, mock_purge) -> None:
+        # A table can be locked below source-level editor; the per-table gate must run
+        # before any destructive step (job cancel, slot drop, buffer purge, schema reset).
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+
+        with patch.object(
+            ExternalDataSourceViewSet,
+            "_assert_can_write_schemas",
+            side_effect=PermissionDenied("You do not have editor access to every table in this source."),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+            )
+
+        assert response.status_code == 403
+        mock_purge.assert_not_called()
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type == ExternalDataSchema.SyncType.CDC  # nothing was reset
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.purge_buffer_prefix")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_purges_shadow_buffer_prefixes(self, _cleanup, mock_purge) -> None:
+        # The shadow lane's buffer files are raw customer change data with no consumer
+        # once CDC is off, and nothing else expires them.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        purged = {call.args[1] for call in mock_purge.call_args_list}
+        assert purged == {str(cdc_schema.id)}  # CDC schemas only
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
         return_value=None,
@@ -11512,6 +11572,51 @@ class TestExternalDataSourceSetup(APIBaseTest):
         assert schemas.get(name=STRIPE_DISCOUNT_RESOURCE_NAME).should_sync is False
         customer = schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME)
         assert customer.sync_type in ("incremental", "append", "full_refresh")
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_leaves_unreadable_tables_disabled(self, _mock_validate, _mock_sync_views, _mock_person_join):
+        # One-shot setup used to enable every default-on table regardless of the per-table scope
+        # probe, so an OAuth connection whose grant excludes a resource queued a sync that could
+        # only ever 403. The picker already honored the probe; setup did not.
+        denied = {STRIPE_CUSTOMER_RESOURCE_NAME: "Requires the customer_read permission"}
+        with patch.object(
+            StripeSource,
+            "get_endpoint_permissions",
+            side_effect=lambda config, team_id, endpoints, **kwargs: {name: denied.get(name) for name in endpoints},
+        ):
+            response = self._setup_stripe()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        schemas = ExternalDataSchema.objects.filter(source_id=response.json()["id"])
+        assert schemas.get(name=STRIPE_CUSTOMER_RESOURCE_NAME).should_sync is False
+        # Every other readable table still gets the normal polling default.
+        assert schemas.filter(should_sync=True).exists()
+
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.ensure_person_join")
+    @patch("products.data_modeling.backend.models.datawarehouse_managed_viewset.DataWarehouseManagedViewSet.sync_views")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_setup_ignores_a_probe_that_denies_every_table(self, _mock_validate, _mock_sync_views, _mock_person_join):
+        # Stripe reports a probe it couldn't run as a per-table reason rather than raising, so an
+        # unreachable provider marks everything denied. Setup has no UI to show that, and honoring
+        # it would silently create a source with nothing enabled.
+        with patch.object(
+            StripeSource,
+            "get_endpoint_permissions",
+            side_effect=lambda config, team_id, endpoints, **kwargs: dict.fromkeys(endpoints, "Connection error"),
+        ):
+            response = self._setup_stripe()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        schemas = ExternalDataSchema.objects.filter(source_id=response.json()["id"])
+        assert schemas.filter(should_sync=True).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

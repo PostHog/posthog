@@ -73,7 +73,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 1
+FEATURE_SCHEMA_VERSION = 2
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
 # and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
@@ -184,6 +184,11 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("pr_merged_count", pa.int32()),
     ("first_pr_merged_at", _TIMESTAMP),
     ("pr_closed_count", pa.int32()),
+    ("refund_count", pa.int32()),
+    ("first_refunded_at", _TIMESTAMP),
+    ("refund_reason", pa.string()),
+    ("refund_billing_path", pa.string()),
+    ("refund_credits", pa.int64()),
 ]
 
 _LABELS_FIELDS: list[tuple[str, pa.DataType]] = [
@@ -694,7 +699,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
     name="inbox_ranking_dataset_job",
     selection=[STATE_TABLE, EMBEDDINGS_TABLE, LABELS_TABLE, MODEL_DATA_TABLE],
     partitions_def=partition_def,
-    # The six label streams run sequentially and each may take its full 600s query timeout, so an
+    # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
     # the label windows only grow, since they accumulate from LABELS_EPOCH.
     tags={**owner_tags, "dagster/max_runtime": str(3 * 60 * 60)},

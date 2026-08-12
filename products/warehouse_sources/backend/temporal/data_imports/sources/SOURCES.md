@@ -897,6 +897,7 @@ doesn't conflict with concurrent PRs.
 - clip
 - cloudability
 - cloudbeds
+- cloudinary
 - clover
 - coassemble
 - cockroachdb
@@ -1161,6 +1162,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - motion
 - moxie
+- msg91
 - mycase
 - nager_date
 - nasa
@@ -1397,6 +1399,7 @@ doesn't conflict with concurrent PRs.
 - uk_ons
 - umami
 - un_comtrade
+- uploadcare
 - uppromote
 - uptick
 - us_bea
@@ -1420,6 +1423,7 @@ doesn't conflict with concurrent PRs.
 - wayfair
 - whatsapp_business_management
 - when_i_work
+- whmcs
 - who_gho
 - wikipedia_pageviews
 - windsor_ai

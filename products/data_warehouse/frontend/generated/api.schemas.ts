@@ -2750,6 +2750,10 @@ export interface CredentialApi {
  * * `Sevalla` - Sevalla
  * * `Motion` - Motion
  * * `ImpactPartner` - ImpactPartner
+ * * `Cloudinary` - Cloudinary
+ * * `Uploadcare` - Uploadcare
+ * * `WHMCS` - WHMCS
+ * * `MSG91` - MSG91
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4040,6 +4044,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Sevalla: 'Sevalla',
     Motion: 'Motion',
     ImpactPartner: 'ImpactPartner',
+    Cloudinary: 'Cloudinary',
+    Uploadcare: 'Uploadcare',
+    Whmcs: 'WHMCS',
+    Msg91: 'MSG91',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
