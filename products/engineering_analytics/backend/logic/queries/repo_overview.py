@@ -7,8 +7,8 @@ excluded, per the locked cycle-time recipe) come from the PR snapshot the same w
 
 The chart series are a separate concern with a separate producer
 (``query_repo_series``): every series query computes unconditionally (except the
-ready-to-merge series, which is empty when the issue-events table isn't synced),
-the shared bucket granularity is decided exactly once, and a headline-only consumer
+ready-to-merge series, which is empty when that measure isn't observable), the
+shared bucket granularity is decided exactly once, and a headline-only consumer
 composes ``query_repo_overview`` with ``empty_repo_series`` instead of
 flag-switching what the query layer computes.
 """
@@ -33,12 +33,7 @@ from products.engineering_analytics.backend.logic.queries._buckets import (
     pick_granularity,
     window_buckets,
 )
-from products.engineering_analytics.backend.logic.queries._curated import (
-    READY_BY_PR_JOIN,
-    CuratedGitHubSource,
-    opt_float,
-    ready_to_merge_expr,
-)
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
 from products.engineering_analytics.backend.logic.queries._workflow_filters import run_started_floor_constant
 from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
@@ -62,19 +57,23 @@ _RUNS_SELECT = """
     WHERE run_started_at >= {prev_from} __DATE_TO__
 """
 
-# Medians follow the locked cycle-time recipe (bots/drafts excluded); the merged counts deliberately
-# don't — they are the merge population that triggered the CI spend, the same all-authors population
-# the cost series' bucket-local merges count, so cost-per-merge ratios divide by a matching denominator.
-_PR_SELECT = """
+# The locked cycle-time recipe: a median over merges is a median over human, never-drafted PRs.
+_HUMAN_MERGES = "NOT is_bot AND NOT is_draft"
+
+# Medians follow the locked recipe; the merged counts deliberately don't — they are the merge
+# population that triggered the CI spend, the same all-authors population the cost series' bucket-local
+# merges count, so cost-per-merge ratios divide by a matching denominator.
+_PR_SELECT = f"""
     SELECT
-        quantileIf(0.5)(open_to_merge_seconds, __CUR_MERGED__ AND NOT is_bot AND NOT is_draft) AS median_cur,
-        quantileIf(0.5)(open_to_merge_seconds, __PREV_MERGED__ AND NOT is_bot AND NOT is_draft) AS median_prev,
-        __READY_MEDIANS__,
+        quantileIf(0.5)(open_to_merge_seconds, __CUR_MERGED__ AND {_HUMAN_MERGES}) AS median_cur,
+        quantileIf(0.5)(open_to_merge_seconds, __PREV_MERGED__ AND {_HUMAN_MERGES}) AS median_prev,
+        __READY_MEDIAN_CUR__ AS ready_median_cur,
+        __READY_MEDIAN_PREV__ AS ready_median_prev,
         countIf(__CUR_MERGED__) AS merged_cur,
         countIf(__PREV_MERGED__) AS merged_prev
     FROM __PR_SOURCE__ AS pr
     __READY_JOIN__
-    WHERE merged_at IS NOT NULL AND merged_at >= {prev_from}
+    WHERE merged_at IS NOT NULL AND merged_at >= {{prev_from}}
 """
 
 _DEFAULT_BRANCH_SELECT = """
@@ -122,19 +121,57 @@ _PASS_RATE_SERIES_SELECT = """
     LIMIT 40000
 """
 
-# Median open->merge per bucket over PRs merged in it, bots and drafts excluded (the locked recipe). ``n``
-# guards the false zero: quantileIf over no matching rows returns 0, so a bucket whose only merges were
-# bots/drafts would draw a false dip — treat it as a gap (None) instead.
-_OPEN_TO_MERGE_SERIES_SELECT = """
+# Median of a per-PR duration per bucket, over the PRs merged in it. The inner select applies the
+# locked recipe once and names the measure, so a measure built from an expression (ready-to-merge)
+# is written into the query exactly once. ``n`` guards the false zero: an aggregate over no sample
+# returns 0, so a bucket whose only merges were bots, drafts, or PRs with no observed value would
+# draw a false dip; report the gap (None) instead.
+_MERGE_MEDIAN_SERIES_SELECT = f"""
     SELECT
         __BUCKET_FN__ AS bucket_start,
-        quantileIf(0.5)(open_to_merge_seconds, NOT is_bot AND NOT is_draft) AS p50,
-        countIf(NOT is_bot AND NOT is_draft) AS n
-    FROM __PR_SOURCE__ AS pr
-    WHERE merged_at IS NOT NULL AND merged_at >= {date_from} __DATE_TO_MERGED__
+        quantile(0.5)(measure) AS p50,
+        countIf(measure IS NOT NULL) AS n
+    FROM (
+        SELECT merged_at, __MEASURE__ AS measure
+        FROM __PR_SOURCE__ AS pr
+        __READY_JOIN__
+        WHERE merged_at IS NOT NULL AND merged_at >= {{date_from}} __DATE_TO_MERGED__ AND {_HUMAN_MERGES}
+    )
     GROUP BY bucket_start
     LIMIT 40000
 """
+
+
+def _query_merge_median_series(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: datetime,
+    date_to: datetime | None,
+    granularity: Granularity,
+    measure: str,
+    join: str,
+    with_clause: str,
+    query_type: str,
+) -> list[tuple[datetime, float | None]]:
+    """``measure``'s median per bucket over the window's merges, oldest first and zero-filled: one
+    ``(bucket_start, p50)`` pair per bucket, p50 None where the bucket had no sample."""
+    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
+    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
+    if date_to is not None:
+        placeholders["date_to"] = ast.Constant(value=date_to)
+    sql = with_clause + (
+        _MERGE_MEDIAN_SERIES_SELECT.replace("__MEASURE__", measure)
+        .replace("__READY_JOIN__", join)
+        .replace("__PR_SOURCE__", curated.pr_source())
+        .replace("__DATE_TO_MERGED__", date_to_clause)
+        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
+    )
+    response = curated.run(sql, query_type=query_type, placeholders=placeholders)
+    p50_by_bucket = {
+        normalize_bucket(bucket_start, granularity): (opt_float(p50) if (n or 0) > 0 else None)
+        for bucket_start, p50, n in response.results or []
+    }
+    return [(bucket, p50_by_bucket.get(bucket)) for bucket in window_buckets(date_from, date_to, granularity)]
 
 
 def query_success_rate_series(
@@ -169,21 +206,6 @@ def query_success_rate_series(
     ]
 
 
-# Same shape as _OPEN_TO_MERGE_SERIES_SELECT, but the value is the per-PR ready_to_merge expression;
-# ``n`` counts observed values because a bucket can have merges with none (all NULL -> false zero).
-_READY_TO_MERGE_SERIES_SELECT = """
-    SELECT
-        __BUCKET_FN__ AS bucket_start,
-        quantileIf(0.5)(__RTM__, NOT is_bot AND NOT is_draft) AS p50,
-        countIf(NOT is_bot AND NOT is_draft AND __RTM__ IS NOT NULL) AS n
-    FROM __PR_SOURCE__ AS pr
-    __READY_JOIN__
-    WHERE merged_at IS NOT NULL AND merged_at >= {date_from} __DATE_TO_MERGED__
-    GROUP BY bucket_start
-    LIMIT 40000
-"""
-
-
 def query_ready_to_merge_series(
     *,
     curated: CuratedGitHubSource,
@@ -192,34 +214,23 @@ def query_ready_to_merge_series(
     granularity: Granularity,
 ) -> list[ReadyToMergeBucket]:
     """Median per-PR ready_to_merge_seconds (SPEC §6) per bucket, oldest first, bots and drafts
-    excluded. Empty when the issue-events table isn't synced."""
-    window = curated.issue_events_window()
-    ready_cte = curated.ready_by_pr_cte()
-    if window is None or ready_cte is None:
+    excluded. Empty when the measure isn't observable, so a consumer falls back to the open-to-merge
+    series rather than reading an all-gap line as "nothing merged"."""
+    ready = curated.ready_to_merge_sql()
+    if not ready.observable:
         return []
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    select = (
-        _READY_TO_MERGE_SERIES_SELECT.replace("__RTM__", ready_to_merge_expr(window))
-        .replace("__READY_JOIN__", READY_BY_PR_JOIN)
-        .replace("__PR_SOURCE__", curated.pr_source())
-        .replace("__DATE_TO_MERGED__", date_to_clause)
-        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
-    )
-    response = curated.run(
-        f"WITH {ready_cte} {select}",
-        query_type="engineering_analytics.ready_to_merge_series",
-        placeholders=placeholders,
-    )
-    p50_by_bucket = {
-        normalize_bucket(bucket_start, granularity): (opt_float(p50) if (n or 0) > 0 else None)
-        for bucket_start, p50, n in response.results or []
-    }
     return [
-        ReadyToMergeBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
-        for bucket in window_buckets(date_from, date_to, granularity)
+        ReadyToMergeBucket(bucket_start=bucket, p50_seconds=p50)
+        for bucket, p50 in _query_merge_median_series(
+            curated=curated,
+            date_from=date_from,
+            date_to=date_to,
+            granularity=granularity,
+            measure=ready.expr,
+            join=ready.join,
+            with_clause=ready.with_clause,
+            query_type="engineering_analytics.ready_to_merge_series",
+        )
     ]
 
 
@@ -232,23 +243,18 @@ def query_open_to_merge_series(
 ) -> list[OpenToMergeBucket]:
     """Median time-to-merge per bucket across the window, oldest first: p50 merged_at - created_at over PRs
     merged in the bucket, bots and drafts excluded. Empty buckets carry ``p50_seconds`` None (a gap)."""
-    placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    date_to_clause = "AND merged_at <= {date_to}" if date_to is not None else ""
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    sql = (
-        _OPEN_TO_MERGE_SERIES_SELECT.replace("__PR_SOURCE__", curated.pr_source())
-        .replace("__DATE_TO_MERGED__", date_to_clause)
-        .replace("__BUCKET_FN__", bucket_expr(granularity, "merged_at"))
-    )
-    response = curated.run(sql, query_type="engineering_analytics.open_to_merge_series", placeholders=placeholders)
-    p50_by_bucket = {
-        normalize_bucket(bucket_start, granularity): (opt_float(p50) if (n or 0) > 0 else None)
-        for bucket_start, p50, n in response.results or []
-    }
     return [
-        OpenToMergeBucket(bucket_start=bucket, p50_seconds=p50_by_bucket.get(bucket))
-        for bucket in window_buckets(date_from, date_to, granularity)
+        OpenToMergeBucket(bucket_start=bucket, p50_seconds=p50)
+        for bucket, p50 in _query_merge_median_series(
+            curated=curated,
+            date_from=date_from,
+            date_to=date_to,
+            granularity=granularity,
+            measure="open_to_merge_seconds",
+            join="",
+            with_clause="",
+            query_type="engineering_analytics.open_to_merge_series",
+        )
     ]
 
 
@@ -349,23 +355,11 @@ def query_repo_overview(
 
     pr_cur = "(merged_at >= {date_from}" + (" AND merged_at <= {date_to})" if date_to is not None else ")")
     pr_prev = "(merged_at >= {prev_from} AND merged_at < {date_from})"
-    window = curated.issue_events_window()
-    ready_cte = curated.ready_by_pr_cte()
-    if window is not None and ready_cte is not None:
-        rtm = ready_to_merge_expr(window)
-        ready_medians = (
-            f"quantileIf(0.5)({rtm}, __CUR_MERGED__ AND NOT is_bot AND NOT is_draft) AS ready_median_cur,\n"
-            f"quantileIf(0.5)({rtm}, __PREV_MERGED__ AND NOT is_bot AND NOT is_draft) AS ready_median_prev"
-        )
-        ready_join = READY_BY_PR_JOIN
-        cte_prefix = f"WITH {ready_cte} "
-    else:
-        ready_medians = "NULL AS ready_median_cur,\nNULL AS ready_median_prev"
-        ready_join = ""
-        cte_prefix = ""
-    pr_sql = cte_prefix + (
-        _PR_SELECT.replace("__READY_MEDIANS__", ready_medians)
-        .replace("__READY_JOIN__", ready_join)
+    ready = curated.ready_to_merge_sql()
+    pr_sql = ready.with_clause + (
+        _PR_SELECT.replace("__READY_MEDIAN_CUR__", ready.median(scope=f"{pr_cur} AND {_HUMAN_MERGES}"))
+        .replace("__READY_MEDIAN_PREV__", ready.median(scope=f"{pr_prev} AND {_HUMAN_MERGES}"))
+        .replace("__READY_JOIN__", ready.join)
         .replace("__CUR_MERGED__", pr_cur)
         .replace("__PREV_MERGED__", pr_prev)
         .replace("__PR_SOURCE__", curated.pr_source())

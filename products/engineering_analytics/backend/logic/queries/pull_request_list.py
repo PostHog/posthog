@@ -21,11 +21,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
 )
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
-from products.engineering_analytics.backend.logic.queries._curated import (
-    READY_BY_PR_JOIN,
-    CuratedGitHubSource,
-    ready_to_merge_expr,
-)
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
 
 _LIMIT = 1000
@@ -141,18 +137,10 @@ def query_pull_request_list(
     if author:
         author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
-    # Without the optional issue-events table the column degrades to NULL rather than
-    # referencing the absent ready_by_pr CTE.
-    window = curated.issue_events_window()
-    if window is not None:
-        ready_column = f"{ready_to_merge_expr(window)} AS ready_to_merge_seconds"
-        ready_join = READY_BY_PR_JOIN
-    else:
-        ready_column = "NULL AS ready_to_merge_seconds"
-        ready_join = ""
+    ready = curated.ready_to_merge_sql()
     select = (
-        _SELECT.replace("__READY_TO_MERGE__", ready_column)
-        .replace("__READY_JOIN__", ready_join)
+        _SELECT.replace("__READY_TO_MERGE__", f"{ready.expr} AS ready_to_merge_seconds")
+        .replace("__READY_JOIN__", ready.join)
         .replace("__AUTHOR__", author_clause)
     )
     response = curated.run(
