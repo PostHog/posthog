@@ -480,6 +480,7 @@ runcmd:
         headers = {"Authorization": f"Bearer {personal_api_key}"}
         deadline = time.time() + timeout_seconds
         attempt = 0
+        event_found = False
         while time.time() < deadline:
             attempt += 1
             try:
@@ -493,7 +494,8 @@ runcmd:
                     results = events_resp.json().get("results", [])
                     if len(results) > 0:
                         print(f"✅ Event found after {attempt} poll(s)", flush=True)
-                        return True, "Event ingested successfully"
+                        event_found = True
+                        break
                     print(f"   Poll {attempt}: no events yet", flush=True)
                 else:
                     print(f"   Poll {attempt}: HTTP {events_resp.status_code}", flush=True)
@@ -501,7 +503,74 @@ runcmd:
                 print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
             time.sleep(poll_interval)
 
-        return False, f"Event did not appear within {timeout_seconds}s ({attempt} polls)"
+        if not event_found:
+            return False, f"Event did not appear within {timeout_seconds}s ({attempt} polls)"
+
+        log_body = f"hobby_ci_log_smoke_test_{time.time_ns()}"
+        log_date_from = datetime.datetime.now(datetime.UTC).isoformat()
+        print("📤 Sending test log...", flush=True)
+        try:
+            capture_resp = requests.post(
+                f"{base_url}/i/v1/logs",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                params={"token": project_api_token},
+                json={
+                    "resourceLogs": [
+                        {
+                            "resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "hobby-ci"}}]},
+                            "scopeLogs": [
+                                {
+                                    "scope": {"name": "hobby-ci"},
+                                    "logRecords": [
+                                        {
+                                            "timeUnixNano": str(time.time_ns()),
+                                            "severityText": "INFO",
+                                            "severityNumber": 9,
+                                            "body": {"stringValue": log_body},
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ]
+                },
+                timeout=30,
+            )
+        except requests.RequestException as e:
+            return False, f"Log capture request failed: {e}"
+        if capture_resp.status_code != 200:
+            return False, f"Log capture failed: HTTP {capture_resp.status_code} - {capture_resp.text[:200]}"
+
+        print(f"⏳ Polling for log (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                logs_resp = requests.post(
+                    f"{base_url}/api/projects/@current/logs/query",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    json={
+                        "query": {
+                            "dateRange": {"date_from": log_date_from},
+                            "searchTerm": log_body,
+                            "limit": 1,
+                        }
+                    },
+                    headers=headers,
+                    timeout=10,
+                )
+                if logs_resp.status_code == 200:
+                    results = logs_resp.json().get("results", [])
+                    if results:
+                        print(f"✅ Log found after {attempt} poll(s)", flush=True)
+                        return True, "Event and log ingested successfully"
+                    print(f"   Poll {attempt}: no logs yet", flush=True)
+                else:
+                    print(f"   Poll {attempt}: HTTP {logs_resp.status_code}", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+
+        return False, f"Log did not appear within {timeout_seconds}s ({attempt} polls)"
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):

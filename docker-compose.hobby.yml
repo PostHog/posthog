@@ -493,6 +493,14 @@ services:
             service: capture
         logging: *default-logging
 
+    capture-logs:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: capture-logs
+        logging: *default-logging
+
     replay-capture:
         build:
             context: ./posthog/rust
@@ -702,6 +710,9 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+
+networks:
+    otel_network:
 
 volumes:
     zookeeper-data:
