@@ -9,6 +9,11 @@ from posthog.hogql.visitor import TraversingVisitor
 # flat map lookup for attribute maps, JSON dig for the body string.
 FLAT_MAP_SOURCES = ("attributes", "resource_attributes")
 JSON_BODY_SOURCE = "body"
+# `body` (and its `message` alias) are plain strings in ClickHouse, not maps — indexing into
+# them with `['key']` parses fine as a HogQL field chain but fails at query time with an opaque
+# ClickHouse type error (arrayElement expects a map/array). Caught in _ScalarValidator so users
+# get a clear message pointing at the `body.<json.path>` shorthand instead.
+JSON_BODY_FIELD_NAMES = (JSON_BODY_SOURCE, "message")
 
 
 def path_to_expr(source: str, path: str) -> ast.Expr:
@@ -104,6 +109,21 @@ class _ScalarValidator(TraversingVisitor):
                 f"Custom columns must be bounded: {node.name!r} can generate arbitrarily large values and is not allowed"
             )
         super().visit_call(node)
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> None:
+        # `body['key']` parses as ArrayAccess(array=Field(['body']), ...), possibly nested for
+        # `body['a']['b']`. Unwrap to the root and check whether it's `body`/`message`: both are
+        # plain strings in ClickHouse, so arrayElement() on them always fails at query time with
+        # an opaque type error instead of at validation time here.
+        root = node.array
+        while isinstance(root, ast.ArrayAccess):
+            root = root.array
+        if isinstance(root, ast.Field) and len(root.chain) == 1 and str(root.chain[0]) in JSON_BODY_FIELD_NAMES:
+            raise ValueError(
+                f"Cannot index into {root.chain[0]!r} with ['key']: it's a raw string, not a map. "
+                "Use the 'body.<json.path>' shorthand (e.g. 'body.config.url') to dig into a JSON log body instead."
+            )
+        super().visit_array_access(node)
 
 
 def _validate_scalar(expr: ast.Expr) -> None:
