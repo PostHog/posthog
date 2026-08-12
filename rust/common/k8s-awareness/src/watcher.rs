@@ -270,7 +270,12 @@ async fn handle_deployment_event(
     let desired_replicas = spec.replicas.unwrap_or(1) as u32;
     let generation = deploy.metadata.generation.unwrap_or(0);
     let observed_generation = status.and_then(|s| s.observed_generation).unwrap_or(0);
-    let rollout_in_progress = generation != observed_generation;
+    // observedGeneration catches up seconds after a spec change, long
+    // before pods actually roll — on its own it only covers the window
+    // until the new ReplicaSet exists. The rollout itself is in progress
+    // for as long as more than one generation has desired replicas, which
+    // is judged below once the ReplicaSets are listed.
+    let spec_pending = generation != observed_generation;
 
     // Build a label selector from the Deployment's matchLabels to scope RS queries
     let label_selector = spec
@@ -295,7 +300,7 @@ async fn handle_deployment_event(
     let rses = match owned_rses {
         Ok(rses) => rses,
         Err(e) => {
-            if rollout_in_progress {
+            if spec_pending {
                 warn!(
                     controller = %controller,
                     error = %e,
@@ -311,6 +316,9 @@ async fn handle_deployment_event(
             return;
         }
     };
+
+    let live_generations = rses.iter().filter(|(_, _, replicas)| *replicas > 0).count();
+    let rollout_in_progress = spec_pending || live_generations > 1;
 
     let (current_gen, target_gen) = if rollout_in_progress {
         let target = rses
