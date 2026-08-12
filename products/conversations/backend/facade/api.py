@@ -8,7 +8,7 @@ team's Slack credentials directly.
 
 import asyncio
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -54,6 +54,10 @@ from products.conversations.backend.support_slack_channels import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class _EmailThreadWithFacadePrefetch(Protocol):
+    facade_participants: list[EmailThreadParticipant]
 
 
 class SupportMessageSendError(Exception):
@@ -335,6 +339,7 @@ def _email_thread_participant_summary(
 
 
 def _account_email_thread_summary(thread: EmailThread) -> AccountEmailThreadSummary:
+    prefetched_thread = cast(_EmailThreadWithFacadePrefetch, thread)
     return AccountEmailThreadSummary(
         id=str(thread.id),
         subject=thread.subject,
@@ -343,8 +348,7 @@ def _account_email_thread_summary(thread: EmailThread) -> AccountEmailThreadSumm
         last_message_at=thread.last_message_at,
         message_count=thread.message_count,
         participants=[
-            _email_thread_participant_summary(participant)
-            for participant in cast(list[EmailThreadParticipant], thread.facade_participants)
+            _email_thread_participant_summary(participant) for participant in prefetched_thread.facade_participants
         ],
     )
 
@@ -424,7 +428,7 @@ def get_account_email_thread(
                 cc_recipients=_email_thread_addresses(message.cc_recipients),
                 sender_authenticated=message.sender_authenticated,
                 direction=message.direction,
-                content=message.comment.content,
+                content=message.comment.content or "",
             )
             for message in messages
         ],
