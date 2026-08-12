@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconExternal, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -8,9 +8,11 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { urls } from 'scenes/urls'
 
 import type {
     CustomPropertyDefinitionApi,
+    CustomPropertySourceApi,
     CustomPropertySyncRunApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -51,8 +53,26 @@ function RunCount({ value }: { value: number }): JSX.Element {
     return <span className={value ? 'font-medium' : 'text-secondary'}>{value}</span>
 }
 
-// Run history for one source, loaded lazily when its row is expanded.
-function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: ProfileLabels }): JSX.Element {
+// The bound table's sync history in the data warehouse. Null when the source has no warehouse
+// binding, or when the caller can't view the warehouse source that owns it.
+function schemaSyncsUrl(source: CustomPropertySourceApi): string | null {
+    if (!source.external_data_source || !source.external_data_schema) {
+        return null
+    }
+    return urls.dataWarehouseSourceSchema(source.external_data_source, source.external_data_schema, 'syncs')
+}
+
+// Run history for one source, loaded lazily when its row is expanded. `syncsUrl` points at the
+// warehouse table's own sync history, where a run that rode a failing import shows the real error.
+function ProfilePropertyRuns({
+    sourceId,
+    labels,
+    syncsUrl,
+}: {
+    sourceId: string
+    labels: ProfileLabels
+    syncsUrl: string | null
+}): JSX.Element {
     const { runsBySourceId, runsLoadingBySourceId } = useValues(customPropertyDefinitionsLogic)
     const runs = runsBySourceId[sourceId] ?? []
 
@@ -125,6 +145,22 @@ function ProfilePropertyRuns({ sourceId, labels }: { sourceId: string; labels: P
                 run.finished_at ? <TZLabel time={run.finished_at} /> : <span className="text-secondary">—</span>,
         },
     ]
+
+    if (syncsUrl) {
+        columns.push({
+            title: '',
+            width: 0,
+            render: () => (
+                <LemonButton
+                    size="small"
+                    icon={<IconExternal />}
+                    to={syncsUrl}
+                    targetBlank
+                    tooltip="Open this table's sync history in the data warehouse to see import errors"
+                />
+            ),
+        })
+    }
 
     return (
         <LemonTable
@@ -330,7 +366,11 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
                     expandedRowRender: (definition) =>
                         definition.source ? (
-                            <ProfilePropertyRuns sourceId={definition.source.id} labels={labels} />
+                            <ProfilePropertyRuns
+                                sourceId={definition.source.id}
+                                labels={labels}
+                                syncsUrl={schemaSyncsUrl(definition.source)}
+                            />
                         ) : null,
                 }}
                 emptyState={`No warehouse-backed ${labels.entity} properties yet. Add one to sync warehouse columns onto ${labels.entityPlural}.`}

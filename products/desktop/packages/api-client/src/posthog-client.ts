@@ -87,6 +87,7 @@ import type {
   SignalReport,
   SignalReportArtefact,
   SignalReportArtefactsResponse,
+  SignalReportRefundReason,
   SignalReportSignalsResponse,
   SignalReportStatus,
   SignalReportsQueryParams,
@@ -109,6 +110,7 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   buildAgentAnalyticsQueries,
   type HogQLGrid,
@@ -204,6 +206,17 @@ export interface TaskListOptions {
   channel?: string;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
+}
+
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface TaskSessionStorageAccess {
@@ -1591,11 +1604,15 @@ export class PostHogAPIClient {
   async getCloudTaskConfigOptions(
     adapter: Adapter = "claude",
   ): Promise<CloudTaskConfigOption[]> {
+    const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
+      parameters: {
+        header: buildPosthogProjectHeaderRecord(teamId),
+      },
     });
     return buildCloudTaskConfigOptions(
       normalizeGatewayModelsResponse(await response.json()),
@@ -1731,6 +1748,76 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
+  async listSlackUserIntegrations(): Promise<
+    {
+      slack_user_id: string;
+      slack_team_id: string;
+      slack_team_name: string | null;
+    }[]
+  > {
+    const urlPath = `/api/users/@me/integrations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    url.searchParams.set("kind", "slack");
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to list Slack integrations: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      results?: {
+        slack_user_id: string;
+        slack_team_id: string;
+        slack_team_name: string | null;
+      }[];
+    };
+    return data.results ?? [];
+  }
+
+  /**
+   * `POST .../integrations/slack/start`. Returns the Sign-in-with-Slack URL; Slack tells the
+   * callback which user authorized, so nobody types a Slack ID.
+   */
+  async startSlackUserIntegrationConnect(
+    teamId?: number,
+  ): Promise<{ install_url: string }> {
+    const id = teamId ?? (await this.getTeamId());
+    const urlPath = `/api/users/@me/integrations/slack/start/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ team_id: id }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to start Slack connect: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { install_url: string };
+  }
+
+  /** Patch the user's server-side notification settings. Merged server-side, so pass only the keys you change. */
+  async updateNotificationSettings(
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    await this.api.patch("/api/users/{uuid}/", {
+      path: { uuid: "@me" },
+      body: { notification_settings: settings } as Record<string, unknown>,
+    });
   }
 
   async switchOrganization(orgId: string): Promise<void> {
@@ -2180,6 +2267,19 @@ export class PostHogAPIClient {
     return (await this.getTasksPage(options)).tasks;
   }
 
+  async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/search/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", String(limit));
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(`Failed to search tasks: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskSearchResult[];
+  }
+
   /**
    * The same list with the total behind it, for surfaces that ask for a short
    * page and still have to say how much they are not showing.
@@ -2485,15 +2585,22 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel[];
   }
 
-  // Resolve-or-create a public channel by name (idempotent server-side).
-  async resolveTaskChannel(name: string): Promise<TaskChannel> {
+  // Resolve-or-create a public channel by name (idempotent server-side). `star`
+  // only applies when this call creates the channel; an existing one keeps the
+  // requester's star as it was.
+  async resolveTaskChannel(
+    name: string,
+    options: { star: boolean },
+  ): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/`;
     const response = await this.api.fetcher.fetch({
       method: "post",
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
-      overrides: { body: JSON.stringify({ name }) },
+      overrides: {
+        body: JSON.stringify({ name, star: options.star }),
+      },
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
@@ -4305,6 +4412,41 @@ export class PostHogAPIClient {
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText || "Failed to update signal report state");
+    }
+
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
+   * Refund a report's billed PR. The server freezes the billing path, archives
+   * the report, and kicks off the billing credit when one is due; it also
+   * enforces eligibility, so callers only gate for display.
+   */
+  async refundSignalReport(
+    reportId: string,
+    input: { reason: SignalReportRefundReason; note?: string },
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/refund/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any non-2xx, so
+    // unwrap that into the endpoint's clean `error` message (e.g. the eligibility failures)
+    // rather than surfacing the raw string.
+    let response: Response;
+    try {
+      response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path,
+        overrides: {
+          body: JSON.stringify(input),
+        },
+      });
+    } catch (error) {
+      throw new Error(
+        extractRequestErrorMessage(error, "Failed to refund this report's PR"),
+      );
     }
 
     return (await response.json()) as SignalReport;
@@ -6849,6 +6991,34 @@ export class PostHogAPIClient {
       throw new Error(data.error);
     }
     return { results: data.results ?? [], columns: data.columns ?? [] };
+  }
+
+  /**
+   * Runs an arbitrary typed query node (TrendsQuery, HogQLQuery, ...) against
+   * the team's project and returns the raw response. `refresh: "blocking"`
+   * serves a fresh-enough cached result and computes synchronously otherwise —
+   * the same mode PostHog insights use. Backs inbox report charts, whose query
+   * nodes are scout-authored and arrive unparsed.
+   */
+  async runQuery(
+    query: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/query/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path,
+      overrides: {
+        body: JSON.stringify({ query, refresh: "blocking" }),
+      },
+    });
+    const data = (await response.json()) as Record<string, unknown>;
+    if (typeof data.error === "string" && data.error) {
+      throw new Error(data.error);
+    }
+    return data;
   }
 
   /**

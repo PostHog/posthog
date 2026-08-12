@@ -10,7 +10,6 @@ import {
     IconEye,
     IconPlus,
     IconSearch,
-    IconSparkles,
     IconTarget,
     IconThumbsUp,
     IconWarning,
@@ -19,11 +18,10 @@ import {
 import { LemonButton, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-
-import { useOpenAi } from '~/scenes/max/useOpenAi'
 
 import { getEvaluationBackTarget, getEvaluationTemplateSelectionUrl } from './evaluationNavigation'
 import { EvaluationTemplate, defaultEvaluationTemplates } from './templates'
@@ -144,28 +142,6 @@ function TemplateRow({ template }: TemplateRowProps): JSX.Element {
     )
 }
 
-function StartWithAiRow(): JSX.Element {
-    const { openAi } = useOpenAi()
-
-    const handleClick = (): void => {
-        posthog.capture('llm evaluation template selected', { template_key: 'start_with_ai' })
-        openAi(
-            'Create an online evaluation for me. First explore my recent AI traces to find failure modes worth evaluating, then set one up to catch the most important one.'
-        )
-    }
-
-    return (
-        <PickerRow
-            dataAttr="start-with-ai-evaluation-template"
-            description="Let PostHog AI explore your traces and build an evaluation for you"
-            icon={<IconSparkles className="w-5 h-5 text-primary-3000" />}
-            onClick={handleClick}
-            tag={{ label: 'Beta', type: 'completion' }}
-            title="Start with AI"
-        />
-    )
-}
-
 interface TemplatePickerProps {
     title: string
     description: string
@@ -186,7 +162,7 @@ function TemplatePicker({
     const showStartWithAi = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_START_WITH_AI]
 
     return (
-        <div className="flex flex-col items-center justify-center py-8" style={{ minHeight }}>
+        <div className="flex flex-col shrink-0 items-center justify-center py-8" style={{ minHeight }}>
             <div className="w-full max-w-5xl px-4">
                 {showBackButton && (
                     <div className="mb-6">
@@ -219,8 +195,11 @@ function TemplatePicker({
                         </p>
                     </div>
 
+                    {showStartWithAi && (
+                        <MCPUseCaseCard surfaceKey="ai_observability_evaluations.create" className="!mt-0" />
+                    )}
+
                     <div className="flex flex-col border border-border rounded-lg divide-y divide-border overflow-hidden bg-bg-light">
-                        {showStartWithAi && <StartWithAiRow />}
                         <TemplateRow template="blank" />
                         {defaultEvaluationTemplates.map((template) => (
                             <TemplateRow key={template.key} template={template} />

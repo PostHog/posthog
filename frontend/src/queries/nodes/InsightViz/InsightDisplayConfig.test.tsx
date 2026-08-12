@@ -195,6 +195,7 @@ describe('InsightDisplayConfig', () => {
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',
+                        'Show names on slices',
                         'Show total below chart',
                         // In-chart legend toggle + position select ("Bottom" is the prospective default)
                         'Show legendBottom',
