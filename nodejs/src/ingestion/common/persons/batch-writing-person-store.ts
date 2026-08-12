@@ -23,6 +23,7 @@ import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
+    LifecycleMarkPerson,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
@@ -39,7 +40,13 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { PersonOutputs } from './person-context'
-import { getMetricKey } from './person-update'
+import {
+    EventOps,
+    applyEventPropertyUpdates,
+    computeOpsScalarUpdates,
+    getMetricKey,
+    refineEventOps,
+} from './person-update'
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -54,6 +61,9 @@ type MethodName =
     | 'updatePersonForMerge'
     | 'deletePerson'
     | 'deletePersons'
+    | 'claimLifecycleMarks'
+    | 'releaseLifecycleMarks'
+    | 'isPersonLive'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -1313,6 +1323,39 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId, batchId))
     }
 
+    async applyEventOps(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string,
+        batchId: number
+    ): Promise<[InternalPerson, PersonMessage[]]> {
+        person.properties ||= {}
+
+        // Snapshot refinement is this store's write-shape preparation:
+        // set_once resolves against current properties, sets are diffed,
+        // and the ignored-property rules classify the outcome. The
+        // intents refine here too — identification only transitions
+        // false→true, last-seen only advances.
+        const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
+        const otherUpdates = computeOpsScalarUpdates(ops, person)
+
+        if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
+            const [updatedPerson] = applyEventPropertyUpdates(refined, person)
+            return [updatedPerson, []]
+        }
+
+        const [updatedPerson, kafkaMessages] = await this.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            refined.toSet,
+            refined.toUnset,
+            otherUpdates,
+            distinctId,
+            batchId,
+            refined.shouldForceUpdate
+        )
+        return [updatedPerson, kafkaMessages]
+    }
+
     updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
         propertiesToSet: Properties,
@@ -1375,6 +1418,32 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.clearAllCachesForPersonId(person.team_id, person.id)
 
         return response
+    }
+
+    async claimLifecycleMarks(
+        opId: string,
+        teamId: number,
+        persons: LifecycleMarkPerson[],
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        this.incrementDatabaseOperation('claimLifecycleMarks', distinctId)
+        return await (tx || this.personRepository).claimLifecycleMarks(opId, teamId, persons)
+    }
+
+    async releaseLifecycleMarks(
+        opId: string,
+        teamId: number,
+        distinctId: string,
+        tx?: PersonRepositoryTransaction
+    ): Promise<void> {
+        this.incrementDatabaseOperation('releaseLifecycleMarks', distinctId)
+        return await (tx || this.personRepository).releaseLifecycleMarks(opId, teamId)
+    }
+
+    async isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
+        this.incrementDatabaseOperation('isPersonLive', distinctId)
+        return await (tx || this.personRepository).isPersonLive(person)
     }
 
     async fetchPersonsForUpdateByDistinctIds(

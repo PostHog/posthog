@@ -5,6 +5,8 @@ from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, Union
 from urllib.parse import urlparse
 
+from django.conf import settings
+
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -593,6 +595,71 @@ def _is_safe_public_ip(host: str) -> bool:
     )
 
 
+# The AWS half matches the global, regional, dashed-regional, dualstack and accelerate endpoints,
+# because a bucket answers on all of them and each one resolves to the same objects.
+_STORAGE_ENDPOINT = r"(?:s3[.-][a-z0-9.-]*amazonaws\.com|storage\.googleapis\.com)"
+_PATH_STYLE_STORAGE_HOST = re.compile(rf"^{_STORAGE_ENDPOINT}$")
+_VIRTUAL_HOSTED_STORAGE_HOST = re.compile(rf"^(?P<bucket>.+?)\.{_STORAGE_ENDPOINT}$")
+
+# ClickHouse expands these in an s3() URL. They belong in the key, never in the bucket position.
+_GLOB_METACHARACTERS = frozenset("*?{}[]")
+
+_NOT_OUR_STORAGE = (
+    "This URL points to PostHog's internal storage and can't be used as a source. "
+    "Enter the location of your own bucket instead."
+)
+
+
+def _posthog_owned_bucket_names() -> set[str]:
+    """Buckets PostHog owns, so a table must never be pointed at one.
+
+    A self-managed table reads through ClickHouse, which falls back to its node IAM role when the
+    table carries no credential. These are the buckets that role can reach, and they hold every
+    team's data, so reading one across the API would cross the tenant boundary.
+    """
+    names = {
+        settings.DATAWAREHOUSE_BUCKET,
+        settings.BUCKET_PATH,
+        settings.OBJECT_STORAGE_BUCKET,
+        settings.SESSION_RECORDING_V2_S3_BUCKET,
+    }
+    # A couple of these settings are configured as `bucket/prefix`; only the bucket identifies storage.
+    return {str(name).strip("/").split("/", 1)[0] for name in names if name}
+
+
+def _validate_url_pattern_is_not_posthog_storage(
+    url_pattern: str, normalized_hostname: str, path: str
+) -> tuple[bool, str]:
+    """Reject a URL that addresses PostHog's own object storage, in any of the forms S3 accepts.
+
+    A bucket answers to both a virtual-hosted host (`<bucket>.s3.<region>.amazonaws.com`) and a
+    path-style one (`s3.<region>.amazonaws.com/<bucket>`), so a host check alone leaves the same
+    object reachable under a name that doesn't look like ours.
+    """
+    configured_domain = (settings.DATAWAREHOUSE_BUCKET_DOMAIN or "").lower().strip()
+    if configured_domain and configured_domain in url_pattern.lower():
+        return False, _NOT_OUR_STORAGE
+
+    owned_buckets = _posthog_owned_bucket_names()
+
+    virtual_hosted = _VIRTUAL_HOSTED_STORAGE_HOST.match(normalized_hostname)
+    if virtual_hosted:
+        if virtual_hosted.group("bucket") in owned_buckets:
+            return False, _NOT_OUR_STORAGE
+        return True, ""
+
+    if _PATH_STYLE_STORAGE_HOST.match(normalized_hostname):
+        bucket = path.lstrip("/").split("/", 1)[0]
+        # A glob here expands across buckets rather than within one, so it can reach ours whatever
+        # it looks like. No source needs to pattern-match a bucket name.
+        if any(character in _GLOB_METACHARACTERS for character in bucket):
+            return False, "The bucket name in a URL pattern must be exact. Wildcards belong in the file path."
+        if bucket in owned_buckets:
+            return False, _NOT_OUR_STORAGE
+
+    return True, ""
+
+
 def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool, str]:
     if not url_pattern:
         return True, ""
@@ -605,6 +672,15 @@ def validate_warehouse_table_url_pattern(url_pattern: str | None) -> tuple[bool,
         return False, "URL pattern must include a valid hostname."
 
     normalized_hostname = parsed.hostname.lower().strip().rstrip(".")
+
+    # Runs before the DNS checks below so a URL aimed at our own storage always reports that, rather
+    # than whatever the internal hostname happens to resolve to.
+    is_valid, error_message = _validate_url_pattern_is_not_posthog_storage(
+        url_pattern, normalized_hostname, parsed.path
+    )
+    if not is_valid:
+        return is_valid, error_message
+
     if normalized_hostname in {"localhost"}:
         return False, "URL pattern hostname is not allowed."
 

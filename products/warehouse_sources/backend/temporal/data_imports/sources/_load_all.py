@@ -266,6 +266,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
 from .clover.source import CloverSource
@@ -1192,6 +1193,7 @@ from .umami.source import UmamiSource
 from .un_comtrade.source import UnComtradeSource
 from .unleash.source import UnleashSource
 from .unstructured.source import UnstructuredSource
+from .uploadcare.source import UploadcareSource
 from .uppromote.source import UpPromoteSource
 from .upstash.source import UpstashSource
 from .uptick.source import UptickSource

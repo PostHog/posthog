@@ -140,6 +140,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunSetOutputRequestSerializer,
     TaskRunStartRequestSerializer,
     TaskRunUpdateSerializer,
+    TaskSearchQuerySerializer,
+    TaskSearchResultSerializer,
     TaskSerializer,
     TaskSessionResponseSerializer,
     TaskSessionSyncResponseSerializer,
@@ -220,16 +222,13 @@ def _is_internal_debug_team(team_id: int | None) -> bool:
 
 
 def _can_bypass_visibility(request, team_id: int | None) -> bool:
-    """Whether this request may READ tasks/runs it doesn't own (never write — control stays creator-scoped).
-
-    - Staff users: unconditionally, on any team (support/debugging). No opt-in needed, so staff don't hit
-      the per-creator 404 when opening a task by URL or streaming its run logs — the frontend can't reliably
-      thread a query param through every read (the SSE stream doesn't carry one).
-    - Internal-debug teams: keep the narrower, explicit ``?ph_debug=true`` opt-in (dev/debug workflow).
-    """
-    if bool(getattr(request.user, "is_staff", False)):
-        return True
-    return _is_internal_debug_team(team_id) and request.query_params.get("ph_debug") == "true"
+    """Allow explicit cross-owner reads only in local development."""
+    return (
+        settings.DEBUG
+        and not settings.TEST
+        and _is_internal_debug_team(team_id)
+        and request.query_params.get("ph_debug") == "true"
+    )
 
 
 class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
@@ -352,6 +351,30 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return self.get_paginated_response(
             TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
         )
+
+    @validated_request(
+        query_serializer=TaskSearchQuerySerializer,
+        responses={200: OpenApiResponse(response=TaskSearchResultSerializer(many=True))},
+        summary="Search tasks, pull requests, artifacts, and spaces",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="search",
+        pagination_class=None,
+        required_scopes=["task:read"],
+    )
+    def search(self, request, *args, **kwargs):
+        query = request.validated_query_data["q"]
+        limit = request.validated_query_data["limit"]
+        results = tasks_facade.search_tasks(
+            self.team_id,
+            self._user_id(),
+            query,
+            limit=limit,
+            bypass_visibility=_can_bypass_visibility(request, self.team_id),
+        )
+        return Response(TaskSearchResultSerializer(results, many=True).data)
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
@@ -695,7 +718,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         channel, thread_ts = parsed
         result = tasks_facade.resolve_slack_thread_context(
-            self.team_id, channel=channel, thread_ts=thread_ts, url=url, build_url=request.build_absolute_uri
+            self.team_id,
+            self._user_id(),
+            channel=channel,
+            thread_ts=thread_ts,
+            url=url,
+            build_url=request.build_absolute_uri,
         )
         if result.outcome == "no_mapping" and (thread := result.no_mapping_thread) is not None:
             return Response(
@@ -1077,9 +1105,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         application = access_token.application
         if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
             return False
-        return access_token.sandbox_task_id == UUID(task_id) or "internal_run:read" in (
-            get_authenticator_scopes(authenticator) or []
-        )
+        return access_token.sandbox_task_id == UUID(task_id)
 
     # Actions that only read run state. Everything else mutates or drives the
     # run, so it requires task control (not just visibility): public-channel
@@ -1099,14 +1125,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
 
     def _ensure_task_accessible(self) -> str:
-        """Gate access to the parent task, mirroring the old ``safely_get_queryset``.
-
-        Staff users (and internal-debug teams via ``?ph_debug=true``) may read another member's runs
-        through the read-only actions; the bypass never applies to control actions.
-        """
+        """Gate access to the parent task, including exact task-bound sandbox access."""
         task_id = self._task_id()
         is_read_only = self.action in self._READ_ONLY_ACTIONS
-        bypass_visibility = is_read_only and _can_bypass_visibility(self.request, self.team_id)
+        bypass_visibility = self._is_sandbox_agent_request(task_id) or (
+            is_read_only and _can_bypass_visibility(self.request, self.team_id)
+        )
         if not tasks_facade.task_accessible_for_run_view(
             task_id,
             self.team_id,

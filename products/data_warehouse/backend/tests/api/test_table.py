@@ -15,6 +15,8 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
+PUBLIC_ADDRINFO = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 0))]
+
 
 class TestTable(APIBaseTest):
     @parameterized.expand(
@@ -673,6 +675,64 @@ class TestTable(APIBaseTest):
 
         table.refresh_from_db()
         assert table.url_pattern == "https://your-org.s3.amazonaws.com/bucket/whatever.pqt"
+
+    @parameterized.expand(
+        [
+            # The path-style endpoint names the same bucket as DATAWAREHOUSE_BUCKET_DOMAIN without
+            # containing that domain, which is what made this reachable.
+            ("posthog_bucket_path_style", "https://s3.us-east-1.amazonaws.com/ph-warehouse/file_uploads/team_*/*.csv"),
+            ("unrelated_bucket", "https://acme-exports.s3.amazonaws.com/exports/*.csv"),
+        ]
+    )
+    @override_settings(
+        DATAWAREHOUSE_BUCKET_DOMAIN="warehouse-files.posthog.example", DATAWAREHOUSE_BUCKET="ph-warehouse"
+    )
+    def test_update_cannot_repoint_a_table_that_reads_with_the_node_role(self, _name: str, target_url: str):
+        hosted_url = "https://warehouse-files.posthog.example/file_uploads/team_1/abc/data.csv"
+        table = DataWarehouseTable.objects.create(
+            name="uploaded_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern=hosted_url,
+        )
+
+        with patch("products.warehouse_sources.backend.models.util.socket.getaddrinfo", return_value=PUBLIC_ADDRINFO):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+                {"url_pattern": target_url},
+            )
+
+        assert response.status_code == 400
+        table.refresh_from_db()
+        assert table.url_pattern == hosted_url
+
+    def test_update_can_repoint_a_table_that_has_its_own_credential(self):
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern="https://acme-exports.s3.amazonaws.com/old/*.pqt",
+            credential=credential,
+        )
+
+        with patch("products.warehouse_sources.backend.models.util.socket.getaddrinfo", return_value=PUBLIC_ADDRINFO):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+                {"url_pattern": "https://acme-exports.s3.amazonaws.com/new/*.pqt"},
+            )
+
+        assert response.status_code == 200
+        table.refresh_from_db()
+        assert table.url_pattern == "https://acme-exports.s3.amazonaws.com/new/*.pqt"
 
     def test_update_table_credential_blank_access_key(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
