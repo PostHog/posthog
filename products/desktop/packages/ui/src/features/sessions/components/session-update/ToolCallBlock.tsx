@@ -16,7 +16,7 @@ import type { ToolCall } from "@posthog/ui/features/sessions/types";
 import { Box } from "@radix-ui/themes";
 import type { ConversationItem, TurnContext } from "../buildConversationItems";
 import { useChatThreadChrome } from "../chat-thread/chatThreadChrome";
-import { isSubagentSpawnTool } from "./collaborationTools";
+import { isPlanApprovalTool, isSubagentSpawnTool } from "./collaborationTools";
 import {
   MCP_TOOL_BLOCK_COMPONENT,
   type McpToolBlockComponent,
@@ -75,6 +75,14 @@ export function ToolCallBlock({
         ) : (
           <ToolCallView {...props} agentToolName={mcpToolName} />
         )}
+      </Box>
+    );
+  }
+
+  if (isPlanApprovalTool(toolName)) {
+    return (
+      <Box>
+        <PlanApprovalView {...props} />
       </Box>
     );
   }
