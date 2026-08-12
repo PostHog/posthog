@@ -2047,6 +2047,41 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     @freeze_time("2026-05-05T23:00:00Z")
+    def test_skips_alert_with_invalid_quiet_hours_and_discovers_healthy_alerts(self):
+        from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
+
+        invalid_alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="invalid quiet hours",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["invalid"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
+        )
+        LogsAlertConfiguration.objects.filter(id=invalid_alert.id).update(
+            schedule_restriction={"blocked_windows": [{"start": "invalid", "end": "07:00"}]}
+        )
+        healthy_alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="healthy",
+            threshold_count=1,
+            threshold_operator="above",
+            window_minutes=5,
+            evaluation_periods=1,
+            filters={"serviceNames": ["healthy"]},
+            enabled=True,
+            next_check_at=datetime(2026, 5, 5, 21, 55, tzinfo=UTC),
+        )
+
+        result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
+
+        discovered_alert_ids = [alert_id for manifest in result.manifests for alert_id in manifest.alert_ids]
+        assert discovered_alert_ids == [str(healthy_alert.id)]
+
+    @freeze_time("2026-05-05T23:00:00Z")
     def test_reschedules_due_alert_during_quiet_hours_before_evaluation(self):
         from products.logs.backend.temporal.activities import DiscoverCohortsInput, discover_cohorts_activity
 

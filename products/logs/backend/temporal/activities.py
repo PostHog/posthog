@@ -429,11 +429,21 @@ def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -
     with transaction.atomic():
         alerts = _due_alerts_qs(now).select_for_update(of=("self",)).select_related("team").filter(id__in=alert_ids)
         for alert in alerts:
-            next_check_at = next_allowed_check_at(
-                now,
-                team_timezone=alert.team.timezone,
-                schedule_restriction=alert.schedule_restriction,
-            )
+            try:
+                next_check_at = next_allowed_check_at(
+                    now,
+                    team_timezone=alert.team.timezone,
+                    schedule_restriction=alert.schedule_restriction,
+                )
+            except Exception as e:
+                logger.exception(
+                    "Skipping alert with invalid quiet-hours configuration",
+                    alert_id=str(alert.id),
+                    team_id=alert.team_id,
+                    error=str(e),
+                )
+                rescheduled_alert_ids.add(alert.id)
+                continue
             if next_check_at <= now:
                 continue
             alert.next_check_at = next_check_at
@@ -1017,11 +1027,24 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
             .select_related("team")
             .get(id=evaluation.alert.id)
         )
-        next_check_at = next_allowed_check_at(
-            now,
-            team_timezone=current_alert.team.timezone,
-            schedule_restriction=current_alert.schedule_restriction,
-        )
+        try:
+            next_check_at = next_allowed_check_at(
+                now,
+                team_timezone=current_alert.team.timezone,
+                schedule_restriction=current_alert.schedule_restriction,
+            )
+        except Exception as e:
+            logger.exception(
+                "Skipping alert with invalid quiet-hours configuration",
+                alert_id=str(current_alert.id),
+                team_id=current_alert.team_id,
+                error=str(e),
+            )
+            return _DispatchedAlert(
+                evaluation=evaluation,
+                notification_failed=False,
+                suppressed_by_quiet_hours=True,
+            )
         if next_check_at > now:
             current_alert.next_check_at = next_check_at
             current_alert.save(update_fields=["next_check_at", "updated_at"])
@@ -1031,14 +1054,14 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
                 suppressed_by_quiet_hours=True,
             )
 
-        produce_result = _dispatch_notification(
-            evaluation.outcome,
-            evaluation.alert,
-            evaluation.check_result,
-            now,
-            date_from=evaluation.date_from,
-            date_to=evaluation.date_to,
-        )
+    produce_result = _dispatch_notification(
+        evaluation.outcome,
+        evaluation.alert,
+        evaluation.check_result,
+        now,
+        date_from=evaluation.date_from,
+        date_to=evaluation.date_to,
+    )
     enqueue_failed = evaluation.outcome.notification != NotificationAction.NONE and produce_result is None
     return _DispatchedAlert(evaluation=evaluation, notification_failed=enqueue_failed, produce_result=produce_result)
 
@@ -1099,16 +1122,26 @@ def _stage_alert_for_save(dispatched: _DispatchedAlert, now: datetime) -> tuple[
     # (the per-alert fallback's `alert.save()` would honour `auto_now`, but the
     # happy path is bulk_update).
     alert.updated_at = now
-    alert.next_check_at = next_allowed_check_at(
-        advance_next_check_at(
-            alert.next_check_at,
-            alert.check_interval_minutes,
-            now,
-            shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
-        ),
-        team_timezone=alert.team.timezone,
-        schedule_restriction=alert.schedule_restriction,
+    next_check_at = advance_next_check_at(
+        alert.next_check_at,
+        alert.check_interval_minutes,
+        now,
+        shard_offset_seconds=compute_shard_offset_seconds(alert.id, alert.check_interval_minutes),
     )
+    try:
+        alert.next_check_at = next_allowed_check_at(
+            next_check_at,
+            team_timezone=alert.team.timezone,
+            schedule_restriction=alert.schedule_restriction,
+        )
+    except Exception as e:
+        logger.exception(
+            "Ignoring invalid quiet-hours configuration while saving alert",
+            alert_id=str(alert.id),
+            team_id=alert.team_id,
+            error=str(e),
+        )
+        alert.next_check_at = next_check_at
     update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
     if (
