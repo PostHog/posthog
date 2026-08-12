@@ -1,5 +1,8 @@
 import { prioritizeExactCommandMatches } from "@posthog/ui/features/command/commandSearch";
-import type { Command, CommandSection } from "@posthog/ui/features/command/useSearchSections";
+import type {
+  Command,
+  CommandSection,
+} from "@posthog/ui/features/command/useSearchSections";
 import { describe, expect, it } from "vitest";
 
 const command = (id: string, label: string): Command => ({
@@ -23,9 +26,8 @@ describe("prioritizeExactCommandMatches", () => {
       "Exact matches",
       "Actions",
     ]);
-    expect(prioritized.map((section) => section.items.map((item) => item.id))).toEqual([
-      ["release"],
-      ["new"],
-    ]);
+    expect(
+      prioritized.map((section) => section.items.map((item) => item.id)),
+    ).toEqual([["release"], ["new"]]);
   });
 });
