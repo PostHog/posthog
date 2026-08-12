@@ -2079,12 +2079,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         # queued repo-less run.
         "github_read_access",
         # Loop provenance is stamped once at run creation (see loop_runs._create_loop_task_and_run)
-        # and drives loop bookkeeping in handle_loop_run_terminal. A run update must never be able
-        # to forge or repoint it, or a caller could steer terminal side effects at another loop.
+        # and drives loop bookkeeping in handle_loop_run_terminal. The completion marker prevents
+        # terminal bookkeeping from running twice. A caller must not be able to forge either.
         "loop_id",
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        "loop_terminal_bookkeeping_complete",
         # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
         # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         "ai_stage",
@@ -4706,6 +4707,7 @@ def create_task(
                 description=description or None,
                 artifact_ids=pending_user_artifact_ids,
                 auto_publish=warm_auto_publish,
+                reasoning_effort=warm_reasoning_effort,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
@@ -5038,8 +5040,9 @@ def _find_idling_warm_run(
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
-    Reuse also requires the warm Run's runtime, sandbox environment, and custom image selections to
-    match the request. A mismatch returns ``None`` so the caller cold-creates on the correct sandbox.
+    Reuse also requires the warm Run's runtime, model, sandbox environment, and custom image selections to
+    match the request. Reasoning effort is deliberately excluded: activation applies the final effort before
+    the first turn. Other mismatches return ``None`` so the caller cold-creates on the correct sandbox.
     The optional repo/branch/``await_user_message`` predicates stay in the query; the remaining selection is
     matched in Python over the small candidate set.
     """
@@ -5065,7 +5068,6 @@ def _find_idling_warm_run(
     wanted = (
         runtime_adapter or None,
         model or None,
-        reasoning_effort or None,
         str(sandbox_environment_id) if sandbox_environment_id else None,
         str(custom_image_id) if custom_image_id else None,
     )
@@ -5079,7 +5081,6 @@ def _find_idling_warm_run(
         have = (
             state.get("runtime_adapter") or None,
             state.get("model") or None,
-            state.get("reasoning_effort") or None,
             state.get("sandbox_environment_id") or None,
             state.get("custom_image_id") or None,
         )
@@ -5158,6 +5159,7 @@ def _activate_warm_run(
     artifact_ids: list[str],
     description: str | None = None,
     auto_publish: bool | None = None,
+    reasoning_effort: str | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -5174,10 +5176,18 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
+    activation_state_updates: dict[str, object] = {}
     if auto_publish is not None:
         # Before the signal: the agent-server re-reads run state when the forwarded
         # first message arrives, so the choice must already be persisted by then.
-        TaskRun.update_state_atomic(run.id, updates={"auto_publish": auto_publish})
+        activation_state_updates["auto_publish"] = auto_publish
+    if reasoning_effort is not None:
+        activation_state_updates["reasoning_effort"] = reasoning_effort
+    TaskRun.update_state_atomic(
+        run.id,
+        updates=activation_state_updates,
+        remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
+    )
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
@@ -5380,7 +5390,6 @@ def run_task(
             warm_runtime_matches = (
                 warm_state.get("runtime_adapter") or None,
                 warm_state.get("model") or None,
-                warm_state.get("reasoning_effort") or None,
                 warm_state.get("context_window") or None,
                 warm_state.get("fast_mode") or None,
                 warm_state.get("sandbox_environment_id") or None,
@@ -5388,7 +5397,6 @@ def run_task(
             ) == (
                 validated_data.get("runtime_adapter") or None,
                 validated_data.get("model") or None,
-                validated_data.get("reasoning_effort") or None,
                 validated_data.get("context_window") or None,
                 validated_data.get("fast_mode") or None,
                 str(validated_data["sandbox_environment_id"]) if validated_data.get("sandbox_environment_id") else None,
@@ -5421,6 +5429,7 @@ def run_task(
                         description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
                         auto_publish=validated_data.get("auto_publish"),
+                        reasoning_effort=validated_data.get("reasoning_effort"),
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
