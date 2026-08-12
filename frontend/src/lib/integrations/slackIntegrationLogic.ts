@@ -101,6 +101,9 @@ export interface slackIntegrationLogicActions {
             channelId: string
         }
     }
+    armChannelRefreshCooldown: (at: number) => {
+        at: number
+    }
     setRecentlySubscribedChannelIds: (channelIds: string[]) => {
         channelIds: string[]
     }
@@ -149,6 +152,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     actions({
         loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
+        armChannelRefreshCooldown: (at: number) => ({ at }),
         setRecentlySubscribedChannelIds: (channelIds: string[]) => ({ channelIds }),
         setSlackIntegrationInactive: (message: string | null) => ({ message }),
     }),
@@ -219,10 +223,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         lastForcedRefreshAt: [
             null as number | null,
             {
-                // Arm the cooldown only when the user forces a refresh, and stamp it from this
-                // client's clock. Automatic loads (mount, focus, search) leave it untouched, so they
-                // never block the user's own refresh click.
-                loadAllSlackChannels: (state, { forceRefresh }) => (forceRefresh ? dayjs().valueOf() : state),
+                armChannelRefreshCooldown: (_, { at }) => at,
             },
         ],
         slackIntegrationInactiveMessage: [
@@ -237,6 +238,14 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     })),
 
     listeners(({ props, actions }) => ({
+        loadAllSlackChannels: ({ forceRefresh }) => {
+            // Arm the cooldown only when the user forces a refresh, and stamp it from this client's
+            // clock. Automatic loads (mount, focus, search) leave it untouched, so they never block
+            // the user's own refresh click. The clock read stays in the listener to keep the reducer pure.
+            if (forceRefresh) {
+                actions.armChannelRefreshCooldown(dayjs().valueOf())
+            }
+        },
         loadAllSlackChannelsSuccess: () => {
             actions.setRecentlySubscribedChannelIds(getRecentSlackChannelIds(props.id))
         },
