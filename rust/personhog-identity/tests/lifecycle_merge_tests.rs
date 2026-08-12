@@ -1630,7 +1630,7 @@ async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
     );
     request.event_set = serde_json::to_vec(&json!({"plan": "pro"})).unwrap();
     let response = service
-        .merge_persons(Request::new(request))
+        .merge_persons(Request::new(request.clone()))
         .await
         .expect("inline call succeeds")
         .into_inner();
@@ -1643,9 +1643,13 @@ async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
                 MergeSourceOutcome::NoopSamePerson
             ),
             ("anonymous".to_string(), MergeSourceOutcome::SkippedIllegal),
-            ("inline-unresolved".to_string(), MergeSourceOutcome::Error),
+            (
+                "inline-unresolved".to_string(),
+                MergeSourceOutcome::Attached
+            ),
         ]
     );
+    assert_eq!(h.pdi_state("inline-unresolved").await, (target, false, 1));
     let survivor = response.survivor.expect("survivor present");
     assert_eq!(survivor.id, target);
     // The survivor's created_at unit must not depend on which branch
@@ -1675,6 +1679,21 @@ async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
         .unwrap();
     assert_eq!(op_count, 0);
 
+    // On re-classification the attached source resolves to the target and
+    // settles as a no-op — an equivalent answer, not an error.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry succeeds")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry)[2],
+        (
+            "inline-unresolved".to_string(),
+            MergeSourceOutcome::NoopSamePerson
+        )
+    );
+
     h.ctx.cleanup().await.expect("cleanup");
 }
 
@@ -1686,29 +1705,39 @@ async fn a_mixed_call_folds_inline_and_saga_outcomes_in_request_order() {
     h.add_distinct_id(target, "mixed-alias").await;
     let source = h.ctx.insert_person_with_distinct_id("mixed-source").await;
 
+    let request = rpc_request(
+        h.ctx.team_id,
+        "mixed-target",
+        &["mixed-alias", "mixed-personless", "mixed-source"],
+        Uuid::now_v7(),
+    );
     let response = service
-        .merge_persons(Request::new(rpc_request(
-            h.ctx.team_id,
-            "mixed-target",
-            &["mixed-alias", "mixed-source"],
-            Uuid::now_v7(),
-        )))
+        .merge_persons(Request::new(request.clone()))
         .await
         .expect("merge succeeds")
         .into_inner();
 
-    assert_eq!(
-        rpc_outcomes(&response),
-        vec![
-            (
-                "mixed-alias".to_string(),
-                MergeSourceOutcome::NoopSamePerson
-            ),
-            ("mixed-source".to_string(), MergeSourceOutcome::Merged),
-        ]
-    );
+    let expected = vec![
+        (
+            "mixed-alias".to_string(),
+            MergeSourceOutcome::NoopSamePerson,
+        ),
+        ("mixed-personless".to_string(), MergeSourceOutcome::Attached),
+        ("mixed-source".to_string(), MergeSourceOutcome::Merged),
+    ];
+    assert_eq!(rpc_outcomes(&response), expected);
+    assert_eq!(h.pdi_state("mixed-personless").await, (target, false, 1));
     let (source_deleted, _, _) = h.person_state(source).await;
     assert!(source_deleted);
+
+    // The attach outcome is frozen in the op row: a retry reproduces it
+    // instead of re-classifying the pair as a no-op.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry attaches to the op")
+        .into_inner();
+    assert_eq!(rpc_outcomes(&retry), expected);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -2016,6 +2045,57 @@ async fn a_failed_property_push_errors_the_call_and_the_retry_settles() {
         rpc_outcomes(&retry),
         vec![(
             "rpc-pushfail-alias".to_string(),
+            MergeSourceOutcome::NoopSamePerson
+        )]
+    );
+    assert_eq!(retry.survivor.as_ref().expect("survivor").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_failed_push_after_attach_leaves_the_attach_durable() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h
+        .ctx
+        .insert_person_with_distinct_id("att-pushfail-target")
+        .await;
+
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "att-pushfail-target",
+        &["att-pushfail-anon"],
+        op_id,
+    );
+    request.event_set = serde_json::to_vec(&json!({"plan": "pro"})).unwrap();
+    h.leader.fail_next(
+        Rpc::PropertyPush,
+        target,
+        Status::unavailable("leader down"),
+    );
+
+    let status = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect_err("a failed push fails the call");
+    assert_eq!(status.code(), Code::Unavailable);
+    // The attach committed before the push and must survive the failure —
+    // the retry contract depends on it.
+    assert_eq!(h.pdi_state("att-pushfail-anon").await, (target, false, 1));
+
+    // The retry re-classifies: the attached pair settles as the
+    // equivalent no-op and the push succeeds.
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("retry succeeds")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![(
+            "att-pushfail-anon".to_string(),
             MergeSourceOutcome::NoopSamePerson
         )]
     );
