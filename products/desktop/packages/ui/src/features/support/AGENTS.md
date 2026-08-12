@@ -29,6 +29,15 @@ All under `products/conversations/backend` in posthog/posthog.
 
 A reply reaches a customer, so the thread never shows an optimistic row: the server's own message is inserted on success. When a send fails in a way that leaves the outcome unknown — dropped connection, timeout, a concurrent identical send, a server error — the thread is re-read and searched for the message before the person is told anything, because resending a reply that did land sends it twice. A rejection that definitely wrote nothing, throttling included, surfaces as an error with the draft intact. The rules live in `@posthog/core/support/replyOutcome`; keep the recovery window in step with the server's.
 
+## Pull requests on a ticket
+
+A ticket points at pull requests two ways, and they are read, never mirrored:
+
+- **Attached by hand** as `pr:owner/repo/number` tags. The slash matters: systems a ticket's tags pass through strip a hash, so the legacy `#` form is read but never written. Nothing attaches one automatically.
+- **Opened by the ticket's agent thread**, read live from the task's run output through `readPrUrls`. They stay on the task, so the task remains the one record of what the agent did, and an attached one can never be displaced by it.
+
+State comes from Desktop's own `useTaskPrStatus` for the linked task, rendered with `PRBadgeLink` so the colours match the rest of the app. A link with no task behind it renders as a plain reference chip: claiming a state we cannot check would be worse than showing none. The queue rows show attached pull requests only, because a thread's live in its task and one request per row to decorate a badge is not worth it.
+
 ## Layout
 
 The queue lives in the `/support` layout route so it stays mounted while tickets change under it. The ticket occupies the middle; `TicketSidebar` is a fixed right column with two tabs, both kept mounted so switching never tears down a live agent session. The agent tab takes the front when a ticket already has a thread, because that is usually why someone returns to such a ticket.

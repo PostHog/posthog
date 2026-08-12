@@ -1,4 +1,6 @@
+import { GitPullRequestIcon } from "@phosphor-icons/react";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
+import { readTicketPrUrls } from "@posthog/core/support/ticketPrLinks";
 import {
   ticketAttention,
   ticketSlaState,
@@ -28,6 +30,10 @@ export function TicketRow({
   const sla = ticketSlaState(ticket, now);
   const hasUnread = (ticket.unread_team_count ?? 0) > 0;
   const hasAgentThread = readTicketTaskId(ticket.tags) !== null;
+  // Attached pull requests only: a thread's own live in its task, and fetching
+  // one per row to decorate a badge is not worth the requests. The ticket shows
+  // both.
+  const prUrls = readTicketPrUrls(ticket.tags);
 
   return (
     <button
@@ -64,6 +70,12 @@ export function TicketRow({
           {TICKET_ATTENTION_LABELS[attention]}
         </Badge>
         {hasAgentThread && <Badge variant="default">Agent</Badge>}
+        {prUrls.length > 0 && (
+          <Badge variant="default">
+            <GitPullRequestIcon size={10} />
+            {prNumberLabel(prUrls)}
+          </Badge>
+        )}
         {sla !== "none" && (
           <Text
             className={cn(
@@ -77,4 +89,11 @@ export function TicketRow({
       </div>
     </button>
   );
+}
+
+/** The first pull request, with a count for the rest, as task rows do. */
+function prNumberLabel(prUrls: string[]): string {
+  const first = prUrls[0]?.match(/\/pull\/(\d+)/)?.[1];
+  const label = first ? `#${first}` : "PR";
+  return prUrls.length > 1 ? `${label} +${prUrls.length - 1}` : label;
 }

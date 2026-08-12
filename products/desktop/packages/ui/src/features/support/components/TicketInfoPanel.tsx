@@ -1,7 +1,12 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
 import type { Schemas } from "@posthog/api-client";
 import type { SupportTicket } from "@posthog/api-client/posthog-client";
+import {
+  resolveTicketPrUrls,
+  ticketPrUrlFromTag,
+} from "@posthog/core/support/ticketPrLinks";
 import { isTicketSnoozed } from "@posthog/core/support/ticketState";
+import { readTicketTaskId } from "@posthog/core/support/ticketTaskLink";
 import {
   Badge,
   Button,
@@ -12,6 +17,8 @@ import {
   DropdownMenuTrigger,
   Text,
 } from "@posthog/quill";
+import { readPrUrls } from "@posthog/shared";
+import { TicketPullRequests } from "@posthog/ui/features/support/components/TicketPullRequests";
 import { useUpdateSupportTicket } from "@posthog/ui/features/support/hooks/useUpdateSupportTicket";
 import {
   TICKET_PRIORITY_LABELS,
@@ -23,6 +30,8 @@ import {
   ticketRequesterName,
   ticketStatusLabel,
 } from "@posthog/ui/features/support/ticketPresentation";
+import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
+import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 const STATUS_OPTIONS = Object.keys(
@@ -35,6 +44,24 @@ const PRIORITY_OPTIONS = Object.keys(
 export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
   const updateTicket = useUpdateSupportTicket();
   const snoozed = isTicketSnoozed(ticket, Date.now());
+
+  // The thread's task, for the pull requests it opened and their state. The
+  // query is shared with the agent panel, so this costs no extra request.
+  const taskId = readTicketTaskId(ticket.tags);
+  const { data: task } = useQuery({
+    ...taskDetailQuery(taskId ?? ""),
+    enabled: !!taskId,
+  });
+  const prUrls = resolveTicketPrUrls(
+    ticket.tags,
+    readPrUrls(task?.latest_run?.output),
+  );
+  // The link tags render as their own rows above, so showing them again here
+  // would present plumbing as something someone chose to label the ticket with.
+  const labelTags = (ticket.tags ?? []).filter(
+    (tag) =>
+      !ticketPrUrlFromTag(tag) && !tag.toLowerCase().startsWith("ai-task:"),
+  );
 
   const write = (
     updates: Parameters<typeof updateTicket.mutate>[0]["updates"],
@@ -137,10 +164,14 @@ export function TicketInfoPanel({ ticket }: { ticket: SupportTicket }) {
           )}
         </Row>
 
-        {ticket.tags && ticket.tags.length > 0 && (
+        <Row label={prUrls.length > 1 ? "Pull requests" : "Pull request"}>
+          <TicketPullRequests prUrls={prUrls} task={task} />
+        </Row>
+
+        {labelTags.length > 0 && (
           <Row label="Tags">
             <div className="flex flex-wrap justify-end gap-1">
-              {ticket.tags.map((tag) => (
+              {labelTags.map((tag) => (
                 <Badge key={tag} variant="default">
                   {tag}
                 </Badge>
