@@ -3629,6 +3629,57 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert source_name == "meta", f"Expected meta source, got {source_name}"
         assert campaign_name == "organic", f"Expected organic campaign, got {campaign_name}"
 
+    @parameterized.expand(
+        [
+            ("gclid", {"gclid": "abc123"}, "google", "Paid Search"),
+            ("gad_source", {"gad_source": "1"}, "google", "Paid Search"),
+            ("fbclid", {"fbclid": "xyz789"}, "meta", "Organic Social"),
+        ]
+    )
+    def test_click_id_only_touchpoint_names_the_ad_network(
+        self, _name, pageview_properties, expected_source, expected_channel
+    ):
+        self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE
+        with freeze_time("2023-05-01"):
+            _create_person(distinct_ids=["click_id_user"], team=self.team)
+            _create_event(
+                distinct_id="click_id_user",
+                event="$pageview",
+                team=self.team,
+                properties=pageview_properties,
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-06-01"):
+            _create_event(distinct_id="click_id_user", event="purchase", team=self.team, properties={"revenue": 100})
+            flush_persons_and_events_in_batches()
+
+        goal = ConversionGoalFilter1(
+            kind="EventsNode",
+            event="purchase",
+            conversion_goal_id="click_id_only",
+            conversion_goal_name="Click id only",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+        additional_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-06-01")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(additional_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+        assert len(response.results) == 1, f"Expected 1 result, got {len(response.results)}"
+
+        # Schema: [0]=match_key, [1]=campaign (channel_type at this level), [2]=id, [3]=source
+        channel_type, source_name = response.results[0][1], response.results[0][3]
+        assert source_name == expected_source, f"Expected {expected_source} source, got {source_name}"
+        assert channel_type == expected_channel, f"Expected {expected_channel} channel, got {channel_type}"
+
     def test_duplicate_events_same_timestamp_but_first_event_id_is_first(self):
         """
         Test Case: Duplicate events at the same timestamp

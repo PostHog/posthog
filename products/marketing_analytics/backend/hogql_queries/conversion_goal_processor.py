@@ -69,6 +69,7 @@ class TrackedField:
     schema_map_key: str | None = None  # Key in schema_map for DataWarehouse custom mapping
     default_value: str = ""  # Default when field is empty/missing in organic context
     click_identifier: bool = False  # Ad click id (gclid, fbclid, …): on its own it marks a paid touchpoint
+    click_id_source: str = ""  # Ad network this click id names when the pageview carries no utm_source
 
     @property
     def conversion_array(self) -> str:
@@ -103,15 +104,17 @@ TRACKED_FIELDS: list[TrackedField] = [
     # Click identifiers are plain, unprefixed event properties, same as the utm_* ones above.
     # The $-prefixed forms ($initial_gclid, $entry_gclid) are the derived person and session
     # properties, and reading those names off an event always yields empty.
-    TrackedField("gclid", "gclid", click_identifier=True),
-    TrackedField("fbclid", "fbclid", click_identifier=True),
-    TrackedField("gad_source", "gad_source", click_identifier=True),
+    TrackedField("gclid", "gclid", click_identifier=True, click_id_source="google"),
+    TrackedField("fbclid", "fbclid", click_identifier=True, click_id_source="facebook"),
+    TrackedField("gad_source", "gad_source", click_identifier=True, click_id_source="google"),
 ]
 
 # Property names of the ad click identifiers. A pageview that carries one of these is a paid
 # touchpoint even with no utm_source. referring_domain is not here: it defaults to $direct on
 # organic traffic, so it is not evidence of an ad click.
 CLICK_ID_PROPERTIES: list[str] = [f.event_property for f in TRACKED_FIELDS if f.click_identifier]
+
+CLICK_ID_FIELDS: list[TrackedField] = [f for f in TRACKED_FIELDS if f.click_identifier]
 
 
 def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
@@ -1841,9 +1844,11 @@ class ConversionGoalProcessor:
         field_exprs: dict[str, ast.Expr] = {}
         for field in TRACKED_FIELDS:
             default = organic_overrides.get(field.name, field.default_value)
-            field_expr: ast.Expr = self._build_organic_default_expr(field.attributed_name, default)
+            field_expr: ast.Expr
             if field.name == "source":
-                field_expr = self._normalize_source_field(field_expr)
+                field_expr = self._normalize_source_field(self._build_source_expr(field, default))
+            else:
+                field_expr = self._build_organic_default_expr(field.attributed_name, default)
             field_exprs[field.name] = field_expr
 
         campaign_expr = field_exprs["campaign"]
@@ -1937,6 +1942,30 @@ class ConversionGoalProcessor:
                 ast.Field(chain=[field_name]),
                 ast.Constant(value=default_value),
             ],
+        )
+
+    def _build_source_expr(self, source: TrackedField, default_value: str) -> ast.Expr:
+        """Attributed source, naming the ad network when only a click id identifies it.
+
+        A pageview qualifies as a touchpoint on a click id alone, and channel_type reads those
+        same click ids to classify the row as paid. Falling straight through to the organic
+        default would put an organic source next to a paid channel on one row, and would leave
+        the conversion in the organic bucket on the campaign and source levels.
+        """
+        source_field = ast.Field(chain=[source.attributed_name])
+        fallback: ast.Expr = ast.Constant(value=default_value)
+        for field in reversed(CLICK_ID_FIELDS):
+            fallback = ast.Call(
+                name="if",
+                args=[
+                    ast.Call(name="notEmpty", args=[ast.Field(chain=[field.attributed_name])]),
+                    ast.Constant(value=field.click_id_source),
+                    fallback,
+                ],
+            )
+        return ast.Call(
+            name="if",
+            args=[ast.Call(name="notEmpty", args=[source_field]), source_field, fallback],
         )
 
     def _apply_organic_default(self, expr: ast.Expr, default_value: str) -> ast.Call:
