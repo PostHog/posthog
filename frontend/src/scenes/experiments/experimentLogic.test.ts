@@ -282,7 +282,7 @@ describe('experimentLogic', () => {
     describe('updateExperimentMetrics', () => {
         it('keeps existing results when saving the metric definitions fails', async () => {
             const existingResult = experimentMetricResultsSuccessJson.query_status
-                .results as CachedNewExperimentQueryResponse
+                .results as unknown as CachedNewExperimentQueryResponse
 
             logic.actions.setExperiment(experiment)
             logic.actions.setPrimaryMetricsResults([existingResult])
