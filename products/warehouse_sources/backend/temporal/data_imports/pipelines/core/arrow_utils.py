@@ -580,6 +580,23 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     return table_from_iterator(iter(table_data), schema=schema)
 
 
+def restrict_schema_to_columns(schema: pa.Schema, column_names: Sequence[str]) -> pa.Schema:
+    """Drop fields from `schema` that aren't among `column_names`.
+
+    `pa.Table.from_pydict` raises an opaque KeyError ("The passed mapping doesn't contain the
+    following field(s) of the schema: ...") when the provided schema declares a column the row
+    mapping lacks. A SQL source builds its Arrow schema from columns discovered during setup, but
+    the streaming read can return a strict subset — e.g. a column dropped at the source, or the
+    table recreated with a narrower shape, between discovery and the read. Restricting the schema
+    to the columns the query actually returned lets the batch build; extra columns present in the
+    rows but not the schema are still handled by `_process_batch`, which appends them.
+    """
+    present = set(column_names)
+    if all(name in present for name in schema.names):
+        return schema
+    return pa.schema([field for field in schema if field.name in present])
+
+
 def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
     if precision <= 38:
         return pa.decimal128(precision, scale)
@@ -742,6 +759,28 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 
     return pa_table
+
+
+def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
+    """Stop the sync when a batch has nulls in a column the table declares non-nullable.
+
+    delta-rs cannot write a null into a non-nullable column, and deltalake 1.6.1 has no operation to
+    relax an existing column to nullable in place. So a source that starts emitting nulls in a
+    column the table created non-nullable is a schema change under the table, and the only fix is to
+    reset and fully re-sync it -- which recreates the column as nullable. Surfaced as
+    SchemaColumnTypeChangedException, the same reset-and-re-sync signal the decimal-widening path
+    uses, so the sync stops non-retryably instead of failing opaquely (deltalite) or silently
+    writing the nulls into a lying non-nullable schema (the delta-rs MERGE fallback).
+    """
+    delta_arrow_schema = pyarrow_schema_from_arrow_exportable(delta_schema)
+    for delta_field in delta_arrow_schema:
+        if delta_field.nullable or delta_field.name not in pa_table.schema.names:
+            continue
+        if pa_table.column(delta_field.name).null_count > 0:
+            raise SchemaColumnTypeChangedException(
+                f"Source column '{delta_field.name}' now contains nulls, but the table declares it "
+                f"non-nullable. Reset and fully re-sync this table to recreate the column as nullable."
+            )
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):

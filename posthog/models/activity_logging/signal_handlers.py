@@ -139,38 +139,61 @@ def _determine_login_method(request, was_impersonated):
     return login_method
 
 
+def log_login_activity(
+    user,
+    request: HttpRequest,
+    *,
+    login_method: str,
+    reauth: bool,
+    was_impersonated: bool = False,
+    log_user=None,
+    item_id: str | None = None,
+) -> None:
+    """Write the `logged_in` audit entry.
+
+    Also called directly for an SSO step-up re-auth, which keeps its session and so never fires
+    `user_logged_in` (see `posthog.api.authentication.social_reauth`).
+    """
+    organization_id = user.current_organization_id
+
+    if organization_id is None:
+        logger.info("Skipping login activity log - user has no organization", user_id=user.id)
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=log_user or user,
+        item_id=item_id or str(user.id),
+        scope="User",
+        activity="logged_in",
+        detail=Detail(
+            name=user.email,
+            changes=[],
+            context=UserLoginContext(
+                login_method=login_method,
+                ip_address=get_ip_address(request),
+                user_agent=get_short_user_agent(request),
+                reauth=reauth,
+            ),
+        ),
+        was_impersonated=was_impersonated,
+    )
+
+
 @receiver(user_logged_in)
 def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
     try:
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
-        ip_address = get_ip_address(request)
-        user_agent = get_short_user_agent(request)
-        reauth = request.session.get("reauth") == "true"
 
-        organization_id = user.current_organization_id
-
-        if organization_id is None:
-            logger.info("Skipping login activity log - user has no organization", user_id=user.id)
-            return
-
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=log_user,
-            item_id=item_id,
-            scope="User",
-            activity="logged_in",
-            detail=Detail(
-                name=user.email,
-                changes=[],
-                context=UserLoginContext(
-                    login_method=_determine_login_method(request, was_impersonated),
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    reauth=reauth,
-                ),
-            ),
+        log_login_activity(
+            user,
+            request,
+            login_method=_determine_login_method(request, was_impersonated),
+            reauth=request.session.get("reauth") == "true",
             was_impersonated=was_impersonated,
+            log_user=log_user,
+            item_id=item_id,
         )
     except Exception as e:
         logger.exception("Failed to log user login activity", user_id=user.id, error=e)

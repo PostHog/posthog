@@ -198,6 +198,20 @@ impl LeaderHandoffHandler {
 
 #[async_trait]
 impl HandoffHandler for LeaderHandoffHandler {
+    async fn prepare_acquire(&self, partition: u32) {
+        // Spawned: the convergence must not wait on a broker connect,
+        // and `preconnect` is single-flight per partition, so repeated
+        // convergences through the drain window cost one spawn each and
+        // one client total. A parked connection the acquire never
+        // consumes is discarded on release or by the periodic sweep —
+        // a cancelled inbound handoff leaves no convergence behind, so
+        // the sweep is the only path that reaches its leftovers.
+        if let Some(fenced) = &self.fenced {
+            let fenced = Arc::clone(fenced);
+            tokio::spawn(async move { fenced.preconnect(partition).await });
+        }
+    }
+
     async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
         info!(partition, "fencing writes and draining inflight handlers");
         // Fence before waiting: fencing only after the wait would leave a
