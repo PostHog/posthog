@@ -455,9 +455,13 @@ export type MergePersonsRequest = Message<'personhog.identity.v1.MergePersonsReq
 
     /**
      * Caller-generated operation id (UUID string), typically the executing
-     * event's uuid. A retried call carrying the same op_id returns the
-     * recorded outcome of the original run instead of merging again, so
-     * callers must reuse the op_id across retries.
+     * event's uuid. Callers must reuse the op_id across retries: when the
+     * original run merged distinct persons (ran the durable saga), a retry
+     * returns the recorded outcome instead of merging again. Calls that
+     * settle entirely inline (no-ops, attaches, skips) write no durable
+     * record; their retries re-execute against the current state and
+     * return an equivalent settlement — an attached source, for example,
+     * re-answers NOOP_SAME_PERSON.
      *
      * @generated from field: string op_id = 6;
      */
@@ -574,8 +578,7 @@ export enum MergeSourceOutcome {
 
     /**
      * The source distinct id had no person, so it was attached to the
-     * survivor with a plain mapping insert. Reserved for the personless-free
-     * world; nothing returns it yet (unresolved sources are ERROR for now).
+     * survivor with a plain mapping insert.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_ATTACHED = 3;
      */
@@ -583,7 +586,8 @@ export enum MergeSourceOutcome {
 
     /**
      * The source distinct id is on the illegal-id list ('anonymous',
-     * 'undefined', ...). Never merged.
+     * 'undefined', ...) or exceeds the 400-character storage limit, so it
+     * can never resolve to a person. Never merged.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_SKIPPED_ILLEGAL = 4;
      */
@@ -613,9 +617,7 @@ export enum MergeSourceOutcome {
     SKIPPED_MOVE_LIMIT = 7,
 
     /**
-     * The pair could not be handled; details in server logs. Currently also
-     * the outcome for sources that resolve to no person (unresolved-source
-     * attach is not implemented yet).
+     * The pair could not be handled; details in server logs.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_ERROR = 8;
      */
@@ -645,8 +647,14 @@ export const MergeSourceOutcomeSchema: GenEnum<MergeSourceOutcome> =
  *
  * MergePersons semantics: the RPC drives the merge to completion before
  * responding. Most merges settle inline (same-person, illegal source); only
- * distinct-person pairs run the durable lifecycle saga. Retries with the same
- * op_id return the recorded outcome.
+ * distinct-person pairs run the durable lifecycle saga. Retries with the
+ * same op_id return the recorded outcome when a saga ran, and an
+ * equivalent re-execution when the call settled inline (see the op_id
+ * field). Definitive refusals are FAILED_PRECONDITION carrying an
+ * x-semantic-refusal reason slug to branch on: "unresolved_target" (create
+ * the target, then retry or attach) and "op_id_reused" (the op_id belongs
+ * to a different request). A bare UNAVAILABLE is transient — retry with
+ * the same op_id.
  *
  * @generated from service personhog.identity.v1.PersonHogIdentity
  */
@@ -697,8 +705,9 @@ export const PersonHogIdentity: GenService<{
      * inline, distinct-person pairs run the durable merge saga (fence the
      * sources, fold their sealed documents into the target, repoint distinct
      * ids, tombstone the sources, produce death documents). An unresolved
-     * TARGET refuses the call FAILED_PRECONDITION; an illegal target
-     * distinct id refuses it INVALID_ARGUMENT before any durable work.
+     * TARGET refuses the call FAILED_PRECONDITION with refusal reason
+     * "unresolved_target"; an illegal target distinct id refuses it
+     * INVALID_ARGUMENT before any durable work.
      *
      * @generated from rpc personhog.identity.v1.PersonHogIdentity.MergePersons
      */

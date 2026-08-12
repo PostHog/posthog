@@ -1174,11 +1174,12 @@ export type ReleaseFenceRequest = Message<'personhog.types.v1.ReleaseFenceReques
 
     /**
      * The person's creation time as sealed at fence time, in epoch
-     * seconds — the unit Person.created_at carries end to end (the leader
-     * loads `timestamp()`, the writer binds via `epoch_secs_to_datetime`).
-     * The death document carries it verbatim — a cold leader has nothing
-     * to re-derive it from, and the writer projects it onto the tombstone
-     * row. Required when outcome = COMMITTED.
+     * milliseconds — the unit Person.created_at carries end to end (the
+     * leader loads `timestamp_millis()`, the writer binds via
+     * `epoch_ms_to_datetime`). The death document carries it verbatim — a
+     * cold leader has nothing to re-derive it from, and the writer
+     * projects it onto the tombstone row. Required when outcome =
+     * COMMITTED.
      *
      * @generated from field: int64 created_at = 7;
      */

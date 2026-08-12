@@ -1615,6 +1615,196 @@ async fn the_rpc_runs_the_saga_and_a_retry_returns_the_recorded_answer() {
 }
 
 #[tokio::test]
+async fn a_float_event_set_survives_the_freeze_and_the_retry_attaches() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h.ctx.insert_person_with_distinct_id("float-target").await;
+    h.ctx.insert_person_with_distinct_id("float-source").await;
+
+    // jsonb renders 1e17 back as an integer, so an unsanitized freeze
+    // never equals a fresh parse of the same bytes: the first call fails
+    // the engine's equality guard and every retry fails the attach-first
+    // original comparison — a permanently unmergeable pair.
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(h.ctx.team_id, "float-target", &["float-source"], op_id);
+    request.event_set = serde_json::to_vec(&json!({"count": 1e17})).unwrap();
+    let response = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect("the first call freezes and merges")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("float-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the retry attaches to the recorded op")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![("float-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    assert_eq!(retry.survivor.expect("survivor present").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_retry_with_regenerated_event_uuids_attaches_to_the_recorded_op() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let target = h.ctx.insert_person_with_distinct_id("uuid-target").await;
+    h.ctx.insert_person_with_distinct_id("uuid-source").await;
+
+    let op_id = Uuid::now_v7();
+    let first = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "uuid-target",
+            &["uuid-source"],
+            op_id,
+        )))
+        .await
+        .expect("first call merges")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&first),
+        vec![("uuid-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+
+    // rpc_request mints fresh event uuids per call. The proto documents
+    // event_uuid as advisory data the merge never reads, so a retry that
+    // regenerated them must still reach the recorded outcome instead of
+    // being rejected as a different request.
+    let retry = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "uuid-target",
+            &["uuid-source"],
+            op_id,
+        )))
+        .await
+        .expect("a retry with fresh event uuids attaches")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![("uuid-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    assert_eq!(retry.survivor.expect("survivor present").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_nul_in_the_event_set_is_sanitized_before_the_freeze() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    h.ctx.insert_person_with_distinct_id("nul-target").await;
+    h.ctx.insert_person_with_distinct_id("nul-source").await;
+
+    // Postgres refuses NUL in jsonb outright: without sanitization the
+    // frozen op row cannot be written at all and every attempt answers
+    // Status::internal.
+    let op_id = Uuid::now_v7();
+    let mut request = rpc_request(h.ctx.team_id, "nul-target", &["nul-source"], op_id);
+    request.event_set = serde_json::to_vec(&json!({"note": "a\u{0000}b"})).unwrap();
+    let response = service
+        .merge_persons(Request::new(request.clone()))
+        .await
+        .expect("the NUL payload freezes and merges")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![("nul-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+    let frozen: serde_json::Value =
+        sqlx::query_scalar("SELECT request FROM lifecycle_op WHERE op_id = $1")
+            .bind(op_id)
+            .fetch_one(&h.ctx.pool)
+            .await
+            .expect("frozen op row exists");
+    assert_eq!(frozen["event_set"]["note"], "a\u{FFFD}b");
+
+    let retry = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("the retry attaches to the recorded op")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&retry),
+        vec![("nul-source".to_string(), MergeSourceOutcome::Merged)]
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn multibyte_ids_over_400_bytes_inside_the_character_limit_merge() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    // 200 characters at 3 UTF-8 bytes each: inside capture's 200-char cap
+    // and the varchar(400) column, over the former 400-BYTE limit.
+    let target_did = "田".repeat(200);
+    let source_did = "中".repeat(200);
+    let target = h.ctx.insert_person_with_distinct_id(&target_did).await;
+    h.ctx.insert_person_with_distinct_id(&source_did).await;
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        &target_did,
+        &[source_did.as_str()],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("legally stored multibyte ids merge")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(source_did, MergeSourceOutcome::Merged)]
+    );
+    assert_eq!(response.survivor.expect("survivor present").id, target);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_oversized_source_settles_per_source_while_the_rest_merge() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    h.ctx.insert_person_with_distinct_id("ovs-target").await;
+    let source = h.ctx.insert_person_with_distinct_id("ovs-source").await;
+    let oversized = "x".repeat(401);
+
+    let request = rpc_request(
+        h.ctx.team_id,
+        "ovs-target",
+        &[oversized.as_str(), "ovs-source"],
+        Uuid::now_v7(),
+    );
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("one oversized source must not fail the batch")
+        .into_inner();
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![
+            (oversized, MergeSourceOutcome::SkippedIllegal),
+            ("ovs-source".to_string(), MergeSourceOutcome::Merged),
+        ]
+    );
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(source_deleted);
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn inline_cases_settle_without_an_op_row_and_push_the_event_properties() {
     let h = MergeHarness::new().await;
     let service = h.service();
@@ -1771,6 +1961,71 @@ async fn an_op_id_reused_with_a_different_request_is_rejected() {
         .await
         .expect_err("a different request must not attach");
     assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        personhog_common::grpc::semantic_refusal_reason(&status),
+        Some("op_id_reused"),
+        "callers branch on the refusal reason, not the message"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn an_unresolved_target_refusal_names_its_reason() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+
+    let status = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "reason-never-created",
+            &["s"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect_err("unresolved target refuses");
+    assert_eq!(status.code(), Code::FailedPrecondition);
+    assert_eq!(
+        personhog_common::grpc::semantic_refusal_reason(&status),
+        Some("unresolved_target"),
+        "the documented branch signal for routing to the create path"
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn a_create_race_loser_answers_retryable_unavailable() {
+    let h = MergeHarness::new().await;
+    let executor = MergeOpExecutor::new(
+        Arc::new(h.ctx.engine()),
+        MergeDriver::new(h.leader.clone(), h.ctx.tables.clone()),
+    );
+    let op_id = Uuid::now_v7();
+
+    // Drive a first frozen request to terminal: its target resolves to
+    // nothing, so the claim aborts the op in a single step.
+    let mut frozen_a =
+        serde_json::to_value(merge_request("race-target", &["race-source"])).unwrap();
+    frozen_a["original"] = json!({"call": "a"});
+    frozen_a["inline_results"] = json!({});
+    executor
+        .execute(op_id, h.ctx.team_id, &frozen_a)
+        .await
+        .expect("first request drives to terminal");
+
+    // The entrance reaches this create path only after its attach-first
+    // check found no op row, so a mismatch here is the insert-race
+    // window: it must answer retryable UNAVAILABLE (the retry attaches
+    // fine), not the terminal FAILED_PRECONDITION neither client stack
+    // retries.
+    let mut frozen_b = frozen_a.clone();
+    frozen_b["original"] = json!({"call": "b"});
+    let status = executor
+        .execute(op_id, h.ctx.team_id, &frozen_b)
+        .await
+        .expect_err("a mismatched frozen request must not attach");
+    assert_eq!(status.code(), Code::Unavailable);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -1833,6 +2088,16 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
                 move_limit: Some(0),
                 ..rpc_request(team_id, "t", &["s"], op)
             },
+            Code::InvalidArgument,
+        ),
+        (
+            "oversized target",
+            rpc_request(team_id, &"x".repeat(401), &["s"], op),
+            Code::InvalidArgument,
+        ),
+        (
+            "NUL source",
+            rpc_request(team_id, "t", &["nul\u{0000}source"], op),
             Code::InvalidArgument,
         ),
         (
