@@ -1125,7 +1125,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                             if prepares_desktop(repository)
                             else timedelta(minutes=5)
                         ),
-                        retry_policy=RetryPolicy(maximum_attempts=1 if prepares_desktop(repository) else 3),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                     for repository in repositories_to_clone
                 )
@@ -1156,7 +1156,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 start_to_close_timeout=(
                     _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
                 ),
-                retry_policy=RetryPolicy(maximum_attempts=1 if prepares_repository_desktop else 3),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             await self._emit_progress("checkout", "completed", branch_label_done, "setup")
 

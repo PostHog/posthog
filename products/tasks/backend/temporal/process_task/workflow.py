@@ -1504,7 +1504,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         start_to_close_timeout=(
                             _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
                         ),
-                        retry_policy=RetryPolicy(maximum_attempts=1 if prepares_repository_desktop else 3),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error) or not continue_after_clone_failure:
@@ -1595,7 +1595,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 start_to_close_timeout=(
                     _DESKTOP_BOOTSTRAP_ACTIVITY_TIMEOUT if prepares_repository_desktop else timedelta(minutes=5)
                 ),
-                retry_policy=RetryPolicy(maximum_attempts=1 if prepares_repository_desktop else 3),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             # Pre-rollout histories (and mocked tests) recorded a null result here.
             checkout_ms = getattr(checkout_output, "checkout_ms", None)

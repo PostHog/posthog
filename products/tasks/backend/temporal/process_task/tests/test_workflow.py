@@ -1741,7 +1741,7 @@ class TestProcessTaskWorkflowUnit:
 
         assert cloned == ["posthog/posthog", "posthog/code"]
         assert clone_options["posthog/posthog"]["start_to_close_timeout"] == timedelta(minutes=20)
-        assert clone_options["posthog/posthog"]["retry_policy"].maximum_attempts == 1
+        assert clone_options["posthog/posthog"]["retry_policy"].maximum_attempts == 3
         assert clone_options["posthog/code"]["start_to_close_timeout"] == timedelta(minutes=5)
         assert clone_options["posthog/code"]["retry_policy"].maximum_attempts == 3
         assert result.clone_ms is None
@@ -1791,7 +1791,7 @@ class TestProcessTaskWorkflowUnit:
         await workflow._get_sandbox_for_repository()
 
         assert checkout_options["start_to_close_timeout"] == timedelta(minutes=20)
-        assert checkout_options["retry_policy"].maximum_attempts == 1
+        assert checkout_options["retry_policy"].maximum_attempts == 3
 
     async def test_overlap_releases_agent_after_primary_clone_and_materializes_failed_secondary(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
