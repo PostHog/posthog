@@ -179,6 +179,27 @@ impl PersonCache {
 mod tests {
     use super::*;
 
+    /// Proto3 encodes an absent bytes field as empty, and every leader
+    /// write path serializes at least `{}` — so empty properties can
+    /// only arrive from records that predate this store, and rejecting
+    /// them would fail the warm over a document that is simply
+    /// property-less. This pins the lenient reading in both directions:
+    /// decode accepts, and parse yields the empty map.
+    #[test]
+    fn empty_properties_bytes_read_as_the_empty_map() {
+        let record = Person {
+            uuid: "00000000-0000-0000-0000-000000000001".to_string(),
+            properties: Vec::new(),
+            ..Default::default()
+        };
+        let cached = CachedPerson::try_from(record).expect("empty properties decode");
+        assert!(cached.properties.is_empty());
+        assert_eq!(
+            cached.parse_properties().unwrap(),
+            serde_json::Value::Object(serde_json::Map::new())
+        );
+    }
+
     fn test_person() -> CachedPerson {
         CachedPerson {
             id: 1,
