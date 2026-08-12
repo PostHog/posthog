@@ -5,6 +5,7 @@ import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -15,12 +16,14 @@ import type {
 interface ScoutSlackDestinationProps {
     destination?: SignalScoutSlackDestinationApi | null
     disabledReason?: string
+    embedded?: boolean
     onChange: (outputDestinations: SignalScoutOutputDestinationsApi) => void
 }
 
 export function ScoutSlackDestination({
     destination,
     disabledReason,
+    embedded = false,
     onChange,
 }: ScoutSlackDestinationProps): JSX.Element {
     useMountedLogic(integrationsLogic)
@@ -52,7 +55,7 @@ export function ScoutSlackDestination({
     const hasChannel = Boolean(destination?.channel)
 
     return (
-        <div className="flex flex-col gap-2 border-t border-primary pt-2">
+        <div className={cn('flex flex-col gap-2', !embedded && 'border-t border-primary pt-2')}>
             <div className="flex flex-col min-w-0">
                 <span className="text-xs text-default">Slack destination</span>
                 <span className="text-[11.5px] text-muted">Post each scout run's output to a channel</span>

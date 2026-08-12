@@ -1339,7 +1339,7 @@ describe('experimentLogic', () => {
             await expectLogic(keyed, () => {
                 keyed.actions.launchExperiment()
             })
-                .toDispatchActions(['launchExperiment', 'setExperiment'])
+                .toDispatchActions(['launchExperiment', 'setExperiment', 'launchExperimentSuccess'])
                 .toFinishAllListeners()
 
             expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/launch`))

@@ -907,6 +907,9 @@ export interface experimentLogicActions {
     launchExperiment: () => {
         value: true
     }
+    launchExperimentSuccess: (experiment: Experiment) => {
+        experiment: Experiment
+    }
     loadExperiment: (payload?: { triggeredBy?: ExperimentTriggeredBy }) => {
         triggeredBy?: ExperimentTriggeredBy
     }
@@ -1537,6 +1540,7 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
+        launchExperimentSuccess: (experiment: Experiment) => ({ experiment }),
         endExperiment: (
             openCleanupPr: boolean = false,
             repository: string | null = null,
@@ -2436,6 +2440,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 // Trigger results refresh so the metrics table doesn't get stuck in "loading" state
                 actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
+                actions.launchExperimentSuccess(experimentWithMetricOrdering)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
                 // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
                 const experimentHandle = experiment.feature_flag_key || experiment.name

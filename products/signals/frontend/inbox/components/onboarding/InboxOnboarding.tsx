@@ -9,10 +9,8 @@ import { Logomark } from 'lib/brand'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 
 import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+import { SELF_DRIVING_WIZARD_COMMAND } from './constants'
 import { PullRequestPreview, ReportPreview } from './InboxOnboardingPreviews'
-
-/** The one command that sets up self-driving. The whole onboarding orbits this string. */
-export const SELF_DRIVING_WIZARD_COMMAND = 'npx -y @posthog/wizard@latest self-driving'
 
 /** What the wizard wires up, shown as a reassuring checklist under the command. */
 const WIZARD_SETS_UP: { icon: JSX.Element; label: string }[] = [

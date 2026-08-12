@@ -20,6 +20,7 @@ import { LemonButton, LemonDialog, LemonDivider, LemonSwitch, Link, Tooltip } fr
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -34,6 +35,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import { isExperimentScoutFlowEnabled } from 'products/experiments/frontend/experimentScoutLogic'
+import { ExperimentScoutModal } from 'products/experiments/frontend/ExperimentScoutModal'
 
 import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
@@ -79,6 +83,7 @@ export function PageHeaderCustom(): JSX.Element {
     const { freezeExposure, unfreezeExposure } = useAsyncActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const hasMultipleProjects = (currentOrganization?.projects?.length ?? 0) > 1
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
@@ -341,6 +346,9 @@ export function PageHeaderCustom(): JSX.Element {
                 isOpen={surveyModalOpen}
                 onCancel={() => setSurveyModalOpen(false)}
             />
+            {typeof experiment?.id === 'number' && isExperimentScoutFlowEnabled(featureFlags) ? (
+                <ExperimentScoutModal experimentId={experiment.id} />
+            ) : null}
         </>
     )
 }
