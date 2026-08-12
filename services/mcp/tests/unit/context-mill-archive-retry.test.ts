@@ -51,7 +51,7 @@ describe('context-mill archive fetching', () => {
             .mockImplementation(() => Promise.reject(new TypeError('fetch failed')))
 
         await expect(fetchWithTimers()).rejects.toThrow('fetch failed')
-        expect(fetchSpy).toHaveBeenCalledTimes(4)
+        expect(fetchSpy).toHaveBeenCalledTimes(3)
     })
 
     it('does not retry a missing release', async () => {

@@ -49,8 +49,8 @@ export interface SkillsArchiveServer {
 /**
  * Serves the fixture archive over loopback so the integration suite exercises
  * the real fetch/unzip/cache path without reaching the context-mill release on
- * github.com — an external dependency that drops connections often enough to
- * redden CI, and whose contents this repo does not control.
+ * github.com, which drops connections often enough to redden CI and whose
+ * contents this repo does not control.
  */
 export async function startSkillsArchiveServer(): Promise<SkillsArchiveServer> {
     const server: Server = createServer((_request, response) => {
@@ -58,6 +58,9 @@ export async function startSkillsArchiveServer(): Promise<SkillsArchiveServer> {
         response.end(Buffer.from(ARCHIVE))
     })
 
+    // Unref so a harness that throws before it can call `stop()` (no Redis, for
+    // one) still exits with its own error instead of hanging on this socket.
+    server.unref()
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
     const { port } = server.address() as AddressInfo
 

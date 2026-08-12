@@ -7,12 +7,16 @@ const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/lates
 
 // The archive is served by the GitHub release CDN, which drops connections and
 // serves the odd 5xx often enough to fail a single-shot fetch.
-const ARCHIVE_FETCH_MAX_ATTEMPTS = 4
+const ARCHIVE_FETCH_MAX_ATTEMPTS = 3
 const ARCHIVE_FETCH_BASE_BACKOFF_MS = 250
+// Per attempt, because the runtime awaits warmup before it listens and holds a
+// 60s writer lock while it fetches. Without a bound, undici's 300s default times
+// three attempts would stall boot and outlive that lock. Every attempt plus its
+// backoff still fits in the lock, and 15s is far above a healthy download of an
+// 8 MB archive, so this only fires on a stalled connection.
+const ARCHIVE_FETCH_TIMEOUT_MS = 15_000
 
 let cachedResources: Unzipped | null = null
-
-export type ArchiveLoader = (url: string) => Promise<Uint8Array>
 
 /** A response the CDN will keep giving us, such as a 404 for a missing release. */
 class PermanentArchiveError extends Error {}
@@ -22,7 +26,10 @@ function isTransientStatus(status: number): boolean {
 }
 
 async function fetchArchiveOnce(url: string, noStore: boolean): Promise<Uint8Array> {
-    const response = await fetch(url, noStore ? { cache: 'no-store' } : {})
+    const response = await fetch(url, {
+        signal: AbortSignal.timeout(ARCHIVE_FETCH_TIMEOUT_MS),
+        ...(noStore ? { cache: 'no-store' as const } : {}),
+    })
     if (!response.ok) {
         const message = `Failed to fetch context-mill resources from ${url}: ${response.statusText}`
         throw isTransientStatus(response.status) ? new Error(message) : new PermanentArchiveError(message)
@@ -31,7 +38,10 @@ async function fetchArchiveOnce(url: string, noStore: boolean): Promise<Uint8Arr
     return new Uint8Array(arrayBuffer)
 }
 
-async function defaultArchiveLoader(url: string, noStore: boolean): Promise<Uint8Array> {
+async function fetchArchiveWithRetry(localUrl?: string): Promise<Uint8Array> {
+    const url = localUrl || CONTEXT_MILL_URL
+    const noStore = Boolean(localUrl)
+
     for (let attempt = 0; ; attempt++) {
         try {
             return await fetchArchiveOnce(url, noStore)
@@ -49,22 +59,16 @@ async function defaultArchiveLoader(url: string, noStore: boolean): Promise<Uint
 /**
  * Fetches and caches the context-mill resources ZIP.
  *
- * When `archiveLoader` is provided (hono runtime), the upstream fetch is
- * delegated to it so multiple instances share a Redis-backed cache with
- * single-writer coordination. The in-memory `cachedResources` still acts
- * as a per-process fast path on top of that layer.
- *
- * `localUrl` (`POSTHOG_MCP_LOCAL_SKILLS_URL`) always bypasses both caches.
+ * `localUrl` (`POSTHOG_MCP_LOCAL_SKILLS_URL`) always bypasses the in-process
+ * cache. The hono runtime does not come through here: it calls
+ * `fetchAndExtractEntries` so instances share the Redis-backed cache.
  */
-export async function fetchContextMillResources(localUrl?: string, archiveLoader?: ArchiveLoader): Promise<Unzipped> {
-    const url = localUrl || CONTEXT_MILL_URL
-
+export async function fetchContextMillResources(localUrl?: string): Promise<Unzipped> {
     if (cachedResources && !localUrl) {
         return cachedResources
     }
 
-    const bytes =
-        !localUrl && archiveLoader ? await archiveLoader(url) : await defaultArchiveLoader(url, Boolean(localUrl))
+    const bytes = await fetchArchiveWithRetry(localUrl)
     const unzipped = unzipSync(bytes)
 
     if (!localUrl) {
@@ -104,8 +108,7 @@ export function clearResourceCache(): void {
  * the archive in process memory.
  */
 export async function fetchAndExtractEntries(localUrl?: string): Promise<ContextMillResource[]> {
-    const url = localUrl || CONTEXT_MILL_URL
-    const bytes = await defaultArchiveLoader(url, Boolean(localUrl))
+    const bytes = await fetchArchiveWithRetry(localUrl)
     const archive = unzipSync(bytes)
     const manifest = loadManifestFromArchive(archive)
     return filterValidEntries(manifest.resources, archive)
