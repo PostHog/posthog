@@ -5,6 +5,7 @@ import pytest
 from fakeredis import aioredis as fakeredis
 from fastapi.testclient import TestClient
 
+from llm_gateway.dependencies import _format_retry_delay
 from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 from llm_gateway.rate_limiting.throttles import Throttle, ThrottleContext, ThrottleResult
 from llm_gateway.rate_limiting.token_bucket import TokenBucketLimiter
@@ -244,17 +245,35 @@ class TestRateLimitResponseHeaders:
 
             assert response.status_code == 429
             assert response.headers["retry-after"] == "3600"
-            # The reason is repeated in the message (SDK error strings often
-            # surface only error.message) and the throttle scope rides along as
-            # a machine-readable code.
+            # The reason and retry time are repeated in the message (SDK error
+            # strings often surface only error.message) and the throttle scope
+            # and retry_after ride along machine-readable.
             assert response.json() == {
                 "error": {
-                    "message": "Rate limit exceeded: Product rate limit exceeded",
+                    "message": "Rate limit exceeded: Product rate limit exceeded. Try again in about 1 hour.",
                     "type": "rate_limit_error",
                     "reason": "Product rate limit exceeded",
+                    "retry_after": 3600,
                     "code": "test_throttle",
                 }
             }
+
+
+class TestFormatRetryDelay:
+    @pytest.mark.parametrize(
+        "seconds,expected",
+        [
+            pytest.param(1, "1 second", id="one_second"),
+            pytest.param(45, "45 seconds", id="seconds"),
+            pytest.param(60, "1 minute", id="one_minute"),
+            pytest.param(90, "2 minutes", id="minutes_round_up"),
+            pytest.param(3600, "1 hour", id="one_hour"),
+            pytest.param(3601, "2 hours", id="hours_round_up"),
+            pytest.param(86400, "24 hours", id="full_day"),
+        ],
+    )
+    def test_buckets_and_rounding(self, seconds: int, expected: str) -> None:
+        assert _format_retry_delay(seconds) == expected
 
 
 class TestFreeTierModelGateErrorBody:
