@@ -301,6 +301,16 @@ describe('hog-charts scales', () => {
         ])('drops a %s bound on a log scale', (_name, bounds) => {
             expect(applyValueBounds([1, 100], bounds, { log: true })).toEqual([1, 100])
         })
+
+        // The caller's bound is vetted for positivity, but the end derived opposite it is not: on a
+        // log scale, carrying the domain's span across would put that end at or below zero, and d3
+        // maps every value in a domain straddling zero to NaN.
+        it.each([
+            ['a max below the data', { max: 5 }, [0.05, 5]],
+            ['a min above the data', { min: 2000 }, [2000, 200000]],
+        ])('derives a positive opposite end for %s on a log scale', (_name, bounds, expected) => {
+            expect(applyValueBounds([10, 1000], bounds, { log: true })).toEqual(expected)
+        })
     })
 
     describe('createYScale — valueBounds', () => {
@@ -313,6 +323,13 @@ describe('hog-charts scales', () => {
                 bounds: { max: 40 },
             })
             expect(scale.domain()[1]).toBe(40)
+        })
+
+        // The empty-data domain is linear whatever scale type was asked for, so a non-positive bound
+        // is no longer a hazard and must not be dropped as though this were a log scale.
+        it('honors a non-positive bound on a log scale with no data', () => {
+            const scale = createYScale([], dimensions, { scaleType: 'log', bounds: { min: -5 } })
+            expect(scale.domain()).toEqual([-5, 1])
         })
 
         it.each([

@@ -19,6 +19,7 @@ import {
     drawGrid,
     drawLineHoverPoints,
     drawLineSeriesLayer,
+    withPlotClip,
     type BarRect,
     type DrawContext,
 } from '../../core/canvas-renderer'
@@ -240,9 +241,11 @@ function ComboChartInner<Meta = unknown>({
                 false,
                 barLayout
             )
-            for (const { series: s, bars } of barLayers) {
-                drawBars(baseDrawCtx, s, bars, barCornerRadius)
-            }
+            withPlotClip(ctx, dimensions, () => {
+                for (const { series: s, bars } of barLayers) {
+                    drawBars(baseDrawCtx, s, bars, barCornerRadius)
+                }
+            })
 
             // ── 2. Lines + areas (shared with LineChart). `areas-first` so every area sits below
             //      every line regardless of input order; combo lines aren't stacked, so the raw data

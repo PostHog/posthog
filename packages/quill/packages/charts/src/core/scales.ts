@@ -187,7 +187,14 @@ export function applyValueBounds(
         return [lo, hi]
     }
     // The single bound sits past the whole data range (e.g. "min 50" on 0-10 data). Carry the
-    // original span over to the other end so the axis stays well-formed instead of collapsing.
+    // original extent over to the other end so the axis stays well-formed instead of collapsing.
+    // A log axis has to carry the domain's *ratio* rather than its span: subtracting a span from a
+    // small positive bound lands at or below zero, and a log domain reaching zero maps every value
+    // to NaN, which blanks the chart. `usable` only vets the caller's bound, not the end derived here.
+    if (options.log) {
+        const ratio = domain[0] > 0 && domain[1] > domain[0] ? domain[1] / domain[0] : 10
+        return min !== undefined ? [lo, lo * ratio] : [hi / ratio, hi]
+    }
     const span = domain[1] - domain[0] > 0 ? domain[1] - domain[0] : 1
     return min !== undefined ? [lo, lo + span] : [hi - span, hi]
 }
@@ -296,7 +303,9 @@ export function buildValueScale(options: {
     const isLog = scaleType === 'log'
 
     if (range.count === 0) {
-        return withValueBounds(scaleLinear().domain([0, 1]).range(valueRange), bounds, isLog)
+        // The empty-data domain is linear whatever `scaleType` asked for, so a non-positive bound is
+        // no longer a hazard and must not be dropped as if this were a log scale.
+        return withValueBounds(scaleLinear().domain([0, 1]).range(valueRange), bounds, false)
     }
 
     let { min, max } = range

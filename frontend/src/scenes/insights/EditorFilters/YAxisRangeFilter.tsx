@@ -44,8 +44,13 @@ export function YAxisRangeFilter(): JSX.Element {
 
     // Committing on blur rather than on change keeps a half-typed value out of the query — the
     // number input reads as empty mid-entry, which on every keystroke would clear the bound.
-    const commitMin = (): void => updateInsightFilter({ yAxisMin: minDraft })
-    const commitMax = (): void => updateInsightFilter({ yAxisMax: maxDraft })
+    // An emptied number input reports NaN, so clearing a field has to commit `undefined`: NaN would
+    // land in the query as a bound the chart ignores but the Options badge still counts, which the
+    // user has no way to clear, and it serializes to `null` in the saved insight.
+    const asBound = (value: number | undefined): number | undefined =>
+        typeof value === 'number' && isFinite(value) ? value : undefined
+    const commitMin = (): void => updateInsightFilter({ yAxisMin: asBound(minDraft) })
+    const commitMax = (): void => updateInsightFilter({ yAxisMax: asBound(maxDraft) })
 
     return (
         <div className="p-1 px-2 flex flex-col gap-2 w-64">

@@ -343,6 +343,7 @@ function BarChartInner<Meta = unknown>({
                 barCornerRadius,
                 barTrack,
                 isHorizontal,
+                dimensions: args.dimensions,
             })
             return true
         },
