@@ -35,24 +35,20 @@ class EmailChannel(UUIDModel):
     # explicitly (e.g. tickets opened from the widget). At most one per team (partial constraint below).
     is_default = models.BooleanField(default=False)
 
-    # Opt-in relay support, empty when disabled. Holds the one sender allowed to name the
-    # requester on someone else's behalf, either a full address or a bare domain. Inbound mail
-    # from that sender is attributed to its X-PostHog-Requester or Reply-To header instead of
-    # From. Naming the relay is what makes this safe: SPF alone proves a sender is authenticated
-    # for its own domain, which every sender on the internet is for theirs.
-    trusted_relay_sender = models.CharField(max_length=255, blank=True, default="")
+    # Opt-in relay support, empty when disabled. Holds the one address allowed to name the
+    # requester on someone else's behalf. Inbound mail from it is attributed to its
+    # X-PostHog-Requester or Reply-To header instead of From. Naming the exact sender is what
+    # makes this safe: SPF alone proves a sender is authenticated for its own domain, which
+    # every sender on the internet is for theirs. A whole domain is deliberately not accepted,
+    # since it would trust every mailbox on it, including ones the team does not control.
+    trusted_relay_sender = models.EmailField(max_length=254, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
 
     def relay_sender_trusted(self, sender_email: str) -> bool:
         """True when `sender_email` is the relay this channel delegates requester identity to."""
         allowed = (self.trusted_relay_sender or "").strip().lower()
-        sender = (sender_email or "").strip().lower()
-        if not allowed or "@" not in sender:
-            return False
-        if "@" in allowed:
-            return sender == allowed
-        return sender.rsplit("@", 1)[-1] == allowed
+        return bool(allowed) and (sender_email or "").strip().lower() == allowed
 
     def mark_domain_unverified(self) -> None:
         """Flip domain_verified off after Mailgun reports the domain is no longer

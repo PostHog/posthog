@@ -1,5 +1,6 @@
 from datetime import timedelta
 from io import BytesIO
+from urllib.parse import urlencode
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
@@ -704,7 +705,17 @@ class TestEmailMultiConfig(BaseTest):
         status = self.client.get("/api/conversations/v1/email/status")
         assert status.json()["configs"][0]["trusted_relay_sender"] == "no-reply@relay.com"
 
-    @parameterized.expand([("bare_word", "notadomain"), ("trailing_dot", "relay."), ("spaces", "a b@c.com")])
+    @parameterized.expand(
+        [
+            ("bare_word", "notadomain"),
+            ("trailing_dot", "relay."),
+            ("spaces", "a b@c.com"),
+            # A whole domain would trust every mailbox on it, including ones the team
+            # does not control, so it is refused rather than silently accepted.
+            ("bare_domain", "relay.com"),
+            ("public_domain", "gmail.com"),
+        ]
+    )
     def test_update_rejects_malformed_relay_sender(self, _name, value):
         config = EmailChannel.objects.create(
             team=self.team,
@@ -1517,9 +1528,12 @@ class TestEmailInboundTrustedRelay(BaseTest):
                 "Acme App",
             ),
             ("malformed_reply_to_ignored", {"Reply-To": "bad@"}, "no-reply@updates.acme.io", "Acme App"),
+            # Just over the column width. This band used to clear the guard and then fail
+            # the insert as a DataError, which escaped as a 500 and made Mailgun retry the
+            # same message for hours.
             (
                 "overlong_reply_to_ignored",
-                {"Reply-To": ("a" * 320) + "@customer.com"},
+                {"Reply-To": ("a" * 245) + "@customer.com"},
                 "no-reply@updates.acme.io",
                 "Acme App",
             ),
@@ -1579,7 +1593,7 @@ class TestEmailInboundTrustedRelay(BaseTest):
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_relayed_requester_is_never_authenticated(self, _mock_sig: MagicMock):
         """A relay on the same domain as its users must not lend them its SPF pass."""
-        self.config.trusted_relay_sender = "portal.acme.io"
+        self.config.trusted_relay_sender = "no-reply@portal.acme.io"
         self.config.save(update_fields=["trusted_relay_sender"])
 
         self.client.post(
@@ -1602,7 +1616,7 @@ class TestEmailInboundTrustedRelay(BaseTest):
     def test_relayed_team_member_stays_a_customer_message(self, _mock_sig: MagicMock):
         """A relayed message naming a team member must not be filed as an internal note."""
         member_domain = self.user.email.split("@")[1]
-        self.config.trusted_relay_sender = member_domain
+        self.config.trusted_relay_sender = f"no-reply@{member_domain}"
         self.config.save(update_fields=["trusted_relay_sender"])
 
         self.client.post(
@@ -1639,6 +1653,64 @@ class TestEmailInboundTrustedRelay(BaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert self.RELAY not in ticket.cc_participants
         assert "colleague@customer.com" in ticket.cc_participants
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_overlong_from_address_is_dropped_not_retried(self, _mock_sig: MagicMock):
+        """An address too long for the column must not escape as a 500.
+
+        The From header has no length guard, so it reaches the write directly. A 500 makes
+        Mailgun re-drive the same message for hours, re-uploading attachments each time,
+        and it can never succeed.
+        """
+        overlong = ("a" * 245) + "@customer.com"
+        response = self.client.post(
+            "/api/conversations/v1/email/inbound",
+            self._relay_data("<overlong-from@t.com>", **{"from": f"Long <{overlong}>", "sender": overlong}),
+        )
+
+        assert response.status_code == 200
+        assert not Ticket.objects.filter(team=self.team).exists()
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_duplicate_spf_field_fails_closed(self, _mock_sig: MagicMock):
+        """A message forging its own X-Mailgun-Spf must not override Mailgun's verdict.
+
+        Mailgun posts message headers as top-level form fields, so a duplicate key is the
+        message's own header sitting alongside Mailgun's. Which one lands last is not ours
+        to decide, so a duplicate is refused rather than resolved.
+        """
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            urlencode(
+                [
+                    ("recipient", "team-ab12cd34ef56ab78@mg.posthog.com"),
+                    ("Message-Id", "<dup-spf@t.com>"),
+                    ("subject", "Help"),
+                    ("stripped-text", "hello"),
+                    ("from", f"Acme App <{self.RELAY}>"),
+                    ("sender", self.RELAY),
+                    ("X-Mailgun-Spf", "Fail"),
+                    ("X-Mailgun-Spf", "Pass"),
+                    ("Reply-To", "jane@customer.com"),
+                ]
+            ),
+            content_type="application/x-www-form-urlencoded",
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == self.RELAY
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_relayed_ticket_does_not_drive_org_attribution(self, _mock_sig: MagicMock):
+        """A relay-named address must not resolve an organization it cannot attest to."""
+        self.client.post(
+            "/api/conversations/v1/email/inbound",
+            self._relay_data("<relay-org@t.com>", **{"Reply-To": "Jane <jane@customer.com>"}),
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.anonymous_traits.get("email_relayed") is True
+        assert ticket.organization_id is None
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     def test_relayed_requester_flows_to_distinct_id_and_comment_context(self, _mock_sig: MagicMock):

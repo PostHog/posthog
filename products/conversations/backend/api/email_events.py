@@ -5,7 +5,7 @@ from email.utils import getaddresses, parseaddr
 from typing import Any, cast
 
 from django.core.files.uploadedfile import UploadedFile
-from django.db import IntegrityError, transaction
+from django.db import DataError, IntegrityError, transaction
 from django.db.models import F
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -33,7 +33,7 @@ INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 MAX_EMAIL_BODY_LENGTH = 50_000
-MAX_EMAIL_ADDRESS_LENGTH = 320  # RFC 5321 maximum for a full address
+MAX_EMAIL_ADDRESS_LENGTH = 254  # matches the EmailField column these addresses are written to
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
 
@@ -157,8 +157,9 @@ def _build_content_with_attachments(text: str, attachments: list[dict[str, Any]]
 def _is_plausible_email(addr: str) -> bool:
     """Reject obviously malformed addresses before trusting a recovery header.
 
-    The length bound keeps an oversized header value out of the EmailField write; 320 is
-    the RFC 5321 maximum for a full address.
+    The length bound matches the EmailField column width. Anything longer reaches the
+    write as a DataError, which is not an IntegrityError and so escapes the handler as a
+    500, and Mailgun then re-drives the same message for hours.
     """
     return len(addr) <= MAX_EMAIL_ADDRESS_LENGTH and bool(_BASIC_EMAIL_RE.match(addr))
 
@@ -245,6 +246,8 @@ def _post_get_insensitive(request: HttpRequest, name: str) -> str:
     Header field names are case-insensitive per RFC 5322, and X-PostHog-Requester is one
     relay authors reproduce by hand, so its inner capitals are easy to get wrong.
     """
+    if (exact := request.POST.get(name)) is not None:
+        return exact
     wanted = name.lower()
     for key in request.POST:
         if key.lower() == wanted:
@@ -298,7 +301,10 @@ def _recover_relayed_requester(
         return None
 
     if not config.relay_sender_trusted(sender_email):
-        _relay_skipped(config, sender_email, "sender_not_trusted_relay")
+        # Ordinary mail takes this branch on every message, so only say something when a
+        # sender that is not the relay actually tried to name a requester.
+        if _post_get_insensitive(request, "X-PostHog-Requester") or _post_get_insensitive(request, "Reply-To"):
+            _relay_skipped(config, sender_email, "sender_not_trusted_relay")
         return None
 
     if not _sender_authenticated(request, sender_email):
@@ -340,6 +346,19 @@ def _recover_relayed_requester(
     return None
 
 
+def _single_post_value(request: HttpRequest, name: str) -> str | None:
+    """Read a field Mailgun sets, refusing it when the message supplied one too.
+
+    Mailgun posts the original message's headers as top-level form fields, so a message
+    carrying its own X-Mailgun-Spf or Sender header arrives as a duplicate key alongside
+    Mailgun's verdict. `.get()` returns the last value, and which copy lands last is
+    Mailgun's field ordering, not ours. A duplicate can only mean the message forged one,
+    so treat it as absent rather than pick a winner.
+    """
+    values = request.POST.getlist(name)
+    return values[0] if len(values) == 1 else None
+
+
 def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     """Verify the From header domain is authenticated before trusting it for identity.
 
@@ -356,10 +375,10 @@ def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     An attacker signing with evil.com's key but forging From: teammate@posthog.com
     would still get DKIM Pass.
     """
-    spf_passed = request.POST.get("X-Mailgun-Spf", "").lower() == "pass"
-    if not spf_passed:
+    spf_verdict = _single_post_value(request, "X-Mailgun-Spf")
+    if spf_verdict is None or spf_verdict.lower() != "pass":
         return False
-    envelope_sender = request.POST.get("sender", "")
+    envelope_sender = _single_post_value(request, "sender") or ""
     envelope_domain = envelope_sender.rsplit("@", 1)[-1].lower() if "@" in envelope_sender else ""
     from_domain = sender_email.rsplit("@", 1)[-1].lower() if "@" in sender_email else ""
     return bool(envelope_domain and from_domain and envelope_domain == from_domain)
@@ -477,11 +496,15 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     # 6b. Opt-in relay support: a channel that named a trusted relay lets that relay say
     # who the message is really from. Addresses we must never accept as the requester are
     # our own: replying to one of them delivers back into PostHog instead of to a person.
-    reserved_addresses = {config.from_email.lower(), sender_email.lower()}
-    reserved_addresses.update(
-        address.lower() for address in EmailChannel.objects.filter(team=team).values_list("from_email", flat=True)
-    )
-    relayed = _recover_relayed_requester(request, config, sender_email, sender_name, reserved_addresses)
+    relayed = None
+    if config.trusted_relay_sender:
+        # from_email is globally unique, so every channel address on the instance is ours,
+        # not just this team's: replying to one delivers back into PostHog.
+        reserved_addresses = {config.from_email.lower(), sender_email.lower()}
+        reserved_addresses.update(
+            address.lower() for address in EmailChannel.objects.values_list("from_email", flat=True)
+        )
+        relayed = _recover_relayed_requester(request, config, sender_email, sender_name, reserved_addresses)
 
     if relayed:
         sender_email, sender_name = relayed.email, relayed.name
@@ -557,6 +580,9 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                     anonymous_traits={
                         "name": sender_name,
                         "email": sender_email,
+                        # The relay asserted this address; the person never proved they
+                        # control it, so org and person attribution must not act on it.
+                        **({"email_relayed": True} if relayed else {}),
                     },
                     email_subject=subject,
                     email_from=sender_email,
@@ -628,6 +654,12 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             )
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email_message_id)
+        return HttpResponse(status=200)
+    except DataError:
+        # A value the parser accepted still didn't fit its column. Returning 500 would
+        # make Mailgun re-drive this message for hours, re-uploading attachments each
+        # time, and it would never succeed. Drop it and record why.
+        logger.exception("email_inbound_value_too_long", team_id=team.id, message_id=email_message_id)
         return HttpResponse(status=200)
 
     logger.info(

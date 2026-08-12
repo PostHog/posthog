@@ -78,10 +78,10 @@ function RelaySenderField({ config }: { config: EmailConfigStatus }): JSX.Elemen
                 Relayed emails
             </label>
             <p className="text-xs text-muted-alt mb-1">
-                If one service emails this channel on behalf of your users, enter the address it sends from. Tickets
-                from that sender are attributed to its X-PostHog-Requester or Reply-To header instead of its own
-                address, so your replies reach the person who wrote in. Mail from anyone else is unaffected. Leave blank
-                to turn this off.
+                If one service emails this channel on behalf of your users, enter the exact address it sends from.
+                Tickets from that address are attributed to its X-PostHog-Requester or Reply-To header instead of the
+                address itself, so your replies reach the person who wrote in. Mail from anyone else is unaffected. The
+                service must also pass SPF with a matching envelope sender. Leave blank to turn this off.
             </p>
             <div className="flex items-center gap-2">
                 <LemonInput
@@ -200,7 +200,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
             </div>
 
             {/* Relayed sender attribution */}
-            <RelaySenderField config={config} />
+            <RelaySenderField key={config.trusted_relay_sender} config={config} />
 
             {/* Default + disconnect */}
             <div className="flex justify-between items-center border-t pt-2">

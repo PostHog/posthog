@@ -1,14 +1,16 @@
 """Email channel settings API for connect/disconnect flows."""
 
-import re
 import uuid
 import secrets
 from email.utils import formataddr, make_msgid
 
 from django.core import mail
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import EmailValidator
 from django.db import IntegrityError, transaction
 
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -36,8 +38,6 @@ from products.conversations.backend.models.team_conversations_email_config impor
 from products.conversations.backend.permissions import IsConversationsAdmin
 
 logger = structlog.get_logger(__name__)
-
-_RELAY_DOMAIN_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)+$")
 
 
 def _get_team_from_request(request: Request) -> tuple[User, Team] | Response:
@@ -198,10 +198,10 @@ class EmailUpdateSerializer(serializers.Serializer):
     trusted_relay_sender = serializers.CharField(
         required=True,
         allow_blank=True,
-        max_length=255,
+        max_length=254,
         trim_whitespace=True,
         help_text=(
-            "Address or domain of a relay allowed to name the requester via the "
+            "Exact address of the one relay allowed to name the requester via the "
             "X-PostHog-Requester or Reply-To header. Blank disables it."
         ),
     )
@@ -210,16 +210,15 @@ class EmailUpdateSerializer(serializers.Serializer):
         value = value.strip().lower()
         if not value:
             return value
-        # A malformed value matches no sender, which in the UI is indistinguishable from
-        # a working relay, so reject it here rather than let it read as configured.
-        invalid = serializers.ValidationError("Enter a valid email address or domain, for example no-reply@relay.com.")
-        if any(character.isspace() for character in value) or value.count("@") > 1:
-            raise invalid
-        local, _, domain = value.rpartition("@")
-        if "@" in value and not local:
-            raise invalid
-        if not _RELAY_DOMAIN_RE.match(domain):
-            raise invalid
+        # A value that matches no sender is indistinguishable in the UI from a working
+        # relay, so reject it here rather than let it read as configured. A bare domain
+        # is refused on purpose: it would trust every mailbox on that domain.
+        try:
+            EmailValidator()(value)
+        except DjangoValidationError:
+            raise serializers.ValidationError(
+                "Enter the full address the relay sends from, for example no-reply@relay.com."
+            )
         return value
 
 
@@ -490,6 +489,7 @@ class EmailUpdateView(APIView):
 
     permission_classes = [IsAuthenticated, IsConversationsAdmin]
 
+    @extend_schema(request=EmailUpdateSerializer)
     def post(self, request: Request, *args, **kwargs) -> Response:
         result = _get_team_from_request(request)
         if isinstance(result, Response):

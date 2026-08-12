@@ -264,6 +264,12 @@ def _resolve_person_org_groups(ticket: Ticket, team: Team) -> tuple[bool, dict |
     if ticket.channel_source not in _EMAIL_FALLBACK_CHANNELS:
         return False, None
 
+    # A relay named this address on someone else's behalf, so nothing here proves the
+    # person controls it. organization_id is first-write-wins and never re-resolved, so
+    # acting on a relayed claim would file the ticket under the wrong customer for good.
+    if (ticket.anonymous_traits or {}).get("email_relayed"):
+        return False, None
+
     email = (ticket.anonymous_traits or {}).get("email") or ticket.email_from
     if email:
         # person_lookup pulls the HogQL query layer; this module loads at django.setup()
