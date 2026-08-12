@@ -120,7 +120,7 @@ describe('dashboardsFileSystemLogic', () => {
                       }) as any
         )
         await expectLogic(logic, () => {
-            projectTreeDataLogic.actions.movedItems([
+            projectTreeDataLogic.actions.movesSettled([
                 {
                     item: { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as any,
                     oldPath: 'Marketing/A',
@@ -142,7 +142,7 @@ describe('dashboardsFileSystemLogic', () => {
         // full pagination each time, and that concurrent load is what surfaced a folder-load error over a
         // move that had actually succeeded.
         await expectLogic(logic, () => {
-            projectTreeDataLogic.actions.movedItems([
+            projectTreeDataLogic.actions.movesSettled([
                 {
                     item: { id: 'fld', type: 'folder', path: 'Marketing' } as any,
                     oldPath: 'Marketing',
@@ -171,7 +171,7 @@ describe('dashboardsFileSystemLogic', () => {
             'loadFolderEntriesSuccess',
         ])
         ;(api.fileSystem.list as jest.Mock).mockClear()
-        projectTreeDataLogic.actions.movedItems([
+        projectTreeDataLogic.actions.movesSettled([
             { item: { id: 'i-1', type: 'insight', path: 'a' } as any, oldPath: 'a', newPath: 'b' },
         ])
         await expectLogic(logic).toFinishAllListeners()

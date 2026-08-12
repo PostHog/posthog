@@ -103,7 +103,7 @@ export interface dashboardsFileSystemLogicActions {
         newPath: string
         oldPath: string
     } // projectTreeDataLogic
-    movedItems: (moved: MovedItem[]) => {
+    movesSettled: (moved: MovedItem[]) => {
         moved: MovedItem[]
     } // projectTreeDataLogic
     createFolder: (
@@ -207,7 +207,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     path(['products', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
         values: [dashboardsLogic, ['dashboards']],
-        actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'movedItems', 'deleteItem']],
+        actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'movesSettled', 'deleteItem']],
     })),
     actions({
         // Tree arm: select a folder ('' = the dashboards root).
@@ -317,11 +317,11 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
             actions.loadDashboardFileSystemEntries()
         },
-        // Listening to the batch rather than to each `movedItem` is what keeps a bulk move to one refetch:
-        // the operation's own boundary, instead of a window long enough to guess that no more are coming.
+        // Listening for the settled operation rather than for each `movedItem` is what keeps a bulk move to
+        // one refetch: a real boundary, instead of a window long enough to guess that no more are coming.
         // A dashboard move changes its own path; a folder move re-parents the dashboards beneath it and the
         // folder rows. Other item types (insights, notebooks) don't affect this view.
-        [projectTreeDataLogic.actionTypes.movedItems]: ({ moved }: { moved: MovedItem[] }) => {
+        [projectTreeDataLogic.actionTypes.movesSettled]: ({ moved }: { moved: MovedItem[] }) => {
             const movedTypes = new Set(moved.map(({ item }) => item.type))
             if (!movedTypes.has('dashboard') && !movedTypes.has('folder')) {
                 return
@@ -375,10 +375,11 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             }
             try {
                 await api.fileSystem.move(entry.id, newPath)
-                // movedItem syncs the sidebar's store. A rename does not go through the shared move path,
-                // so it has to announce its own completion for the refetch listener below to see it.
+                // Two different things, both needed: the first re-paths this folder's row in the sidebar's
+                // store, the second says the operation is over so the refetch listener below runs. A rename
+                // calls the move API directly rather than going through `moveItems`, so nothing else emits it.
                 actions.movedItem(entry, entry.path, newPath)
-                actions.movedItems([{ item: entry, oldPath: entry.path, newPath }])
+                actions.movesSettled([{ item: entry, oldPath: entry.path, newPath }])
                 // Re-point the scope if we were inside the renamed folder — or a descendant of it, which moves
                 // with it. (deleteSavedItem falls back to root because the folder is gone; rename keeps it.)
                 if (values.currentFolder === entry.path) {

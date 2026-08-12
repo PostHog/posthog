@@ -77,8 +77,9 @@ describe('DashboardsTable move to folder', () => {
     it('offers the bulk move action and moves the whole selection', () => {
         renderTable([1, 2], [1, 2])
         fireEvent.click(screen.getByText('Move to folder'))
-        // Rows lose their tick only as each move lands, so a failed move keeps its selection.
         expect(moveDashboardsToFolder).toHaveBeenCalledWith([1, 2], 'bulk', setSelectedKeys)
+        // Clicking hands the deselect callback over without calling it; when it does get called is
+        // dashboardsLogic's business, and its tests cover that.
         expect(setSelectedKeys).not.toHaveBeenCalled()
     })
 

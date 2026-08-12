@@ -51,8 +51,6 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     folder: null,
 }
 
-/** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
-/** A dashboard with no file system entry has never been filed, so there is nothing to move. */
 function moveTargetFor(dashboard: DashboardBasicType | undefined): FileSystemEntry | null {
     if (!dashboard?.file_system_id || !dashboard.file_system_path) {
         return null
@@ -62,11 +60,11 @@ function moveTargetFor(dashboard: DashboardBasicType | undefined): FileSystemEnt
         path: dashboard.file_system_path,
         type: 'dashboard',
         ref: String(dashboard.id),
-        // The move writes this entry into the project tree's stores, and its rows only open with an href.
         href: urls.dashboard(dashboard.id),
     }
 }
 
+/** Router may coerce numeric-looking query values to numbers; search text must stay a string. */
 function urlSearchParamToString(value: unknown): string {
     return `${value ?? ''}`
 }
@@ -580,11 +578,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             actions.openMoveToModal(moving)
             cache.awaitingMove = { ids: new Set(ids), onStillSelected }
         },
-        // Dismissing the modal means nothing will land, and movedItem fires for moves made anywhere in the
-        // project tree, so leaving this set would let a later sidebar move restore the abandoned selection
-        // over whatever the user has selected by then. Only the dismiss path dispatches this: moveToLogic's
-        // submit handler goes straight to closedMoveToModal, which is why clearing on that one cleared the
-        // ticks before any move had landed.
+        // Only the dismiss path dispatches this. Submitting goes straight to closedMoveToModal, so clearing
+        // on that one instead would drop the ticks before any move had landed.
         [moveToLogic.actionTypes.closeMoveToModal]: () => {
             cache.awaitingMove = undefined
         },
