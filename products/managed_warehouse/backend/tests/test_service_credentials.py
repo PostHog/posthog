@@ -113,3 +113,33 @@ class TestMintServiceCredential:
             )
             with pytest.raises(ServiceCredentialUnavailable):
                 mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+
+    def test_malformed_response_never_leaks_password_in_exception(self):
+        # The backfill's broad fallback logs the exception text — a malformed
+        # CP payload that still carries a live `password` must not surface it
+        # there (review follow-up on #81289).
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+            mock_request.return_value = _ok_response(
+                {"username": "", "password": "live-grant-plaintext", "expires_at": "2026-08-11T13:00:00Z"}
+            )
+            with pytest.raises(ServiceCredentialUnavailable) as exc_info:
+                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+
+            message = str(exc_info.value)
+            assert "live-grant-plaintext" not in message
+            assert "<redacted>" in message
+            # ...while keeping the shape visible for debugging.
+            assert "password" in message
+            assert "expires_at" in message
+
+    def test_error_status_body_is_redacted_too(self):
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+            resp = mock.MagicMock()
+            resp.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+            resp.data = {"error": "boom", "password": "leaked-in-error-body"}
+            mock_request.return_value = resp
+
+            with pytest.raises(ServiceCredentialUnavailable) as exc_info:
+                mint_service_credential("org-1", 7, principal="d", force_rotate=True)
+
+            assert "leaked-in-error-body" not in str(exc_info.value)

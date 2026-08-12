@@ -53,6 +53,26 @@ MAX_CREDENTIAL_TTL_SECONDS = 3600
 DEFAULT_CREDENTIAL_TTL_SECONDS = 900  # 15 min — the RDS-IAM precedent
 
 
+def _redact_payload(data: Any) -> Any:
+    """Shape-preserving copy with credential-bearing values removed.
+
+    Every error path in this module that mentions the CP response must go
+    through this: a malformed mint response can still carry a live
+    ``password`` (e.g. present-but-empty username alongside a password), and
+    the caller's broad fallback logs whatever lands in the exception text.
+    A redacted placeholder keeps the debugging value of seeing the payload's
+    shape without leaking the grant.
+    """
+    if isinstance(data, dict):
+        return {
+            key: ("<redacted>" if "password" in str(key).lower() else _redact_payload(value))
+            for key, value in data.items()
+        }
+    if isinstance(data, list):
+        return [_redact_payload(item) for item in data]
+    return data
+
+
 def mint_service_credential(
     organization_id: str,
     team_id: int,
@@ -91,12 +111,15 @@ def mint_service_credential(
     if not status.is_success(response.status_code):
         raise ServiceCredentialUnavailable(
             f"service credential mint failed for org={organization_id} team={team_id}: "
-            f"HTTP {response.status_code}: {response.data!r}"
+            f"HTTP {response.status_code}: {_redact_payload(response.data)!r}"
         )
     data: dict[str, Any] = response.data if isinstance(response.data, dict) else {}
     username = data.get("username")
     if not username:
-        raise ServiceCredentialUnavailable(f"mint returned no username: {data!r}")
+        # Never stringify the CP payload verbatim: a malformed response can
+        # still carry a real `password`, and the backfill's broad fallback
+        # handler logs whatever exception text we raise here.
+        raise ServiceCredentialUnavailable(f"mint returned no username: {_redact_payload(data)!r}")
     expires_raw = data.get("expires_at")
     try:
         expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
