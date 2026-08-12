@@ -45,6 +45,22 @@ class Migration(migrations.Migration):
                 ),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
+                (
+                    "channel",
+                    models.OneToOneField(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="setup",
+                        to="conversations.emailchannel",
+                    ),
+                ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
+                ),
             ],
             options={
                 "db_table": "posthog_conversations_email_channel_setup",
@@ -68,34 +84,5 @@ class Migration(migrations.Migration):
             model_name="emailthreadmessage",
             name="sender_authenticated",
             field=models.BooleanField(db_default=False, default=False),
-        ),
-        migrations.AddConstraint(
-            model_name="emailchannel",
-            constraint=models.CheckConstraint(
-                condition=models.Q(
-                    ("kind", "customer_communication"),
-                    ("connection_status", "active"),
-                    _connector="OR",
-                ),
-                name="email_channel_support_active",
-            ),
-        ),
-        migrations.AddField(
-            model_name="emailchannelsetup",
-            name="channel",
-            field=models.OneToOneField(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="setup",
-                to="conversations.emailchannel",
-            ),
-        ),
-        migrations.AddField(
-            model_name="emailchannelsetup",
-            name="team",
-            field=models.ForeignKey(
-                db_constraint=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                to="posthog.team",
-            ),
         ),
     ]

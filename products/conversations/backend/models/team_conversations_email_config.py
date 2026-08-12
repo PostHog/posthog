@@ -81,11 +81,6 @@ class EmailChannel(UUIDModel):
                 name="email_channel_customer_not_default",
             ),
             models.CheckConstraint(
-                condition=models.Q(kind=EmailChannelKind.CUSTOMER_COMMUNICATION)
-                | models.Q(connection_status=EmailChannelConnectionStatus.ACTIVE),
-                name="email_channel_support_active",
-            ),
-            models.CheckConstraint(
                 condition=(
                     models.Q(kind=EmailChannelKind.SUPPORT, owner__isnull=True)
                     | models.Q(kind=EmailChannelKind.CUSTOMER_COMMUNICATION, owner__isnull=False)
