@@ -1,17 +1,10 @@
-import { Collapsible } from "@base-ui/react/collapsible";
-import {
-  CaretDown,
-  CaretRight,
-  DownloadSimple,
-  X,
-} from "@phosphor-icons/react";
+import { CaretDown, DownloadSimple, Paperclip, X } from "@phosphor-icons/react";
 import {
   groupRunArtifactVersions,
   type RunArtifactVersions,
   runArtifactVersionKey,
   runArtifactVersionLabel,
 } from "@posthog/core/canvas/runArtifactSchemas";
-import { artifactFilesListKey } from "@posthog/core/sessions/artifactFilesListKey";
 import {
   SESSION_SERVICE,
   type SessionService,
@@ -23,6 +16,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Text,
 } from "@posthog/quill";
 import { formatRelativeTimeShort, type TaskRunArtifact } from "@posthog/shared";
@@ -34,17 +30,13 @@ import {
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
-import {
-  useArtifactFilesCollapsed,
-  useSessionViewActions,
-} from "@posthog/ui/features/sessions/sessionViewStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { toast } from "@posthog/ui/primitives/toast";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useCompletedArtifactUploads } from "./countArtifactUploads";
 
 type ArtifactGroup = RunArtifactVersions<TaskRunArtifact>;
@@ -96,8 +88,6 @@ export function CloudArtifactDownloads({
     taskId,
     (session) => session?.cloudStatus,
   );
-  const { setArtifactFilesCollapsed, syncArtifactFilesListKey } =
-    useSessionViewActions();
   const authIdentity = useAuthStateValue(getAuthIdentity);
   const { download, downloadingId } = useArtifactDownload();
   const { data: currentUser } = useMeQuery();
@@ -149,19 +139,6 @@ export function CloudArtifactDownloads({
   );
   const visibleGroups = groups.filter((group) => !group.dismissed);
   const dismissedGroups = groups.filter((group) => group.dismissed);
-  const fileListKey = artifactManifest
-    ? artifactFilesListKey(
-        runId,
-        visibleGroups.map((group) => group.name),
-      )
-    : undefined;
-  const collapsed = useArtifactFilesCollapsed(taskId, fileListKey);
-
-  useEffect(() => {
-    if (taskId && fileListKey !== undefined) {
-      syncArtifactFilesListKey(taskId, fileListKey);
-    }
-  }, [fileListKey, syncArtifactFilesListKey, taskId]);
 
   const dismissal = useMutation({
     mutationFn: ({
@@ -331,25 +308,44 @@ export function CloudArtifactDownloads({
   };
 
   return (
-    // Base UI rather than quill's Collapsible: quill styles the root/trigger
-    // as a standalone disclosure row (hover/selected fills on the whole
-    // padded header), which reads as a misplaced selected block inside this
-    // already-bordered card — see ChannelsList for the same call.
-    <Collapsible.Root
-      open={!collapsed}
-      onOpenChange={(open) => {
-        if (taskId && fileListKey !== undefined) {
-          setArtifactFilesCollapsed(taskId, !open, fileListKey);
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="default"
+            size="icon-sm"
+            className="relative"
+            aria-label={`Artifacts (${visibleGroups.length})`}
+          >
+            <Paperclip size={16} />
+            {visibleGroups.length > 0 && (
+              <span className="-top-1 -right-1 absolute flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 font-semibold text-[9px] text-primary-foreground">
+                {visibleGroups.length}
+              </span>
+            )}
+          </Button>
         }
-      }}
-      className="mb-3 rounded-lg border border-gray-4 bg-gray-2 p-3"
-    >
-      <Collapsible.Trigger className="flex w-full cursor-pointer items-center gap-1.5 text-left font-medium text-[13px]">
-        {collapsed ? <CaretRight size={12} /> : <CaretDown size={12} />}
-        Files ({visibleGroups.length})
-      </Collapsible.Trigger>
-      <Collapsible.Panel className="mt-2">
-        <div className="flex flex-col gap-1">
+      />
+      {/* quill's popup is a fixed 18rem; the rows carry name, size, age, and
+          actions, which need the width the old inline card had. */}
+      <PopoverContent
+        side="top"
+        align="end"
+        sideOffset={6}
+        className="w-[400px] max-w-[calc(100vw-2rem)] gap-2"
+      >
+        <div className="flex items-center justify-between">
+          <span className="font-medium text-[13px] text-foreground">
+            Artifacts
+          </span>
+          <span className="text-[12px] text-muted-foreground tabular-nums">
+            {visibleGroups.length === 1
+              ? "1 artifact"
+              : `${visibleGroups.length} artifacts`}
+          </span>
+        </div>
+        <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
           {visibleGroups.map(renderRow)}
           {showDismissed && dismissedGroups.map(renderRow)}
         </div>
@@ -357,7 +353,7 @@ export function CloudArtifactDownloads({
           <Button
             size="sm"
             variant="link-muted"
-            className="mt-1"
+            className="self-start"
             onClick={() => setShowDismissed((current) => !current)}
           >
             {showDismissed
@@ -365,7 +361,7 @@ export function CloudArtifactDownloads({
               : `Show ${dismissedGroups.length} dismissed`}
           </Button>
         )}
-      </Collapsible.Panel>
-    </Collapsible.Root>
+      </PopoverContent>
+    </Popover>
   );
 }
