@@ -12,6 +12,7 @@ class SourceRegistry:
 
     _sources: dict[ExternalDataSourceType, "AnySource"] = {}
     _loaded: bool = False
+    _attempted_types: set[ExternalDataSourceType] = set()
     _load_lock = threading.Lock()
 
     @classmethod
@@ -38,6 +39,27 @@ class SourceRegistry:
             cls._loaded = True
 
     @classmethod
+    def _ensure_source_loaded(cls, source_type: ExternalDataSourceType) -> None:
+        # Targeted twin of `_ensure_loaded` for single-type lookups: imports only the module
+        # that registers `source_type`, so asking for one source doesn't pay the cold import
+        # of the whole catalog and its vendor SDKs. `_loaded` stays False, which keeps the
+        # complete-catalog callers (`get_all_sources`, `get_registered_types`) bulk-loading
+        # on their first use. Shares `_load_lock` with the bulk path so the two can't
+        # interleave; the serialization is noise next to the import cost. `_attempted_types`
+        # mirrors the bulk loader's failure isolation: a module that fails to import is
+        # reported once by `load_source` and its type stays unregistered, rather than
+        # re-running the broken import on every lookup.
+        if cls._loaded or source_type in cls._sources:
+            return
+        with cls._load_lock:
+            if cls._loaded or source_type in cls._sources or source_type in cls._attempted_types:
+                return
+            from products.warehouse_sources.backend.temporal.data_imports.sources import load_source  # noqa: PLC0415
+
+            load_source(source_type)
+            cls._attempted_types.add(source_type)
+
+    @classmethod
     def register(cls, source_class: type["AnySource"]):
         source_class_instance = source_class()
         source_type = source_class_instance.source_type
@@ -50,7 +72,7 @@ class SourceRegistry:
     def get_source(cls, source_type: ExternalDataSourceType) -> "AnySource":
         """Get a source instance by type"""
 
-        cls._ensure_loaded()
+        cls._ensure_source_loaded(source_type)
         if source_type not in cls._sources:
             raise ValueError(f"Unknown source type: {source_type}")
         return cls._sources[source_type]
@@ -66,7 +88,7 @@ class SourceRegistry:
     def is_registered(cls, source_type: ExternalDataSourceType) -> bool:
         """Check if a source type is registered"""
 
-        cls._ensure_loaded()
+        cls._ensure_source_loaded(source_type)
         return source_type in cls._sources
 
     @classmethod
