@@ -1,0 +1,28 @@
+import type { CommandSection } from "@posthog/ui/features/command/useSearchSections";
+
+export function prioritizeExactCommandMatches(
+  sections: CommandSection[],
+  query: string,
+): CommandSection[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return sections;
+
+  const exactMatches = sections.flatMap((section) =>
+    section.items.filter(
+      (item) => item.label.trim().toLowerCase() === normalizedQuery,
+    ),
+  );
+  if (exactMatches.length === 0) return sections;
+
+  return [
+    { label: "Exact matches", items: exactMatches },
+    ...sections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter(
+          (item) => item.label.trim().toLowerCase() !== normalizedQuery,
+        ),
+      }))
+      .filter((section) => section.items.length > 0),
+  ];
+}
