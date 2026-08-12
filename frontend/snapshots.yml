@@ -6675,7 +6675,7 @@ snapshots:
     scenes-app-mcp-analytics--sessions--light:
         hash: v1.k794b7964.8a6b42b3e994bb9f035951d84f071f2d7c20756f9745281f61e3383133bd5bb5.GxtTX98b-FQFH6zFqQLhs-oEq7qO_vVqKjJS-CBN77U
     scenes-app-mcp-analytics--tool-quality--dark:
-        hash: v1.k794b7964.d4227f0ef61e4a1f092fde543c1a8dc62f0f05e0488f2b15fc9f3c3f902954e8.DsFDnzZRkS66upVNo75VlLqrgFFhXOXF8aJVLUtBZ1s
+        hash: v1.k794b7964.1a048a30aaedf592d08fb4a1a84d74d722e0afcdb9c72c1a001890f28530b50b.05NkieX3K7vPDZ5lVm_K5o7azAn1_9755fgJk77I9oo
     scenes-app-mcp-analytics--tool-quality--light:
         hash: v1.k794b7964.04a9b39c28f16ad4b5a1b2625115e68768273cc7b66548fcbc5754a8f48aaac6.varhLyKH9GufBWEUlArceEOjryAzqMHvXgGzy-6VecY
     scenes-app-mcp-analytics-dashboard-cards--daily-calls-and-errors--dark:
@@ -7297,7 +7297,7 @@ snapshots:
     scenes-app-settings-authentication-domains--one-unverified-domain--dark:
         hash: v1.k794b7964.d2354aea8e40abfcfeb18691d15e48abc24724460dbc0118185c750d3f8ce6d1.Gcj1tCTTgepeyP-Ep4JIhieodM8RlFeAjTQGNkP2UeQ
     scenes-app-settings-authentication-domains--one-unverified-domain--light:
-        hash: v1.k794b7964.9f4f53aee807047bda1de6e3898a5c784bca50bb1f0cbf1d3333e3323e056b41.1g_1hgiCN3qaOaI0lA8Ajwhb8mZhXu95OkHJq1dGfv0
+        hash: v1.k794b7964.826b954e1c03e3156d0c10598975c3fd43583672372c163fa08264506f929cd7.C22X_4g68JpmDtmjwe33M24AQZ4CTTIwW2cMZPL0JCo
     scenes-app-settings-environment--settings-environment-access-control--dark:
         hash: v1.k794b7964.accdd9c00d468382dda33761da2f7edc1a086c418561fcb24274aea3bffa6905.kPKTpBwOGrFJWYZFgEQa0LVY9ymopIu_8QgbuRa9-sg
     scenes-app-settings-environment--settings-environment-access-control--light:
