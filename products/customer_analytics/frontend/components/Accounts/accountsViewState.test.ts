@@ -1,7 +1,9 @@
+import { AccountsTableCustomPropertyOperator } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { ACCOUNTS_HOGQL_DEFAULT_SELECT } from './accountsColumnConfigLogic'
 import {
+    AccountsViewState,
     deserializeAccountsView,
     normalizeRoleFilter,
     orderByToSortOrder,
@@ -49,7 +51,7 @@ describe('normalizeRoleFilter', () => {
 
 describe('serializeAccountsView / deserializeAccountsView', () => {
     it('round-trips a fully populated view', () => {
-        const state = {
+        const state: AccountsViewState = {
             columns: ['name', 'csm'],
             sortOrder: { column: 'csm' as const, direction: 'desc' as const },
             filters: {
@@ -57,7 +59,16 @@ describe('serializeAccountsView / deserializeAccountsView', () => {
                 tags: ['enterprise'],
                 unassigned: false,
                 assignedTo: [1, 2, 3],
-                tileFilter: { tileId: 't1', expression: 'mrr > 100' },
+                tileFilter: {
+                    tileId: 't1',
+                    expression: 'mrr > 100',
+                    filter: {
+                        kind: 'custom_property',
+                        definitionId: '11111111-2222-3333-4444-555555555555',
+                        operator: AccountsTableCustomPropertyOperator.GreaterThan,
+                        values: [100],
+                    },
+                },
                 customProperties: [
                     {
                         type: PropertyFilterType.AccountCustomProperty as const,

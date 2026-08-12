@@ -8,6 +8,7 @@ import { IconChevronDown, IconChevronRight, IconLightBulb } from '@posthog/icons
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -103,7 +104,27 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
             isOpen={isOpen}
             onClose={onClose}
             title="Add widget"
-            description="Bring context from your different PostHog products into one dashboard."
+            description={
+                <>
+                    <span>Bring context from your different PostHog products into one dashboard.</span>
+                    <span className="mt-2 flex flex-wrap gap-2" data-attr="dashboard-widget-product-badges">
+                        {[...DASHBOARD_WIDGET_CATALOG_GROUPS]
+                            .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
+                            .map((group) => {
+                                const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)
+
+                                return (
+                                    <LemonTag key={group.groupId} type="muted">
+                                        <span className="flex items-center gap-1.5">
+                                            {GroupIcon ? <GroupIcon className="size-4" /> : null}
+                                            {group.groupLabel}
+                                        </span>
+                                    </LemonTag>
+                                )
+                            })}
+                    </span>
+                </>
+            }
             width={1200}
             footer={
                 <>

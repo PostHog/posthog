@@ -215,6 +215,19 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         _capture_idp_config_event(request, self.get_object(), "updated", {"fields": sorted(request.data.keys())})
         return res
 
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        config = cast(IdentityProviderConfig, self.get_object())
+        # Deleting a config takes every SCIM provisioning record with it, and with them the IdP's
+        # immutable-id mapping for those users — the next sync provisions everyone again. Make that
+        # reachable only after the domain is explicitly unlinked, so it can't ride along on a
+        # misdirected request against a live configuration.
+        if config.domains.exists():
+            raise exceptions.ValidationError(
+                "This configuration is linked to a domain. Unlink it from the domain before deleting it.",
+                code="linked_to_domain",
+            )
+        return super().destroy(request, *args, **kwargs)
+
     @extend_schema(request=None, responses=SCIMTokenResponseSerializer)
     @action(methods=["POST"], detail=True, url_path="scim/token")
     def scim_token(self, request: Request, **kwargs: Any) -> response.Response:
