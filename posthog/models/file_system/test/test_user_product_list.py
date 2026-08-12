@@ -4,8 +4,10 @@ from posthog.schema import ProductItemCategory
 
 from posthog.models import User
 from posthog.models.file_system.user_product_list import (
+    COMPANION_PRODUCT_PATHS,
     DEFAULT_PRODUCT_PATHS,
     UserProductList,
+    add_companion_products_for_user,
     add_default_products_for_user,
     get_user_product_list_count,
 )
@@ -24,23 +26,38 @@ def _get_favored_product_paths() -> set[str]:
     return {p for key in BASE_PREFERENCE_WEIGHTS for p in selector.intent_to_paths.get(key, [])}
 
 
+def _companions_of(product_paths: list[str]) -> set[str]:
+    return {companion for path in product_paths for companion in COMPANION_PRODUCT_PATHS.get(path, [])}
+
+
 class TestUserProductList(BaseTest):
     def test_default_product_paths_are_valid_products(self):
         valid_paths = set(Products.get_product_paths())
         assert set(DEFAULT_PRODUCT_PATHS) <= valid_paths
 
-    def test_add_default_products_creates_the_default_set(self):
+    def test_companion_product_paths_are_valid_products(self):
+        valid_paths = set(Products.get_product_paths())
+        assert set(COMPANION_PRODUCT_PATHS) <= valid_paths
+        assert _companions_of(list(COMPANION_PRODUCT_PATHS)) <= valid_paths
+
+    def test_add_default_products_creates_the_default_set_and_its_companions(self):
         user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
+        companion_paths = _companions_of(DEFAULT_PRODUCT_PATHS)
 
         created_items = add_default_products_for_user(user, self.team)
 
-        assert {item.product_path for item in created_items} == set(DEFAULT_PRODUCT_PATHS)
+        assert {item.product_path for item in created_items} == set(DEFAULT_PRODUCT_PATHS) | companion_paths
 
         rows = UserProductList.objects.filter(user=user, team=self.team)
-        assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
+        assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS) | companion_paths
         for row in rows:
             assert row.enabled is True
-            assert row.reason == UserProductList.Reason.DEFAULT
+            expected_reason = (
+                UserProductList.Reason.NEW_PRODUCT
+                if row.product_path in companion_paths
+                else UserProductList.Reason.DEFAULT
+            )
+            assert row.reason == expected_reason
 
     def test_add_default_products_leaves_existing_rows_untouched(self):
         user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
@@ -61,7 +78,43 @@ class TestUserProductList(BaseTest):
         assert existing.reason == UserProductList.Reason.PRODUCT_INTENT
 
         add_default_products_for_user(user, self.team)
-        assert UserProductList.objects.filter(user=user, team=self.team).count() == len(DEFAULT_PRODUCT_PATHS)
+        assert UserProductList.objects.filter(user=user, team=self.team).count() == len(
+            set(DEFAULT_PRODUCT_PATHS) | _companions_of(DEFAULT_PRODUCT_PATHS)
+        )
+
+    def test_add_companion_products_pins_replay_vision_alongside_session_replay(self):
+        user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
+
+        created_items = add_companion_products_for_user(user, self.team, ["Session replay"])
+
+        assert [item.product_path for item in created_items] == ["Replay vision"]
+        row = UserProductList.objects.get(user=user, team=self.team, product_path="Replay vision")
+        assert row.enabled is True
+        assert row.reason == UserProductList.Reason.NEW_PRODUCT
+        assert row.reason_text
+
+    def test_add_companion_products_leaves_a_companion_the_user_turned_off_alone(self):
+        user = User.objects.create_user(email="user@posthog.com", password="password", first_name="User")
+        UserProductList.objects.create(
+            user=user,
+            team=self.team,
+            product_path="Replay vision",
+            enabled=False,
+            reason=UserProductList.Reason.PRODUCT_INTENT,
+        )
+
+        assert add_companion_products_for_user(user, self.team, ["Session replay"]) == []
+
+        row = UserProductList.objects.get(user=user, team=self.team, product_path="Replay vision")
+        assert row.enabled is False
+
+    def test_add_companion_products_respects_allow_sidebar_suggestions_false(self):
+        user = User.objects.create_user(
+            email="user@posthog.com", password="password", first_name="User", allow_sidebar_suggestions=False
+        )
+
+        assert add_companion_products_for_user(user, self.team, ["Session replay"]) == []
+        assert not UserProductList.objects.filter(user=user, team=self.team, product_path="Replay vision").exists()
 
     def test_join_seeds_default_products_for_accessible_teams(self):
         # Guards joins that don't go through an invite (e.g. domain/SSO auto-join):
@@ -70,11 +123,13 @@ class TestUserProductList(BaseTest):
 
         user.join(organization=self.organization)
 
+        companion_paths = _companions_of(DEFAULT_PRODUCT_PATHS)
         rows = UserProductList.objects.filter(user=user, team=self.team)
-        assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS)
+        assert {row.product_path for row in rows} == set(DEFAULT_PRODUCT_PATHS) | companion_paths
         for row in rows:
             assert row.enabled is True
-            assert row.reason == UserProductList.Reason.DEFAULT
+            if row.product_path not in companion_paths:
+                assert row.reason == UserProductList.Reason.DEFAULT
 
     def test_sync_cross_sell_products_suggests_same_category_or_favored(self):
         user = User.objects.create_user(

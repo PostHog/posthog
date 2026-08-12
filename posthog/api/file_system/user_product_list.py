@@ -11,7 +11,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
-from posthog.models.file_system.user_product_list import UserProductList
+from posthog.models.file_system.user_product_list import UserProductList, add_companion_products_for_user
 
 
 class UserProductListSerializer(serializers.ModelSerializer):
@@ -75,6 +75,7 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         user = cast(User, request.user)
         results = []
+        enabled_paths = []
         with transaction.atomic():
             for item in items:
                 product_path = item.get("product_path")
@@ -93,5 +94,11 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
                 results.append(serializer.data)
+
+                if enabled:
+                    enabled_paths.append(product_path)
+
+            companions = add_companion_products_for_user(user, self.team, enabled_paths)
+            results.extend(self.get_serializer(companions, many=True).data)
 
         return Response({"results": results}, status=status.HTTP_200_OK)

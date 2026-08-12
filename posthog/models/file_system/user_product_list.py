@@ -30,6 +30,60 @@ DEFAULT_PRODUCT_PATHS = [
     "Session replay",
 ]
 
+# Products that ride along with another product in the sidebar: whenever a user gets the
+# key pinned, the companions are pinned alongside it. Keys and values must match `path`
+# values in frontend/src/products.json.
+COMPANION_PRODUCT_PATHS: dict[str, list[str]] = {
+    # Replay vision only analyzes recordings Session replay already captured, so on its own
+    # it has nothing to scan.
+    "Session replay": ["Replay vision"],
+}
+
+COMPANION_REASON_TEXT: dict[str, str] = {
+    "Replay vision": "Goes with Session replay. AI scanners analyze your recordings as they come in.",
+}
+
+
+def add_companion_products_for_user(user: "User", team: "Team", product_paths: list[str]) -> "list[UserProductList]":
+    """
+    Pin the companions of `product_paths` for a user.
+
+    Only creates rows that don't exist yet: an existing row means the user already decided
+    about that companion, so one they turned off stays off.
+    """
+    if user.allow_sidebar_suggestions is False:
+        return []
+
+    companion_paths = {
+        companion for path in product_paths for companion in COMPANION_PRODUCT_PATHS.get(path, [])
+    } - set(product_paths)
+    if not companion_paths:
+        return []
+
+    existing_paths = set(
+        UserProductList.objects.filter(user=user, team=team, product_path__in=companion_paths).values_list(
+            "product_path", flat=True
+        )
+    )
+    missing_paths = sorted(companion_paths - existing_paths)
+    if not missing_paths:
+        return []
+
+    return UserProductList.objects.bulk_create(
+        [
+            UserProductList(
+                user=user,
+                team=team,
+                product_path=path,
+                enabled=True,
+                reason=UserProductList.Reason.NEW_PRODUCT,
+                reason_text=COMPANION_REASON_TEXT.get(path),
+            )
+            for path in missing_paths
+        ],
+        ignore_conflicts=True,
+    )
+
 
 def add_default_products_for_user(user: "User", team: "Team") -> "list[UserProductList]":
     """
@@ -45,20 +99,24 @@ def add_default_products_for_user(user: "User", team: "Team") -> "list[UserProdu
         )
     )
     missing_paths = [path for path in DEFAULT_PRODUCT_PATHS if path not in existing_paths]
-    if not missing_paths:
-        return []
 
-    # `ignore_conflicts` + `unique_together` on (team, user, product_path) keep this
-    # idempotent under concurrent seeding.
-    return UserProductList.objects.bulk_create(
-        [
-            UserProductList(
-                user=user, team=team, product_path=path, enabled=True, reason=UserProductList.Reason.DEFAULT
-            )
-            for path in missing_paths
-        ],
-        ignore_conflicts=True,
-    )
+    created: list[UserProductList] = []
+    if missing_paths:
+        # `ignore_conflicts` + `unique_together` on (team, user, product_path) keep this
+        # idempotent under concurrent seeding.
+        created = UserProductList.objects.bulk_create(
+            [
+                UserProductList(
+                    user=user, team=team, product_path=path, enabled=True, reason=UserProductList.Reason.DEFAULT
+                )
+                for path in missing_paths
+            ],
+            ignore_conflicts=True,
+        )
+
+    # Runs against the whole default set rather than just `missing_paths`, so a user seeded
+    # before a companion existed picks it up the next time they gain project access.
+    return created + add_companion_products_for_user(user, team, DEFAULT_PRODUCT_PATHS)
 
 
 def add_default_products_for_accessible_teams(user: "User", organization: "Organization") -> None:
@@ -242,6 +300,10 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
                 },
             )
             user_product_lists.append(item)
+
+        user_product_lists.extend(
+            add_companion_products_for_user(user, product_intent.team, [product.path for product in products])
+        )
 
         return user_product_lists
 

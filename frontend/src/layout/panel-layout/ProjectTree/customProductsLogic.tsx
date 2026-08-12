@@ -84,7 +84,7 @@ export const customProductsLogic = kea<customProductsLogicType>([
         setToolEnabled: async ({ productPath, enabled }) => {
             posthog.capture('sidebar my tools changed', { product_path: productPath, enabled })
             // Placeholder row: every consumer reads `product_path` only, so the fields the server
-            // would fill in are never looked at and there is nothing to reconcile on success.
+            // would fill in for this row are never looked at and don't need reconciling.
             const now = new Date().toISOString()
             const withoutTool = values.customProducts.filter((item) => item.product_path !== productPath)
             actions.loadCustomProductsSuccess(
@@ -104,7 +104,18 @@ export const customProductsLogic = kea<customProductsLogicType>([
                     : withoutTool
             )
             try {
-                await api.userProductList.bulkUpdate([{ product_path: productPath, enabled }])
+                const response = await api.userProductList.bulkUpdate([{ product_path: productPath, enabled }])
+                // Enabling a product can pin its companions server-side (Session replay brings
+                // Replay vision), so merge those rows in rather than making the user reload to see
+                // them. Paths already on screen are skipped, so a toggle the user made while this
+                // call was in flight isn't reverted.
+                const knownPaths = new Set(values.customProducts.map((item) => item.product_path))
+                // `enabled` matters: the response echoes back the row we just turned off, and
+                // merging that would put the product straight back in the sidebar.
+                const newRows = response.results.filter((item) => item.enabled && !knownPaths.has(item.product_path))
+                if (newRows.length > 0) {
+                    actions.loadCustomProductsSuccess([...values.customProducts, ...newRows])
+                }
             } catch (error) {
                 console.error('Failed to save tool changes:', error)
                 lemonToast.error('Failed to save some changes. Try again?')
