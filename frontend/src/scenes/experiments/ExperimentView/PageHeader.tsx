@@ -68,7 +68,6 @@ export function PageHeaderCustom(): JSX.Element {
                 saveOnBlur
                 actions={
                     <>
-                        <ExperimentActionsMenu />
                         {experiment && isExperimentDraft && (
                             <div className="flex items-center">
                                 <LemonButton
@@ -97,6 +96,7 @@ export function PageHeaderCustom(): JSX.Element {
                                 <FinishExperimentModal />
                             </>
                         )}
+                        <ExperimentActionsMenu />
                     </>
                 }
             />
