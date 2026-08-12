@@ -5,6 +5,7 @@ import { Provider } from 'kea'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, type UniversalFiltersGroup } from '~/types'
 
 import { ErrorTrackingIssueList, ErrorTrackingIssueListRow } from './ErrorTrackingIssueList'
 import { ErrorTrackingIssueListSkeleton } from './ErrorTrackingIssueListSkeleton'
@@ -12,6 +13,23 @@ import { ErrorTrackingIssueListSkeleton } from './ErrorTrackingIssueListSkeleton
 jest.mock('../VolumeSparkline/VolumeSparkline', () => ({
     VolumeSparkline: (): JSX.Element => <div data-attr="mock-sparkline" />,
 }))
+
+const FILTER_GROUP: UniversalFiltersGroup = {
+    type: FilterLogicalOperator.And,
+    values: [
+        {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    operator: PropertyOperator.Exact,
+                    value: ['Chrome'],
+                },
+            ],
+        },
+    ],
+}
 
 const ISSUE: ErrorTrackingIssue = {
     id: 'issue-abc',
@@ -62,6 +80,27 @@ describe('ErrorTrackingIssueListRow', () => {
         expect(link?.getAttribute('href')).toMatch(
             /\/error_tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
         )
+    })
+
+    it('carries the list filters into the issue link', () => {
+        render(
+            <Provider>
+                <ErrorTrackingIssueListRow
+                    issue={ISSUE}
+                    dateRange={{ date_from: '-30d', date_to: null }}
+                    filterGroup={FILTER_GROUP}
+                    filterTestAccounts={true}
+                    searchQuery="timeout"
+                />
+            </Provider>
+        )
+
+        const link = screen.getByText(/TypeError: undefined is not a function/i).closest('a')
+        const url = new URL(link?.getAttribute('href') ?? '', 'http://localhost')
+        expect(url.searchParams.get('dateRange')).toBe(JSON.stringify({ date_from: '-30d', date_to: null }))
+        expect(url.searchParams.get('filterGroup')).toBe(JSON.stringify(FILTER_GROUP))
+        expect(url.searchParams.get('filterTestAccounts')).toBe('true')
+        expect(url.searchParams.get('searchQuery')).toBe('timeout')
     })
 })
 
