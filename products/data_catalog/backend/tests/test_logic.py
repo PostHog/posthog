@@ -476,8 +476,6 @@ class TestUpdateInsightLink(BaseTest):
 
 class TestApprovedMetricSummaries(BaseTest):
     def test_only_approved_non_drifted_metric_names_are_listed(self) -> None:
-        # Anything beyond approved + non-drifted leaking into the listing would surface an
-        # unapproved or stale definition as canonical in cross-product agent prompts.
         approved = upsert_metric(
             team=self.team,
             user=self.user,

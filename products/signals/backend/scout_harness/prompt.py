@@ -121,14 +121,9 @@ _HOW_A_RUN_WORKS_HEAD = """# How a run works
 2. **Check what the rest of the fleet has seen.** Call `scout-runs-list` again without `skill_name`, passing `text=<the entity or topic>` once per thing you're about to investigate. That filter is load-bearing: the call returns 20 rows by default, so on a full fleet an unfiltered page covers barely a day and a relevant sibling sorts out of view before you read it. Nothing matches? Move on, rather than reading the fleet's whole recent output. On a match, follow that run's `emitted_report_ids` / `edited_report_ids` into `inbox-reports-retrieve`, or its `emitted_finding_ids` via `scout-runs-emissions-list` for a sibling still on the signal channel, and read the evidence rather than the prose summary. This read is context-gathering only: ignore the tool output's guidance about associating your task with a report (`task_run` artefacts), which applies to a run actually working a report and would staple your run onto a sibling's.
 3. **Investigate.** Use the PostHog MCP read tools to gather evidence, discovering what's available at run time. Your skill body tells you *what* to look at."""
 
-# Catalog steering renders into the head's investigate step only when the team's data catalog is
-# enabled, because `system.information_schema.metrics` and `data-catalog-metric-run` don't exist for
-# flag-off teams and unconditioned steering would burn those runs' budget on failing queries. It has
-# three variants keyed on whether the harness pre-fetched the governed listing (see
-# `_how_a_run_works_head`): the prose probe-and-cache rule alone produced probabilistic compliance
-# in production, with most scouts following their skill's prescribed SQL instead of checking, so
-# the harness now does the lookup itself and injects the result, and the probe rule survives only
-# as the fallback for a failed lookup.
+# Rendered into the head's investigate step only when the team's data catalog is enabled, because
+# `system.information_schema.metrics` and `data-catalog-metric-run` don't exist for flag-off teams
+# and unconditioned steering would burn those runs' budget on failing queries.
 _METRICS_CATALOG_SCOPE = "When a hypothesis rests on a named, reusable measure, business (revenue, MRR, churn, activation) or operational telemetry computed to monitor or report (cost per run, failure or error rates, latency, throughput),"
 
 _METRICS_CATALOG_RULE = f""" {_METRICS_CATALOG_SCOPE} check the governed metrics catalog first – `SELECT name, description, status, is_drifted FROM system.information_schema.metrics` via `execute-sql` – and run an approved, non-drifted match with `data-catalog-metric-run` rather than hand-deriving it, even when your skill body ships its own SQL for that measure: a governed definition outranks a playbook query, and a number derived outside it must be labeled noncanonical. Cache the lookup outcome in your scratchpad (`catalog:<scope>:<measure>`, match or no-match plus date) and reuse a fresh entry instead of re-querying every run; re-verify an entry roughly a day old, and immediately when a canonical run reports drift or a status change. Schema, availability, and freshness checks stay schema-first; no catalog detour for those."""
@@ -137,8 +132,6 @@ _METRICS_CATALOG_PREFETCHED = f""" {_METRICS_CATALOG_SCOPE} run it through the g
 
 _METRICS_CATALOG_EMPTY = f""" {_METRICS_CATALOG_SCOPE} note that this run's catalog lookup is already done and the governed metrics catalog holds no approved metrics right now: derive each measure by hand, label the result noncanonical, and do not re-run the lookup query (`system.information_schema.metrics` via `execute-sql`) this run."""
 
-# The name cap keeps a metric-heavy catalog from crowding the prompt; overflow points back at the
-# lookup query, which is exactly the case where re-querying is worth its cost.
 _GOVERNED_METRIC_LISTING_CAP = 40
 
 

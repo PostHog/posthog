@@ -372,12 +372,7 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
 
 
 def approved_metric_names_for_team(team: Team) -> list[str]:
-    """Names of the team's approved, non-drifted metrics, sorted.
-
-    Backs cross-product prompt injection (the signals scout harness), so the filter must match
-    what `data-catalog-metric-run` treats as canonical: a proposed, deleted, or drifted name in
-    the listing would present an unapproved or stale definition as runnable.
-    """
+    """Names of the team's approved, non-drifted metrics, sorted."""
     approved = list(metrics_for_team(team).filter(status=MetricStatus.APPROVED).order_by("name"))
     drifted = compute_drift(approved)
     return [metric.name for metric in approved if not drifted[metric.id]]

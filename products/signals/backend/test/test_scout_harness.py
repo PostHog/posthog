@@ -559,9 +559,6 @@ class TestPromptBuilder(BaseTest):
         assert "data-catalog-metric-run" not in disabled
 
     def test_prefetched_catalog_listing_replaces_the_probe_instruction(self) -> None:
-        # When the harness pre-fetched the governed names, rendering the probe-and-cache rule
-        # alongside them would steer the scout into redundant catalog queries; and a listing
-        # rendered for a flag-off team would steer it at tables that don't exist for it.
         LLMSkill.objects.create(team=self.team, name="signals-scout-catalog-listing", description="s", body="watch")
         loaded = load_skill_for_run(self.team, "signals-scout-catalog-listing")
         kwargs: dict = {
@@ -581,7 +578,6 @@ class TestPromptBuilder(BaseTest):
         assert "no approved metrics" in empty
         assert "Cache the lookup outcome" not in empty
 
-        # Lookup unavailable (None): fall back to the probe-and-cache prose rule unchanged.
         fallback = build_run_prompt(loaded, **kwargs, data_catalog_enabled=True, governed_metric_names=None)
         assert "Cache the lookup outcome" in fallback
 
@@ -1069,9 +1065,6 @@ async def test_catalog_steering_reaches_the_prompt_from_the_team_flag(ateam, aer
     "names,expected_marker",
     [
         pytest.param(["scout_run_fail_pct"], "scout_run_fail_pct", id="listing_injected"),
-        # A summaries-read error must degrade to the probe-and-cache prose rule, not fail the
-        # run: like the flag read above, this resolves inside `_spawn_and_run`, so an error here
-        # would book a failed run and advance the pause streak over a prompt optimization.
         pytest.param(RuntimeError("catalog read down"), "Cache the lookup outcome", id="lookup_error_falls_back"),
     ],
 )

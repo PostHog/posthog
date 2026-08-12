@@ -42,14 +42,12 @@ import anthropic
 POSTHOG_HOST = os.environ.get("POSTHOG_HOST", "https://us.posthog.com")
 POSTHOG_MCP_URL = os.environ.get("POSTHOG_MCP_URL", "https://mcp.posthog.com/mcp")
 AGENT_MODEL = "claude-opus-5"
-# The online judges run on this model; offline scoring keeps parity so verdicts are comparable.
 JUDGE_MODEL = "claude-haiku-4-5"
 JUDGE_MAX_TOKENS = 2048
 AGENT_MAX_TOKENS = 8192
 AGENT_MAX_CONTINUATIONS = 8
 TRACE_POLL_ATTEMPTS = 12
 TRACE_POLL_SECONDS = 15
-# The online judges cap their input the same way; staying under it keeps verdicts comparable.
 JUDGE_INPUT_CHAR_CAP = 150_000
 
 EXPERIMENT_NAME = "semantic-layer-governance-regressions"
@@ -73,8 +71,6 @@ JUDGE_VERDICT_SCHEMA = {
     "additionalProperties": False,
 }
 
-# One item per failure pattern observed in production, used only by --seed; after seeding, the
-# dataset in /ai-evals/datasets is the source of truth and should be curated there.
 SEED_ITEMS: list[dict] = [
     {
         "name": "scout_operational_sweep",
@@ -191,11 +187,6 @@ def fetch_dataset_items(dataset_id: str) -> list[ExperimentItem]:
 
 
 def run_agent_session(client: anthropic.Anthropic, prompt: str, nonce: str) -> None:
-    """Drive one fresh hosted-MCP agent session; telemetry lands in the target project.
-
-    The nonce rides in the prompt so the session's trace can be found afterwards - the MCP
-    connector does not expose the server-assigned session id to the caller.
-    """
     messages: list[dict] = [{"role": "user", "content": f"[run marker {nonce}] {prompt}"}]
     mcp_servers = [
         {
@@ -225,7 +216,6 @@ def hogql(query: str) -> list[list]:
 
 
 def find_trace_id(nonce: str, started_at: datetime) -> str | None:
-    """The generation's input carries the run marker; ingestion can lag, so poll."""
     since = started_at.strftime("%Y-%m-%d %H:%M:%S")
     query = (
         "SELECT DISTINCT trace_id FROM posthog.ai_events "

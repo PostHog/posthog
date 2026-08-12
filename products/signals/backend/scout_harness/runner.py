@@ -461,13 +461,7 @@ def _data_catalog_enabled_for_team(team: Team) -> bool:
 
 
 def _governed_metric_names_for_team(team: Team) -> list[str] | None:
-    """The team's approved metric names for prompt injection, or None when the read fails.
-
-    Same failure posture as `_data_catalog_enabled_for_team`: this resolves inside
-    `_spawn_and_run`, so a propagated catalog-read error would book a failed run and advance
-    the pause streak over a prompt optimization. None makes the prompt fall back to the prose
-    probe-and-cache rule, so a degraded read only costs the pre-fetch, never the steering.
-    """
+    """The team's approved metric names for prompt injection, or None when the read fails."""
     try:
         return approved_metric_names_for_team(team)
     except Exception as error:
