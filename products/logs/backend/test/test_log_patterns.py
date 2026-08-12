@@ -5,7 +5,13 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.logs.backend.log_patterns import LogSample, compile_match_regex, extract_match_literal, mine_patterns
+from products.logs.backend.log_patterns import (
+    LogSample,
+    compile_match_regex,
+    extract_match_literal,
+    mine_patterns,
+    pattern_fingerprint,
+)
 
 
 def _sample(
@@ -52,6 +58,33 @@ class TestMinePatterns(TestCase):
                 ],
                 "<uuid>",
                 "446655440000",
+            ),
+            (
+                "timestamp_iso_t",
+                [
+                    "job 2026-08-12T08:10:43.397557Z retried",
+                    "job 2026-08-13T09:11:44.123456Z retried",
+                ],
+                "<timestamp>",
+                "397557Z",
+            ),
+            (
+                "timestamp_space_separated",
+                [
+                    "job 2026-08-12 08:10:43.397557 retried",
+                    "job 2026-08-13 09:11:44.123456 retried",
+                ],
+                "<timestamp>",
+                "397557",
+            ),
+            (
+                "timestamp_utc_offset",
+                [
+                    "job 2026-08-12T08:10:43+00:00 retried",
+                    "job 2026-08-13T09:11:44+02:00 retried",
+                ],
+                "<timestamp>",
+                "12T08",
             ),
         ]
     )
@@ -152,6 +185,24 @@ class TestMinePatterns(TestCase):
         for example in patterns[0].examples:
             assert compiled.search(example.body)
 
+    def test_same_statement_on_different_dates_shares_fingerprint(self) -> None:
+        # The patterns diff compares fingerprints across two windows (default: one week
+        # apart). A timestamp fragment surviving masking becomes a literal run, so the
+        # same log statement would fingerprint differently and show up as a false
+        # new/gone pair.
+        monday = mine_patterns([_sample("2026-08-12T08:10:43.397557Z task_retrying attempt=3")])
+        week_later = mine_patterns([_sample("2026-08-19T09:04:17.112233Z task_retrying attempt=7")])
+
+        assert pattern_fingerprint(monday[0].pattern) == pattern_fingerprint(week_later[0].pattern)
+
+    def test_match_regex_matches_siblings_with_different_timestamps(self) -> None:
+        # An unmasked timestamp baked into match_regex narrows the "view matching logs"
+        # pivot to the single line the pattern was mined from.
+        patterns = mine_patterns([_sample("task_retrying at 2026-08-12T08:10:43.397557Z scheduled")])
+
+        assert patterns[0].match_regex is not None
+        assert re.search(patterns[0].match_regex, "task_retrying at 2026-08-19T14:02:11.000001Z scheduled")
+
 
 class TestCompileMatchRegex(TestCase):
     @parameterized.expand(
@@ -164,6 +215,7 @@ class TestCompileMatchRegex(TestCase):
             ("peer <ip> disconnected", "peer 10.32.243.94 disconnected"),
             ("token <hex> rejected", "token 0xdeadbeef rejected"),
             ("path /api/v1/users?id=<num> hit", "path /api/v1/users?id=42 hit"),
+            ("job <timestamp> finished", "job 2026-08-12T08:10:43.397557Z finished"),
         ]
     )
     def test_compiled_regex_matches_raw_bodies(self, template: str, raw_body: str) -> None:
