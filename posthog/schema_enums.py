@@ -2722,6 +2722,12 @@ class GoogleAdsDefaultSources(StrEnum):
     WAZE = "waze"
 
 
+class GroupMathType(StrEnum):
+    UNIQUE_GROUP = "unique_group"
+    FIRST_TIME_FOR_GROUP = "first_time_for_group"
+    FIRST_MATCHING_EVENT_FOR_GROUP = "first_matching_event_for_group"
+
+
 class GradientScaleMode(StrEnum):
     ABSOLUTE = "absolute"
     RELATIVE = "relative"
