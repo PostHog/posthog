@@ -106,7 +106,7 @@ describe('RoutingPersonsStore', () => {
             expect(stores.pg.fetchForUpdate).not.toHaveBeenCalled()
         })
 
-        it('a transactional create stays on pg for an allowlisted team', async () => {
+        it('a transactional create stays on pg in personhog mode', async () => {
             const stores = makeStores()
             const store = makeStore(stores, 'personhog')
             await store.createPerson(

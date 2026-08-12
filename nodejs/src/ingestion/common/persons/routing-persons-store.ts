@@ -48,25 +48,17 @@ export function assertPersonsStoreModeConfig(
 
 /**
  * Routes person-store verbs between the Postgres world and the personhog
- * world by team. The mode applies to the teams in `teams` (every team
- * when null); everything else stays on Postgres. In shadow the Postgres
- * result is authoritative and the personhog side runs the same verb
- * afterwards, its failures counted and logged but never failing the
- * batch.
+ * world. The mode applies to the whole deployment: personhog sends every
+ * verb to the personhog store, and shadow runs the Postgres call as the
+ * authoritative result with the personhog call after it, its failures
+ * counted and logged but never failing the batch. Verbs the personhog
+ * store cannot serve yet answer with its pending-saga placeholders, so
+ * unsupported paths fail loudly in personhog mode and surface as counted
+ * shadow errors in shadow mode.
  *
- * Two verb families do not route:
- *
- * - Merge execution has no personhog support until the merge saga
- *   lands: pg and shadow teams run it on Postgres as before, and a
- *   personhog-routed team fails loudly at the first merge mutation —
- *   its reads and writes live in the personhog world, whose row ids
- *   mean nothing to Postgres, so quietly running the merge there would
- *   mutate whatever rows happen to share the numbers. Any non-merge
- *   verb invoked under a Postgres transaction still goes to Postgres
- *   (see `route`).
- * - `personPropertiesSize` routes by mode but is not shadowed: the
- *   personhog store answers it with a constant because the leader
- *   enforces the size ceiling at admission.
+ * `personPropertiesSize` routes by mode but is not shadowed: the
+ * personhog store answers it with a constant because the leader enforces
+ * the size ceiling at admission.
  */
 export class RoutingPersonsStore implements PersonsStore {
     constructor(
@@ -89,12 +81,11 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /**
-     * The whole mode semantics, once: pg teams run the pg call, personhog
-     * teams the personhog call, shadow teams run pg as the authoritative
-     * result and the personhog call after it, swallowed. A verb invoked
-     * under a Postgres transaction is the merge flow's and stays on pg
-     * regardless of team. The two lambdas are each verb's signature
-     * adapter — the stores disagree on tx and batchId parameters.
+     * The whole mode semantics, once: personhog mode runs the personhog
+     * call, shadow runs pg as the authoritative result and the personhog
+     * call after it, swallowed. A verb invoked under a live Postgres
+     * transaction stays on pg — its work is already inside that
+     * transaction's world.
      */
     private async route<T>(
         verb: string,

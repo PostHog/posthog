@@ -374,9 +374,9 @@ export class IngestionApiServer implements NodeServer {
             optimisticUpdateRetryInterval: this.config.PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS,
             updateAllProperties: this.config.PERSON_PROPERTIES_UPDATE_ALL,
         })
-        // Which world person writes land in: pg (default) builds nothing
-        // new; the other modes construct the personhog store and route
-        // per team, shadow keeping pg authoritative.
+        // Which world person writes land in, deployment-wide: pg (the
+        // default) builds nothing new; the other modes construct the
+        // personhog store, shadow keeping pg authoritative.
         const personsStoreMode = parsePersonsStoreMode(this.config.PERSONS_STORE_MODE)
         assertPersonsStoreModeConfig(personsStoreMode, {
             routerAddr: this.config.PERSONHOG_ADDR,
