@@ -3394,6 +3394,50 @@ describe("CodexAppServerAgent", () => {
     });
   });
 
+  it("does not echo hidden resume context as a user message", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": { turn: { id: "turn_1" } },
+    });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [
+        {
+          type: "text",
+          text: "Synthetic resume instructions",
+          _meta: { ui: { hidden: true } },
+        },
+        { type: "text", text: "Continue fixing the bug" },
+      ],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", { turn: { status: "completed" } });
+    await done;
+
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: { type: "text", text: "Continue fixing the bug" },
+      },
+    });
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "user_message_chunk",
+        content: expect.objectContaining({
+          text: "Synthetic resume instructions",
+        }),
+      },
+    });
+  });
+
   it("routes item/tool/requestUserInput through the richer-approval handler", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client } = makeFakeClient({

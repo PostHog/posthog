@@ -1327,7 +1327,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Echo each user prompt block (text + image, so an image-only turn still renders) for the host log/UI. */
   private broadcastUserInput(prompt: PromptRequest["prompt"]): void {
     if (!this.sessionId) return;
-    for (const block of prompt) {
+    for (const block of visiblePromptBlocks(prompt)) {
       if (block.type !== "text" && block.type !== "image") continue;
       void this.client
         .sessionUpdate({
