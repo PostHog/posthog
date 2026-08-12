@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("warehouse_sources", "0132_repin_google_ads_api_version"),
     ]
