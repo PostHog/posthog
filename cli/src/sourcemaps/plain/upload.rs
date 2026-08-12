@@ -19,7 +19,9 @@ use crate::{
     },
     invocation_context::context,
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs, UploadConcurrencyArgs, UploadConflictArgs},
+        args::{
+            FileSelectionArgs, ReleaseArgs, ReleaseMode, UploadConcurrencyArgs, UploadConflictArgs,
+        },
         content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
@@ -61,20 +63,18 @@ pub struct Args {
     #[arg(long)]
     pub skip_ssl_verification: bool,
 
-    /// EXPERIMENTAL: don't bind the uploaded symbol sets to a release. The chunks carry the release
-    /// id in their injected snippet instead, so the release is resolved per event rather than per
-    /// symbol set. When unset (the default), upload behaves exactly as before. Also settable via
-    /// `POSTHOG_NO_RELEASE_BIND`.
+    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
+    /// release id onto the uploaded symbol sets: the previous behavior. EXPERIMENTAL `event`
+    /// leaves symbol sets unbound; the chunks already carry the release id in their injected
+    /// snippet, so the release is resolved per event rather than per symbol set. Also settable
+    /// via `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
-        env = "POSTHOG_NO_RELEASE_BIND",
-        value_parser = clap::builder::BoolishValueParser::new(),
-        num_args = 0..=1,
-        require_equals = true,
-        default_value = "false",
-        default_missing_value = "true",
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
     )]
-    pub no_release_bind: bool,
+    pub release_mode: ReleaseMode,
 }
 
 pub fn upload_cmd(args: &Args) -> Result<()> {
@@ -102,10 +102,9 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     info!("Found {} chunks to upload", pairs.len());
 
     // Reuse the pre-resolved release if available, otherwise fetch or create one. Skipped entirely
-    // under `--no-release-bind`: inject already put the release id inside the chunks, and resolving
-    // one here would only serve to stamp it onto the symbol sets, which is the binding we're
-    // avoiding.
-    let created_release_id = if args.no_release_bind {
+    // in event mode: inject already put the release id inside the chunks, and resolving one here
+    // would only serve to stamp it onto the symbol sets, which is the binding event mode avoids.
+    let created_release_id = if args.release_mode == ReleaseMode::Event {
         None
     } else if let Some(r) = existing_release {
         Some(r.id.to_string())
@@ -152,9 +151,10 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
 
     // Payload preparation (serialization + zstd compression) is CPU-bound,
     // so spread it across cores.
+    let release_mode = args.release_mode;
     let uploads = valid_pairs
         .into_par_iter()
-        .map(TryInto::try_into)
+        .map(|pair| pair.into_upload(release_mode))
         .collect::<Result<Vec<SymbolSetUpload>>>()
         .context("While preparing files for upload")?;
 

@@ -7,18 +7,21 @@ use walkdir::DirEntry;
 
 use crate::{
     invocation_context::context,
-    sourcemaps::inject::{inject_impl, InjectArgs},
+    sourcemaps::{
+        args::ReleaseMode,
+        inject::{inject_impl, InjectArgs},
+    },
 };
 
 pub fn inject(args: &InjectArgs) -> Result<()> {
     context().capture_command_invoked("hermes_inject");
     args.validate()?;
-    // The rest of the Hermes pipeline (clone, upload, the RN SDK) has no release-unbinding
-    // support, so accepting the flag would inject a global nothing reads while upload
-    // re-binds the release anyway. Rejecting also catches a POSTHOG_NO_RELEASE_BIND env var
-    // set for a web build leaking into a React Native build in the same environment.
-    if args.no_release_bind {
-        bail!("--no-release-bind is not supported for Hermes bundles. Remove the flag (or unset POSTHOG_NO_RELEASE_BIND) and inject again.");
+    // The rest of the Hermes pipeline (clone, upload, the RN SDK) has no event-mode support,
+    // so accepting the flag would inject a global nothing reads while upload re-binds the
+    // release anyway. Rejecting also catches a POSTHOG_RELEASE_MODE=event env var set for a
+    // web build leaking into a React Native build in the same environment.
+    if args.release_mode == ReleaseMode::Event {
+        bail!("--release-mode=event is not supported for Hermes bundles. Remove the flag (or unset POSTHOG_RELEASE_MODE) and inject again.");
     }
     inject_impl(args, is_metro_bundle, None)
 }

@@ -6,7 +6,7 @@ use walkdir::DirEntry;
 use crate::{
     api::releases::{Release, ReleaseBuilder},
     sourcemaps::{
-        args::{FileSelectionArgs, ReleaseArgs},
+        args::{FileSelectionArgs, ReleaseArgs, ReleaseMode},
         constant::CHUNK_ID_NAMESPACE,
         content::SourceMapFile,
         source_pairs::{read_pairs, SourcePair},
@@ -28,22 +28,19 @@ pub struct InjectArgs {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
-    /// EXPERIMENTAL: don't bind the injected chunks to a server-side release. The release is still
-    /// created, but instead of stamping its id into the sourcemap (which binds the uploaded symbol
-    /// set to it), this injects the id into each chunk as `_posthogReleaseId` so the SDK emits it
-    /// on every exception, and derives content-addressed chunk ids that are stable across rebuilds.
-    /// When unset (the default), inject behaves exactly as before. Also settable via
-    /// `POSTHOG_NO_RELEASE_BIND`.
+    /// How the release is associated with exceptions. `symbol-set` (the default) stamps the
+    /// release id into the sourcemap so the uploaded symbol set is bound to it: the previous
+    /// behavior. EXPERIMENTAL `event` injects the release id into each chunk as
+    /// `_posthogReleaseId` so the SDK emits it on every exception, and derives
+    /// content-addressed chunk ids that are stable across rebuilds. Also settable via
+    /// `POSTHOG_RELEASE_MODE`.
     #[arg(
         long,
-        env = "POSTHOG_NO_RELEASE_BIND",
-        value_parser = clap::builder::BoolishValueParser::new(),
-        num_args = 0..=1,
-        require_equals = true,
-        default_value = "false",
-        default_missing_value = "true",
+        env = "POSTHOG_RELEASE_MODE",
+        value_enum,
+        default_value = "symbol-set"
     )]
-    pub no_release_bind: bool,
+    pub release_mode: ReleaseMode,
 }
 
 impl InjectArgs {
@@ -61,7 +58,7 @@ pub fn inject_impl(
         file_selection,
         public_path_prefix,
         release,
-        no_release_bind,
+        release_mode,
     } = args;
 
     info!("injecting selection: {}", file_selection);
@@ -76,27 +73,32 @@ pub fn inject_impl(
         bail!("no source files found");
     }
 
-    if *no_release_bind {
-        // The release id travels inside each chunk for the SDK to emit, rather than being stamped
-        // into the sourcemap — so the release exists, but nothing binds a symbol set to it.
-        let release_id = resolve_release_id(release.clone(), existing_release)?;
-        if release_id.is_none() {
-            warn!(
-                "no release could be resolved, injecting chunk ids only — events will carry no release"
-            );
+    match release_mode {
+        ReleaseMode::Event => {
+            // The release id travels inside each chunk for the SDK to emit, rather than being
+            // stamped into the sourcemap, so the release exists but nothing binds a symbol set
+            // to it.
+            let release_id = resolve_release_id(release.clone(), existing_release)?;
+            if release_id.is_none() {
+                warn!(
+                    "no release could be resolved, injecting chunk ids only — events will carry no release"
+                );
+            }
+            pairs = inject_pairs(pairs, release_id.as_deref())?;
         }
-        pairs = inject_pairs(pairs, release_id.as_deref())?;
-    } else {
-        // Legacy path: fetch or create a release over the API and stamp its id into the sourcemap.
-        let created_release_id = if let Some(r) = existing_release {
-            Some(r.id.to_string())
-        } else {
-            let cwd = std::env::current_dir()?;
-            get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
-                .as_ref()
-                .map(|r| r.id.to_string())
-        };
-        pairs = inject_pairs_legacy(pairs, created_release_id)?;
+        ReleaseMode::SymbolSet => {
+            // Fetch or create a release over the API and stamp its id into the sourcemap,
+            // binding the uploaded symbol set to it.
+            let created_release_id = if let Some(r) = existing_release {
+                Some(r.id.to_string())
+            } else {
+                let cwd = std::env::current_dir()?;
+                get_release_for_maps(&cwd, release.clone(), pairs.iter().map(|p| &p.sourcemap))?
+                    .as_ref()
+                    .map(|r| r.id.to_string())
+            };
+            pairs = inject_pairs_legacy(pairs, created_release_id)?;
+        }
     }
 
     // Write the source and sourcemaps back to disk
@@ -107,8 +109,8 @@ pub fn inject_impl(
     Ok(())
 }
 
-/// Experimental injection: content-addressed chunk ids plus an optional `_posthogReleaseId`
-/// payload.
+/// Event-mode injection (`--release-mode=event`): content-addressed chunk ids plus an optional
+/// `_posthogReleaseId` payload.
 pub fn inject_pairs(
     mut pairs: Vec<SourcePair>,
     release_id: Option<&str>,
@@ -139,8 +141,9 @@ pub fn inject_pairs(
     Ok(pairs)
 }
 
-/// Legacy injection: a random per-build chunk id and the created release id stamped into the
-/// sourcemap. Regenerates the chunk id whenever the release id changes or is missing.
+/// Symbol-set-mode injection (the default): a random per-build chunk id and the created release
+/// id stamped into the sourcemap. Regenerates the chunk id whenever the release id changes or is
+/// missing.
 pub fn inject_pairs_legacy(
     mut pairs: Vec<SourcePair>,
     created_release_id: Option<String>,

@@ -70,27 +70,6 @@ fn find_release_snippet(source: &str, chunk_id: &str) -> Option<ReleaseSnippetSp
     })
 }
 
-/// The source split around the release-variant snippet, so callers can hash the
-/// release-independent bytes without copying the whole file. The injected release id changes
-/// on every release even when the chunk's code didn't, so content hashes must skip it or the
-/// server would never skip an unchanged chunk. `None` for sources without the snippet.
-pub(crate) fn split_release_snippet<'a>(
-    source: &'a str,
-    chunk_id: &str,
-) -> Option<(&'a str, &'a str)> {
-    let span = find_release_snippet(source, chunk_id)?;
-    Some((&source[..span.start], &source[span.end..]))
-}
-
-/// When `source` carries the release-variant snippet, return it with the snippet removed.
-pub fn strip_release_snippet(source: &str, chunk_id: &str) -> Option<String> {
-    let (before, after) = split_release_snippet(source, chunk_id)?;
-    let mut stripped = String::with_capacity(before.len() + after.len());
-    stripped.push_str(before);
-    stripped.push_str(after);
-    Some(stripped)
-}
-
 /// Read the release id embedded in the source's release-variant snippet, if any.
 pub fn get_injected_release_id(source: &str, chunk_id: &str) -> Option<String> {
     let span = find_release_snippet(source, chunk_id)?;
@@ -496,27 +475,6 @@ mod tests {
     }
 
     #[test]
-    fn strip_release_snippet_yields_identical_output_across_releases() {
-        let chunk_id = "e0b0778e-ecb0-5900-9b2e-05642a44e6a9";
-        let original = r#"console.log("hi");
-//# sourceMappingURL=index.js.map"#;
-
-        let stripped: Vec<_> = [
-            "11111111-2222-4333-8444-555555555555",
-            "99999999-8888-4777-8666-000000000000",
-        ]
-        .iter()
-        .map(|release_id| {
-            let snippet = build_code_snippet(chunk_id, Some(release_id)).unwrap();
-            strip_release_snippet(&format!("{snippet}{original}"), chunk_id)
-        })
-        .collect();
-
-        assert_eq!(stripped[0].as_deref(), Some(original));
-        assert_eq!(stripped[0], stripped[1]);
-    }
-
-    #[test]
     fn build_code_snippet_json_encodes_ids() {
         let hostile = r#"a");window.x=1;("b"#;
         let encoded = serde_json::to_string(hostile).unwrap();
@@ -533,26 +491,17 @@ mod tests {
     }
 
     #[test]
-    fn strip_release_snippet_handles_escaped_chunk_ids() {
+    fn get_injected_release_id_round_trips_escaped_ids() {
+        // Ids that need JSON escaping must survive detection: the re-inject flow reads the
+        // embedded release id back to decide whether to refresh the snippet.
         let chunk_id = r#"weird"chunk\id"#;
-        let original = "code();";
-        let snippet = build_code_snippet(chunk_id, Some("rel")).unwrap();
-
-        let stripped = strip_release_snippet(&format!("{snippet}{original}"), chunk_id);
-
-        assert_eq!(stripped.as_deref(), Some(original));
-    }
-
-    #[test]
-    fn strip_release_snippet_ignores_sources_without_release_snippet() {
-        let chunk_id = "e0b0778e-ecb0-5900-9b2e-05642a44e6a9";
-        let plain_snippet = build_code_snippet(chunk_id, None).unwrap();
+        let release_id = r#"rel"ease\id"#;
+        let snippet = build_code_snippet(chunk_id, Some(release_id)).unwrap();
 
         assert_eq!(
-            strip_release_snippet(&format!("{plain_snippet}code();"), chunk_id),
-            None
+            get_injected_release_id(&format!("{snippet}code();"), chunk_id).as_deref(),
+            Some(release_id)
         );
-        assert_eq!(strip_release_snippet("code();", chunk_id), None);
     }
 
     #[test]
