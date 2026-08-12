@@ -10,7 +10,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { accountsLogic } from './accountsLogic'
 import { AccountsTabFilters } from './AccountsTabFilters'
 
@@ -44,7 +44,7 @@ describe('AccountsTabFilters', () => {
             <Provider>
                 <BindLogic
                     logic={dataNodeLogic}
-                    props={{ key: ACCOUNTS_HOGQL_DATA_NODE_KEY, query: {}, autoLoad: false }}
+                    props={{ key: ACCOUNTS_TABLE_DATA_NODE_KEY, query: {}, autoLoad: false }}
                 >
                     <AccountsTabFilters />
                 </BindLogic>

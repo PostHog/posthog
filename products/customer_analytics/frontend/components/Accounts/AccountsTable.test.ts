@@ -1,6 +1,6 @@
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { buildHistoryDisplay, getCanonicalPropertyTab } from './AccountsHogQLTable'
+import { buildHistoryDisplay, getCanonicalPropertyTab } from './AccountsTable'
 
 const DAY = 24 * 60 * 60
 const NOW_MS = 1_800_000_000_000

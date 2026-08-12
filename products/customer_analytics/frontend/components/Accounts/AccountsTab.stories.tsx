@@ -36,21 +36,45 @@ const RELATIONSHIP_DEFINITIONS = {
     next: null,
     previous: null,
     results: [
-        { id: 'def-csm', name: 'CSM', description: null, is_single_holder: true },
-        { id: 'def-ae', name: 'Account executive', description: null, is_single_holder: true },
-        { id: 'def-owner', name: 'Account owner', description: null, is_single_holder: true },
+        {
+            id: '11111111-2222-3333-4444-555555555555',
+            name: 'CSM',
+            description: null,
+            is_single_holder: true,
+        },
+        {
+            id: '66666666-7777-8888-9999-aaaaaaaaaaaa',
+            name: 'Account executive',
+            description: null,
+            is_single_holder: true,
+        },
+        {
+            id: 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+            name: 'Account owner',
+            description: null,
+            is_single_holder: true,
+        },
     ],
 }
 
-function buildAccountsQueryResponse(rows: AccountRow[]): Record<string, unknown> {
+function buildAccountsTableQueryResponse(rows: AccountRow[]): Record<string, unknown> {
     return {
-        kind: 'AccountsQuery',
-        columns: ['name', 'tag_names', 'notebook_count', 'csm', 'account_executive', 'account_owner'],
-        results: rows,
-        types: [],
-        hogql: '',
-        timings: [],
-        modifiers: {},
+        kind: 'AccountsTableQuery',
+        results: rows.map(([account, tags, noteCount, csm, accountExecutive, accountOwner]) => ({
+            id: account.id,
+            name: account.name,
+            externalId: account.external_id,
+            accountFields: { name: account.name },
+            tags,
+            noteCount,
+            relationships: {
+                '11111111-2222-3333-4444-555555555555': csm,
+                '66666666-7777-8888-9999-aaaaaaaaaaaa': accountExecutive,
+                'bbbbbbbb-cccc-dddd-eeee-ffffffffffff': accountOwner,
+            },
+            customProperties: {},
+            customPropertyHistory: {},
+        })),
         hasMore: false,
         limit: 100,
         offset: 0,
@@ -175,25 +199,26 @@ const EXPANDED_ROW_TEST_OPTIONS = {
     waitForSelectorTimeout: 15000,
 }
 
-function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
+function mockAccountsTableQuery(
+    rows: AccountRow[]
+): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
     return async ({ request }) => {
         const body = (await request.json()) as { query?: { kind?: string; metrics?: unknown[] } }
         const query = body?.query
-        if (query?.kind === 'AccountsQuery') {
-            return [200, buildAccountsQueryResponse(rows)]
-        }
-        if (query?.kind === 'AccountsTableQuery' && query.metrics) {
-            return [
-                200,
-                {
-                    kind: 'AccountsTableQuery',
-                    results: [],
-                    hasMore: false,
-                    limit: 100,
-                    offset: 0,
-                    metricsResults: [rows.length],
-                },
-            ]
+        if (query?.kind === 'AccountsTableQuery') {
+            return query.metrics
+                ? [
+                      200,
+                      {
+                          kind: 'AccountsTableQuery',
+                          results: [],
+                          hasMore: false,
+                          limit: 100,
+                          offset: 0,
+                          metricsResults: [rows.length],
+                      },
+                  ]
+                : [200, buildAccountsTableQueryResponse(rows)]
         }
         return undefined
     }
@@ -234,7 +259,7 @@ export const Default: Story = {
     decorators: [
         mswDecorator({
             post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SAMPLE_ROWS),
             },
         }),
     ],
@@ -245,7 +270,7 @@ export const Empty: Story = {
     decorators: [
         mswDecorator({
             post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery([]),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery([]),
             },
         }),
     ],
@@ -264,7 +289,7 @@ export const FeatureGateOff: Story = {
     decorators: [
         mswDecorator({
             post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SAMPLE_ROWS),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SAMPLE_ROWS),
             },
         }),
     ],
@@ -281,7 +306,7 @@ export const RowExpandedEmpty: Story = {
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
             },
             post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW),
             },
         }),
     ],
@@ -335,7 +360,7 @@ export const RowExpandedWithNote: Story = {
                 },
             },
             post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW),
             },
         }),
     ],
@@ -355,7 +380,7 @@ export const RowExpandedLinksDisabled: Story = {
                 [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
             },
             post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+                [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW),
             },
         }),
     ],
@@ -372,7 +397,7 @@ export const RowExpandedUsageNotFound: Story = {
             waitForSelector: ['[data-attr="accounts-refresh"]', '[data-attr="account-billing-insight-not-found"]'],
         },
     },
-    decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
+    decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsTableQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
         await expandFirstRow(canvasElement)
         const canvas = within(canvasElement)
