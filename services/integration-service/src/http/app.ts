@@ -1,6 +1,6 @@
 // HTTP surface. One functional route: the request scope lives entirely in the JWT, so
 // `resolve` takes no body (see auth/jwt.ts). It is a POST so no intermediary treats a
-// credential response as cacheable.
+// secret response as cacheable.
 
 import { Hono } from 'hono'
 
@@ -9,12 +9,12 @@ import { AuthError } from '../auth/types'
 import { logger } from '../lib/logging'
 import { authFailuresTotal, httpRequestDurationSeconds, httpRequestsTotal } from '../metrics'
 import { resolveKeys } from '../resolve'
-import type { Lifecycle, MountedCredentials } from '../types'
+import type { Lifecycle, MountedSecrets } from '../types'
 
 export interface AppOptions {
     verifier: JwtVerifier
     lifecycle: Lifecycle
-    credentials: () => MountedCredentials | null
+    secrets: () => MountedSecrets | null
 }
 
 export function createApp(opts: AppOptions): Hono {
@@ -35,7 +35,7 @@ export function createApp(opts: AppOptions): Hono {
 
     app.get('/_liveness', (c) => c.json({ status: 'ok' }))
 
-    // Not ready until the pod holds credentials: one that does not would answer every
+    // Not ready until the pod holds secrets: one that does not would answer every
     // resolve all-missing, which callers treat as terminal rather than retryable.
     app.get('/_readiness', (c) => {
         if (opts.lifecycle.shuttingDown) {
@@ -62,11 +62,11 @@ export function createApp(opts: AppOptions): Hono {
 
         // Never answered as an all-`missing` response: a caller treats a missing key as
         // terminal, so answering that way during a cold start would turn an unavailable
-        // service into what looks like a deleted credential. A failed re-read keeps the
-        // credentials already held and never lands here.
-        const mounted = opts.credentials()
+        // service into what looks like a deleted secret. A failed re-read keeps the
+        // secrets already held and never lands here.
+        const mounted = opts.secrets()
         if (!mounted) {
-            logger.error('secrets:no_credentials_held', { deployment: identity.deployment })
+            logger.error('resolve:no_secrets_held', { deployment: identity.deployment })
             return c.json({ error: 'Secret store unavailable' }, 503)
         }
 

@@ -6,7 +6,7 @@ import type { SigningKeyLoader } from '@/auth/registry'
 import { AUDIENCE, type SigningKeys } from '@/auth/types'
 import { createApp } from '@/http/app'
 import { httpRequestsTotal, register } from '@/metrics'
-import type { Lifecycle, MountedCredentials } from '@/types'
+import type { Lifecycle, MountedSecrets } from '@/types'
 
 const RESOLVE_PATH = '/v1/secrets/resolve'
 
@@ -15,10 +15,10 @@ const SIGNING_KEY = 'a-signing-key'
 const KEYS: SigningKeys = { [DEPLOYMENT]: [SIGNING_KEY] }
 const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 
-const MOUNTED: MountedCredentials = {
+const MOUNTED: MountedSecrets = {
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v1',
-    credentials: { [KEY]: { state: 'steady', value: 'hunter2-zx9q', versionId: 'v1', fetchedAt: 'now' } },
+    secrets: { [KEY]: { state: 'steady', value: 'hunter2-zx9q', versionId: 'v1', fetchedAt: 'now' } },
 }
 
 async function mint(
@@ -35,14 +35,14 @@ async function mint(
 function build(
     overrides: {
         lifecycle?: Partial<Lifecycle>
-        credentials?: () => MountedCredentials | null
+        secrets?: () => MountedSecrets | null
     } = {}
 ): { app: ReturnType<typeof createApp>; lifecycle: Lifecycle } {
     const lifecycle: Lifecycle = { shuttingDown: false, ready: true, ...overrides.lifecycle }
     const app = createApp({
         verifier: new JwtVerifier({ entries: () => Object.entries(KEYS) } as SigningKeyLoader),
         lifecycle,
-        credentials: overrides.credentials ?? ((): MountedCredentials | null => MOUNTED),
+        secrets: overrides.secrets ?? ((): MountedSecrets | null => MOUNTED),
     })
     return { app, lifecycle }
 }
@@ -59,7 +59,7 @@ describe('http surface', () => {
     })
 
     describe('resolve', () => {
-        it('serves the requested credential to a valid token', async () => {
+        it('serves the requested secret to a valid token', async () => {
             const { app } = build()
             const res = await app.request(await authed(await mint()))
 
@@ -93,17 +93,17 @@ describe('http surface', () => {
             await expect(res.json()).resolves.toEqual({ error: 'Unauthorized' })
         })
 
-        // A pod that holds no credentials must not answer all-missing: callers treat a
-        // missing key as terminal, so an empty answer would look like a deleted credential
+        // A pod that holds no secrets must not answer all-missing: callers treat a
+        // missing key as terminal, so an empty answer would look like a deleted secret
         // rather than an unavailable service.
-        it('answers 503 rather than all-missing when it holds no credentials', async () => {
-            const { app } = build({ credentials: () => null })
+        it('answers 503 rather than all-missing when it holds no secrets', async () => {
+            const { app } = build({ secrets: () => null })
             const res = await app.request(await authed(await mint()))
 
             expect(res.status).toBe(503)
         })
 
-        it('never returns a credential value on a rejected request', async () => {
+        it('never returns a secret value on a rejected request', async () => {
             const res = await build().app.request(await authed('not-a-jwt'))
             expect(await res.text()).not.toContain('hunter2-zx9q')
         })
@@ -153,7 +153,7 @@ describe('http surface', () => {
         expect(Object.keys(body.secrets)).toEqual([KEY])
     })
 
-    it('never exposes a credential value in the scrape', async () => {
+    it('never exposes a secret value in the scrape', async () => {
         const { app } = build()
         await app.request(await authed(await mint()))
 

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { register, servingStaleSeconds } from '@/metrics'
 import { SecretMount } from '@/mount'
-import type { MountedCredentials } from '@/types'
+import type { MountedSecrets } from '@/types'
 
 const AN_HOUR_MS = 60 * 60 * 1000
 
@@ -28,7 +28,7 @@ function secretMount(dir: string, opts: { now?: () => number } = {}): SecretMoun
     return new SecretMount({ dir, ...(opts.now && { now: opts.now }) })
 }
 
-async function load(values: Record<string, string>): Promise<MountedCredentials | null> {
+async function load(values: Record<string, string>): Promise<MountedSecrets | null> {
     const m = secretMount(await mount(values))
     await m.reload()
     return m.current()
@@ -46,30 +46,30 @@ describe('reading the mount', () => {
             A_CREDENTIAL_NOBODY_HAS_HEARD_OF: 'new',
         })
 
-        expect(held?.credentials['HUBSPOT_APP_CLIENT_SECRET']).toMatchObject({ state: 'steady', value: 'sec' })
-        expect(held?.credentials['STRIPE_APP_SECRET_KEY']).toMatchObject({ state: 'steady', value: 'sk' })
-        expect(held?.credentials['A_CREDENTIAL_NOBODY_HAS_HEARD_OF']).toMatchObject({ state: 'steady', value: 'new' })
+        expect(held?.secrets['HUBSPOT_APP_CLIENT_SECRET']).toMatchObject({ state: 'steady', value: 'sec' })
+        expect(held?.secrets['STRIPE_APP_SECRET_KEY']).toMatchObject({ state: 'steady', value: 'sk' })
+        expect(held?.secrets['A_CREDENTIAL_NOBODY_HAS_HEARD_OF']).toMatchObject({ state: 'steady', value: 'new' })
     })
 
     // THE property that replaced the manifest filter: the mount's own machinery is never a
-    // credential — signing keys, the recovery list, and rotation siblings, which would
+    // secret — signing keys, the recovery list, and rotation siblings, which would
     // otherwise hand out a rotation's outgoing value under its own name.
     it.each([
         ['a caller signing key', '__CALLER_KEY_POSTHOG_DJANGO'],
         ['any other reserved entry', '__SOMETHING_ELSE'],
         ['the recovery list', 'INTEGRATION_RECOVERY_KEYS'],
         ['a rotation sibling', 'HUBSPOT_APP_CLIENT_SECRET_FALLBACKS'],
-    ])('never exposes %s as a credential', async (_label, key) => {
-        const held = await load({ HUBSPOT_APP_CLIENT_SECRET: 'sec', [key]: 'not-a-credential' })
+    ])('never exposes %s as a secret', async (_label, key) => {
+        const held = await load({ HUBSPOT_APP_CLIENT_SECRET: 'sec', [key]: 'not-a-secret' })
         // The positive alongside the negative, so this cannot pass by load() returning null.
-        expect(held?.credentials).toHaveProperty('HUBSPOT_APP_CLIENT_SECRET')
-        expect(held?.credentials).not.toHaveProperty(key)
+        expect(held?.secrets).toHaveProperty('HUBSPOT_APP_CLIENT_SECRET')
+        expect(held?.secrets).not.toHaveProperty(key)
     })
 
     // A trailing newline is easy to introduce by hand and would silently break an API call.
     it('trims whitespace a human left in the value', async () => {
         const held = await load({ HUBSPOT_APP_CLIENT_SECRET: 'sec\n' })
-        expect(held?.credentials['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
+        expect(held?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBe('sec')
     })
 
     it.each([
@@ -91,20 +91,20 @@ describe('reading the mount', () => {
         ],
     ])('reports %s', async (_label, values, expected) => {
         const held = await load(values)
-        expect(held?.credentials['HUBSPOT_APP_CLIENT_SECRET']).toMatchObject(expected)
+        expect(held?.secrets['HUBSPOT_APP_CLIENT_SECRET']).toMatchObject(expected)
     })
 
     // The reason rotation uses a sibling rather than AWS staging labels: rotating one
-    // credential must leave every other one alone.
-    it('leaves other credentials steady while one is mid-rotation', async () => {
+    // secret must leave every other one alone.
+    it('leaves other secrets steady while one is mid-rotation', async () => {
         const held = await load({
             HUBSPOT_APP_CLIENT_SECRET: 'new',
             HUBSPOT_APP_CLIENT_SECRET_FALLBACKS: 'old',
             STRIPE_APP_SECRET_KEY: 'sk',
         })
 
-        expect(held?.credentials['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('rotating')
-        expect(held?.credentials['STRIPE_APP_SECRET_KEY']?.state).toBe('steady')
+        expect(held?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('rotating')
+        expect(held?.secrets['STRIPE_APP_SECRET_KEY']?.state).toBe('steady')
     })
 
     it('serves no value at all for a key named in the recovery list', async () => {
@@ -113,8 +113,8 @@ describe('reading the mount', () => {
             INTEGRATION_RECOVERY_KEYS: 'HUBSPOT_APP_CLIENT_SECRET',
         })
 
-        expect(held?.credentials['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('recovery')
-        expect(held?.credentials['HUBSPOT_APP_CLIENT_SECRET']?.value).toBeUndefined()
+        expect(held?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('recovery')
+        expect(held?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.value).toBeUndefined()
     })
 
     it('handles several keys in recovery from one comma-separated value', async () => {
@@ -125,16 +125,16 @@ describe('reading the mount', () => {
             INTEGRATION_RECOVERY_KEYS: 'STRIPE_APP_SECRET_KEY, HUBSPOT_APP_CLIENT_SECRET',
         })
 
-        expect(held?.credentials['STRIPE_APP_SECRET_KEY']?.state).toBe('recovery')
-        expect(held?.credentials['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('recovery')
-        expect(held?.credentials['STRIPE_APP_CLIENT_ID']?.state).toBe('steady')
+        expect(held?.secrets['STRIPE_APP_SECRET_KEY']?.state).toBe('recovery')
+        expect(held?.secrets['HUBSPOT_APP_CLIENT_SECRET']?.state).toBe('recovery')
+        expect(held?.secrets['STRIPE_APP_CLIENT_ID']?.state).toBe('steady')
     })
 
-    // kubelet keeps its own bookkeeping in the volume; reading it as a credential would be
+    // kubelet keeps its own bookkeeping in the volume; reading it as a secret would be
     // wrong and reading it into the content hash would make the hash churn.
     it('ignores kubelet bookkeeping entries', async () => {
         const held = await load({ HUBSPOT_APP_CLIENT_SECRET: 'sec', '..data': 'internal' })
-        expect(Object.keys(held?.credentials ?? {})).toEqual(['HUBSPOT_APP_CLIENT_SECRET'])
+        expect(Object.keys(held?.secrets ?? {})).toEqual(['HUBSPOT_APP_CLIENT_SECRET'])
     })
 
     describe('the content hash', () => {
@@ -156,8 +156,8 @@ describe('reading the mount', () => {
     it.each([
         ['the mount is absent', '/nonexistent/mount', undefined],
         ['the mount is empty', null, {}],
-        // Counting files rather than credentials would call this healthy, and every resolve
-        // would answer all-missing, which a caller treats as a deleted credential.
+        // Counting files rather than secrets would call this healthy, and every resolve
+        // would answer all-missing, which a caller treats as a deleted secret.
         ['the mount carries only reserved entries', null, { __CALLER_KEY_POSTHOG_DJANGO: 'k' }],
     ])('holds nothing when %s', async (_label, path, values) => {
         const m = secretMount(path ?? (await mount(values ?? {})))
@@ -167,7 +167,7 @@ describe('reading the mount', () => {
     })
 })
 
-describe('holding credentials across reloads', () => {
+describe('holding secrets across reloads', () => {
     beforeEach(() => {
         register.resetMetrics()
     })

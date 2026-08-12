@@ -1,10 +1,10 @@
 // End to end over a real mount directory and a real listening socket. Catches wiring
-// regressions between the mount, the credentials it holds, auth and the routes that the
+// regressions between the mount, the secrets it holds, auth and the routes that the
 // per-module unit tests cannot see.
 
 import { serve } from '@hono/node-server'
 import { SignJWT } from 'jose'
-import { mkdtemp, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -100,7 +100,7 @@ describe('integration server end to end', () => {
             })
 
             // A reserved entry is unservable even when a valid token names it, which is
-            // what lets the signing keys share a mount with the credentials they protect.
+            // what lets the signing keys share a mount with the secrets they protect.
             const reserved = await resolve(
                 port,
                 await mint({ signingKey: CALLER_SIGNING_KEY, keys: [SIGNING_KEY_ENTRY] })
@@ -111,6 +111,20 @@ describe('integration server end to end', () => {
 
             const expired = await resolve(port, await mint({ signingKey: CALLER_SIGNING_KEY, expiresIn: '-1s' }))
             expect(expired.status).toBe(401)
+
+            const garbage = await resolve(port, 'not-a-jwt')
+            expect(garbage.status).toBe(401)
+
+            // A name nothing on the mount carries comes back in `missing`, per key, while
+            // the rest of the request still succeeds.
+            const unknown = await resolve(
+                port,
+                await mint({ signingKey: CALLER_SIGNING_KEY, keys: [KEY, 'NO_SUCH_INTEGRATION_KEY'] })
+            )
+            expect(await unknown.json()).toMatchObject({
+                secrets: { [KEY]: { value: 'current-value-1' } },
+                missing: ['NO_SUCH_INTEGRATION_KEY'],
+            })
 
             // Start a rotation on the mount; the running server picks it up on reload.
             await writeFile(join(dir, `${KEY}_FALLBACKS`), 'previous-value-0')
@@ -135,13 +149,22 @@ describe('integration server end to end', () => {
             expect(JSON.parse(recoveryBody).secrets[BURNED_KEY]).not.toHaveProperty('value')
             expect(recoveryBody).not.toContain('sk-live-value')
 
+            // The mount vanishing must not take a warm pod out: it keeps serving what it
+            // holds, and readiness stays up.
+            const held = join(tmpdir(), `integration-e2e-moved-${port}`)
+            await rename(dir, held)
+            await server.reload()
+            expect((await resolve(port, token)).status).toBe(200)
+            await rename(held, dir)
+            await server.reload()
+
             // Revoke the caller: the same token must stop working, other callers must not.
             await unlink(join(dir, SIGNING_KEY_ENTRY))
             await server.reload()
             expect((await resolve(port, token)).status).toBe(401)
             expect((await resolve(port, await mint({ signingKey: OTHER_SIGNING_KEY }))).status).toBe(200)
 
-            // The scrape lives on its own listener and never carries a credential value.
+            // The scrape lives on its own listener and never carries a secret value.
             const metricsPort = server.metricsPort()
             expect(metricsPort).toBeDefined()
             expect(metricsPort).not.toBe(port)

@@ -26,10 +26,30 @@
                             "@posthog/*",
                             "@posthog/**"
                         ],
-                        "message": "integration-service must not import from the rest of the monorepo — copy the small piece you need instead"
+                        "message": "integration-service must not import from the rest of the monorepo \u2014 copy the small piece you need instead"
                     }
                 ]
             }
-        ]
-    }
+        ],
+        "node/no-process-env": "error"
+    },
+    "plugins": [
+        "typescript",
+        "unicorn",
+        "oxc",
+        "node"
+    ],
+    "overrides": [
+        {
+            "files": [
+                "src/lib/config.ts",
+                "src/lib/logging.ts",
+                "tests/**",
+                "scripts/**"
+            ],
+            "rules": {
+                "node/no-process-env": "off"
+            }
+        }
+    ]
 }

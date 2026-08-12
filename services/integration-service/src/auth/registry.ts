@@ -1,5 +1,5 @@
 // The service's signing keys, one flat `__CALLER_KEY_<DEPLOYMENT>` entry per caller in the
-// same mounted secret as the credentials. The same value goes into that deployment's own
+// same mounted secret as the secrets. The same value goes into that deployment's own
 // secret as INTEGRATION_SERVICE_JWT_SECRET.
 //
 // Deployment names are DERIVED from the entries present, not declared in code, so revoking
@@ -11,7 +11,7 @@ import { signingKeyReloadFailuresTotal, signingKeysLastLoadedTimestamp } from '.
 import { RESERVED_PREFIX, readMount } from '../mount'
 import type { SigningKeys } from './types'
 
-/** Reserved-prefixed, so the mount never serves a signing key as a credential. */
+/** Reserved-prefixed, so the mount never serves a signing key as a secret. */
 export const CALLER_KEY_PREFIX = `${RESERVED_PREFIX}CALLER_KEY_`
 
 /**

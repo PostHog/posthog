@@ -79,7 +79,7 @@ export class IntegrationServer {
 
     /** Re-read the signing keys and the mount now, without waiting for the timer. */
     async reload(): Promise<void> {
-        // Keys before credentials: a revocation and a rotation can land in one secret
+        // Keys before secrets: a revocation and a rotation can land in one secret
         // edit, and the revoked caller must not see the new values in the gap between.
         await this.signingKeys?.reload()
         await this.mount?.reload()
@@ -99,13 +99,13 @@ export class IntegrationServer {
         const app = createApp({
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
-            credentials: () => mount.current(),
+            secrets: () => mount.current(),
         })
 
         await mount.reload()
         this.lifecycle.ready = mount.current() != null
         if (!this.lifecycle.ready) {
-            logger.error('startup:no_credentials_on_mount', { dir: config.mountDir })
+            logger.error('startup:no_secrets_on_mount', { dir: config.mountDir })
         }
 
         const serveFn = this.overrides.serve ?? serve

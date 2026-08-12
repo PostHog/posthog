@@ -13,19 +13,19 @@ collectDefaultMetrics({ register, prefix: 'integration_service_' })
 
 export const resolveTotal = new Counter({
     name: 'integration_secret_resolve_total',
-    help: 'Credential resolutions, by deployment, key and outcome',
+    help: 'Secret resolutions, by deployment, key and outcome',
     labelNames: ['deployment', 'key', 'result'],
     registers: [register],
 })
 
 export const lastResolvedTimestamp = new Gauge({
     name: 'integration_secret_last_resolved_timestamp',
-    help: 'Unix timestamp of the last successful resolution of a credential',
+    help: 'Unix timestamp of the last successful resolution of a secret',
     labelNames: ['key'],
     registers: [register],
 })
 
-// How much traffic is reading a credential that is mid-rotation. Says nothing about whether
+// How much traffic is reading a secret that is mid-rotation. Says nothing about whether
 // anyone needed the previous value.
 export const previousVersionServedTotal = new Counter({
     name: 'integration_secret_previous_version_served_total',
@@ -34,11 +34,11 @@ export const previousVersionServedTotal = new Counter({
     registers: [register],
 })
 
-// An unreadable mount keeps the credentials already held rather than failing every read, so
+// An unreadable mount keeps the secrets already held rather than failing every read, so
 // this gauge is the only sign of that degradation. Alert on it.
 export const servingStaleSeconds = new Gauge({
     name: 'integration_secret_serving_stale_seconds',
-    help: 'Age of the credentials still being served because the mount could not be re-read (0 when healthy)',
+    help: 'Age of the secrets still being served because the mount could not be re-read (0 when healthy)',
     registers: [register],
 })
 

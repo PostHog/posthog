@@ -9,12 +9,12 @@
 
 import { logger } from './lib/logging'
 import { observeResolve, previousVersionServedTotal } from './metrics'
-import type { CallerIdentity, MountedCredentials, ResolveOutcome } from './types'
+import type { CallerIdentity, MountedSecrets, ResolveOutcome } from './types'
 
 /** Stand-in label for a name the mount does not carry, which is caller-supplied text. */
 const UNKNOWN_KEY = 'unknown'
 
-/** Wire shape of one resolved credential. snake_case because Python is the primary consumer. */
+/** Wire shape of one resolved secret. snake_case because Python is the primary consumer. */
 export interface WireSecret {
     state: string
     value?: string
@@ -28,30 +28,30 @@ export interface ResolveResponse {
     missing: string[]
 }
 
-export function resolveKeys(identity: CallerIdentity, mounted: MountedCredentials): ResolveResponse {
+export function resolveKeys(identity: CallerIdentity, mounted: MountedSecrets): ResolveResponse {
     const secrets: Record<string, WireSecret> = {}
     const missing: string[] = []
     const served: string[] = []
 
     for (const key of identity.requestedKeys) {
-        const credential = mounted.credentials[key]
-        if (!credential) {
+        const secret = mounted.secrets[key]
+        if (!secret) {
             missing.push(key)
             observeResolve(identity.deployment, UNKNOWN_KEY, 'missing')
             continue
         }
 
-        const outcome: ResolveOutcome = credential.state === 'recovery' ? 'recovery' : 'ok'
+        const outcome: ResolveOutcome = secret.state === 'recovery' ? 'recovery' : 'ok'
         const wire: WireSecret = {
-            state: credential.state,
-            version_id: credential.versionId,
-            fetched_at: credential.fetchedAt,
+            state: secret.state,
+            version_id: secret.versionId,
+            fetched_at: secret.fetchedAt,
         }
-        if (credential.value !== undefined) {
-            wire.value = credential.value
+        if (secret.value !== undefined) {
+            wire.value = secret.value
         }
-        if (credential.previous !== undefined) {
-            wire.previous = credential.previous
+        if (secret.previous !== undefined) {
+            wire.previous = secret.previous
             previousVersionServedTotal.labels({ key }).inc()
         }
         secrets[key] = wire

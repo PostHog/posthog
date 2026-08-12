@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import { register, resolveTotal } from '@/metrics'
 import { resolveKeys } from '@/resolve'
-import type { CallerIdentity, MountedCredentials } from '@/types'
+import type { CallerIdentity, MountedSecrets } from '@/types'
 
-function mounted(credentials: MountedCredentials['credentials']): MountedCredentials {
-    return { fetchedAt: '2026-08-06T00:00:00.000Z', versionId: 'v1', credentials }
+function mounted(secrets: MountedSecrets['secrets']): MountedSecrets {
+    return { fetchedAt: '2026-08-06T00:00:00.000Z', versionId: 'v1', secrets }
 }
 
 const MOUNTED = mounted({
@@ -58,7 +58,7 @@ describe('resolve', () => {
 
     it.each([
         ['a name nothing on the mount carries', 'NOT_A_REAL_KEY'],
-        // The mount never puts a reserved entry in the credential set, so a token naming a
+        // The mount never puts a reserved entry in the secret set, so a token naming a
         // signing key gets the same answer as a token naming nonsense.
         ['a reserved entry a token asked for by name', '__CALLER_KEY_POSTHOG_DJANGO'],
     ])('reports %s as missing rather than failing the request', async (_label, key) => {

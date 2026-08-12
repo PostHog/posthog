@@ -1,16 +1,16 @@
 /**
- * Where a credential stands relative to a rotation.
+ * Where a secret stands relative to a rotation.
  *
  * - `steady`: one live value, with no `<KEY>_FALLBACKS` sibling holding a different one.
  * - `rotating`: the sibling holds a different value, and both are served, because a third
  *   party may still hand back tokens minted against the old one.
  * - `recovery`: the value is known-burned with no replacement yet, so nothing is served and
- *   callers raise a typed error rather than calling out with a credential that cannot work.
+ *   callers raise a typed error rather than calling out with a secret that cannot work.
  */
 export type SecretState = 'steady' | 'rotating' | 'recovery'
 
-/** One credential as the mount holds it. */
-export interface Credential {
+/** One secret as the mount holds it. */
+export interface Secret {
     state: SecretState
     /** Absent only in `recovery`. */
     value?: string
@@ -21,12 +21,12 @@ export interface Credential {
     fetchedAt: string
 }
 
-/** Every credential on the mount, as one read of it saw them. */
-export interface MountedCredentials {
+/** Every secret on the mount, as one read of it saw them. */
+export interface MountedSecrets {
     fetchedAt: string
     /** Hash of the whole mounted key set, so unchanged content keeps one id. */
     versionId: string
-    credentials: Record<string, Credential>
+    secrets: Record<string, Secret>
 }
 
 /** What a verified request is allowed to do, and who to attribute it to. */
@@ -37,7 +37,7 @@ export interface CallerIdentity {
      */
     deployment: string
     /**
-     * The product code path that wanted the credential. Caller-supplied and unverified, so
+     * The product code path that wanted the secret. Caller-supplied and unverified, so
      * it reaches the audit log and nothing else — never a metric label.
      */
     caller: string

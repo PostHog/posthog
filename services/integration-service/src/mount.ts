@@ -1,4 +1,4 @@
-// The mounted Kubernetes Secret: reads it and holds the credentials it carries.
+// The mounted Kubernetes Secret: reads it and holds the secrets it carries.
 //
 // Kubelet projects the secret as a directory, one file per key, and rewrites it in place
 // when the content changes, swapping the `..data` symlink atomically. So a rotation reaches
@@ -10,16 +10,16 @@ import { join } from 'node:path'
 
 import { logger } from './lib/logging'
 import { mountErrorsTotal, servingStaleSeconds } from './metrics'
-import type { Credential, MountedCredentials } from './types'
+import type { Secret, MountedSecrets } from './types'
 
 /**
- * Marks an entry that is never served as a credential, whatever a token asks for. Credential
+ * Marks an entry that is never served as a secret, whatever a token asks for. Secret
  * names are the third party's own environment-variable names, so a double underscore cannot
  * collide with one.
  */
 export const RESERVED_PREFIX = '__'
 
-/** Comma-separated names of the credentials that are in recovery. */
+/** Comma-separated names of the secrets that are in recovery. */
 export const RECOVERY_KEYS = 'INTEGRATION_RECOVERY_KEYS'
 
 /** Suffix holding the outgoing value during a rotation, comma-separated, newest first. */
@@ -79,21 +79,21 @@ export interface SecretMountOptions {
 }
 
 /**
- * Holds the last successfully parsed credential set. A reload that fails keeps serving what
+ * Holds the last successfully parsed secret set. A reload that fails keeps serving what
  * is already held, so a mount blip does not take a warm pod out of rotation; the staleness
  * gauge is what makes that visible.
  */
 export class SecretMount {
-    private held: MountedCredentials | null = null
+    private held: MountedSecrets | null = null
 
     constructor(private readonly opts: SecretMountOptions) {}
 
     /**
-     * The credentials currently being served. Null until the first successful read, which is
-     * what the server's readiness probe reports: a pod with no credentials must not serve,
+     * The secrets currently being served. Null until the first successful read, which is
+     * what the server's readiness probe reports: a pod with no secrets must not serve,
      * because it would answer every resolve all-missing, which callers treat as terminal.
      */
-    current(): MountedCredentials | null {
+    current(): MountedSecrets | null {
         return this.held
     }
 
@@ -112,7 +112,7 @@ export class SecretMount {
         }
     }
 
-    private build(values: Record<string, string>): MountedCredentials | null {
+    private build(values: Record<string, string>): MountedSecrets | null {
         // Sorted so the same content always hashes to the same version id.
         const contentHash = createHash('sha256')
             .update(
@@ -126,35 +126,35 @@ export class SecretMount {
 
         const inRecovery = new Set(commaList(values[RECOVERY_KEYS]))
         const fetchedAt = new Date().toISOString()
-        const credentials: Record<string, Credential> = {}
+        const secrets: Record<string, Secret> = {}
 
         for (const [key, value] of Object.entries(values)) {
             // Signing keys, the recovery list and rotation siblings are the mount's own
-            // machinery; served as credentials they would leak the outgoing value of a
+            // machinery; served as secrets they would leak the outgoing value of a
             // rotation and the list of burned keys.
             if (key.startsWith(RESERVED_PREFIX) || key === RECOVERY_KEYS || key.endsWith(FALLBACK_SUFFIX)) {
                 continue
             }
             if (inRecovery.has(key)) {
-                credentials[key] = { state: 'recovery', versionId: contentHash, fetchedAt }
+                secrets[key] = { state: 'recovery', versionId: contentHash, fetchedAt }
                 continue
             }
             const previous = commaList(values[`${key}${FALLBACK_SUFFIX}`])[0]
             if (previous !== undefined && previous !== value) {
-                credentials[key] = { state: 'rotating', value, previous, versionId: contentHash, fetchedAt }
+                secrets[key] = { state: 'rotating', value, previous, versionId: contentHash, fetchedAt }
                 continue
             }
-            credentials[key] = { state: 'steady', value, versionId: contentHash, fetchedAt }
+            secrets[key] = { state: 'steady', value, versionId: contentHash, fetchedAt }
         }
 
-        if (Object.keys(credentials).length === 0) {
-            // Counting files rather than credentials would call a mount holding nothing but
+        if (Object.keys(secrets).length === 0) {
+            // Counting files rather than secrets would call a mount holding nothing but
             // signing keys healthy, and every resolve would answer all-missing, which a
-            // caller treats as a deleted credential.
-            logger.warn('mount:no_credentials', { dir: this.opts.dir })
+            // caller treats as a deleted secret.
+            logger.warn('mount:no_secrets', { dir: this.opts.dir })
             return null
         }
 
-        return { fetchedAt, versionId: contentHash, credentials }
+        return { fetchedAt, versionId: contentHash, secrets }
     }
 }
