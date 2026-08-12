@@ -315,12 +315,13 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert write_response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_personal_space_task_can_read_its_creators_canvas(self):
-        personal_channel = Channel.objects.create(
-            team=self.team,
-            name=Channel.PERSONAL_CHANNEL_NAME,
-            channel_type=Channel.ChannelType.PERSONAL,
-            created_by=self.user,
-        )
+        with team_scope(self.team.id):
+            personal_channel = Channel.objects.create(
+                team=self.team,
+                name=Channel.PERSONAL_CHANNEL_NAME,
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=self.user,
+            )
         bound_task = Task.objects.create(
             team=self.team,
             channel=personal_channel,
@@ -353,12 +354,13 @@ class TestCanvasCrud(CanvasAPIBaseTest):
 
     def test_task_bound_sandbox_cannot_access_another_creators_personal_canvas(self):
         other_user = self._create_user("other-personal-canvas-creator@example.com")
-        other_personal_channel = Channel.objects.create(
-            team=self.team,
-            name=Channel.PERSONAL_CHANNEL_NAME,
-            channel_type=Channel.ChannelType.PERSONAL,
-            created_by=other_user,
-        )
+        with team_scope(self.team.id):
+            other_personal_channel = Channel.objects.create(
+                team=self.team,
+                name=Channel.PERSONAL_CHANNEL_NAME,
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=other_user,
+            )
         bound_task = Task.objects.create(
             team=self.team,
             channel=self.channel,
