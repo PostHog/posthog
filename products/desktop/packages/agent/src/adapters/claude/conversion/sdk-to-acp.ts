@@ -273,8 +273,7 @@ function handleToolUseChunk(
   }
 
   if (alreadyEmitted) {
-    // The permission handler owns an already-emitted ExitPlanMode call: it resolves the plan the
-    // model may have left out of its input, and re-sending that raw input would blank it again.
+    // Replaying the raw input would overwrite the plan resolved by the permission handler.
     if (chunk.name === "ExitPlanMode") {
       return null;
     }

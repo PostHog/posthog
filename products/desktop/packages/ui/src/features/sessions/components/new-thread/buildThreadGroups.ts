@@ -97,13 +97,7 @@ function isDirectMessageItem(item: ConversationItem): boolean {
 
 /**
  * A plan presented for approval (the ExitPlanMode / switch_mode tool call,
- * rendered by PlanApprovalView). Never folded — a plan is meant to be read.
- *
- * Match the plan tool by name as well as by the `switch_mode` kind: the call is
- * emitted from the model's raw input and its plan/kind are backfilled later, so
- * keying on kind alone lets an ExitPlanMode call fold into a tool group before
- * its kind resolves — burying the plan the user is meant to read. The render
- * side (ToolCallBlock) matches by the same rule, so the two never disagree.
+ * rendered by PlanApprovalView). Keep it visible so the user can read it.
  */
 function isPlanItem(item: ConversationItem): boolean {
   return (

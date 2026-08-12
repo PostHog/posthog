@@ -79,10 +79,6 @@ export function ToolCallBlock({
     );
   }
 
-  // Match the plan card by tool name as well as by the switch_mode kind, so a
-  // plan whose kind hasn't resolved yet still renders as a plan card rather than
-  // a generic tool call — the same rule buildThreadGroups uses to keep it out of
-  // a collapsed group.
   if (isPlanApprovalTool(toolName)) {
     return (
       <Box>
