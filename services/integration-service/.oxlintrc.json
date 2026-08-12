@@ -33,20 +33,10 @@
         ],
         "node/no-process-env": "error"
     },
-    "plugins": [
-        "typescript",
-        "unicorn",
-        "oxc",
-        "node"
-    ],
+    "plugins": ["typescript", "unicorn", "oxc", "node"],
     "overrides": [
         {
-            "files": [
-                "src/lib/config.ts",
-                "src/lib/logging.ts",
-                "tests/**",
-                "scripts/**"
-            ],
+            "files": ["src/lib/config.ts", "src/lib/logging.ts", "tests/**", "scripts/**"],
             "rules": {
                 "node/no-process-env": "off"
             }
