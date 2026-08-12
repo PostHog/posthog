@@ -11,21 +11,24 @@ const DELTAS = [0.012, 0.028, 0.041, 0.06, 0.06]
 const LOWER = [-0.004, 0.008, 0.019, 0.032, 0.032]
 const UPPER = [0.028, 0.048, 0.063, 0.088, 0.088]
 const COMPUTED_AT = '2026-06-05T09:30:00Z'
+const HAS_REAL_DATA_ALL = [true, true, true, true, true]
+// Only the first day is measured, so the mid-plot hover the stories share lands on a pending point.
+const HAS_REAL_DATA_PENDING_TAIL = [true, false, false, false, false]
 
-/** The last day carries the previous value forward, so the line dashes into it. */
+/** `hasRealData[i]` marks day `i` measured; a false entry is a day the daily job hasn't computed. */
 function buildChartData({
     significant,
-    lastDayPending,
+    hasRealData,
 }: {
     significant: boolean
-    lastDayPending: boolean
+    hasRealData: boolean[]
 }): ProcessedChartData {
     const processedData: ProcessedTimeseriesDataPoint[] = DAYS.map((date, i) => ({
         date,
         value: DELTAS[i],
         lower_bound: LOWER[i],
         upper_bound: UPPER[i],
-        hasRealData: !(lastDayPending && i === DAYS.length - 1),
+        hasRealData: hasRealData[i],
         number_of_samples: 1200 + i * 300,
         denominator_sum: 18200 + i * 900,
         significant,
@@ -41,17 +44,17 @@ function buildChartData({
 /** Renders the real chart, so these snapshots cover its axis and CI band, not just the tooltip. */
 function TooltipChart({
     significant = true,
-    lastDayPending = false,
+    hasRealData = HAS_REAL_DATA_ALL,
     isRatioMetric = false,
 }: {
     significant?: boolean
-    lastDayPending?: boolean
+    hasRealData?: boolean[]
     isRatioMetric?: boolean
 }): JSX.Element {
     return (
         <Stage width={620}>
             <VariantTimeseriesChart
-                chartData={buildChartData({ significant, lastDayPending })}
+                chartData={buildChartData({ significant, hasRealData })}
                 isRatioMetric={isRatioMetric}
             />
         </Stage>
@@ -82,11 +85,11 @@ export const NotSignificant: Story = {
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
 }
 
-// A day the daily job hasn't computed: adds the pending footer, and the line dashes into the
-// trailing point. Hovered mid-plot like the others, because a cursor-anchored tooltip near the
-// right edge clips out of the snapshot.
+// Days the daily job hasn't computed: only the first day is measured, so the line dashes from the
+// second point on and the hovered day adds the pending footer. Hovered mid-plot like the others,
+// because a cursor-anchored tooltip near the right edge clips out of the snapshot.
 export const PendingDay: Story = {
-    render: () => <TooltipChart lastDayPending />,
+    render: () => <TooltipChart hasRealData={HAS_REAL_DATA_PENDING_TAIL} />,
     play: async ({ canvasElement }) => await playHoverAtFraction(canvasElement, 0.4),
 }
 
