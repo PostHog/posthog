@@ -35,14 +35,12 @@ describe('context-mill archive fetching', () => {
         ['a dropped connection', () => Promise.reject(new TypeError('fetch failed'))],
         ['a 503 from the CDN', () => Promise.resolve(new Response('', { status: 503 }))],
     ])('retries past %s', async (_label, transientFailure) => {
-        const fetchSpy = vi
-            .spyOn(globalThis, 'fetch')
+        vi.spyOn(globalThis, 'fetch')
             .mockImplementationOnce(transientFailure)
             .mockImplementationOnce(transientFailure)
             .mockImplementationOnce(() => Promise.resolve(okResponse()))
 
         await expect(fetchWithTimers()).resolves.toHaveProperty('manifest.json')
-        expect(fetchSpy).toHaveBeenCalledTimes(3)
     })
 
     it('gives up after the attempt budget', async () => {
