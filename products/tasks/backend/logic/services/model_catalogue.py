@@ -117,26 +117,36 @@ def group_by_runtime(choices: tuple[ModelChoice, ...]) -> tuple[RuntimeGroup, ..
     )
 
 
+def _cache_quietly(key: str, value: tuple[GatewayModel, ...], timeout: int) -> None:
+    """Caching is an optimization — an unreachable cache must not fail the caller."""
+    try:
+        cache.set(key, value, timeout=timeout)
+    except Exception:
+        logger.exception("tasks_llm_gateway_models_cache_write_failed", cache_key=key)
+
+
 def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
     """Return the model list the given gateway product exposes.
 
-    Returns an empty tuple on any error. The empty result is briefly cached so
-    subsequent calls during an outage fail fast.
+    Returns an empty tuple on any error, the cache included — a picker with no models is a
+    worse day than a 500 for every caller. The empty result is briefly cached so subsequent
+    calls during a gateway outage fail fast.
     """
     cache_key = f"{_CACHE_KEY_PREFIX}:{product}"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
 
     # Deferred: `gateway_client` pulls the Anthropic and OpenAI SDKs, and this module is reachable from
     # the tasks API's import path — every other caller in the repo defers it for the same reason.
     from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps the LLM SDKs off startup paths
 
     try:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         page = get_llm_client(product=product).with_options(timeout=_FETCH_TIMEOUT_SECONDS).models.list()
     except Exception:
         logger.exception("tasks_llm_gateway_models_fetch_failed", gateway_product=product)
-        cache.set(cache_key, (), timeout=_NEGATIVE_CACHE_TTL_SECONDS)
+        _cache_quietly(cache_key, (), _NEGATIVE_CACHE_TTL_SECONDS)
         return ()
 
     models = tuple(
@@ -147,7 +157,7 @@ def list_gateway_models(product: Product) -> tuple[GatewayModel, ...]:
         )
         for m in page.data
     )
-    cache.set(cache_key, models, timeout=_CACHE_TTL_SECONDS)
+    _cache_quietly(cache_key, models, _CACHE_TTL_SECONDS)
     return models
 
 

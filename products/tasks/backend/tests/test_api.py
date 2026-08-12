@@ -11888,6 +11888,18 @@ class TestModelCatalogueAPI(BaseTaskAPITest):
         self.assertEqual(models[0]["display_name"], "Claude Opus 4.8")
         self.assertIn("max", models[0]["supported_efforts"])
 
+    def test_unreachable_cache_yields_an_empty_catalogue_rather_than_an_error(self):
+        # The cache is an optimization in front of the gateway; if Redis is down the endpoint still has to
+        # answer with the documented empty catalogue rather than 500 every caller.
+        with patch(
+            "products.tasks.backend.logic.services.model_catalogue.cache.get",
+            side_effect=RuntimeError("redis down"),
+        ):
+            response = self.client.get("/api/projects/@current/tasks/models/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"models": []})
+
     def test_unreachable_gateway_yields_an_empty_catalogue_rather_than_an_error(self):
         # `list_gateway_models` swallows gateway failures into an empty tuple; the endpoint must pass
         # that through so a client falls back to its own default instead of showing an error state.

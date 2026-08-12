@@ -12,7 +12,13 @@ against it. Neither may hardcode a model list.
 
 from __future__ import annotations
 
-from posthog.llm.gateway_client import Product
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Importing this at runtime would execute `gateway_client`, pulling the Anthropic and OpenAI
+    # SDKs onto slack_app's import path. It is only ever used as an annotation.
+    from posthog.llm.gateway_client import Product
+
 
 from products.tasks.backend.facade.model_catalogue import (
     REASONING_EFFORT_DISPLAY_NAMES,
