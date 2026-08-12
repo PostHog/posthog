@@ -75,15 +75,52 @@ def failure_streak_pause_threshold(runs_in_tolerance_window: int) -> int:
     return max(FAILURE_STREAK_MIN_RUNS, min(FAILURE_STREAK_MAX_RUNS, runs_in_tolerance_window) + 1)
 
 
+# The coordinator's tick grid, which quantizes every rolling interval: a lane comes due
+# `DUE_GRACE_SECONDS` short of its interval and is dispatched at the first tick at or after
+# that, so an off-grid interval runs at the next whole-tick cadence. The grid lives here
+# rather than in the coordinator so the failure breaker can size a lane off the cadence
+# dispatch actually produces; the coordinator imports it back from here.
+#
+# Tick cadence: per-scout schedules are enforced via the coordinator's due-check, so this is
+# just the polling granularity — the floor on how often any scout can run.
+COORDINATOR_INTERVAL_MINUTES = 30
+# Slack on the due-check so a scout that's a few seconds short at a tick still counts as due —
+# else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
+DUE_GRACE_SECONDS = 60
+
+
+def dispatch_ticks_per_interval(run_interval_minutes: int) -> int:
+    """The scout's dispatch period, as a count of coordinator ticks.
+
+    This has to be the cadence the grid actually produces, or the anchor pulls the scout onto a
+    schedule its owner did not configure: an anchor period shorter than the real cadence snaps
+    every dispatch back far enough that the scout comes due again early, forever. So it accounts
+    for both effects the grid applies. A scout comes due `DUE_GRACE_SECONDS` short of its interval,
+    and is then dispatched at the first tick at or after that, which is why the interval is
+    rounded up rather than down and why the grace is subtracted before rounding.
+
+    `run_interval_minutes` is validated to 30..43200 with no multiple-of-30 constraint, so an
+    interval that lands off the grid is allowed even though the fleet does not use one today.
+    """
+    due_after_seconds = run_interval_minutes * 60 - DUE_GRACE_SECONDS
+    return max(1, -(-due_after_seconds // (COORDINATOR_INTERVAL_MINUTES * 60)))
+
+
 def interval_runs_in_tolerance_window(interval_minutes: int) -> int:
     """Runs a rolling-interval lane fits in the tolerance window — the evenly spaced case.
+
+    Sized off the cadence the tick grid actually produces, not the raw column: an off-grid
+    interval (say 32 minutes) is dispatched at the next whole tick, so the raw value would
+    credit the lane with runs it never books and hand a wedged lane a wider threshold than
+    its real cadence earns.
 
     Cron lanes count occurrences instead (`runner._failure_streak_runs_in_window`), since
     their gaps are uneven and no single one stands for the window's worth of runs.
     """
     if interval_minutes <= 0:
         return 1
-    return -(-FAILURE_STREAK_MIN_SPAN_MINUTES // interval_minutes)  # ceil
+    effective_minutes = dispatch_ticks_per_interval(interval_minutes) * COORDINATOR_INTERVAL_MINUTES
+    return -(-FAILURE_STREAK_MIN_SPAN_MINUTES // effective_minutes)  # ceil
 
 
 # Cooldown a paused lane holds before the coordinator dispatches one probe — the half-open

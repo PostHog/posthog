@@ -89,12 +89,13 @@ _CRON_WINDOW_HORIZON = timedelta(days=366)
 _CRON_WINDOW_MAX_SAMPLES = 20_000
 
 # Cron lanes hold wall-clock time in the project's timezone (see the coordinator's due-check),
-# so on the spring-forward night up to an hour more wall-clock schedule fits inside the same
-# absolute outage than this transition-free sample sees. Widening the sizing window by that
-# hour keeps the tolerance honest on that night in every zone, at the cost of at most one
-# extra tolerated failure the rest of the year. That is far cheaper than sizing per project
+# so on the spring-forward night more wall-clock schedule fits inside the same absolute outage
+# than this transition-free sample sees. Sized to the largest jump among selectable project
+# timezones (Antarctica/Troll advances two hours; every other zone is an hour or less), which
+# keeps the tolerance honest on that night in every zone at the cost of at most a couple of
+# extra tolerated failures the rest of the year. That is far cheaper than sizing per project
 # timezone, which would put DST fold/gap arithmetic and a per-team cache key on the failure path.
-_CRON_WINDOW_DST_SLACK_MINUTES = 60
+_CRON_WINDOW_DST_SLACK_MINUTES = 120
 
 # The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see

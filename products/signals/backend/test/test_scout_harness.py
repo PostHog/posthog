@@ -1103,16 +1103,21 @@ def _resolved_failure_threshold(cron_schedule: str | None, interval_minutes: int
         # the tolerated span still cannot trip the lane.
         ("hourly_interval", None, 60, 13),
         ("two_hourly_interval", None, 120, 7),
+        # An off-grid interval dispatches at the next whole coordinator tick (32 minutes runs
+        # hourly), so sizing off the raw column would hand a wedged lane nearly double the
+        # leases its real cadence earns.
+        ("off_grid_interval_sized_at_its_dispatch_cadence", None, 32, 13),
         # Past the span the count floor takes over — a broken lane must not get more leases
         # just because it runs rarely.
         ("six_hourly_interval", None, 360, 5),
         ("daily_default", None, 1440, 5),
         ("monthly_interval", None, 43200, 5),
         # A cron wins at dispatch, but `run_interval_minutes` keeps whatever it held before —
-        # so reading the column alone would size an hourly lane as a daily one. One run wider
+        # so reading the column alone would size an hourly lane as a daily one. Two runs wider
         # than the hourly interval lane: cron lanes are wall-clock schedules, so the sizing
-        # window carries an hour of DST slack for the spring-forward night.
-        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 14),
+        # window carries DST slack for the largest spring-forward jump a project timezone can
+        # select (two hours).
+        ("hourly_cron_beats_stale_column", "0 * * * *", 1440, 15),
         ("half_hourly_cron_hits_the_ceiling", "*/30 * * * *", 1440, 25),
         # Bursty: a 30-minute gap that repeats twice a day is not a lane that runs all day, and
         # must not be handed the tolerance of one — that is twelve days of leases on a wedge.
