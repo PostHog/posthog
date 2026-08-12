@@ -6,11 +6,9 @@ import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 const POLL_INTERVAL_MS = 15_000;
 
 /**
- * The task's comment threads for the activity timeline.
- *
- * Deliberately not patched by the optimistic comment writes in `useComments`: a comment
- * you just left shows up within one poll, and cross-patching two differently shaped caches
- * is how they drift apart.
+ * Deliberately not patched by the optimistic comment writes in `useComments`: a comment you
+ * just left shows up within one poll, and cross-patching two differently shaped caches is how
+ * they drift apart.
  */
 export function useTaskCommentActivity(
   taskId: string | undefined,
@@ -18,8 +16,8 @@ export function useTaskCommentActivity(
 ): {
   threads: TaskCommentThreadSummary[];
   isLoading: boolean;
-  /** The first fetch has finished (or was never asked for). The timeline waits on this so
-   *  it draws once, complete, instead of drawing thread rows and then adding comments. */
+  /** The timeline waits on this so it draws once, complete, instead of drawing thread rows
+   *  and then adding comments. */
   hasLoaded: boolean;
 } {
   const enabled = options.enabled !== false && !!taskId;

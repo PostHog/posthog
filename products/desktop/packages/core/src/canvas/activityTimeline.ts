@@ -1,13 +1,8 @@
 /**
- * Merging the task activity timeline's three sources into one ordered list of rows.
+ * Merges the task, its thread messages and its comment threads into one ordered list of rows.
  *
- * Kept out of the renderer so the ordering, collapsing and dedupe rules can be tested
- * without mounting anything, the same split `threadTimeline.ts` uses.
- *
- * The sources:
- *  - the task itself (created, and a terminal status for tasks with no event rows),
- *  - its thread messages: human messages plus the server-emitted event rows,
- *  - its comment threads, already collapsed one row per thread by the backend.
+ * Kept out of the renderer so the ordering, collapsing and dedupe rules can be tested without
+ * mounting anything, the same split `threadTimeline.ts` uses.
  */
 
 import {
@@ -30,13 +25,11 @@ export interface ActivityTaskLike {
   updatedAt: string;
   latestRunId?: string | null;
   latestRunStatus?: string | null;
-  /** A pull request recorded on the run's output rather than announced in the thread.
-   *  Tasks from before the announcements have it only here. */
+  /** Tasks from before the thread announcements record their pull request only here. */
   latestRunPrUrl?: string | null;
 }
 
-/** A prompt the task's author sent the agent, from the live session's own event stream.
- *  Only the fields the row needs, so core stays independent of the UI's item type. */
+/** Only the fields the row needs, so core stays independent of the UI's item type. */
 export interface UserMessageLike {
   id: string;
   content: string;
@@ -71,9 +64,8 @@ export type ActivityRow<
   | { kind: "run_status"; key: string; ts: number; status: string }
   | { kind: "run_output_pr"; key: string; ts: number; prUrl: string };
 
-/** Rows in the same second still need a stable order, so each kind carries a rank.
- *  Ordering by rank rather than nudging timestamps (the old `updatedTs + 1`) keeps two
- *  events that genuinely share a timestamp from fighting over the same slot. */
+/** Rows sharing a timestamp still need a stable order. Ranking them beats nudging the
+ *  timestamps, which makes two events that genuinely share one fight over a slot. */
 const KIND_RANK: Record<ActivityRow["kind"], number> = {
   task_created: 0,
   event: 1,
@@ -104,8 +96,6 @@ export function buildActivityTimeline<
   messages: TMessage[];
   commentThreads: TComment[];
   userMessages?: UserMessageLike[];
-  /** False drops the comment feed entirely, rather than leaving the renderer to hide
-   *  rows it was handed. */
   commentsEnabled?: boolean;
 }): ActivityRow<TMessage, TComment>[] {
   const rows: ActivityRow<TMessage, TComment>[] = [
@@ -176,8 +166,6 @@ export function buildActivityTimeline<
         ts: timestamp(thread.lastActivityAt),
         thread,
       });
-      // Resolve and reopen are state changes with an author and a time, so they get their
-      // own row rather than folding into the thread they close.
       if (thread.stateEvent) {
         rows.push({
           kind: "comment_state",
@@ -226,7 +214,6 @@ function isTerminalRunStatus(status: string): boolean {
   );
 }
 
-/** What makes an event unique in the world, for the dedupe guard above. */
 function eventIdentity(
   event: ActivityEvent,
   message: ThreadMessageLike,

@@ -324,19 +324,34 @@ describe("ActivityTimeline chat jump", () => {
     );
   });
 
-  it("lands a row with no prompt of its own on the turn it happened in", () => {
-    // The task was created before either prompt, so the earliest one is the nearest point
-    // in the chat: the jump has to resolve to a prompt, which is what the transcript can
-    // scroll to.
+  it("offers no jump on a row the transcript does not hold", () => {
+    // Only a prompt is the same item in both panes. A thread reply has no counterpart to
+    // scroll to, and the prompt of the surrounding turn is not what the reader clicked, so
+    // the row opens to its text and offers nothing further.
     useThreadNavigationStore.getState().registerTranscript("task-1");
-    renderTimeline(true);
-
-    fireEvent.click(screen.getByRole("button", { name: /created this task/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Show in chat" }));
-
-    expect(useThreadNavigationStore.getState().scrollRequests["task-1"]).toBe(
-      "turn-1-1-user",
+    const reply = {
+      id: "reply-1",
+      task: "task-1",
+      author: { id: 7, uuid: "u2", first_name: "Ben", last_name: "White" },
+      author_kind: "human" as const,
+      content: "you seeing this?",
+      created_at: "2026-07-17T09:30:00Z",
+    };
+    render(
+      <ActivityTimeline
+        task={task}
+        // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the row under test
+        timeline={buildThreadTimeline([reply] as any)}
+        // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the row under test
+        messages={[reply] as any}
+        // biome-ignore lint/suspicious/noExplicitAny: narrow fixture for the row under test
+        conversationItems={conversationItems as any}
+      />,
     );
+
+    fireEvent.click(screen.getByRole("button", { name: /you seeing this/ }));
+
+    expect(screen.queryByRole("button", { name: "Show in chat" })).toBeNull();
   });
 
   it("offers no jump when the chat holds no prompt to land on", () => {

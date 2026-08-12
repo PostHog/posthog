@@ -21,6 +21,11 @@ import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
 import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
+import {
+  useOptimisticItemsForTask,
+  useSessionIsCloud,
+} from "@posthog/ui/features/sessions/sessionStore";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
@@ -34,9 +39,8 @@ const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "comments", label: "Comments" },
 ] as const;
 
-/** The 32px row this panel leads with: the tabs are the header, so the strip
- *  lines up with the tab bar of the pane on its left (TabbedPanel) and the
- *  review toolbar, which are the same fixed height and border. */
+/** The tabs are this panel's header, so the strip matches the fixed height and border of
+ *  the tab bar on its left (TabbedPanel) and of the review toolbar. */
 function ActivityHeader({
   tab,
   onTabChange,
@@ -153,13 +157,12 @@ function ActivityConversation({
   // Runs for the whole panel, not just the tab that draws it, so leaving the timeline
   // doesn't discard a fetch already in flight.
   const { threads: commentThreads, hasLoaded: hasLoadedComments } =
-    useTaskCommentActivity(taskId, { enabled: commentsEnabled });
+    useTaskCommentActivity(taskId, { enabled: true });
   // Draw once both durable sources have answered, and never take the timeline away again.
-  // Drawing on the thread alone reaches first paint sooner but arrives in two waves, with
-  // comment rows pushing in among rows already on screen. Gating on the live session
-  // (`isReady`) instead blinks a loader over drawn rows while the session connects. The
-  // latch is set on commit, because Strict Mode and concurrent rendering abandon renders,
-  // which would set it for a draw that never happened.
+  // Drawing on the thread alone paints sooner but in two waves, with comment rows pushing in
+  // among rows already on screen; gating on the live session (`isReady`) blinks a loader over
+  // drawn rows while it connects. The latch is set on commit, because Strict Mode and
+  // concurrent rendering abandon renders that would otherwise set it.
   const hasDrawnTimeline = useRef(false);
   const timelineReady =
     hasDrawnTimeline.current || (hasLoadedThread && hasLoadedComments);
@@ -167,12 +170,22 @@ function ActivityConversation({
     if (hasLoadedThread && hasLoadedComments) hasDrawnTimeline.current = true;
   }, [hasLoadedThread, hasLoadedComments]);
 
+  // Merged exactly as the transcript merges it, because "Show in chat" hands the transcript
+  // one of these item ids. A prompt still waiting on its echo is an optimistic item there and
+  // the server copy is dropped, so raw events alone would name a row it does not render.
+  const optimisticItems = useOptimisticItemsForTask(taskId);
+  const isCloudSession = useSessionIsCloud(taskId);
   const conversationItems = useMemo(
     () =>
       tab === "timeline"
-        ? buildConversationItems(events, isPromptPending).items
+        ? mergeConversationItems({
+            conversationItems: buildConversationItems(events, isPromptPending)
+              .items,
+            optimisticItems,
+            isCloud: isCloudSession,
+          })
         : [],
-    [tab, events, isPromptPending],
+    [tab, events, isPromptPending, optimisticItems, isCloudSession],
   );
 
   // A thread picked on the artifact itself lives in the Comments tab, so the
@@ -183,8 +196,8 @@ function ActivityConversation({
   const acknowledgeCommentsTabOpen = useCommentNavigationStore(
     (state) => state.acknowledgeCommentsTabOpen,
   );
-  // Seed requests that predate this panel, but leave later requests for other
-  // tasks pending until the reused panel switches to that task.
+  // Seed requests that predate this panel, but leave later requests for other tasks pending
+  // until the reused panel switches to that task.
   const seenFocus = useRef(
     new Map(
       Object.entries(focusByTask).map(([focusTaskId, focus]) => [
@@ -210,7 +223,7 @@ function ActivityConversation({
   }, [acknowledgeCommentsTabOpen, commentFocus, tab, taskId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Within this much of the bottom still counts as "watching the end", so a row arriving
+  // Within this much of the bottom still counts as watching the end, so a row arriving
   // mid-poll keeps following. Wide enough to survive a partially scrolled last row.
   const AT_BOTTOM_SLACK_PX = 48;
   const [hasNewerBelow, setHasNewerBelow] = useState(false);
@@ -234,9 +247,8 @@ function ActivityConversation({
     if (tab !== "timeline") return;
     const node = scrollRef.current;
     if (!node) return;
-    // Poll after poll, this ran on every refetch and yanked the panel to the bottom while
-    // someone was reading further up. Follow the end only for a reader already at it, and
-    // offer the jump to everyone else.
+    // Following unconditionally yanks the panel to the bottom on every refetch while someone
+    // is reading further up, so follow only for a reader already at the end.
     const atBottom =
       node.scrollHeight - node.scrollTop - node.clientHeight <=
       AT_BOTTOM_SLACK_PX;
@@ -269,7 +281,7 @@ function ActivityConversation({
         messages={messages}
         conversationItems={conversationItems}
         commentThreads={commentThreads}
-        commentsEnabled={commentsEnabled}
+        commentsEnabled
         currentUserId={currentUser?.id}
         canOpenInPlace={canOpenInPlace}
       />
@@ -346,13 +358,10 @@ export function ActivityPanel({
     enabled: !taskProp && !collapsed,
   });
   const task = taskProp ?? fetchedTask;
-  const commentsEnabled = useCommentsEnabled();
-
   // Warmed from the id alone so they don't queue behind the task itself, which can take
-  // seconds to arrive. Same query keys as the panel's own hooks, so this shares one fetch
-  // rather than adding a second.
+  // seconds to arrive. Same query keys as the panel's own hooks, so this shares one fetch.
   useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });
-  useTaskCommentActivity(taskId, { enabled: commentsEnabled && !collapsed });
+  useTaskCommentActivity(taskId, { enabled: !collapsed });
 
   if (collapsed) {
     return (

@@ -1,6 +1,5 @@
 /**
- * The rows the activity timeline draws for one server-emitted event, and for one comment
- * thread. A new event is an entry in `EVENT_TONES` and `EVENT_ICONS` plus a line of copy.
+ * Adding an event kind means an entry in `EVENT_TONES` and `EVENT_ICONS` plus a line of copy.
  */
 
 import {
@@ -45,9 +44,6 @@ import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
 import { type ReactNode, useMemo, useState } from "react";
 
-/** One row: a gutter node, a line of copy, a timestamp, and optionally a detail block the
- *  row hides until it is opened. A row with no detail is inert, with no chevron and no
- *  hover target. */
 export function TimelineRow({
   gutter,
   children,
@@ -62,14 +58,11 @@ export function TimelineRow({
   gutter: ReactNode;
   children: ReactNode;
   timestamp: string;
-  /** Shown when the row is opened. Absent means there is nothing more to say. */
   detail?: ReactNode;
-  /** Takes the transcript to the moment this row describes. Absent when no transcript is
-   *  mounted to answer, or when the row has nothing in the transcript to point at. */
+  /** Only a prompt row carries one, because a prompt is the same conversation item in both
+   *  panes and so resolves exactly. Absent when no transcript is mounted to answer. */
   onShowInChat?: () => void;
   defaultOpen?: boolean;
-  /** Draw the line down to the next row. False on the last row, which has nothing to
-   *  connect to. */
   connectedAbove?: boolean;
   connectedBelow?: boolean;
   ariaLabel?: string;
@@ -159,10 +152,7 @@ export function TimelineRow({
 }
 
 /**
- * One meaning per hue: gray for bookkeeping, blue for the agent at work, violet for
- * something produced, green for finished, amber for waiting on a person, red for failed.
- *
- * Two recipes, because the sizes need different contrast. A bead uses the soft steps, which
+ * Two recipes because the sizes need different contrast. A bead uses the soft steps, which
  * stay quiet beside the copy. A badge is 12px, too small to read as a wash, so it uses solid
  * step 9 with the foreground that scale is designed for: dark on amber, light on the rest.
  */
@@ -186,8 +176,7 @@ const BADGE_TONES = {
 
 type BeadTone = keyof typeof BEAD_TONES;
 
-/** What the agent or the service did. Opaque and above the connector, so the line reads as
- *  running into it. */
+/** Opaque and above the connector, so the line reads as running into it. */
 export function EventBead({
   children,
   tone = "neutral",
@@ -207,8 +196,6 @@ export function EventBead({
   );
 }
 
-/** What a person did: their face, with the action worn as a badge, so two rows by the same
- *  person are told apart without reading the copy. */
 export function PersonBead({
   user,
   badge,
@@ -236,7 +223,6 @@ export function PersonBead({
   );
 }
 
-/** Badge glyphs are read at 8px, so they differ in silhouette, not in detail. */
 export const MESSAGE_BADGE = <PaperPlaneTiltIcon size={8} weight="fill" />;
 export const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
 export const CREATED_BADGE = <PlusIcon size={8} weight="bold" />;
@@ -264,7 +250,6 @@ const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
   awaiting_input: <QuestionIcon size={11} weight="bold" />,
   artifact_created: <FileTextIcon size={11} />,
   artifact_revised: <ArrowsClockwiseIcon size={11} />,
-  // A canvas is a board, not another document.
   canvas_created: <SquaresFourIcon size={11} />,
   pr_created: <GitPullRequestIcon size={11} />,
   pr_merged: <GitMergeIcon size={11} />,
@@ -272,8 +257,6 @@ const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
   message_forwarded: <PaperPlaneTiltIcon size={9} weight="fill" />,
 };
 
-/** The sentence an event reads as. Written so a person skimming the panel learns what
- *  happened without opening anything. */
 function eventLabel(
   event: ActivityEvent,
   runCount: number,
@@ -281,7 +264,6 @@ function eventLabel(
 ): ReactNode {
   switch (event.kind) {
     case "run_started":
-      // A run number only helps once a task has run more than once.
       return runCount > 1
         ? `Agent started run ${runOrdinal}`
         : "Agent started work";
@@ -354,7 +336,6 @@ function eventLabel(
   }
 }
 
-/** What an event has to say beyond its headline, or nothing. */
 function eventDetail(event: ActivityEvent): ReactNode {
   switch (event.kind) {
     case "run_failed":
@@ -415,7 +396,6 @@ function eventDetail(event: ActivityEvent): ReactNode {
   }
 }
 
-/** The action under an opened row, as a button so it doesn't read as more copy. */
 export function DetailAction({
   children,
   onClick,
@@ -431,12 +411,9 @@ export function DetailAction({
 }
 
 /**
- * A message's text, rendered the way the chat renders it: markdown, code fences, file and
- * artifact links.
- *
- * Mention tokens and the composer's XML chips are not markdown, and a markdown parser
- * mangles them (`@[Name](email)` becomes a mailto link), so a message carrying either goes
- * through `MentionText` instead.
+ * Mention tokens and the composer's XML chips are not markdown, and a markdown parser mangles
+ * them (`@[Name](email)` becomes a mailto link), so a message carrying either goes through
+ * `MentionText` instead.
  */
 export function MessageBody({ content }: { content: string }) {
   const hasOwnMarkup = useMemo(() => {
@@ -465,8 +442,6 @@ export function MessageBody({ content }: { content: string }) {
   );
 }
 
-/** The chat's own bubble, so the timeline and the transcript don't render the same message
- *  two different ways. */
 export function MessageBubble({ content }: { content: string }) {
   return (
     <ChatBubble variant="default">
@@ -478,8 +453,7 @@ export function MessageBubble({ content }: { content: string }) {
   );
 }
 
-/** The shared shape of an opened row's content: one quoted block, indented to the copy. No
- *  radius, so the left edge reads as a rule and not as the outline of a box. */
+/** No radius, so the left edge reads as a rule rather than the outline of a box. */
 export function DetailBlock({ children }: { children: ReactNode }) {
   return (
     <div className="break-words border-gray-6 border-l-2 bg-gray-2 px-2.5 py-1.5 text-[12.5px]">
@@ -496,26 +470,21 @@ export function ActivityEventRow({
   detail,
   connectedAbove = true,
   connectedBelow = true,
-  onShowInChat,
 }: {
   connectedAbove?: boolean;
   connectedBelow?: boolean;
-  onShowInChat?: () => void;
   event: ActivityEvent;
   timestamp: string;
-  /** How many runs the task has, so a single-run task doesn't say "run 1". */
+  /** A single-run task doesn't say "run 1". */
   runCount: number;
   /** Which run this row starts, counted over the feed rather than stamped by the backend. */
   runOrdinal?: number;
-  /** Supplied by the caller for events that carry a card (a canvas, a pull request);
-   *  otherwise the row derives its own from the payload. */
   detail?: ReactNode;
 }) {
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      onShowInChat={onShowInChat}
       gutter={
         <EventBead tone={EVENT_TONES[event.kind]}>
           {EVENT_ICONS[event.kind]}
@@ -529,27 +498,23 @@ export function ActivityEventRow({
   );
 }
 
-/** A lifecycle marker derived from the task: the ending of a run that predates the event
- *  rows. */
+/** The ending of a run that predates the event rows, derived from the task. */
 export function RunStatusRow({
   status,
   timestamp,
   connectedAbove = true,
   connectedBelow = true,
-  onShowInChat,
 }: {
   status: string;
   timestamp: string;
   connectedAbove?: boolean;
   connectedBelow?: boolean;
-  onShowInChat?: () => void;
 }) {
   const succeeded = status === "completed";
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      onShowInChat={onShowInChat}
       gutter={
         <EventBead tone={succeeded ? "green" : "red"}>
           {succeeded ? (
@@ -570,24 +535,16 @@ function participantNames(participants: UserBasic[]): string {
   return participants.map((person) => userDisplayName(person)).join(", ");
 }
 
-/**
- * One comment thread, collapsed to who commented on what. Opening it shows the quoted
- * selection with the comment, because a comment without the text it points at is just a
- * notification.
- */
 export function CommentRow({
   thread,
   isMentioned,
   onSelect,
   connectedAbove = true,
   connectedBelow = true,
-  onShowInChat,
 }: {
   connectedAbove?: boolean;
   connectedBelow?: boolean;
-  onShowInChat?: () => void;
   thread: TaskCommentThreadSummary;
-  /** The current user was mentioned somewhere in the thread. */
   isMentioned: boolean;
   onSelect?: () => void;
 }) {
@@ -598,9 +555,7 @@ export function CommentRow({
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      onShowInChat={onShowInChat}
       gutter={
-        // A mention is amber because it is asking for something; a plain comment isn't.
         <PersonBead
           user={author}
           badge={COMMENT_BADGE}
@@ -641,20 +596,16 @@ export function CommentRow({
   );
 }
 
-/** Resolve and reopen: state changes with an author and a time, so they read as their own
- *  rows rather than a property of the thread above. */
 export function CommentStateRow({
   thread,
   state,
   connectedAbove = true,
   connectedBelow = true,
-  onShowInChat,
 }: {
   thread: TaskCommentThreadSummary;
   state: string;
   connectedAbove?: boolean;
   connectedBelow?: boolean;
-  onShowInChat?: () => void;
 }) {
   const author = thread.state_event?.author ?? null;
   const resolved = state === "resolved";
@@ -662,7 +613,6 @@ export function CommentStateRow({
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      onShowInChat={onShowInChat}
       gutter={
         <PersonBead
           user={author}
@@ -689,12 +639,10 @@ export function CommentStateRow({
   );
 }
 
-/** Shown once, on the panel's first draw: the timeline's own shape, so the panel doesn't
- *  change size when the rows arrive. It never returns, because a loader over rows already on
- *  screen reads as the content disappearing. */
+/** Shown once, on the panel's first draw. It never returns, because a loader over rows
+ *  already on screen reads as the content disappearing. */
 export function ActivityLoadingState() {
   return (
-    // <output> is the semantic element for role=status; the label names the wait.
     <output className="relative block px-1 py-2" aria-label="Loading timeline">
       <div>
         {/* Widths vary so the block reads as copy rather than a progress bar. */}
@@ -716,29 +664,24 @@ export function ActivityLoadingState() {
   );
 }
 
-/** A human reply in the task's thread. Collapsed like everything else: author and first
- *  line on the row, the message when opened. */
 export function ThreadReplyRow({
   author,
   content,
   timestamp,
   connectedAbove = true,
   connectedBelow = true,
-  onShowInChat,
 }: {
   author?: UserBasic | null;
   content: string;
   timestamp: string;
   connectedAbove?: boolean;
   connectedBelow?: boolean;
-  onShowInChat?: () => void;
 }) {
   const firstLine = content.trim().split("\n", 1)[0] ?? "";
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      onShowInChat={onShowInChat}
       gutter={<PersonBead user={author} badge={MESSAGE_BADGE} />}
       timestamp={timestamp}
       detail={<MessageBubble content={content} />}

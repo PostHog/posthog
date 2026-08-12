@@ -5,6 +5,8 @@ import {
   type UserMessageLike,
 } from "@posthog/core/canvas/activityTimeline";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
+import { DEFAULT_TAB_IDS } from "@posthog/core/panels/panelConstants";
+import { findTabInTree } from "@posthog/core/panels/panelTree";
 import {
   Collapsible,
   CollapsibleContent,
@@ -32,6 +34,7 @@ import {
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadArtifactCard } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
@@ -48,8 +51,6 @@ type ConversationItem = ReturnType<
   typeof buildConversationItems
 >["items"][number];
 
-/** A prompt the task's author sent the agent. Collapsed like every other row: the first
- *  line on the row, the message and its context when opened. */
 function UserMessageRow({
   author,
   content,
@@ -138,8 +139,8 @@ function UserMessageRow({
   );
 }
 
-/** Stable identity: an inline `= []` default is a new array on every render, which would
- *  rebuild the timeline on every render through the memo's dependency list. */
+/** An inline `= []` default is a new array on every render, which would rebuild the timeline
+ *  through the memo's dependency list. */
 const NO_COMMENT_THREADS: TaskCommentThreadSummary[] = [];
 
 export function ActivityTimeline({
@@ -153,20 +154,16 @@ export function ActivityTimeline({
   canOpenInPlace,
 }: {
   task: Task;
-  /** The human-facing rows, which carry the artifact cards. */
   timeline: ThreadTimelineRow<TaskThreadMessage>[];
-  /** Every thread message. The event rows live among the agent-authored ones, which
-   *  `timeline` filters out, so they have to arrive separately. */
+  /** The event rows live among the agent-authored messages, which `timeline` filters out,
+   *  so they have to arrive separately. */
   messages: TaskThreadMessage[];
   conversationItems: ConversationItem[];
-  /** The task's comment threads, already collapsed one row per thread by the backend. */
   commentThreads?: TaskCommentThreadSummary[];
   commentsEnabled?: boolean;
-  /** Needed to tell a mention of you from a mention of someone else. */
   currentUserId?: number;
-  /** True when the task's transcript and review pane are mounted beside this
-   *  pane. False in the channel-home sidebar, where there is nothing to drive —
-   *  rows there stay inert and PRs open externally instead of dead-clicking. */
+  /** True when the task's transcript and review pane are mounted beside this pane. False in
+   *  the channel-home sidebar, where rows stay inert and PRs open externally instead. */
   canOpenInPlace?: boolean;
 }) {
   const requestCommentFocus = useCommentNavigationStore(
@@ -225,8 +222,7 @@ export function ActivityTimeline({
   );
 
   // Numbering a run and deciding whether to number it at all have to come from the same
-  // population. Counting the task's runs instead would label the one row a task with three
-  // runs happens to have emitted as "run 1".
+  // population, or a task with three runs and one row labels that row "run 1".
   const runStartedCount = useMemo(
     () =>
       rows.reduce(
@@ -250,8 +246,7 @@ export function ActivityTimeline({
     return () =>
       requestCommentFocus(
         task.id,
-        // The target is the scope/itemId pair the comment stores; `task` scope points at
-        // the task itself.
+        // The scope/itemId pair the comment stores; `task` scope points at the task itself.
         thread.target.type === "task"
           ? { scope: "task", itemId: task.id }
           : {
@@ -269,40 +264,26 @@ export function ActivityTimeline({
   const requestScrollToMessage = useThreadNavigationStore(
     (state) => state.requestScrollToMessage,
   );
-
-  // Prompts are the transcript's turn boundaries, and every one of them is a top-level row
-  // there, so a jump to one always resolves. A row that isn't itself a prompt lands on the
-  // prompt whose turn it happened in.
-  const promptAnchors = useMemo(() => {
-    const anchors: { id: string; at: number }[] = [];
-    for (const item of conversationItems) {
-      if (item.type === "user_message") {
-        anchors.push({ id: item.id, at: item.timestamp });
-      }
-    }
-    return anchors.sort((first, second) => first.at - second.at);
-  }, [conversationItems]);
+  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const chatPanelId = usePanelLayoutStore((state) => {
+    const tree = state.taskLayouts[task.id]?.panelTree;
+    if (!tree) return null;
+    return findTabInTree(tree, DEFAULT_TAB_IDS.LOGS)?.panelId ?? null;
+  });
 
   /**
-   * The jump into the chat. Absent when no transcript is mounted to answer it, and when the
-   * transcript holds no prompt to land on.
+   * Offered on prompt rows only. A prompt is the one item both panes share, so the jump names
+   * its own target. Every other row is a thread message, a comment or a task field, none of
+   * which the transcript renders, and the nearest prompt is not what the reader clicked.
    */
-  const showInChat = (timestamp: string, promptId?: string) => {
-    if (!hasTranscript || promptAnchors.length === 0) return undefined;
-    let target = promptId;
-    if (!target) {
-      const at = Date.parse(timestamp);
-      // Before the first prompt, that prompt is still the nearest point in the chat.
-      target = promptAnchors[0].id;
-      if (!Number.isNaN(at)) {
-        for (const anchor of promptAnchors) {
-          if (anchor.at > at) break;
-          target = anchor.id;
-        }
-      }
-    }
-    const messageId = target;
-    return () => requestScrollToMessage(task.id, messageId);
+  const showPromptInChat = (promptId: string) => {
+    if (!hasTranscript) return undefined;
+    return () => {
+      // The transcript's tab stays mounted while hidden, so without this the scroll happens
+      // off screen and the click reads as doing nothing.
+      if (chatPanelId) setActiveTab(task.id, chatPanelId, DEFAULT_TAB_IDS.LOGS);
+      requestScrollToMessage(task.id, promptId);
+    };
   };
 
   const renderRow = (
@@ -318,7 +299,6 @@ export function ActivityTimeline({
             connectedBelow={connectedBelow}
             gutter={<PersonBead user={task.created_by} badge={CREATED_BADGE} />}
             timestamp={task.created_at}
-            onShowInChat={showInChat(task.created_at)}
           >
             {`${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}
           </TimelineRow>
@@ -331,11 +311,7 @@ export function ActivityTimeline({
             author={task.created_by}
             content={row.item.content}
             timestamp={new Date(row.item.timestamp).toISOString()}
-            // A prompt is a transcript row, so it points at itself.
-            onShowInChat={showInChat(
-              new Date(row.item.timestamp).toISOString(),
-              row.item.id,
-            )}
+            onShowInChat={showPromptInChat(row.item.id)}
           />
         );
       case "human_message":
@@ -346,12 +322,11 @@ export function ActivityTimeline({
             author={row.message.author}
             content={row.message.content}
             timestamp={row.message.created_at}
-            onShowInChat={showInChat(row.message.created_at)}
           />
         );
       case "event": {
-        // A canvas or pull request announcement keeps its card, but as the row's detail:
-        // every row in the panel opens the same way.
+        // A canvas or pull request announcement keeps its card, as the row's detail: every
+        // row in the panel opens the same way.
         const artifactRow = messageRows.get(row.message.id);
         return (
           <ActivityEventRow
@@ -359,7 +334,6 @@ export function ActivityTimeline({
             connectedBelow={connectedBelow}
             event={row.event}
             timestamp={row.message.created_at}
-            onShowInChat={showInChat(row.message.created_at)}
             runCount={runStartedCount}
             runOrdinal={row.runOrdinal}
             detail={
@@ -381,7 +355,6 @@ export function ActivityTimeline({
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
             thread={thread}
-            onShowInChat={showInChat(thread.last_activity_at)}
             isMentioned={
               !!currentUserId &&
               (thread.mentioned_user_ids ?? []).includes(currentUserId)
@@ -397,9 +370,6 @@ export function ActivityTimeline({
           <CommentStateRow
             thread={thread}
             state={row.state}
-            onShowInChat={showInChat(
-              thread.state_event?.created_at ?? thread.last_activity_at,
-            )}
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
           />
@@ -420,7 +390,6 @@ export function ActivityTimeline({
               },
             }}
             timestamp={task.updated_at}
-            onShowInChat={showInChat(task.updated_at)}
             runCount={runStartedCount}
             detail={
               <ThreadArtifactCard
@@ -435,7 +404,6 @@ export function ActivityTimeline({
           <RunStatusRow
             status={row.status}
             timestamp={task.updated_at}
-            onShowInChat={showInChat(task.updated_at)}
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
           />

@@ -984,6 +984,7 @@ function ThreadScrollBody({
   keyboardFocusedMessageId,
   onUserInteract,
   resumeStateRef,
+  autoFollowRef,
 }: {
   items: ConversationItem[];
   rows: TurnRow[];
@@ -995,10 +996,9 @@ function ThreadScrollBody({
   onUserInteract?: () => void;
   /** Continuously updated so the virtualized body can take over mid-session (see {@link ThreadScrollResume}). */
   resumeStateRef: RefObject<ThreadScrollResume>;
+  autoFollowRef: RefObject<ThreadFollowState>;
 }) {
   const keyedRows = useMemo(() => keyTurnRows(rows), [rows]);
-
-  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
 
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
   // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
@@ -1148,21 +1148,32 @@ function ThreadScrollRequestBridge({
   taskId,
   jumpToMessage,
   onFocusMessage,
+  autoFollowRef,
 }: {
   taskId?: string;
-  jumpToMessage?: (id: string) => void;
+  jumpToMessage?: (id: string) => boolean;
   /** Marks the arrived-at message, so a jump from another pane lands as visibly as the
    *  keyboard's own. Without it the thread moves and nothing says where to. */
   onFocusMessage?: (id: string) => void;
+  autoFollowRef?: RefObject<ThreadFollowState>;
 }) {
   const { scrollToMessage } = useChatMessageScroller();
   const jump = jumpToMessage ?? scrollToMessage;
   const handleRequest = useCallback(
     (id: string) => {
-      onFocusMessage?.(id);
-      jump(id);
+      // A jump is the reader choosing a spot, so following lets go before the scroll rather
+      // than in reaction to it: the scroll event that would release it arrives a frame late,
+      // by which point following has already pulled the thread back down.
+      if (autoFollowRef)
+        autoFollowRef.current = { following: false, leftEnd: true };
+      // Both jumps answer false while the target row is absent (from the element registry,
+      // or from the row index), and the caller retries, so only claim the focus once the
+      // thread actually moved.
+      const landed = jump(id);
+      if (landed) onFocusMessage?.(id);
+      return landed;
     },
-    [jump, onFocusMessage],
+    [jump, onFocusMessage, autoFollowRef],
   );
   useThreadScrollRequest(taskId, handleRequest);
   return null;
@@ -1363,9 +1374,13 @@ function ChatThreadRenderer({
     [renderItem, keyboardFocusedMessageId],
   );
 
+  // Lives here rather than in the plain body so a jump from another pane can drop the pin
+  // before it scrolls.
+  const autoFollowRef = useRef<ThreadFollowState>(FOLLOWING_END);
+
   // The nav layer sits beside the scroll body so it can be handed the windowed body's jump
   // implementation — the engine's `scrollToMessage` only reaches mounted rows.
-  const renderNav = (jumpToMessage?: (id: string) => void) => (
+  const renderNav = (jumpToMessage?: (id: string) => boolean) => (
     <>
       <ThreadKeyboardNav
         items={items}
@@ -1380,6 +1395,8 @@ function ChatThreadRenderer({
         taskId={taskId}
         jumpToMessage={jumpToMessage}
         onFocusMessage={setKeyboardFocusedMessageId}
+        // Only the plain body needs it: the windowed body's own jump drops its pin.
+        autoFollowRef={jumpToMessage ? undefined : autoFollowRef}
       />
     </>
   );
@@ -1417,6 +1434,7 @@ function ChatThreadRenderer({
             ) : (
               <>
                 <ThreadScrollBody
+                  autoFollowRef={autoFollowRef}
                   items={items}
                   rows={rows}
                   renderItem={renderItem}

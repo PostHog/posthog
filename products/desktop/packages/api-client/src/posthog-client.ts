@@ -2905,13 +2905,11 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskThreadMessage[];
   }
 
-  /** Every comment thread on the task, collapsed one row per thread for the activity
-   *  timeline's comment feed. One request for the whole task, so the panel never fans out
-   *  per artifact the way the Comments tab has to.
+  /** One request for the whole task, so the panel never fans out per artifact the way the
+   *  Comments tab has to.
    *
-   *  A backend predating the read layer has no such route: a 404 means "no comment rows
-   *  yet", not a failure, so the timeline falls back to its event rows and comes alive on
-   *  its own once the endpoint exists. */
+   *  A backend predating the read layer has no such route, so a 404 means "no comment rows
+   *  yet" rather than a failure and the timeline comes alive once the endpoint exists. */
   async getTaskCommentActivity(
     taskId: string,
   ): Promise<TaskCommentThreadSummary[]> {
