@@ -77,6 +77,11 @@ MAX_CI_REPETITIONS = 3
 # transient failures; this is the outer cap.
 RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT = timedelta(hours=24)
 
+# Local sandbox setup may build the Docker base image and then install the local
+# agent workspace. The package install can take longer than the normal five-minute
+# sandbox provisioning budget on a cold machine, so allow the first build to finish.
+SANDBOX_PROVISIONING_START_TO_CLOSE_TIMEOUT = timedelta(minutes=15)
+
 # Delay before the first in-sandbox credential refresh, and the fallback cadence
 # when the refresh activity can't report a token-specific interval. Kept under
 # the ~1h GitHub installation-token TTL so the in-sandbox copy never lapses; the

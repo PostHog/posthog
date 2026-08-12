@@ -19,6 +19,7 @@ from posthog.temporal.oauth import PosthogMcpScopes
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
+from products.tasks.backend.temporal.constants import SANDBOX_PROVISIONING_START_TO_CLOSE_TIMEOUT
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import (
@@ -1249,7 +1250,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         created = await workflow.execute_activity(
             create_sandbox_for_repository,
             CreateSandboxForRepositoryInput(context=self.context, prepared=prepared),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=SANDBOX_PROVISIONING_START_TO_CLOSE_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
@@ -1335,7 +1336,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 created = await workflow.execute_activity(
                     create_sandbox_for_repository,
                     CreateSandboxForRepositoryInput(context=self.context, prepared=prepared),
-                    start_to_close_timeout=timedelta(minutes=5),
+                    start_to_close_timeout=SANDBOX_PROVISIONING_START_TO_CLOSE_TIMEOUT,
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
                 self._sandbox_id_for_cleanup = created.sandbox_id

@@ -30,6 +30,7 @@ from products.tasks.backend.temporal.constants import (
     OUTBOUND_RETRY_BACKOFF,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+    SANDBOX_PROVISIONING_START_TO_CLOSE_TIMEOUT,
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_QUERY,
     STEERING_PROTOCOL_VERSION,
@@ -1064,7 +1065,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         created = await workflow.execute_activity(
             create_sandbox_for_repository,
             CreateSandboxForRepositoryInput(context=self.context, prepared=prepared),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=SANDBOX_PROVISIONING_START_TO_CLOSE_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
