@@ -1182,8 +1182,9 @@ function schemaLoadOptions(
     force = false
 ): { force?: boolean; shallow?: boolean } | undefined {
     const shallow = !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_LAZY_SCHEMA]
-    if (!shallow && !force) {
-        return undefined
+    if (!shallow) {
+        // With the flag off, emit exactly the payloads this logic emitted before lazy loading.
+        return force ? { force } : undefined
     }
     return { force, shallow }
 }

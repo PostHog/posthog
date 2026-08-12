@@ -62,10 +62,12 @@ export interface viewsTabLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     closeAccessControlModal: () => {
         value: true

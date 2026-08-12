@@ -64,10 +64,12 @@ export interface expressionModalLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     closeExpressionModal: () => {
         value: true

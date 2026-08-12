@@ -85,10 +85,12 @@ export interface sourceManagementLogicActions {
         args_0?:
             | {
                   force?: boolean
+                  shallow?: boolean
               }
             | undefined
     ) => {
         force?: boolean
+        shallow?: boolean
     } // databaseTableListLogic
     loadJoins: () => any // joinsLogic
     loadSources: () => {

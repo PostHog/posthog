@@ -1997,7 +1997,7 @@ export interface queryDatabaseLogicMeta {
             expandedFolders: string[],
             materializingViewIds: string[],
             databaseFieldsComplete: boolean,
-            tableFieldsStatus: Record<string, any>
+            tableFieldsStatus: TableFieldsStatus
         ) => TreeDataItem[]
         displayedTreeData: (
             searchTerm: string,
