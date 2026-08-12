@@ -127,8 +127,6 @@ export interface ApiConfig {
     oauthClientName?: string | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
-    /** Correlates CLI API writes with the Wizard run that initiated them. */
-    wizardRunId?: string | undefined
     /**
      * Sandbox-provisioned task id (from the inbound `x-posthog-task-id` MCP header). Forwarded
      * to the PostHog API as `X-PostHog-Task-Id` on every call so writes can be attributed to
@@ -194,7 +192,6 @@ export class ApiClient {
                 // Django-rooted span is not a child of any Worker-side span.
                 'x-posthog-mcp-session-id': this.config.mcpSessionId,
                 'x-posthog-mcp-conversation-id': this.config.mcpConversationId,
-                'x-posthog-wizard-run-id': this.config.wizardRunId,
                 // Forward the sandbox task id so API writes are attributed to the agent's task.
                 'X-PostHog-Task-Id': this.config.taskId,
             }),

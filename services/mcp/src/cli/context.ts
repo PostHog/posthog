@@ -43,8 +43,6 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
     const fallbackDistinctId = `posthog-cli:${identityKey}`
     // Set by the Rust wrapper; joins these events to its telemetry for the same run.
     const cliInvocationId = process.env.POSTHOG_CLI_INVOCATION_ID
-    const originUserAgent = sanitizeHeaderValue(process.env.POSTHOG_CLI_ORIGIN_USER_AGENT)
-    const wizardRunId = sanitizeHeaderValue(process.env.POSTHOG_CLI_WIZARD_RUN_ID)
     const cache = new MemoryCache<State>(`cli:${identityKey}:${config.host}`)
     await cache.setMany({
         ...(config.organizationId ? { orgId: config.organizationId } : {}),
@@ -54,11 +52,10 @@ export async function buildCliContext(config: CliConfig): Promise<Context> {
     const api = new ApiClient({
         apiToken: config.apiKey ?? '',
         baseUrl: config.host.replace(/\/+$/, ''),
-        clientUserAgent: originUserAgent ?? 'posthog-cli api',
+        clientUserAgent: `posthog-cli api`,
         mcpClientName: 'posthog-cli',
         mcpClientVersion: sanitizeHeaderValue(process.env.POSTHOG_CLI_VERSION),
         mcpConsumer: 'posthog-cli',
-        ...(wizardRunId ? { wizardRunId } : {}),
     })
     const stateManager = new StateManager(cache, api)
     const sessionManager = new SessionManager(cache)

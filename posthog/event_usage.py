@@ -317,7 +317,6 @@ AnalyticsProps = TypedDict(
         "mcp_client_version": NotRequired[str | None],
         "mcp_protocol_version": NotRequired[str | None],
         "mcp_oauth_client_name": NotRequired[str | None],
-        "wizard_run_id": NotRequired[str],
     },
     total=False,
 )
@@ -411,10 +410,8 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
     # Auth classes tag the query context with access_method during DRF dispatch
     # (personal_api_key, oauth, id_jag, ...); session auth leaves it unset.
     access_method = get_query_tag_value("access_method")
-    source = get_event_source(request)
-    wizard_run_id = sanitize_header_value(request.headers.get("X-Posthog-Wizard-Run-Id"))
     return {
-        "source": source,
+        "source": get_event_source(request),
         "$current_url": current_url,
         "$host": host,
         "$pathname": pathname,
@@ -423,7 +420,6 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
         "access_method": access_method,
         "user_agent": sanitize_header_value(request.headers.get("User-Agent")),
         **get_mcp_properties(request),
-        **({"wizard_run_id": wizard_run_id} if source == EventSource.WIZARD and wizard_run_id else {}),
     }
 
 

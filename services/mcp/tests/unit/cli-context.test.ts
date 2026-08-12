@@ -26,7 +26,6 @@ import { buildCliContext } from '@/cli/context'
 
 describe('CLI context', () => {
     beforeEach(() => {
-        vi.unstubAllEnvs()
         mocks.capture.mockClear()
         mocks.getDistinctId.mockReset()
         mocks.getAnalyticsContext.mockReset()
@@ -61,15 +60,4 @@ describe('CLI context', () => {
         )
     })
 
-    it('forwards Wizard attribution to API writes', async () => {
-        vi.stubEnv('POSTHOG_CLI_ORIGIN_USER_AGENT', 'posthog/wizard; version: 1.0.0')
-        vi.stubEnv('POSTHOG_CLI_WIZARD_RUN_ID', 'wizard-run-123')
-
-        const context = await buildCliContext({ host: 'https://us.posthog.com', version: 2 })
-
-        expect(context.api.config).toMatchObject({
-            clientUserAgent: 'posthog/wizard; version: 1.0.0',
-            wizardRunId: 'wizard-run-123',
-        })
-    })
 })

@@ -12,7 +12,6 @@ from posthog.event_usage import (
     EventSource,
     get_event_source,
     get_mcp_properties,
-    get_request_analytics_properties,
     is_wizard_self_driving_program,
     report_user_action,
     sanitize_header_value,
@@ -397,25 +396,6 @@ class TestIsWizardSelfDrivingProgram(BaseTest):
 
 
 class TestGetMcpProperties(BaseTest):
-    def test_records_wizard_run_id_for_wizard_requests(self):
-        factory = APIRequestFactory()
-        request = factory.get(
-            "/fake",
-            HTTP_USER_AGENT="posthog/wizard; version: 1.0.0",
-            HTTP_X_POSTHOG_WIZARD_RUN_ID="wizard-run-123",
-        )
-
-        properties = get_request_analytics_properties(request)
-
-        assert properties["source"] == EventSource.WIZARD
-        assert properties["wizard_run_id"] == "wizard-run-123"
-
-    def test_ignores_wizard_run_id_without_wizard_attribution(self):
-        factory = APIRequestFactory()
-        request = factory.get("/fake", HTTP_X_POSTHOG_WIZARD_RUN_ID="wizard-run-123")
-
-        assert "wizard_run_id" not in get_request_analytics_properties(request)
-
     def test_extracts_all_mcp_headers(self):
         factory = APIRequestFactory()
         request = factory.get(
