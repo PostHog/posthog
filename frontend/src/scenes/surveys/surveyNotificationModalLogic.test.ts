@@ -192,4 +192,21 @@ describe('surveyNotificationModalLogic', () => {
             expect(copies).toHaveLength(1)
         }
     })
+
+    // Removing the sent branches through the full editor is how a notification is made
+    // dismissal-only. Rebuilding them unconditionally would hand it back the completed-response
+    // branches on the next unrelated save, sending exactly what the user opted out of.
+    it('leaves a dismissal-only notification without sent branches', () => {
+        const saved = getSurveyNotificationFilters('survey-abc', false)
+        saved.events = saved.events?.filter((event) => event.id === SurveyEventName.DISMISSED)
+
+        const merged = mergeResponseFiltersIntoExistingFilters(
+            saved,
+            getSurveyNotificationFilters('survey-abc', false),
+            []
+        )
+
+        expect(merged?.events?.filter((event) => event.id === SurveyEventName.SENT)).toHaveLength(0)
+        expect(merged?.events?.filter((event) => event.id === SurveyEventName.DISMISSED)).toHaveLength(1)
+    })
 })

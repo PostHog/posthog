@@ -740,16 +740,22 @@ export function mergeResponseFiltersIntoExistingFilters(
     }
     const responseProperties = buildResponseFilterProperties(responseFilters)
     // Sent branches are rebuilt from the freshly built filters rather than preserved, so re-saving
-    // repairs a notification stored before the completion branches were corrected.
+    // repairs a notification stored before the completion branches were corrected. Only when the
+    // saved config already had one: a notification whose sent branches were removed through the
+    // full editor is deliberately dismissal-only, and reinstating them would widen delivery. A
+    // notification needing the repair still has its sent branch, so gating on it costs nothing.
+    const hasSavedSentBranch = (base.events ?? []).some((event) => event.id === SurveyEventName.SENT)
     const customProperties = getCustomSentProperties(base)
-    const rebuiltSentEvents = (fallbackFilters?.events ?? [])
-        .filter((event) => event.id === SurveyEventName.SENT)
-        .map(
-            (event): CyclotronJobFilterEvents => ({
-                ...event,
-                properties: [...(event.properties ?? []), ...customProperties, ...responseProperties],
-            })
-        )
+    const rebuiltSentEvents = hasSavedSentBranch
+        ? (fallbackFilters?.events ?? [])
+              .filter((event) => event.id === SurveyEventName.SENT)
+              .map(
+                  (event): CyclotronJobFilterEvents => ({
+                      ...event,
+                      properties: [...(event.properties ?? []), ...customProperties, ...responseProperties],
+                  })
+              )
+        : []
     const preservedEvents = (base.events ?? []).filter((event) => event.id !== SurveyEventName.SENT)
     return { ...base, events: [...rebuiltSentEvents, ...preservedEvents] }
 }
