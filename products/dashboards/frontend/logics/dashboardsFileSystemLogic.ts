@@ -42,10 +42,8 @@ const FILE_SYSTEM_PAGE_TIMEOUT_MS = 10000
 // Scopes projectTreeDataLogic's optional post-processing (selection clear, undo re-expand) for our reused delete
 // path; safely no-ops for our unmounted instance.
 const DASHBOARDS_TREE_PROJECT_LOGIC_KEY = 'dashboards-tree'
-// A bulk move emits one movedItem per item as each move lands, and the moves are issued together so they land
-// within a few hundred milliseconds of one another. Collapsing them into one refetch keeps a 30-dashboard move
-// from firing 30 concurrent full paginations, which is enough load to time a page out and raise a folder-load
-// error over a move that actually succeeded.
+// A bulk move emits one movedItem per item. Refetching per item runs that many full paginations at once,
+// which is enough load to time a page out and raise a folder-load error over a move that succeeded.
 const MOVE_REFETCH_DEBOUNCE_MS = 300
 
 // Page through every dashboard/folder FileSystem entry so large projects render their full tree instead of

@@ -1371,8 +1371,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
         moveCheckedItems: ({ path }) => {
             const { checkedItems } = values
             let skipInFolder: string | null = null
-            // Only the moves actually issued — descendants of a moved folder are skipped, so the checked
-            // count would overstate how many items moved.
+            // Descendants of a moved folder are skipped, so the checked count would overstate how many
+            // items actually moved.
             const moves: { item: FileSystemEntry; newPath: string }[] = []
             for (const item of values.sortedItems) {
                 if (skipInFolder !== null) {

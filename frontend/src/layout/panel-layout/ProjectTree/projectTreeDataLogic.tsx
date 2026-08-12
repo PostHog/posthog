@@ -70,11 +70,11 @@ const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
 }
 
-// Every move goes through `moveItems` as a batch of one or more, so a group of moves reports and undoes as
-// one. Reporting per item instead would toast N times for a bulk move, and since react-toastify dedupes
-// identical messages the user would see a single toast whose Undo reverts only the item it was built for.
+// Reporting a move per item would toast N times for a bulk move, and because react-toastify dedupes
+// identical messages the user would see one toast whose Undo reverts only the item it was built for. Every
+// move therefore goes through `moveItems`, as a batch of one or more, and reports when the batch settles.
 interface MoveBatch {
-    // Ids of items whose move has not settled yet. The batch reports once this empties.
+    // Emptying this is what tells the batch every move has settled.
     pending: Set<string>
     moved: { item: FileSystemEntry; oldPath: string; newPath: string }[]
     failed: { error: unknown }[]
@@ -605,8 +605,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             force,
             projectTreeLogicKey,
         }),
-        // Moves a whole selection at once. Prefer this over looping `moveItem`: the group reports one toast
-        // with an Undo that reverts every item (see MoveBatch).
+        // Prefer this over looping `moveItem`, which would report each move separately (see MoveBatch).
         moveItems: (
             moves: { item: FileSystemEntry; newPath: string }[],
             force: boolean,
@@ -666,8 +665,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             false,
             {
                 queueAction: async ({ action, projectTreeLogicKey }) => {
-                    // Marks one move of a batch as settled and, once the batch has none left in flight, reports
-                    // the whole group in one toast whose Undo reverts every item that landed.
+                    // Undo has to revert every item that landed, so the batch reports only once none are left
+                    // in flight.
                     const settleMoveBatch = (settle: (batch: MoveBatch) => void): void => {
                         const batch: MoveBatch | undefined = action.batchId
                             ? cache.moveBatches?.get(action.batchId)
@@ -715,8 +714,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
                                 if (!confirm(confirmMessage)) {
-                                    // Declining ends this item's move, so settle it as neither moved nor failed
-                                    // rather than leaving the rest of the batch waiting on it.
+                                    // Nothing will land for this item, so settling it as neither moved nor
+                                    // failed keeps the rest of the batch from waiting on it.
                                     settleMoveBatch(() => {})
                                     return false
                                 }

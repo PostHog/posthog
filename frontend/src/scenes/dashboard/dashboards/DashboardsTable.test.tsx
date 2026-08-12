@@ -15,7 +15,6 @@ jest.mock('./DashboardsFiltersBar', () => ({ DashboardsFiltersBar: () => null })
 // Render the row menu's overlay inline, so the row actions are assertable without driving a popover open.
 jest.mock('lib/lemon-ui/LemonButton/More', () => ({ More: ({ overlay }: any) => <div>{overlay}</div> }))
 
-// Stubbed down to the bulk-action bar and each row's actions column.
 let mockCtx: { selectedKeys: number[]; clearSelection: jest.Mock; setSelectedKeys: jest.Mock }
 jest.mock('lib/lemon-ui/LemonTable', () => ({
     LemonTable: ({ bulkSelection, columns, dataSource }: any) => (

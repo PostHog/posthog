@@ -23,9 +23,8 @@ export interface ProjectTreeAction {
     path: string
     newPath?: string
     /**
-     * Set on move actions to tie them to the `moveItems` batch that issued them, so the batch reports and
-     * undoes as one. It rides on the action because a folder move settles in a second, re-queued action
-     * (`prepare-move` becomes `move`) that must still resolve to the batch that started it.
+     * Ties a move to the `moveItems` batch that issued it. It rides on the action because a folder move
+     * settles in a second, re-queued action (`prepare-move` becomes `move`) that must still find its batch.
      */
     batchId?: string
 }

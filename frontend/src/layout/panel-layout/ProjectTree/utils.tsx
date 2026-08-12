@@ -428,9 +428,9 @@ export function splitPath(path: string | null | undefined): string[] {
 }
 
 /**
- * Rewrite `path` for a folder that moved from `oldPath` to `newPath`, or return null when it sat
- * outside that folder. Compares segment by segment, so a sibling whose name merely starts with the
- * moved folder's name is left alone and an escaped separator inside a name is not mistaken for one.
+ * Returns null when `path` sat outside the moved folder. Compares segment by segment, so a sibling whose
+ * name merely starts with the moved folder's name is left alone and an escaped separator inside a name is
+ * not mistaken for one.
  */
 export function reparentPath(path: string | null | undefined, oldPath: string, newPath: string): string | null {
     if (!isPathUnder(path, oldPath)) {
@@ -440,7 +440,7 @@ export function reparentPath(path: string | null | undefined, oldPath: string, n
 }
 
 /**
- * Whether `path` is `ancestor` itself or sits beneath it. Compares whole segments, so a sibling whose
+ * True for `ancestor` itself as well as anything beneath it. Compares whole segments, so a sibling whose
  * name merely starts the same does not match and an escaped separator is not read as a boundary.
  */
 export function isPathUnder(path: string | null | undefined, ancestor: string): boolean {
@@ -455,7 +455,7 @@ export function parentPath(path: string | null | undefined): string {
 
 /**
  * Whether a file system row is of `type`. A trailing slash makes `type` a prefix covering several
- * internal types, e.g. "hog/" matches "hog/site_destination" — see `ProjectTreeRef`.
+ * internal types, e.g. "hog/" matches "hog/site_destination" (see `ProjectTreeRef`).
  */
 export function matchesRefType(rowType: string | undefined, type: string): boolean {
     return type.endsWith('/') ? !!rowType?.startsWith(type) : rowType === type
