@@ -57,8 +57,12 @@ class AdvancedActivityLogFieldDiscovery:
         if record_count > SMALL_ORG_THRESHOLD:
             cached = get_cached_fields(str(self.organization_id), self.team_id, self.user_id)
             if cached is None and self.team_id is None:
-                # The background task computes one organization-wide entry with no caller attached.
-                # Only an organization-wide caller may read it, and that route is admin-gated.
+                # The background task computes one organization-wide entry with no caller attached,
+                # so only an organization-wide caller reads it. That entry can still name another
+                # user's personal loop or canvas, which `restrict_loop_activity_for_org` and
+                # `restrict_canvas_activity_for_org` exist to prevent. Admin gating does not settle
+                # that, and dropping the fallback would leave a large organization with no filters,
+                # so it stays as the pre-existing behavior rather than as a decision made here.
                 cached = get_cached_fields(str(self.organization_id))
             if cached:
                 return cached
