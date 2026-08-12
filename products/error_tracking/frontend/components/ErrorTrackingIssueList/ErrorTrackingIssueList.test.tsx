@@ -82,7 +82,7 @@ describe('ErrorTrackingIssueListRow', () => {
         )
     })
 
-    it('carries the dateRange and filterTestAccounts filters into the issue link', () => {
+    it('carries the list filters into the issue link', () => {
         render(
             <Provider>
                 <ErrorTrackingIssueListRow
@@ -90,6 +90,7 @@ describe('ErrorTrackingIssueListRow', () => {
                     dateRange={{ date_from: '-30d', date_to: null }}
                     filterGroup={FILTER_GROUP}
                     filterTestAccounts={true}
+                    searchQuery="timeout"
                 />
             </Provider>
         )
@@ -99,6 +100,7 @@ describe('ErrorTrackingIssueListRow', () => {
         expect(url.searchParams.get('dateRange')).toBe(JSON.stringify({ date_from: '-30d', date_to: null }))
         expect(url.searchParams.get('filterGroup')).toBe(JSON.stringify(FILTER_GROUP))
         expect(url.searchParams.get('filterTestAccounts')).toBe('true')
+        expect(url.searchParams.get('searchQuery')).toBe('timeout')
     })
 })
 

@@ -61,6 +61,7 @@ export function ErrorTrackingIssueListRow({
     dateRange,
     filterGroup,
     filterTestAccounts,
+    searchQuery,
 }: {
     issue: ErrorTrackingIssue
     orderBy?: string
@@ -68,6 +69,7 @@ export function ErrorTrackingIssueListRow({
     dateRange?: DateRange
     filterGroup?: UniversalFiltersGroup
     filterTestAccounts?: boolean
+    searchQuery?: string
 }): JSX.Element {
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
     const runtime = getRuntimeFromLib(issue.library)
@@ -81,13 +83,13 @@ export function ErrorTrackingIssueListRow({
             dateRange: dateRange ?? DEFAULT_DATE_RANGE,
             filterGroup: filterGroup ?? DEFAULT_FILTER_GROUP,
             filterTestAccounts: filterTestAccounts ?? false,
-            searchQuery: '',
+            searchQuery: searchQuery ?? '',
         })
         return urls.errorTrackingIssue(issue.id, {
             timestamp: issue.last_seen,
             ...params,
         })
-    }, [issue.id, issue.last_seen, dateRange, filterGroup, filterTestAccounts])
+    }, [issue.id, issue.last_seen, dateRange, filterGroup, filterTestAccounts, searchQuery])
 
     return (
         <div
@@ -206,6 +208,7 @@ type ErrorTrackingIssueListProps = {
     dateRange?: DateRange
     filterGroup?: UniversalFiltersGroup
     filterTestAccounts?: boolean
+    searchQuery?: string
 }
 
 export function ErrorTrackingIssueList({
@@ -217,6 +220,7 @@ export function ErrorTrackingIssueList({
     dateRange,
     filterGroup,
     filterTestAccounts,
+    searchQuery,
 }: ErrorTrackingIssueListProps): JSX.Element {
     return (
         <div className={cn('min-w-0 w-full max-w-full overflow-x-auto rounded border bg-surface-primary', className)}>
@@ -232,6 +236,7 @@ export function ErrorTrackingIssueList({
                             dateRange={dateRange}
                             filterGroup={filterGroup}
                             filterTestAccounts={filterTestAccounts}
+                            searchQuery={searchQuery}
                         />
                     ))}
                 </div>
