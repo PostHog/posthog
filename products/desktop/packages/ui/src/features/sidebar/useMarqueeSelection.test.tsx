@@ -123,6 +123,17 @@ describe("useMarqueeSelection", () => {
     expect(selected()).toEqual([]);
   });
 
+  // Alt is the only modifier that takes a press away from its row. Cmd means
+  // "add to the selection", which is the row's own click to answer.
+  it("still ignores a drag from a row when Cmd is held", () => {
+    const { container } = render(<Harness />);
+    const { rows } = layout(container);
+
+    drag(rows[2], 50, 5, { metaKey: true });
+
+    expect(selected()).toEqual([]);
+  });
+
   it("starts from a row when Alt says the drag is a selection", () => {
     const { container } = render(<Harness />);
     const { rows } = layout(container);

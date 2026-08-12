@@ -203,13 +203,16 @@ export function useSidebarBulkActions(
       taskIds,
       liveTaskIds,
     );
-    clearSelection();
+    // Selection survives an overflow so the sessions that didn't fit can go
+    // somewhere else in one more click. Placement reports counts rather than
+    // ids, so the whole selection stays rather than narrowing to the leftovers.
     if (overflow > 0) {
       toast.warning(
         `${placed} added to Command Center, ${overflow} didn't fit`,
       );
       return;
     }
+    clearSelection();
     // Nothing moved because the whole batch was already tiled — saying "0
     // added" would read as a failure when the grid is exactly as asked.
     if (placed === 0 && alreadyPresent > 0) {

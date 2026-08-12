@@ -59,6 +59,14 @@ export function dedupeTaskIds(taskIds: string[]): string[] {
   return Array.from(new Set(taskIds));
 }
 
+/** Same ids in the same order, so a rewrite of an unchanged selection is a no-op. */
+export function sameTaskIds(
+  a: readonly string[],
+  b: readonly string[],
+): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
+
 export function pruneToVisible(
   selectedTaskIds: string[],
   visibleTaskIds: string[],

@@ -42,9 +42,8 @@ import { Box, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArchiveRunningTaskDialog } from "./ArchiveRunningTaskDialog";
-import { BulkArchiveConfirmDialog } from "./BulkArchiveConfirmDialog";
 import { MarqueeOverlay } from "./MarqueeOverlay";
-import { SidebarBulkActionBar } from "./SidebarBulkActionBar";
+import { SidebarBulkActionFooter } from "./SidebarBulkActionFooter";
 import { SidebarItem } from "./SidebarItem";
 import { TaskListView } from "./TaskListView";
 
@@ -182,29 +181,6 @@ function SidebarMenuComponent() {
   );
 
   const bulkActions = useSidebarBulkActions(effectiveBulkIds, allSidebarTasks);
-  // Snapshotted rather than read live: archiving clears the selection, which
-  // would otherwise retitle the still-open dialog "Archive 0 sessions?".
-  const [bulkArchiveConfirm, setBulkArchiveConfirm] = useState<{
-    sessionCount: number;
-    runningCount: number;
-    stopsCloudSandbox: boolean;
-  } | null>(null);
-
-  // Always confirms. Bulk archive has no undo toast, and the running-session
-  // count it would otherwise gate on is only known for sessions the sidebar is
-  // currently rendering — the routed session folded into the batch may not be.
-  const requestBulkArchive = useCallback(() => {
-    setBulkArchiveConfirm({
-      sessionCount: bulkActions.selectedCount,
-      runningCount: bulkActions.runningCount,
-      stopsCloudSandbox: bulkActions.stopsCloudSandbox,
-    });
-  }, [bulkActions]);
-
-  const confirmBulkArchive = useCallback(async () => {
-    await bulkActions.archiveSelected();
-    setBulkArchiveConfirm(null);
-  }, [bulkActions]);
 
   const handleTaskClick = (taskId: string, e: React.MouseEvent) => {
     // Ignore clicks on a row that's mid-archive.
@@ -236,14 +212,14 @@ function SidebarMenuComponent() {
   };
 
   const handleBulkContextMenu = useCallback(
-    async (e: React.MouseEvent, taskIds: string[]) => {
+    async (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const allPinned = bulkActions.pinDirection === "unpin";
       try {
         const result =
           await hostClient.contextMenu.showBulkTaskContextMenu.mutate({
-            taskCount: taskIds.length,
+            taskCount: bulkActions.selectedCount,
             allPinned,
             runningCount: bulkActions.runningCount,
             stopsCloudSandbox: bulkActions.stopsCloudSandbox,
@@ -325,7 +301,7 @@ function SidebarMenuComponent() {
     // and the right-clicked task is one of them. Otherwise clear and fall through.
     if (effectiveBulkIds.length > 1) {
       if (effectiveBulkIds.includes(taskId)) {
-        handleBulkContextMenu(e, effectiveBulkIds);
+        handleBulkContextMenu(e);
         return;
       }
       clearSelection();
@@ -523,20 +499,9 @@ function SidebarMenuComponent() {
       {/* A sticky footer rather than an overlay: the list shrinks instead of
           having its bottom rows — where a shift-click range usually ends —
           covered up. */}
-      <SidebarBulkActionBar
+      <SidebarBulkActionFooter
         actions={bulkActions}
         onClearSelection={clearSelection}
-        onArchive={requestBulkArchive}
-      />
-
-      <BulkArchiveConfirmDialog
-        open={bulkArchiveConfirm !== null}
-        sessionCount={bulkArchiveConfirm?.sessionCount ?? 0}
-        runningCount={bulkArchiveConfirm?.runningCount ?? 0}
-        stopsCloudSandbox={Boolean(bulkArchiveConfirm?.stopsCloudSandbox)}
-        isArchiving={bulkActions.isArchiving}
-        onConfirm={() => void confirmBulkArchive()}
-        onCancel={() => setBulkArchiveConfirm(null)}
       />
 
       <ArchiveRunningTaskDialog

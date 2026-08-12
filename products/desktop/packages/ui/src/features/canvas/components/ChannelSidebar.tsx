@@ -54,10 +54,9 @@ import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { BulkArchiveConfirmDialog } from "@posthog/ui/features/sidebar/components/BulkArchiveConfirmDialog";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
 import { MarqueeOverlay } from "@posthog/ui/features/sidebar/components/MarqueeOverlay";
-import { SidebarBulkActionBar } from "@posthog/ui/features/sidebar/components/SidebarBulkActionBar";
+import { SidebarBulkActionFooter } from "@posthog/ui/features/sidebar/components/SidebarBulkActionFooter";
 import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
@@ -423,11 +422,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     effectiveBulkIds,
     selectedTasksRunState,
   );
-  const [bulkArchiveConfirm, setBulkArchiveConfirm] = useState<{
-    sessionCount: number;
-    runningCount: number;
-    stopsCloudSandbox: boolean;
-  } | null>(null);
 
   const handleRowClick = (item: ChannelItemModel, e: React.MouseEvent) => {
     if (item.kind !== "task") {
@@ -667,29 +661,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
 
       {/* Below the list rather than floating over it: the bottom rows are where
           a shift-click range usually ends, and the FAB already sits there. */}
-      <SidebarBulkActionBar
+      <SidebarBulkActionFooter
         actions={bulkActions}
         onClearSelection={clearSelection}
-        onArchive={() =>
-          setBulkArchiveConfirm({
-            sessionCount: bulkActions.selectedCount,
-            runningCount: bulkActions.runningCount,
-            stopsCloudSandbox: bulkActions.stopsCloudSandbox,
-          })
-        }
-      />
-
-      <BulkArchiveConfirmDialog
-        open={bulkArchiveConfirm !== null}
-        sessionCount={bulkArchiveConfirm?.sessionCount ?? 0}
-        runningCount={bulkArchiveConfirm?.runningCount ?? 0}
-        stopsCloudSandbox={Boolean(bulkArchiveConfirm?.stopsCloudSandbox)}
-        isArchiving={bulkActions.isArchiving}
-        onConfirm={async () => {
-          await bulkActions.archiveSelected();
-          setBulkArchiveConfirm(null);
-        }}
-        onCancel={() => setBulkArchiveConfirm(null)}
       />
     </div>
   );

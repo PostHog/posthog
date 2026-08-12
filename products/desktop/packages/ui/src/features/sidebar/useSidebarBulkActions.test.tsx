@@ -107,6 +107,7 @@ describe("useSidebarBulkActions", () => {
       overflow: 0,
       alreadyPresent: 0,
     });
+    hoisted.fileTask.mockReset();
     hoisted.fileTask.mockResolvedValue(undefined);
     useTaskSelectionStore.setState({
       selectedTaskIds: ["t1", "t2"],
@@ -207,7 +208,9 @@ describe("useSidebarBulkActions", () => {
       );
     });
 
-    it("warns about sessions that didn't fit", () => {
+    // The selection survives so the leftovers can go somewhere in one click,
+    // matching what archive and file do with the sessions they couldn't take.
+    it("warns about sessions that didn't fit and keeps the selection", () => {
       hoisted.placeTasksInCommandCenter.mockReturnValue({
         placed: 1,
         overflow: 1,
@@ -220,6 +223,10 @@ describe("useSidebarBulkActions", () => {
       expect(hoisted.toast.warning).toHaveBeenCalledWith(
         "1 added to Command Center, 1 didn't fit",
       );
+      expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([
+        "t1",
+        "t2",
+      ]);
     });
 
     // A cell holding a deleted task draws empty, so placement needs the live
@@ -245,18 +252,68 @@ describe("useSidebarBulkActions", () => {
     });
   });
 
-  it("counts the running sessions archiving would stop", () => {
-    const tasks = [
-      makeTask("t1", { isGenerating: true, taskRunEnvironment: "cloud" }),
-      makeTask("t2"),
-    ];
+  // stopsCloudSandbox drives the warning's "Any cloud sandbox … shuts down
+  // too", so it has to track the environment rather than just "running".
+  it.each([
+    { environment: "cloud", stopsCloudSandbox: true },
+    { environment: "local", stopsCloudSandbox: false },
+  ] as const)(
+    "counts a running $environment session and reports stopsCloudSandbox=$stopsCloudSandbox",
+    ({ environment, stopsCloudSandbox }) => {
+      const tasks = [
+        makeTask("t1", { isGenerating: true, taskRunEnvironment: environment }),
+        makeTask("t2"),
+      ];
 
-    const { result } = renderHook(() =>
-      useSidebarBulkActions(["t1", "t2"], tasks),
-    );
+      const { result } = renderHook(() =>
+        useSidebarBulkActions(["t1", "t2"], tasks),
+      );
 
-    expect(result.current.runningCount).toBe(1);
-    expect(result.current.stopsCloudSandbox).toBe(true);
+      expect(result.current.runningCount).toBe(1);
+      expect(result.current.stopsCloudSandbox).toBe(stopsCloudSandbox);
+    },
+  );
+
+  describe("archiveSelected", () => {
+    it("clears the selection when every session was archived", async () => {
+      const { result } = render();
+
+      await act(() => result.current.archiveSelected());
+
+      expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([]);
+      expect(hoisted.toast.success).toHaveBeenCalledWith("2 sessions archived");
+    });
+
+    // Deliberately unlike pinSelected, which narrows to the failures: archiving
+    // reports counts rather than ids, so there is nothing to narrow to and the
+    // whole selection stays put for a retry.
+    it("keeps the whole selection after a partial failure", async () => {
+      hoisted.archiveTasksImperative.mockResolvedValue({
+        archived: 1,
+        failed: 1,
+      });
+      const { result } = render();
+
+      await act(() => result.current.archiveSelected());
+
+      expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual([
+        "t1",
+        "t2",
+      ]);
+      expect(hoisted.toast.error).toHaveBeenCalledWith("1 archived, 1 failed");
+    });
+
+    it("reports a thrown archive rather than rejecting", async () => {
+      hoisted.archiveTasksImperative.mockRejectedValue(new Error("network"));
+      const { result } = render();
+
+      await act(() => result.current.archiveSelected());
+
+      expect(hoisted.toast.error).toHaveBeenCalledWith(
+        "Couldn't archive the selected sessions",
+      );
+      expect(result.current.isArchiving).toBe(false);
+    });
   });
 
   it("files every selected session to the chosen channel", async () => {
@@ -268,6 +325,21 @@ describe("useSidebarBulkActions", () => {
       ["c1", "t1"],
       ["c1", "t2"],
     ]);
+  });
+
+  // Narrowing to the failures is what makes a retry one click.
+  it("keeps only the sessions that failed to file selected", async () => {
+    hoisted.fileTask.mockImplementation((_channelId: string, taskId: string) =>
+      taskId === "t2" ? Promise.reject(new Error("nope")) : Promise.resolve(),
+    );
+    const { result } = render();
+
+    await act(() => result.current.fileSelectedTo("c1"));
+
+    await waitFor(() =>
+      expect(useTaskSelectionStore.getState().selectedTaskIds).toEqual(["t2"]),
+    );
+    expect(hoisted.toast.error).toHaveBeenCalledWith("1 filed, 1 failed");
   });
 
   // `enabled: false` stops the fetch but still hands back whatever an ungated

@@ -49,10 +49,30 @@ function renderBar(overrides: Partial<SidebarBulkActions> = {}) {
 }
 
 describe("SidebarBulkActionBar", () => {
-  it("renders nothing with an empty selection", () => {
-    const { container } = renderBar({ selectedCount: 0 });
+  it("shows no bar with an empty selection", () => {
+    renderBar({ selectedCount: 0 });
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByLabelText(/^Archive/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected$/)).not.toBeInTheDocument();
+  });
+
+  // The count is the only announcement of a selection, and a live region has to
+  // predate its own text to be read out, so it outlives the bar it describes.
+  it("keeps a live region across the selection appearing", () => {
+    const { container, rerender } = renderBar({ selectedCount: 0 });
+    const region = container.querySelector("[aria-live=polite]");
+    expect(region).toHaveTextContent("");
+
+    rerender(
+      <SidebarBulkActionBar
+        actions={makeActions({ selectedCount: 2 })}
+        onClearSelection={vi.fn()}
+        onArchive={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector("[aria-live=polite]")).toBe(region);
+    expect(region).toHaveTextContent("2 sessions selected");
   });
 
   it("shows the selected count and the actions", () => {

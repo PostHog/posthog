@@ -35,32 +35,35 @@ function ActionButton({
   disabledReason,
   loading,
   onClick,
+  wrapTrigger,
   children,
 }: {
   label: string;
   disabledReason: string | null;
   loading?: boolean;
-  onClick: () => void;
+  /** Absent when `wrapTrigger` supplies the behaviour, as a menu trigger does. */
+  onClick?: () => void;
+  /** Wraps the button before the tooltip does, e.g. to open a menu from it. */
+  wrapTrigger?: (button: ReactElement) => ReactElement;
   children: ReactNode;
 }): ReactElement {
   const disabled = disabledReason !== null || Boolean(loading);
+  const button = (
+    <Button
+      type="button"
+      size="icon-sm"
+      variant="default"
+      aria-label={label}
+      disabled={disabled}
+      loading={loading}
+      onClick={onClick}
+    >
+      {children}
+    </Button>
+  );
   return (
     <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="default"
-            aria-label={label}
-            disabled={disabled}
-            loading={loading}
-            onClick={onClick}
-          >
-            {children}
-          </Button>
-        }
-      />
+      <TooltipTrigger render={wrapTrigger ? wrapTrigger(button) : button} />
       <TooltipContent side="top">
         {disabledReason ? `Disabled because ${disabledReason}.` : label}
       </TooltipContent>
@@ -72,7 +75,7 @@ export function SidebarBulkActionBar({
   actions,
   onClearSelection,
   onArchive,
-}: SidebarBulkActionBarProps): ReactElement | null {
+}: SidebarBulkActionBarProps): ReactElement {
   const {
     selectedCount,
     pinDirection,
@@ -87,98 +90,94 @@ export function SidebarBulkActionBar({
     isFiling,
   } = actions;
 
-  if (selectedCount === 0) return null;
-
   const sessions = selectedCount === 1 ? "session" : "sessions";
 
   return (
-    <div className="flex items-center justify-between gap-2 border-(--gray-5) border-t bg-(--gray-2) px-2 py-1.5">
-      <div className="flex min-w-0 items-center gap-1">
-        <span className="shrink-0 font-medium text-(--gray-12) text-[12px]">
-          {selectedCount} selected
-        </span>
-        <span className="truncate text-(--gray-10) text-[11px]">
-          Esc to clear
-        </span>
-      </div>
+    <>
+      {/* The bar is the only sign a selection exists, and it unmounts at zero.
+          A live region announces reliably only if it was in the DOM before its
+          text arrived, so this one sits outside the bar and outlives it. */}
+      <span aria-live="polite" className="sr-only">
+        {selectedCount > 0 ? `${selectedCount} ${sessions} selected` : ""}
+      </span>
 
-      <div className="flex shrink-0 items-center gap-0.5">
-        <ActionButton
-          label={pinLabel}
-          disabledReason={pinDisabledReason}
-          loading={isPinning}
-          onClick={actions.pinSelected}
-        >
-          {pinDirection === "pin" ? (
-            <PushPinIcon size={13} />
-          ) : (
-            <PushPinSlashIcon size={13} />
-          )}
-        </ActionButton>
+      {selectedCount > 0 && (
+        <div className="flex items-center justify-between gap-2 border-(--gray-5) border-t bg-(--gray-2) px-2 py-1.5">
+          <div className="flex min-w-0 items-center gap-1">
+            <span className="shrink-0 font-medium text-(--gray-12) text-[12px]">
+              {selectedCount} selected
+            </span>
+            <span className="truncate text-(--gray-10) text-[11px]">
+              Esc to clear
+            </span>
+          </div>
 
-        <ActionButton
-          label={`Add ${selectedCount} ${sessions} to Command Center`}
-          disabledReason={commandCenterDisabledReason}
-          onClick={actions.addSelectedToCommandCenter}
-        >
-          <SquaresFourIcon size={13} />
-        </ActionButton>
+          <div className="flex shrink-0 items-center gap-0.5">
+            <ActionButton
+              label={pinLabel}
+              disabledReason={pinDisabledReason}
+              loading={isPinning}
+              onClick={actions.pinSelected}
+            >
+              {pinDirection === "pin" ? (
+                <PushPinIcon size={13} />
+              ) : (
+                <PushPinSlashIcon size={13} />
+              )}
+            </ActionButton>
 
-        {fileDisabledReason === null ? (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <DropdownMenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        size="icon-sm"
-                        variant="default"
-                        aria-label={`File ${selectedCount} ${sessions} to a channel`}
-                        loading={isFiling}
-                        disabled={isFiling}
-                      >
-                        <FolderOpenIcon size={13} />
-                      </Button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent side="top">
-                {`File ${selectedCount} ${sessions} to a channel`}
-              </TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end">
-              {channels.map((channel) => (
-                <DropdownMenuItem
-                  key={channel.id}
-                  onClick={() => void actions.fileSelectedTo(channel.id)}
+            <ActionButton
+              label={`Add ${selectedCount} ${sessions} to Command Center`}
+              disabledReason={commandCenterDisabledReason}
+              onClick={actions.addSelectedToCommandCenter}
+            >
+              <SquaresFourIcon size={13} />
+            </ActionButton>
+
+            {fileDisabledReason === null ? (
+              <DropdownMenu>
+                <ActionButton
+                  label={`File ${selectedCount} ${sessions} to a channel`}
+                  disabledReason={null}
+                  loading={isFiling}
+                  wrapTrigger={(button) => (
+                    <DropdownMenuTrigger render={button} />
+                  )}
                 >
-                  {`#${channel.name}`}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : null}
+                  <FolderOpenIcon size={13} />
+                </ActionButton>
+                <DropdownMenuContent align="end">
+                  {channels.map((channel) => (
+                    <DropdownMenuItem
+                      key={channel.id}
+                      onClick={() => void actions.fileSelectedTo(channel.id)}
+                    >
+                      {`#${channel.name}`}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
 
-        <ActionButton
-          label={`Archive ${selectedCount} ${sessions}`}
-          disabledReason={archiveDisabledReason}
-          loading={isArchiving}
-          onClick={onArchive}
-        >
-          <ArchiveIcon size={13} />
-        </ActionButton>
+            <ActionButton
+              label={`Archive ${selectedCount} ${sessions}`}
+              disabledReason={archiveDisabledReason}
+              loading={isArchiving}
+              onClick={onArchive}
+            >
+              <ArchiveIcon size={13} />
+            </ActionButton>
 
-        <ActionButton
-          label="Clear selection"
-          disabledReason={null}
-          onClick={onClearSelection}
-        >
-          <XIcon size={13} />
-        </ActionButton>
-      </div>
-    </div>
+            <ActionButton
+              label="Clear selection"
+              disabledReason={null}
+              onClick={onClearSelection}
+            >
+              <XIcon size={13} />
+            </ActionButton>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
