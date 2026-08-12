@@ -75,8 +75,9 @@ export function QueryFiltersMenu(): JSX.Element | null {
                             Filters are set, but this SQL query doesn't include a <code>{'{filters}'}</code>{' '}
                             placeholder, so they aren't applied. Add <code>{'{filters}'}</code> to your{' '}
                             <code>where</code> clause when selecting from PostHog tables like <code>events</code>,{' '}
-                            <code>sessions</code>, or <code>groups</code>. For any other table or view, bind your own
-                            columns, for example <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
+                            <code>sessions</code>, <code>groups</code>, or <code>persons</code>. For any other table or
+                            view, bind your own columns, for example{' '}
+                            <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
                             <Link to="https://posthog.com/docs/data-warehouse/sql/variables" target="_blank">
                                 Learn more
                             </Link>
@@ -84,9 +85,9 @@ export function QueryFiltersMenu(): JSX.Element | null {
                     ) : (
                         <div className="text-xs text-muted">
                             Use <code>{'{filters}'}</code> in your SQL query <code>where</code> clause to apply these
-                            filters when selecting from PostHog tables like <code>events</code>, <code>sessions</code>,
-                            or <code>groups</code>. For any other table or view, bind your own columns, for example{' '}
-                            <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
+                            filters when selecting from PostHog tables like <code>events</code>, <code>sessions</code>,{' '}
+                            <code>groups</code>, or <code>persons</code>. For any other table or view, bind your own
+                            columns, for example <code>{"{filters(created_at AS timestamp, plan AS 'plan')}"}</code>.{' '}
                             <Link to="https://posthog.com/docs/data-warehouse/sql/variables" target="_blank">
                                 Learn more
                             </Link>
