@@ -110,6 +110,13 @@ export class UsageRecorder {
     /**
      * Drop buckets past the retention window. Never touches integration_secret_last_seen: a
      * dormant deployment holds the retirement verdict back however long it has been quiet.
+     *
+     * A deployment whose signing key is later revoked keeps its last_seen row too — this
+     * table records what was read, not who is still allowed to read it. Judging a row against
+     * "is this deployment still active" is the retirement verdict's job (the follow-up UI PR),
+     * which can filter by currently active deployments; guessing at revocation here by pruning
+     * would reintroduce the exact failure mode last_seen exists to prevent, a rotation looking
+     * safe to complete because a caller went quiet.
      */
     async prune(retentionDays: number): Promise<void> {
         if (!this.pool) {
