@@ -3081,9 +3081,25 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 400, response.content)
 
-    def test_creating_static_cohort_from_time_series_trends_actors_without_day_is_rejected(self):
-        # Without `day` the populate task can't compile the query, so the cohort would save and then
-        # fail on every recalculation, never gaining members.
+    @parameterized.expand(
+        [
+            ("time_series_without_day", None, None),
+            ("total_value_with_day", "BoldNumber", "2026-07-01"),
+        ]
+    )
+    def test_creating_static_cohort_from_trends_actors_with_invalid_day_is_rejected(
+        self, _name: str, display: str | None, day: str | None
+    ) -> None:
+        trends_filter = {"display": display} if display else None
+        actors_source: dict[str, Any] = {
+            "kind": "InsightActorsQuery",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                **({"trendsFilter": trends_filter} if trends_filter else {}),
+            },
+            **({"day": day} if day else {}),
+        }
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
@@ -3092,13 +3108,7 @@ email@example.org,
                 "query": {
                     "kind": "ActorsQuery",
                     "select": ["person"],
-                    "source": {
-                        "kind": "InsightActorsQuery",
-                        "source": {
-                            "kind": "TrendsQuery",
-                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                        },
-                    },
+                    "source": actors_source,
                 },
             },
         )

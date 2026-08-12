@@ -1,7 +1,10 @@
+from typing import Any
+
 from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
+from django.test import SimpleTestCase
 
 from clickhouse_driver.errors import SocketTimeoutError
 from parameterized import parameterized
@@ -50,6 +53,40 @@ def _create_cohort(**kwargs):
     is_static = kwargs.pop("is_static", False)
     cohort = Cohort.objects.create(team=team, name=name, groups=groups, is_static=is_static)
     return cohort
+
+
+class TestCohortQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("time_series_trends_without_day", None, None, True),
+            ("time_series_trends_with_empty_day", None, "", True),
+            ("time_series_trends_with_whitespace_day", None, " ", True),
+            ("time_series_trends_with_malformed_day", None, "not-a-date", True),
+            ("time_series_trends_with_integer_day", None, 0, True),
+            ("time_series_trends_with_day", None, "2026-07-01", False),
+            ("total_value_trends_without_day", "BoldNumber", None, False),
+            ("total_value_trends_with_day", "BoldNumber", "2026-07-01", True),
+        ]
+    )
+    def test_validate_actors_query_for_cohort_requires_valid_day(
+        self, _name: str, display: str | None, day: str | int | None, should_raise: bool
+    ) -> None:
+        insight: dict[str, Any] = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+        }
+        if display:
+            insight["trendsFilter"] = {"display": display}
+        source: dict[str, Any] = {"kind": "InsightActorsQuery", "source": insight}
+        if day is not None:
+            source["day"] = day
+        query = {"kind": "ActorsQuery", "select": ["person"], "source": source}
+
+        if should_raise:
+            with self.assertRaises(DRFValidationError):
+                validate_actors_query_for_cohort(query)
+        else:
+            validate_actors_query_for_cohort(query)
 
 
 class TestCohortUtils(BaseTest):
@@ -432,28 +469,6 @@ class TestCohortUtils(BaseTest):
             self.assertNotIn("search", sanitized)
         else:
             self.assertEqual(sanitized["search"], expected_search)
-
-    @parameterized.expand(
-        [
-            ("time_series_trends_without_day", None, None, True),
-            ("time_series_trends_with_day", None, "2026-07-01", False),
-            ("total_value_trends_without_day", "BoldNumber", None, False),
-        ]
-    )
-    def test_validate_actors_query_for_cohort_requires_day(self, _name, display, day, should_raise):
-        insight: dict = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
-        if display:
-            insight["trendsFilter"] = {"display": display}
-        source: dict = {"kind": "InsightActorsQuery", "source": insight}
-        if day:
-            source["day"] = day
-        query = {"kind": "ActorsQuery", "select": ["person"], "source": source}
-
-        if should_raise:
-            with self.assertRaises(DRFValidationError):
-                validate_actors_query_for_cohort(query)
-        else:
-            validate_actors_query_for_cohort(query)
 
     def test_insert_cohort_from_actors_query_preserves_persons_list_search(self):
         _create_person(

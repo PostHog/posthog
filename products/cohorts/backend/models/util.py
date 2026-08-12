@@ -324,7 +324,7 @@ def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]
     return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
 
 
-def validate_actors_query_for_cohort(query_dict: dict) -> None:
+def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:
     """Reject actor queries that would only fail once the populate task compiles them.
 
     Pydantic validation is not enough here: `day` is optional on `InsightActorsQuery`, but a
@@ -352,14 +352,23 @@ def validate_actors_query_for_cohort(query_dict: dict) -> None:
         display = ChartDisplayType(raw_display) if raw_display else None
     except ValueError:
         return  # Pydantic validation owns unknown display types
+    day = source.get("day")
     if TrendsDisplay(display).is_total_value():
+        if day is not None:
+            raise ValidationError("Do not provide a day for a total value trends insight.")
         return
 
-    if source.get("day") is None:
-        raise ValidationError(
-            "This trends insight breaks results down over time, so a specific time period is required. "
-            "Open the insight, click the data point you want, and save the cohort from there."
-        )
+    invalid_day_message = (
+        "Provide a valid day for this time series trends insight. "
+        "To choose a day in PostHog, open the insight and click a data point."
+    )
+    if not isinstance(day, str):
+        raise ValidationError(invalid_day_message)
+
+    try:
+        parser.parse(day)
+    except (ValueError, OverflowError):
+        raise ValidationError(invalid_day_message) from None
 
 
 def _sanitize_query_for_cohort(query_dict: dict) -> dict:
