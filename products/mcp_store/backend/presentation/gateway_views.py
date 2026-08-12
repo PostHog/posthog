@@ -196,16 +196,17 @@ class GatewayYourConnectionSerializer(serializers.Serializer):
 
 
 class GatewayAgentAccessSerializer(serializers.Serializer):
-    """One agent's access to a gateway server."""
+    """One agent's access to a gateway server, on behalf of one member."""
 
     service_account_id = serializers.UUIDField(help_text="Service account granted access.")
+    user = UserBasicSerializer(help_text="The member whose connection the agent uses.")
     name = serializers.CharField(help_text="Agent display name.")
     handle = serializers.CharField(help_text="Agent identity handle, e.g. posthog-support.")
     status = serializers.ChoiceField(
         choices=SERVICE_ACCOUNT_STATUS_CHOICES, help_text="active, or paused (all access off)."
     )
     last_active_at = serializers.DateTimeField(allow_null=True, help_text="When the agent last made a call.")
-    granted_by = UserBasicSerializer(allow_null=True, help_text="Admin who shared this server with the agent.")
+    granted_by = UserBasicSerializer(allow_null=True, help_text="Member who shared this server with the agent.")
 
 
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
@@ -354,13 +355,20 @@ class MCPGatewayServerSerializer(serializers.ModelSerializer):
         return [
             {
                 "service_account_id": access.service_account_id,
+                "user": UserBasicSerializer(access.user).data,
                 "name": access.service_account.name,
                 "handle": access.service_account.handle,
                 "status": access.service_account.status,
                 "last_active_at": access.service_account.last_active_at,
                 "granted_by": UserBasicSerializer(access.granted_by).data if access.granted_by else None,
             }
+            # A grant written by a pod on the previous release can still be
+            # missing its user while the deploy rolls. It resolves for nobody,
+            # and `user` is not nullable on the serializer. The list queryset
+            # already excludes those, but this serializer is also used on
+            # objects fetched without that prefetch.
             for access in obj.agent_access.all()
+            if access.user_id is not None
         ]
 
     @extend_schema_field(serializers.ListField(child=serializers.IntegerField()))
@@ -569,6 +577,7 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
     """A credential-safe summary of a server configured for an agent."""
 
     id = serializers.UUIDField(help_text="Gateway server granted to the agent.")
+    shared_by = UserBasicSerializer(help_text="The member whose connection the agent uses.")
     name = serializers.CharField(help_text="Server display name.")
     description = serializers.CharField(help_text="Server description.")
     icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
@@ -646,6 +655,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
             servers.append(
                 {
                     "id": server.id,
+                    "shared_by": UserBasicSerializer(access.user).data,
                     "name": server.name,
                     "description": server.description,
                     "icon_key": server.template.icon_key if server.template else "",
@@ -666,8 +676,18 @@ class MCPServiceAccountUpdateSerializer(serializers.ModelSerializer):
 
 
 class ServiceAccountAccessUpdateSerializer(serializers.Serializer):
-    gateway_server_id = serializers.UUIDField(help_text="Gateway server to grant or revoke.")
-    enabled = serializers.BooleanField(help_text="True grants access, false revokes it.")
+    gateway_server_id = serializers.UUIDField(help_text="Gateway server to share or stop sharing.")
+    enabled = serializers.BooleanField(
+        help_text="True shares the caller's own connection with the agent, false removes the caller's share."
+    )
+    all = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Only valid with enabled=false. Removes every member's share of this server with this agent, "
+            "along with the agent's tool policies for it. Project admins only."
+        ),
+    )
     policies = serializers.ListField(
         child=ToolPolicyEntrySerializer(),
         max_length=MAX_TOOL_POLICIES_PER_REQUEST,
@@ -678,6 +698,11 @@ class ServiceAccountAccessUpdateSerializer(serializers.Serializer):
             f"At most {MAX_TOOL_POLICIES_PER_REQUEST:,} entries per request."
         ),
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("all") and attrs["enabled"]:
+            raise serializers.ValidationError({"all": "Removing every member's share requires enabled=false."})
+        return attrs
 
 
 class MCPOrgRuleSerializer(serializers.ModelSerializer):
@@ -833,9 +858,13 @@ class MCPGatewayServerViewSet(
                 ),
                 Prefetch(
                     "agent_access",
-                    queryset=MCPServiceAccountServerAccess.objects.unscoped().select_related(
-                        "service_account", "granted_by"
-                    ),
+                    # A grant written by a pod on the previous release can still
+                    # be missing its user while the deploy rolls. Such a row
+                    # resolves for nobody, and GatewayAgentAccessSerializer.user
+                    # is not nullable, so it must not reach the serializer.
+                    queryset=MCPServiceAccountServerAccess.objects.unscoped()
+                    .exclude(user__isnull=True)
+                    .select_related("service_account", "granted_by", "user"),
                 ),
                 "member_revocations",
             )
@@ -1144,8 +1173,12 @@ class MCPServiceAccountViewSet(
     def _server_access_prefetch(self) -> Prefetch:
         return Prefetch(
             "server_access",
+            # See MCPGatewayServerViewSet.safely_get_queryset: a user-less grant
+            # from a previous-release pod resolves for nobody, and
+            # MCPServiceAccountServerSerializer.shared_by is not nullable.
             queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
-            .select_related("gateway_server__template", "installation")
+            .exclude(user__isnull=True)
+            .select_related("gateway_server__template", "installation", "user")
             .order_by("gateway_server__name"),
         )
 
@@ -1185,7 +1218,17 @@ class MCPServiceAccountViewSet(
     )
     @action(detail=True, methods=["post"], url_path="access")
     def access(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Grant or revoke this agent's access to one gateway server."""
+        """Share, or stop sharing, one gateway server with this agent.
+
+        Sharing is personal. `enabled=true` delegates the caller's own
+        connection, and the agent may use it only when acting for the caller.
+        `enabled=false` removes the caller's own share and leaves other members'
+        shares, and the agent's tool policies, in place.
+
+        Project admins can send `all=true` alongside `enabled=false` to remove
+        every member's share of this server with this agent, along with the
+        agent's tool policies for it.
+        """
         self._require_agent_access_manager()
         account = self.get_object()
         data = request.validated_data
@@ -1236,6 +1279,7 @@ class MCPServiceAccountViewSet(
                 MCPServiceAccountServerAccess.objects.for_team(self.team_id).update_or_create(
                     service_account=account,
                     gateway_server=server,
+                    user=user,
                     defaults={
                         "team_id": self.team_id,
                         "installation": installation,
@@ -1252,7 +1296,8 @@ class MCPServiceAccountViewSet(
                         scope_service_account=account,
                         defaults={"state": entry["policy_state"]},
                     )
-        else:
+        elif data.get("all"):
+            self._require_project_admin()
             with transaction.atomic():
                 MCPServiceAccountServerAccess.objects.for_team(self.team_id).filter(
                     service_account=account,
@@ -1261,11 +1306,25 @@ class MCPServiceAccountViewSet(
                 MCPToolPolicy.objects.for_team(self.team_id).filter(
                     gateway_server=server, scope_type="agent", scope_service_account=account
                 ).delete()
+        else:
+            # Agent-scope tool policies describe what the agent may call for
+            # every member sharing this server, so one member withdrawing their
+            # own connection must leave them alone.
+            MCPServiceAccountServerAccess.objects.for_team(self.team_id).filter(
+                service_account=account,
+                gateway_server=server,
+                user=cast(User, request.user),
+            ).delete()
 
         report_user_action(
             cast(User, request.user),
             "mcp_gateway agent access changed",
-            properties={"handle": account.handle, "server_name": server.name, "enabled": data["enabled"]},
+            properties={
+                "handle": account.handle,
+                "server_name": server.name,
+                "enabled": data["enabled"],
+                "all_members": bool(data.get("all")),
+            },
             team=self.team,
         )
         prefetch_related_objects([account], self._server_access_prefetch())

@@ -953,7 +953,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
+                    // Captured before the awaits: `values` reads throw if this logic unmounts
+                    // mid-flight, and the fetch report must carry the filters the request was
+                    // built from, not whatever they are once the response lands.
+                    const filters = values.filters
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
                         ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
@@ -1005,11 +1009,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
                     actions.reportRecordingsListFetched(
                         loadTimeMs,
-                        values.filters,
+                        filters,
                         defaultRecordingDurationFilter,
                         props.analyticsSource
                     )
 
+                    // Must run after the fetch report (superseded and abandoned fetches still
+                    // count toward load-time metrics) and before the `values` reads below
+                    // (they throw once the logic is unmounted).
                     breakpoint()
 
                     return {
