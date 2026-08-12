@@ -57,7 +57,7 @@ export interface HomepageGridItem {
     itemType?: string | null
 }
 
-const GRID_LIMIT = 5
+const GRID_LIMIT = 8
 
 const PREVIOUS_HOMEPAGE_KEY = 'ai-first-previous-homepage'
 

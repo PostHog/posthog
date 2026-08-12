@@ -53,6 +53,8 @@ export type CommandMenuAction =
   | "go-back"
   | "go-forward"
   | "open-task"
+  | "open-task-from-pull-request"
+  | "open-artifact"
   | "open-channel"
   | "open-command-center"
   | "open-inbox"
@@ -149,6 +151,21 @@ export interface PromptSentProperties {
   is_initial: boolean;
   execution_type: ExecutionType;
   prompt_length_chars: number;
+}
+
+/** Sentiment captured by the thumbs under an agent turn. */
+export type AgentTurnFeedbackSentiment = "positive" | "negative";
+
+/**
+ * A reader's verdict on one agent turn, from the thumbs in the turn footer.
+ * Feedback is analytics-only: it never changes the session. `turn_id` is
+ * stable for the life of the thread, so switching thumbs re-fires the event
+ * and the last one wins.
+ */
+export interface AgentTurnFeedbackProperties {
+  task_id: string | null;
+  turn_id: string;
+  sentiment: AgentTurnFeedbackSentiment;
 }
 
 // Git operations
@@ -1047,6 +1064,26 @@ export interface CanvasPromptSentProperties {
   prompt_length_chars: number;
 }
 
+export interface CanvasRenderedProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact rendered; absent for head-source renders. */
+  build_id?: string;
+}
+
+export interface CanvasRuntimeErrorProperties {
+  channel_id?: string;
+  dashboard_id?: string;
+  /** The published build whose artifact threw; absent for head-source renders. */
+  build_id?: string;
+  /**
+   * The error's class name (e.g. "TypeError"), or "unknown". Deliberately not the
+   * raw message: canvas source is user/agent-authored and its exceptions can carry
+   * source fragments, query results, or secrets that must not cross into analytics.
+   */
+  error_type: string;
+}
+
 export type ContextActionType = "save_version" | "generate_started" | "discard";
 
 export interface ContextActionProperties {
@@ -1308,6 +1345,7 @@ export const ANALYTICS_EVENTS = {
   TASK_RUN_CANCELLED: "Task run cancelled",
   TASK_RUN_STOPPED: "Task run stopped",
   PROMPT_SENT: "Prompt sent",
+  AGENT_TURN_FEEDBACK: "Agent turn feedback",
 
   // Claude Code session import
   CLAUDE_SESSIONS_SHOWN: "Claude Code sessions shown",
@@ -1449,6 +1487,8 @@ export const ANALYTICS_EVENTS = {
   CHANNEL_ACTION: "Channel action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_RENDERED: "Canvas rendered",
+  CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
 
   // Autoresearch events
@@ -1490,6 +1530,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_RUN_CANCELLED]: TaskRunCancelledProperties;
   [ANALYTICS_EVENTS.TASK_RUN_STOPPED]: TaskRunStoppedProperties;
   [ANALYTICS_EVENTS.PROMPT_SENT]: PromptSentProperties;
+  [ANALYTICS_EVENTS.AGENT_TURN_FEEDBACK]: AgentTurnFeedbackProperties;
 
   // Claude Code session import
   [ANALYTICS_EVENTS.CLAUDE_SESSIONS_SHOWN]: ClaudeSessionsShownProperties;
@@ -1628,6 +1669,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CHANNEL_ACTION]: ChannelActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
+  [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
 
   // Autoresearch events

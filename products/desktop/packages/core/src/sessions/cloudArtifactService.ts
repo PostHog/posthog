@@ -155,7 +155,44 @@ export class CloudArtifactService {
       preparedArtifacts,
     );
 
-    return finalizedArtifacts.map((artifact) => artifact.id);
+    return this.getFinalizedArtifactIds(preparedArtifacts, finalizedArtifacts);
+  }
+
+  async uploadRunOutput(
+    client: CloudArtifactClient,
+    taskId: string,
+    runId: string,
+    name: string,
+    content: string,
+    contentType?: string,
+  ): Promise<string> {
+    const bytes = new TextEncoder().encode(content);
+    const attachment: LoadedCloudAttachment = {
+      filePath: name,
+      bytes,
+      upload: {
+        name,
+        type: "output",
+        size: bytes.byteLength,
+        ...(contentType ? { content_type: contentType } : {}),
+      },
+    };
+    const preparedArtifacts = await client.prepareTaskRunArtifactUploads(
+      taskId,
+      runId,
+      [attachment.upload],
+    );
+    await this.uploadPreparedArtifacts([attachment], preparedArtifacts);
+    const finalizedArtifacts = await client.finalizeTaskRunArtifactUploads(
+      taskId,
+      runId,
+      preparedArtifacts,
+    );
+    const finalizedArtifact = finalizedArtifacts[0];
+    if (!finalizedArtifact) {
+      throw new Error("Artifact upload was not finalized");
+    }
+    return finalizedArtifact.id;
   }
 
   async uploadRunAttachments(
@@ -187,7 +224,24 @@ export class CloudArtifactService {
       preparedArtifacts,
     );
 
-    return finalizedArtifacts.map((artifact) => artifact.id);
+    return this.getFinalizedArtifactIds(preparedArtifacts, finalizedArtifacts);
+  }
+
+  private getFinalizedArtifactIds(
+    preparedArtifacts: PreparedCloudArtifact[],
+    finalizedArtifacts: FinalizedCloudArtifact[],
+  ): string[] {
+    const artifactIds = finalizedArtifacts
+      .map((artifact) => artifact.id)
+      .filter((artifactId) => artifactId.trim().length > 0);
+
+    if (artifactIds.length !== preparedArtifacts.length) {
+      throw new Error(
+        "Finalized uploads do not match the selected attachments",
+      );
+    }
+
+    return artifactIds;
   }
 
   private async loadCloudAttachments(

@@ -27,6 +27,8 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
             headcount
             description
             ownershipStatus
+            customerType
+            fundingAttributeNullStatus
             relatedCompanies {
                 acquiredBy {
                     companyUrn

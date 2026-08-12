@@ -81,6 +81,16 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     task_run_id = models.UUIDField(null=True, blank=True)
     prompt = models.TextField(null=True, blank=True)
 
+    # Snapshot of the project's declared capabilities manifest, denormalized
+    # from the stored source so capability changes can be diffed and audited
+    # without reading object storage. Null for versions that predate it.
+    capabilities = models.JSONField(null=True, blank=True)
+
+    # True while the version is a staged draft: stored and built like any other
+    # version, but never the canvas head, so its build can't go live. Promoting
+    # clears the flag; after that the version is indistinguishable from a publish.
+    draft = models.BooleanField(default=False)
+
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )

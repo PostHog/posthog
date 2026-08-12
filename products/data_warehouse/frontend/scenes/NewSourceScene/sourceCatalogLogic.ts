@@ -27,6 +27,7 @@ import {
     FILE_UPLOAD_FORMATS,
     FILE_UPLOAD_SOURCE_CONFIG,
     FILE_UPLOAD_SOURCE_NAME,
+    fileUploadSourceType,
     fileUploadSourceUrl,
 } from './fileUploadSource'
 import { sourceWizardLogic } from './sourceWizardLogic'
@@ -410,6 +411,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Cloudability'
                       | 'Cloudbeds'
                       | 'Cloudflare'
+                      | 'Cloudinary'
                       | 'Cloudsmith'
                       | 'Cloudzero'
                       | 'Clover'
@@ -581,6 +583,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Formbricks'
                       | 'Fortnox'
                       | 'Fourthwall'
+                      | 'Framer'
                       | 'Fred'
                       | 'FreeAgent'
                       | 'Freightview'
@@ -724,6 +727,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Imagga'
                       | 'ImfData'
                       | 'Impact'
+                      | 'ImpactPartner'
                       | 'Imperva'
                       | 'IncidentIo'
                       | 'Infisical'
@@ -902,6 +906,7 @@ export interface sourceCatalogLogicMeta {
                       | 'Motherduck'
                       | 'Motion'
                       | 'Moxie'
+                      | 'MSG91'
                       | 'MSSQL'
                       | 'Mux'
                       | 'Mycase'
@@ -1031,7 +1036,8 @@ export interface sourceCatalogLogicMeta {
                       | 'Piwik'
                       | 'Plaid'
                       | 'Plain'
-                      | 'PlanetScale'
+                      | 'PlanetScaleMySQL'
+                      | 'PlanetScalePostgres'
                       | 'Planhat'
                       | 'PlanningCenter'
                       | 'PlatformSh'
@@ -1333,6 +1339,7 @@ export interface sourceCatalogLogicMeta {
                       | 'UnComtrade'
                       | 'Unleash'
                       | 'Unstructured'
+                      | 'Uploadcare'
                       | 'UpPromote'
                       | 'Upstash'
                       | 'Uptick'
@@ -1371,6 +1378,7 @@ export interface sourceCatalogLogicMeta {
                       | 'WeightsAndBiases'
                       | 'WhatsappBusinessManagement'
                       | 'WhenIWork'
+                      | 'WHMCS'
                       | 'WhoGho'
                       | 'Whop'
                       | 'WikipediaPageviews'
@@ -1577,7 +1585,7 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                 // three tiles, one per format, since users search for "CSV" rather than "File upload".
                 const fileUpload = FILE_UPLOAD_FORMATS.map(
                     ({ format, label, keywords }): CatalogItem => ({
-                        name: `${FILE_UPLOAD_SOURCE_NAME}-${format}`,
+                        name: fileUploadSourceType(format),
                         label,
                         iconType: FILE_UPLOAD_SOURCE_NAME,
                         category: MANUAL_SOURCE_CATEGORY,
