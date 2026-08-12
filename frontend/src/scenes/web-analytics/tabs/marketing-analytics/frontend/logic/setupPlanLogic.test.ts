@@ -184,6 +184,49 @@ describe('setupPlanLogic', () => {
         expect(logic.values.safeBatch).toHaveLength(1)
     })
 
+    it('skips the audit reload for ops the audit cannot see', async () => {
+        // The audit reruns the campaign and UTM-catalogue ClickHouse queries the plan just
+        // ran. A conversion-goal change moves neither, so reloading it pays twice for a
+        // scan whose answer can't have changed.
+        await expectLogic(logic, () =>
+            logic.actions.applySuggestion(
+                suggestion({
+                    id: 'mark_goal_as_revenue:sign_up',
+                    kind: 'mark_goal_as_revenue',
+                    apply: { op: 'update_conversion_goal', conversion_goal_id: 'abc', patch: {} },
+                })
+            )
+        )
+            .toDispatchActions(['loadSetupPlan'])
+            .toNotHaveDispatchedActions(['loadAuditData'])
+            .toFinishAllListeners()
+    })
+
+    it('keeps the review modal open when applying fails', async () => {
+        // The reducers used to close on `loadSetupPlanSuccess`, which the listener fires
+        // from `finally` — so the reload succeeding closed the modal even though the apply
+        // had failed, losing the error and the retry.
+        useMocks({
+            post: {
+                '/api/projects/:team_id/marketing_analytics/apply_setup_ops': () => [400, { ops: 'nope' }],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(suggestion())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.confirmReviewedSuggestion(suggestion())).toFinishAllListeners()
+
+        expect(logic.values.reviewingSuggestion).not.toBeNull()
+    })
+
+    it('closes the review modal once the apply lands', async () => {
+        await expectLogic(logic, () => logic.actions.loadSetupPlan()).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.reviewSuggestion(suggestion())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.confirmReviewedSuggestion(suggestion())).toFinishAllListeners()
+
+        expect(logic.values.reviewingSuggestion).toBeNull()
+    })
+
     it('does not apply a suggestion with no op', async () => {
         await expectLogic(logic, () =>
             logic.actions.applySuggestion(suggestion({ apply: null }))

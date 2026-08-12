@@ -68,9 +68,12 @@ function CapabilityChip({
         <Tooltip title={tooltip}>
             <button
                 type="button"
-                disabled={!clickable}
-                onClick={onFocus}
-                aria-pressed={focused}
+                // Focusable even when there's nothing to filter: `disabled` drops it out
+                // of the tab order, and the status and explanation live in the tooltip,
+                // which then has no keyboard path. The click is guarded instead.
+                onClick={clickable ? onFocus : undefined}
+                aria-pressed={clickable ? focused : undefined}
+                aria-label={`${label} · ${STATUS_COPY[readiness.status]}`}
                 className={`flex items-center gap-1.5 rounded border px-2 py-1 text-sm ${
                     focused ? 'border-accent bg-accent-highlight-secondary' : 'bg-bg-light'
                 } ${clickable ? 'cursor-pointer' : 'cursor-default'}`}

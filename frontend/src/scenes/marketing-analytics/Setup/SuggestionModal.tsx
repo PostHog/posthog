@@ -173,8 +173,12 @@ export function SuggestionModal({
                         <LemonButton type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
-                        <LemonButton type="primary" loading={isApplying} onClick={() => onConfirmBatch(batch)}>
-                            Apply {lines.length} change{lines.length === 1 ? '' : 's'}
+                        <LemonButton
+                            type="primary"
+                            loading={isApplying}
+                            onClick={() => (lines.length ? onConfirmBatch(batch) : onClose())}
+                        >
+                            {lines.length ? `Apply ${lines.length} change${lines.length === 1 ? '' : 's'}` : 'Close'}
                         </LemonButton>
                     </>
                 }
@@ -232,7 +236,10 @@ export function SuggestionModal({
                                 ? 'danger'
                                 : undefined
                         }
-                        onClick={() => onConfirm(suggestion)}
+                        // A no-op diff means the config already matches. Applying it anyway
+                        // writes nothing but reports "applied" with an Undo that would
+                        // strip the config that's already there.
+                        onClick={() => (diff?.isNoop && !explain ? onClose() : onConfirm(suggestion))}
                     >
                         {explain ? 'Continue' : diff?.isNoop ? 'Close' : (APPLY_LABEL[op.op] ?? 'Apply change')}
                     </LemonButton>

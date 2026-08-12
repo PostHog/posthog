@@ -18,6 +18,17 @@ export type SuggestionSeverity = 'error' | 'warning' | 'info'
 export type SuggestionSource = 'deterministic' | 'ai'
 export type ReadinessStatus = 'unlocked' | 'partial' | 'blocked'
 
+/** Ops whose writes change what the UTM audit reports. The audit reruns the campaign
+ * and UTM-catalogue queries the setup plan just ran, so reloading it for a goal change
+ * pays twice for a scan that can't have moved. */
+const AUDIT_AFFECTING_OPS = new Set([
+    'add_custom_source_mapping',
+    'remove_custom_source_mapping',
+    'add_campaign_name_mapping',
+    'remove_campaign_name_mapping',
+    'set_campaign_field_preference',
+])
+
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 /** Suggestion ids are semantic and project-independent — `connect_source:google_ads`
  * is the same string in every project — so an unprefixed bucket would hide a finding
@@ -301,10 +312,12 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
             {
                 reviewSuggestion: (_, { suggestion }) => suggestion,
                 reviewSafeBatch: () => null,
-                // Close on success rather than on click: a failed apply keeps the modal
-                // open with the error, instead of vanishing and leaving the user unsure
-                // whether anything happened.
-                loadSetupPlanSuccess: () => null,
+                // `markApplied`, not `loadSetupPlanSuccess`: the reload runs in the
+                // listener's `finally` and succeeds even when the apply didn't, so keying
+                // off it closed the modal on failure — the opposite of the intent. This
+                // only fires inside the `try`, so a failed apply keeps the modal open with
+                // its error rather than vanishing.
+                markApplied: () => null,
             },
         ],
         isReviewingBatch: [
@@ -312,7 +325,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
             {
                 reviewSafeBatch: () => true,
                 reviewSuggestion: () => false,
-                loadSetupPlanSuccess: () => false,
+                markApplied: () => false,
             },
         ],
         dismissedIds: [
@@ -539,11 +552,20 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                 // `updateCurrentTeam`. Nothing else would know: the manual settings
                 // sections below read `savedMarketingAnalyticsConfig`, which keys off
                 // that action, and utmAuditLogic only reloads on the update*Mappings
-                // actions. Without these three the manual sections show stale data
-                // right next to the suggestion that just changed it.
-                actions.loadCurrentTeam()
+                // actions. Without these the manual sections show stale data right next
+                // to the suggestion that just changed it.
+                //
+                // Awaited, not fire-and-forget: `loadMarketingAnalyticsConfig` reads
+                // `values.currentTeam` synchronously, so dispatching it in the same tick
+                // reads the pre-apply team every time.
+                await teamLogic.asyncActions.loadCurrentTeam()
                 actions.loadMarketingAnalyticsConfig()
-                actions.loadAuditData()
+                // Only for ops that touch what the audit reports on. It reruns the same
+                // UTM-catalogue and campaign-spend ClickHouse queries the plan just ran,
+                // so a conversion-goal change would pay for a scan it can't affect.
+                if (ops.some((candidate) => AUDIT_AFFECTING_OPS.has(candidate.op))) {
+                    actions.loadAuditData()
+                }
             }
         },
     })),

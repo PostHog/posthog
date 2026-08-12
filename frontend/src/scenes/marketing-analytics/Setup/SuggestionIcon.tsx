@@ -86,6 +86,15 @@ export function SuggestionIcon({ suggestion }: { suggestion: Suggestion }): JSX.
             <span
                 className="relative shrink-0 flex items-center justify-center cursor-help size-[30px]"
                 data-attr="suggestion-icon"
+                // Severity is otherwise carried by glyph shape and dot colour alone, and
+                // the tooltip needs a pointer to read. `tabIndex` so it's reachable, and
+                // the label so it doesn't have to be.
+                tabIndex={0}
+                aria-label={
+                    suggestion.integration
+                        ? `${suggestion.integration} · ${SEVERITY_LABEL[suggestion.severity]}`
+                        : SEVERITY_LABEL[suggestion.severity]
+                }
             >
                 {logo ?? <SeverityGlyph severity={suggestion.severity} />}
                 {logo && (
