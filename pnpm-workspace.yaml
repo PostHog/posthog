@@ -7,6 +7,8 @@ packages:
     - common/replay-shared
     - common/replay-headless
     - common/tailwind
+    - packages/node-migrations
+    - packages/node-service
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
@@ -22,6 +24,7 @@ packages:
     - services/agent-proxy
     - services/oauth-proxy
     - services/mcp
+    - services/node-service-demo
     - services/stripe-app
     - tools/*
     - '!tools/hedgebox-dummy'

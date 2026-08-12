@@ -1893,6 +1893,74 @@ importers:
         specifier: ^4.7.0
         version: 4.20.5
 
+  packages/node-migrations:
+    dependencies:
+      '@posthog/node-service':
+        specifier: workspace:*
+        version: link:../node-service
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/pg':
+        specifier: ~8.6.6
+        version: 8.6.6
+      esbuild:
+        specifier: ^0.25.11
+        version: 0.25.12
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.57.0
+      oxlint:
+        specifier: ^1.72.0
+        version: 1.72.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(msw@2.14.6(@types/node@22.18.8)(typescript@6.0.3))(vite@8.1.3(@types/node@22.18.8)(esbuild@0.25.12)(jiti@2.6.1)(less@4.2.2)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+
+  packages/node-service:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^2.0.2
+        version: 2.0.2(hono@4.12.24)
+      '@opentelemetry/api':
+        specifier: ^1.9.0
+        version: 1.9.0
+      esbuild:
+        specifier: ^0.25.11
+        version: 0.25.12
+      hono:
+        specifier: ^4.12.21
+        version: 4.12.24
+      pino:
+        specifier: ^8.6.0
+        version: 8.11.0
+      prom-client:
+        specifier: ^14.2.0
+        version: 14.2.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.57.0
+      oxlint:
+        specifier: ^1.72.0
+        version: 1.72.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(msw@2.14.6(@types/node@22.18.8)(typescript@6.0.3))(vite@8.1.3(@types/node@22.18.8)(esbuild@0.25.12)(jiti@2.6.1)(less@4.2.2)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
+
   packages/quill:
     devDependencies:
       tailwindcss-scroll-mask:
@@ -4867,6 +4935,46 @@ importers:
       wrangler:
         specifier: ^4.98.0
         version: 4.98.0(@cloudflare/workers-types@4.20260608.1)
+
+  services/node-service-demo:
+    dependencies:
+      '@posthog/node-migrations':
+        specifier: workspace:*
+        version: link:../../packages/node-migrations
+      '@posthog/node-service':
+        specifier: workspace:*
+        version: link:../../packages/node-service
+      hono:
+        specifier: ^4.12.21
+        version: 4.12.24
+      pg:
+        specifier: ^8.6.0
+        version: 8.10.0
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.8
+      '@types/pg':
+        specifier: ~8.6.6
+        version: 8.6.6
+      esbuild:
+        specifier: ^0.25.11
+        version: 0.25.12
+      oxfmt:
+        specifier: 'catalog:'
+        version: 0.57.0
+      oxlint:
+        specifier: ^1.72.0
+        version: 1.72.0
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.18.8)(happy-dom@20.9.0)(jsdom@20.0.3)(msw@2.14.6(@types/node@22.18.8)(typescript@6.0.3))(vite@8.1.3(@types/node@22.18.8)(esbuild@0.25.12)(jiti@2.6.1)(less@4.2.2)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.9.0))
 
   services/oauth-proxy:
     devDependencies:

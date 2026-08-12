@@ -1,0 +1,48 @@
+{
+    "name": "@posthog/node-service",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Runtime primitives for PostHog Node.js services",
+    "bin": {
+        "posthog-node-service-build": "./bin/build.mjs",
+        "posthog-node-service-docker-build": "./bin/docker-build.mjs",
+        "posthog-node-service-test-report": "./bin/test-report.mjs"
+    },
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "clean": "rm -rf dist",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --quiet",
+        "lint:fix": "oxlint --fix --quiet",
+        "format": "oxfmt \"./**/*.{js,mjs,ts,json,yaml,yml}\"",
+        "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,json,yaml,yml}\"",
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s"
+    },
+    "dependencies": {
+        "@hono/node-server": "^2.0.2",
+        "@opentelemetry/api": "^1.9.0",
+        "esbuild": "^0.25.11",
+        "hono": "^4.12.21",
+        "pino": "^8.6.0",
+        "prom-client": "^14.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "oxfmt": "catalog:",
+        "oxlint": "^1.72.0",
+        "typescript": "catalog:",
+        "vitest": "^4.1.0"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

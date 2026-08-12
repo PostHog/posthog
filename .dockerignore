@@ -1,4 +1,6 @@
 *
+!packages
+!services
 !Dockerfile.recording-rasterizer
 !.devcontainer
 !.kearc
@@ -49,6 +51,8 @@
 !services/mcp/types.d.ts
 !services/mcp/worker-configuration.d.ts
 !services/mcp/public
+!packages/node-migrations
+!packages/node-service
 !packages/quill
 services/agent-*/node_modules
 services/agent-*/dist
@@ -59,6 +63,7 @@ services/agent-*/.next
 !services/agent-proxy/scripts
 !services/agent-proxy/src
 !services/agent-proxy/types.d.ts
+!services/node-service-demo
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !pyproject.toml

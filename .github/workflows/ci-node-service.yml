@@ -1,0 +1,107 @@
+name: Node service foundation CI
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - '.dockerignore'
+            - '.github/workflows/ci-node-service.yml'
+            - 'packages/node-migrations/**'
+            - 'packages/node-service/**'
+            - 'services/node-service-demo/**'
+            - 'tools/hogli-commands/hogli_commands/service/**'
+            - 'tools/hogli-commands/hogli_commands/tests/test_service_scaffold.py'
+            - 'hogli.yaml'
+            - 'package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
+    pull_request:
+        paths:
+            - '.dockerignore'
+            - '.github/workflows/ci-node-service.yml'
+            - 'packages/node-migrations/**'
+            - 'packages/node-service/**'
+            - 'services/node-service-demo/**'
+            - 'tools/hogli-commands/hogli_commands/service/**'
+            - 'tools/hogli-commands/hogli_commands/tests/test_service_scaffold.py'
+            - 'hogli.yaml'
+            - 'package.json'
+            - 'pnpm-lock.yaml'
+            - 'pnpm-workspace.yaml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    test:
+        name: Node service checks
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        env:
+            DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/node-service-demo... install --frozen-lockfile
+
+            - name: Start Postgres test database
+              run: |
+                  docker compose -f docker-compose.dev.yml up -d --wait db
+                  if ! docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -tAc "SELECT 1 FROM pg_database WHERE datname = 'test_posthog'" | grep -q 1; then
+                      docker compose -f docker-compose.dev.yml exec -T db createdb -U posthog test_posthog
+                  fi
+
+            - name: Check runtime package
+              run: |
+                  pnpm --filter=@posthog/node-service typecheck
+                  pnpm --filter=@posthog/node-service lint
+                  pnpm --filter=@posthog/node-service format:check
+                  pnpm --filter=@posthog/node-service test
+                  pnpm --filter=@posthog/node-service build
+
+            - name: Check migrations package
+              run: |
+                  pnpm --filter=@posthog/node-migrations typecheck
+                  pnpm --filter=@posthog/node-migrations lint
+                  pnpm --filter=@posthog/node-migrations format:check
+                  pnpm --filter=@posthog/node-migrations test
+                  pnpm --filter=@posthog/node-migrations test:integration
+                  pnpm --filter=@posthog/node-migrations build
+
+            - name: Apply demo service migrations
+              run: pnpm --filter=@posthog/node-service-demo migrate
+
+            - name: Check demo service
+              shell: bash
+              run: |
+                  set -o pipefail
+                  pnpm --filter=@posthog/node-service-demo typecheck
+                  pnpm --filter=@posthog/node-service-demo lint
+                  pnpm --filter=@posthog/node-service-demo format:check
+                  pnpm --filter=@posthog/node-service-demo test:ci | tee /tmp/node-service-test-report.txt
+                  {
+                      echo '## Node service test performance'
+                      echo '```text'
+                      tail -n 13 /tmp/node-service-test-report.txt
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Build demo service image
+              run: pnpm --filter=@posthog/node-service-demo docker:build
+
+            - name: Upload test reports
+              if: always()
+              uses: actions/upload-artifact@b7c566a772e6b6f58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: node-service-test-results
+                  path: services/node-service-demo/test-results/*.xml
+                  if-no-files-found: warn
+                  retention-days: 14

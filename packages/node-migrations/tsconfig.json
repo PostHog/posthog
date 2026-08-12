@@ -1,0 +1,20 @@
+{
+    "compilerOptions": {
+        "target": "es2023",
+        "lib": ["es2023"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "types": ["node", "vitest/globals"]
+    },
+    "include": ["src/**/*.ts", "tests/**/*.ts", "vitest.config.mts", "vitest.integration.config.mts"],
+    "exclude": ["dist", "node_modules"]
+}

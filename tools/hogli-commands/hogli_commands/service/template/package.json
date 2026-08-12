@@ -1,0 +1,41 @@
+{
+    "name": "@posthog/__SERVICE_NAME__",
+    "version": "0.0.1",
+    "private": true,
+    "description": "PostHog Node.js service",
+    "type": "module",
+    "scripts": {
+        "prebuild": "pnpm --filter=@posthog/node-service build",
+        "build": "posthog-node-service-build",
+        "dev": "pnpm build && NODE_ENV=development node --enable-source-maps dist/server.mjs",
+        "test": "pnpm test:unit",
+        "test:unit": "vitest run --config vitest.unit.config.mts",
+        "test:integration": "pnpm --filter=@posthog/node-service build && vitest run --config vitest.integration.config.mts",
+        "pretest:e2e": "pnpm build",
+        "test:e2e": "vitest run --config vitest.e2e.config.mts",
+        "test:ci": "rm -rf test-results && mkdir -p test-results && pnpm test:unit --reporter=default --reporter=junit --outputFile.junit=test-results/unit.xml && pnpm test:integration --reporter=default --reporter=junit --outputFile.junit=test-results/integration.xml && pnpm test:e2e --reporter=default --reporter=junit --outputFile.junit=test-results/e2e.xml && posthog-node-service-test-report",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --quiet",
+        "lint:fix": "oxlint --fix --quiet",
+        "format": "oxfmt \"./**/*.{js,mjs,ts,json,yaml,yml}\"",
+        "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,json,yaml,yml}\"",
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s",
+        "docker:build": "posthog-node-service-docker-build"
+    },
+    "dependencies": {
+        "@posthog/node-service": "workspace:*",
+        "hono": "^4.12.21",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "esbuild": "^0.25.11",
+        "oxfmt": "catalog:",
+        "oxlint": "^1.72.0",
+        "typescript": "catalog:",
+        "vitest": "^4.1.0"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

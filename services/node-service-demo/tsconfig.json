@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "target": "es2023",
+        "lib": ["es2023"],
+        "module": "es2022",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "noUncheckedIndexedAccess": true,
+        "exactOptionalPropertyTypes": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "allowSyntheticDefaultImports": true,
+        "skipLibCheck": true,
+        "resolveJsonModule": true,
+        "noEmit": true,
+        "types": ["node", "vitest/globals"],
+        "paths": {
+            "@/*": ["./src/*", "./tests/*"]
+        }
+    },
+    "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "vitest.*.config.mts"],
+    "exclude": ["dist", "node_modules"]
+}

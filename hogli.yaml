@@ -889,6 +889,9 @@ tools:
     product:bootstrap:
         click: hogli_commands.product.cli:cmd_bootstrap
         description: Scaffold a new product with canonical structure
+    service:bootstrap:
+        click: hogli_commands.service.cli:cmd_bootstrap
+        description: Scaffold a standalone Hono Node.js service
     product:lint:
         click: hogli_commands.product.cli:cmd_lint
         description: Check product structure for misplaced files

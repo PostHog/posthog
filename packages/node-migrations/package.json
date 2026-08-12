@@ -1,0 +1,49 @@
+{
+    "name": "@posthog/node-migrations",
+    "version": "0.0.1",
+    "private": true,
+    "description": "PostgreSQL migration runner for PostHog Node.js services",
+    "bin": {
+        "posthog-node-migrate": "./bin/migrate.mjs"
+    },
+    "type": "module",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        },
+        "./cli": {
+            "types": "./dist/cli.d.ts",
+            "import": "./dist/cli.js"
+        }
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "clean": "rm -rf dist",
+        "test": "vitest run",
+        "test:integration": "vitest run --config vitest.integration.config.mts",
+        "test:watch": "vitest",
+        "typecheck": "tsc --noEmit",
+        "lint": "oxlint --quiet",
+        "lint:fix": "oxlint --fix --quiet",
+        "format": "oxfmt \"./**/*.{js,mjs,ts,json,yaml,yml}\"",
+        "format:check": "oxfmt --check \"./**/*.{js,mjs,ts,json,yaml,yml}\"",
+        "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s"
+    },
+    "dependencies": {
+        "@posthog/node-service": "workspace:*",
+        "pg": "^8.6.0"
+    },
+    "devDependencies": {
+        "@types/node": "catalog:",
+        "@types/pg": "~8.6.6",
+        "esbuild": "^0.25.11",
+        "oxfmt": "catalog:",
+        "oxlint": "^1.72.0",
+        "typescript": "catalog:",
+        "vitest": "^4.1.0"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}
