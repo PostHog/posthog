@@ -20,13 +20,17 @@ from products.data_modeling.backend.logic.node_frequency import (
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
+    DagScheduleTeardown,
+    TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
     convert_dag_to_tiers,
     delete_dag_schedules,
+    delete_team_data_modeling_schedules,
     maybe_reconcile_dag,
     reconcile_dag_schedules,
 )
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
@@ -574,3 +578,38 @@ class TestDeleteDagSchedules(SimpleTestCase):
         assert not teardown.ok
         assert teardown.deleted == ("dag-1:86400",)
         assert deleter.await_count == 2
+
+
+class TestDeleteTeamDataModelingSchedules(BaseTest):
+    def test_sweeps_both_halves_for_a_team_converted_to_dag_schedules(self):
+        # Conversion nulls sync_frequency_interval, so no field can decide which half to sweep.
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="converted_query",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            sync_frequency_interval=None,
+        )
+        dag = DAG.objects.create(team=self.team, name="Default")
+
+        with (
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.delete_schedule") as delete_query,
+            mock.patch(
+                f"{RECONCILE}.delete_dag_schedules",
+                return_value=DagScheduleTeardown(ok=True, deleted=(str(dag.id),)),
+            ) as delete_dag,
+        ):
+            delete_team_data_modeling_schedules(self.team.id)
+
+        delete_query.assert_called_once_with(mock.ANY, schedule_id=str(saved_query.id))
+        delete_dag.assert_called_once_with(str(dag.id))
+
+    def test_raises_when_a_dag_teardown_fails_so_the_activity_retries(self):
+        DAG.objects.create(team=self.team, name="Default")
+
+        with mock.patch(
+            f"{RECONCILE}.delete_dag_schedules",
+            return_value=DagScheduleTeardown(ok=False, deleted=()),
+        ):
+            with pytest.raises(TeamScheduleTeardownError):
+                delete_team_data_modeling_schedules(self.team.id)
