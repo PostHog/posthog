@@ -163,6 +163,24 @@ class TestPrepareS3FilesForQuerying:
                     delete_existing=False,
                 )
 
+    async def test_tolerates_job_folder_missing_on_first_materialization(self):
+        # A brand new table/model has no prior content in S3, so listing the job folder to
+        # find old timestamped query folders to clean up raises FileNotFoundError (s3fs's
+        # `_ls` behavior for a prefix with zero objects under it). That's an expected first-run
+        # state, not a failure - regresses the crash this caused on first materialization.
+        s3 = _fake_s3(_ls=AsyncMock(side_effect=FileNotFoundError("job")))
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                delete_existing=True,
+                use_timestamped_folders=True,
+            )
+
+        s3._cp_file.assert_awaited_once()
+
 
 @parameterized.expand(
     [

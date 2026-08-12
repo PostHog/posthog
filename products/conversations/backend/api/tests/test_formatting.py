@@ -48,10 +48,27 @@ class TestSlackFormatting(SimpleTestCase):
             ("ampersand", "a & b", "a &amp; b"),
             ("md_link_still_converts", "[docs](https://posthog.com)", "<https://posthog.com|docs>"),
             ("blockquote_preserved", "> quoted", "> quoted"),
+            ("inline_mention", "@[Ann Lee](ann@example.com) hi", "@Ann Lee hi"),
+            ("inline_mention_repeated", "@[Ann Lee](ann@example.com) @[Bo](bo@example.com)", "@Ann Lee @Bo"),
+            ("inline_mention_needs_email", "@[Ann Lee](https://posthog.com)", "@<https://posthog.com|Ann Lee>"),
         ]
     )
     def test_outbound_mrkdwn_escapes_control_sequences(self, _name: str, content: str, expected: str) -> None:
         assert content_to_slack_mrkdwn(content) == expected
+
+    def test_inline_mention_uses_slack_member_when_the_address_resolves(self) -> None:
+        content = "@[Ann Lee](ann@example.com) and @[Bo](bo@example.com)"
+
+        def resolve(email: str) -> str | None:
+            return "U123" if email == "ann@example.com" else None
+
+        assert content_to_slack_mrkdwn(content, None, resolve) == "<@U123> and @Bo"
+
+    def test_inline_mention_falls_back_to_the_name_when_lookup_fails(self) -> None:
+        def resolve(email: str) -> str | None:
+            raise RuntimeError("slack is down")
+
+        assert content_to_slack_mrkdwn("@[Ann Lee](ann@example.com) hi", None, resolve) == "@Ann Lee hi"
 
     @parameterized.expand(
         [

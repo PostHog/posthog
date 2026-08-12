@@ -43,6 +43,9 @@ tools:
     cimd-verification-tokens-list:
         operation: cimd_verification_tokens_list
         enabled: false
+    cimd-verification-tokens-partial-update:
+        operation: cimd_verification_tokens_partial_update
+        enabled: false
     cimd-verification-tokens-retrieve:
         operation: cimd_verification_tokens_retrieve
         enabled: false
@@ -383,6 +386,9 @@ tools:
         enabled: false
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
+        enabled: false
+    revoke-leaked-key-create:
+        operation: revoke_leaked_key_create
         enabled: false
     rotate-secret-token-partial-update:
         operation: organizations_projects_rotate_secret_token_partial_update

@@ -3,7 +3,7 @@ import {
   MagnifyingGlassPlus,
   Trash,
 } from "@phosphor-icons/react";
-import { getCellCount } from "@posthog/core/command-center/grid";
+import { reflowCells } from "@posthog/core/command-center/grid";
 import { Flex, Select, Text } from "@radix-ui/themes";
 import { useCallback } from "react";
 import {
@@ -62,11 +62,15 @@ const LAYOUT_OPTIONS: {
   { value: "1x2", label: "1x2", cols: 1, rows: 2 },
   { value: "2x2", label: "2x2", cols: 2, rows: 2 },
   { value: "3x2", label: "3x2", cols: 3, rows: 2 },
+  { value: "1x3", label: "1x3", cols: 1, rows: 3 },
+  { value: "2x3", label: "2x3", cols: 2, rows: 3 },
   { value: "3x3", label: "3x3", cols: 3, rows: 3 },
 ];
 
 interface CommandCenterToolbarProps {
   summary: StatusSummary;
+  /** Cells holding something worth keeping, so Optimize can pack them. */
+  occupiedCellIndices: number[];
 }
 
 function StatusSummaryText({ summary }: { summary: StatusSummary }) {
@@ -83,19 +87,33 @@ function StatusSummaryText({ summary }: { summary: StatusSummary }) {
   );
 }
 
-export function CommandCenterToolbar({ summary }: CommandCenterToolbarProps) {
+export function CommandCenterToolbar({
+  summary,
+  occupiedCellIndices,
+}: CommandCenterToolbarProps) {
   const layout = useCommandCenterStore((s) => s.layout);
   const setLayout = useCommandCenterStore((s) => s.setLayout);
   const clearAll = useCommandCenterStore((s) => s.clearAll);
+  const optimizeLayout = useCommandCenterStore((s) => s.optimizeLayout);
 
   const handleSetLayout = useCallback(
     (preset: LayoutPreset) => {
-      const cells = useCommandCenterStore.getState().cells;
-      destroyTerminalCells(cells.slice(getCellCount(preset)));
+      const { cells, layout: current } = useCommandCenterStore.getState();
+      // Cells keep their row and column across a resize, so what falls off is
+      // whatever the reflow didn't keep — not simply the tail.
+      const kept = reflowCells(cells, current, preset);
+      destroyTerminalCells(cells.filter((cell) => !kept.includes(cell)));
       setLayout(preset);
     },
     [setLayout],
   );
+
+  const handleOptimize = useCallback(() => {
+    const cells = useCommandCenterStore.getState().cells;
+    const keep = new Set(occupiedCellIndices);
+    destroyTerminalCells(cells.filter((_, index) => !keep.has(index)));
+    optimizeLayout(occupiedCellIndices);
+  }, [occupiedCellIndices, optimizeLayout]);
 
   const handleClearAll = useCallback(() => {
     destroyTerminalCells(useCommandCenterStore.getState().cells);
@@ -130,6 +148,15 @@ export function CommandCenterToolbar({ summary }: CommandCenterToolbarProps) {
           ))}
         </Select.Content>
       </Select.Root>
+
+      <button
+        type="button"
+        onClick={handleOptimize}
+        className="rounded px-1.5 py-0.5 text-[12px] text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+        title="Resize the grid to fit the tiles in use"
+      >
+        Optimize
+      </button>
 
       <StatusSummaryText summary={summary} />
 

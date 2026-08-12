@@ -170,6 +170,22 @@ pub struct FlagRequest {
 }
 ```
 
+#### GeoIP enrichment of `person_properties`
+
+Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.
+The lookup wins: a `$geoip_*` value in the request body is overwritten.
+
+That precedence is likely wrong for server-side evaluation, because the IP we geolocate is whoever the request appears to come from.
+A backend that doesn't forward the end user's IP resolves its own server's location, so a caller that resolved geo itself (from `CF-IPCountry`, `X-Forwarded-For`, or similar) loses values it is better placed to know.
+
+Before changing that, the affected population is being measured:
+
+- `flags_geoip_properties_differ_from_lookup_total` counts requests that supplied a `$geoip_*` value disagreeing with the lookup.
+- The canonical log line carries the same fact as `geoip_properties_differ_from_lookup`. The counter has no labels, so query the log line in Loki to attribute a spike to a team or SDK.
+
+Both only measure. Nothing about evaluation changes until the precedence flip ships, and both are removable once it has settled.
+A JSON null in the request counts as absent for this purpose, since it carries no value to compare against the lookup.
+
 ### `FlagsResponse` (v2 response)
 
 ```rust
@@ -267,11 +283,12 @@ Cache and query health are observable via the `flags_cohort_membership_cache_*` 
 
 ### S3 / HyperCache
 
-| Variable                  | Default     | Purpose                          |
-| ------------------------- | ----------- | -------------------------------- |
-| `OBJECT_STORAGE_BUCKET`   | `posthog`   | S3 bucket name                   |
-| `OBJECT_STORAGE_REGION`   | `us-east-1` | AWS region                       |
-| `OBJECT_STORAGE_ENDPOINT` | (empty)     | Custom S3 endpoint for local dev |
+| Variable                             | Default     | Purpose                                                                                                                                                                                    |
+| ------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OBJECT_STORAGE_BUCKET`              | `posthog`   | S3 bucket name                                                                                                                                                                             |
+| `OBJECT_STORAGE_REGION`              | `us-east-1` | AWS region                                                                                                                                                                                 |
+| `OBJECT_STORAGE_ENDPOINT`            | (empty)     | Custom S3 endpoint for local dev                                                                                                                                                           |
+| `HYPERCACHE_READ_REPAIR_TTL_SECONDS` | `600`       | TTL for writing an S3 hit back into Redis after a confirmed miss. `0` disables, as does `SKIP_WRITES`. Also read by hypercache-server. See [read repair](hypercache-system.md#read-repair) |
 
 ### Team lookup
 
