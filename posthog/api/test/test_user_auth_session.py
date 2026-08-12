@@ -28,6 +28,8 @@ from posthog.session.activity import session_public_id
 from posthog.session.models import Session
 from posthog.session.risk import RiskFlags
 
+from products.dashboards.backend.models.dashboard import Dashboard
+
 
 class TestSessionEngineActivity(APIBaseTest):
     def test_authenticated_request_attributes_session_to_user(self):
@@ -239,6 +241,21 @@ class TestUserAuthSessionAPI(APIBaseTest):
         response = self.client.patch("/api/users/@me/", {"theme_mode": "dark"})
 
         self.assertEqual(response.status_code, 200, response.content)
+
+    def test_stale_session_still_allows_excluded_actions(self):
+        # The exclude-list carries the two low-stakes personalisation actions. Narrowing the field
+        # allow-list must not start demanding re-auth from them, since every other test of these
+        # runs on a freshly logged-in session and would not notice.
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
+        self._make_session_stale()
+
+        hedgehog = self.client.patch("/api/users/@me/hedgehog_config/", {"color": "green"})
+        scene = self.client.post(
+            "/api/users/@me/scene_personalisation/", {"dashboard": str(dashboard.id), "scene": "Person"}
+        )
+
+        self.assertEqual(hedgehog.status_code, 200, hedgehog.content)
+        self.assertEqual(scene.status_code, 200, scene.content)
 
     @parameterized.expand(
         [
