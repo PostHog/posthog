@@ -210,6 +210,9 @@ export interface replayScannersLogicActions {
         scanners: ReplayScanner[]
         total: number
     }
+    applyScannerToggle: (id: string) => {
+        id: string
+    }
     revertScannerEnabled: (id: string) => {
         id: string
     }
@@ -288,6 +291,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         deleteScannerSuccess: (id: string) => ({ id }),
         setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
         toggleScannerEnabled: (id: string) => ({ id }),
+        applyScannerToggle: (id: string) => ({ id }),
         toggleScannerEnabledDone: (id: string) => ({ id }),
         revertScannerEnabled: (id: string) => ({ id }),
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -339,7 +343,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             {
                 loadScannersSuccess: (_, { scanners }) => scanners,
                 deleteScannerSuccess: (state, { id }) => state.filter((l) => l.id !== id),
-                toggleScannerEnabled: (state, { id }) =>
+                applyScannerToggle: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
                 revertScannerEnabled: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
@@ -374,7 +378,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         togglingIds: [
             [] as string[],
             {
-                toggleScannerEnabled: (state, { id }) => [...state, id],
+                applyScannerToggle: (state, { id }) => [...state, id],
                 toggleScannerEnabledDone: (state, { id }) => state.filter((i) => i !== id),
                 revertScannerEnabled: (state, { id }) => state.filter((i) => i !== id),
             },
@@ -494,25 +498,33 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         },
 
         toggleScannerEnabled: async ({ id }) => {
-            // The reducer has already flipped `enabled` optimistically, so this reflects the new target state.
+            // Ignore a repeat toggle while one is already in flight, so a rapid double-click can't
+            // apply the optimistic quota delta twice or leave the row in the wrong state. The guard
+            // reads `togglingIds` before `applyScannerToggle` marks this id in-flight — the same
+            // pattern deleteScanner uses with `deletingIds`.
+            if (values.togglingIds.includes(id)) {
+                return
+            }
+            // `scanner.enabled` here is the current (pre-toggle) state, so the target is its inverse.
             const scanner = values.scanners.find((l) => l.id === id)
             if (!scanner) {
                 return
             }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
-                actions.revertScannerEnabled(id)
                 return
             }
+            const willEnable = !scanner.enabled
+            actions.applyScannerToggle(id) // optimistic flip + mark in-flight
             // The stored estimate is kept ≤24h fresh even while disabled, so the projection shift is known up front.
             const estimate = scanner.estimated_monthly_credits ?? 0
-            const delta = scanner.enabled ? estimate : -estimate
+            const delta = willEnable ? estimate : -estimate
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
-                await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
+                await visionScannersPartialUpdate(String(teamId), id, { enabled: willEnable })
                 actions.toggleScannerEnabledDone(id)
             } catch (error: any) {
-                const verb = scanner.enabled ? 'enable' : 'disable'
+                const verb = willEnable ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
                 visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 actions.revertScannerEnabled(id)

@@ -8,7 +8,7 @@
  * Everything else operates on the returned plain-object context, so swapping
  * kea for direct API calls later is a single-file change.
  */
-import { useActions, useValues } from 'kea'
+import { useActions, useSelector, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import {
@@ -65,6 +65,7 @@ const DEFAULT_METADATA_SOURCE: AnyDataNode = {
 
 const EMPTY_OBJECT = Object.freeze({}) as Record<string, never>
 const EMPTY_ARRAY: readonly never[] = Object.freeze([])
+const EMPTY_PRIMARY_PROPERTIES = Object.freeze({}) as Record<string, string>
 
 export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput): BuildTaxonomicGroupsContext {
     const { currentTeam } = useValues(teamLogic)
@@ -77,8 +78,17 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
     useValues(joinsLogic)
     const { eventMetadataPropertyDefinitions, personMetadataPropertyDefinitions } = useValues(propertyDefinitionsModel)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { primaryProperties } = useValues(primaryEventPropertiesModel)
+    // `useActions` keeps primaryEventPropertiesModel mounted for this hook's lifetime so
+    // `ensureLoadedForEvents` can load. Read `primaryProperties` through a mount-safe selector
+    // rather than `useValues`: this hook mounts and unmounts as the filters sidebar toggles (a URL
+    // rewrite drives it), and a bare `useValues` read throws "[KEA] Can not find path" when the
+    // model is torn down out from under the render. `findMounted` returns null the moment the model
+    // unmounts, before its store slice is removed, so the read falls back to defaults instead.
     const { ensureLoadedForEvents } = useActions(primaryEventPropertiesModel)
+    const primaryProperties = useSelector(
+        (state) =>
+            primaryEventPropertiesModel.findMounted()?.selectors.primaryProperties(state) ?? EMPTY_PRIMARY_PROPERTIES
+    ) as Record<string, string>
 
     // Mirrors taxonomicFilterLogic's afterMount/propsChanged: fetch any
     // team-configured primary-property overrides for the events in context.

@@ -332,6 +332,24 @@ describe('replayScannersLogic', () => {
             quotaLogic.unmount()
         })
 
+        it('ignores a repeat toggle while one is in flight so the quota delta applies once', async () => {
+            const quotaLogic = visionQuotaLogic()
+            quotaLogic.mount()
+            quotaLogic.actions.loadQuotaSuccess(quotaFixture)
+            logic.actions.loadScannersSuccess(
+                [makeScanner({ id: 'a', enabled: true, estimated_monthly_credits: 200 })],
+                1
+            )
+
+            logic.actions.toggleScannerEnabled('a')
+            logic.actions.toggleScannerEnabled('a') // repeat before the first PATCH resolves
+
+            expect(quotaLogic.values.quota?.projected_monthly_credits).toBe(300) // 500 - 200, applied once
+            expect(logic.values.togglingIds).toEqual(['a'])
+            expect(logic.values.scanners.find((s) => s.id === 'a')?.enabled).toBe(false)
+            quotaLogic.unmount()
+        })
+
         it('delete shifts the quota projection optimistically for enabled scanners only', async () => {
             const quotaLogic = visionQuotaLogic()
             quotaLogic.mount()
