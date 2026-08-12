@@ -27,6 +27,7 @@ SCHEMA_ARTIFACT_NAME = "migrated-schema"
 SCHEMA_DUMP_NAME = "schema.sql.gz"
 LOCAL_SCHEMA_PATH = Path(".postgres-backups/schema-latest.sql.gz")
 MIN_SCHEMA_ARTIFACT_BYTES = 10_000
+MAX_ARTIFACT_PAGES = 10
 DEFAULT_BASE_BRANCH = "master"
 DIAGNOSTIC_CANDIDATE_LIMIT = 3
 DOCKER_COMPOSE = ["docker", "compose", "-f", "docker-compose.dev.yml"]
@@ -262,7 +263,15 @@ def select_newest_compatible_artifact(
     return candidates[0] if candidates else None
 
 
-def fetch_schema_artifacts(*, token: str | None, session: requests.Session | None = None) -> list[SchemaArtifact]:
+def fetch_schema_artifacts(
+    *,
+    token: str | None,
+    session: requests.Session | None = None,
+    base_branch: str | None = None,
+    max_pages: int = MAX_ARTIFACT_PAGES,
+) -> list[SchemaArtifact]:
+    # Newest-first listing means the first page with a usable candidate holds
+    # the newest one; stop there. max_pages bounds the walk when nothing matches.
     http = session or requests.Session()
     artifacts: list[SchemaArtifact] = []
     page = 1
@@ -289,7 +298,9 @@ def fetch_schema_artifacts(*, token: str | None, session: requests.Session | Non
                 if artifact is not None:
                     artifacts.append(artifact)
 
-        if "next" not in response.links:
+        if base_branch is not None and _filter_and_sort_candidates(artifacts, base_branch=base_branch):
+            break
+        if "next" not in response.links or page >= max_pages:
             break
         page += 1
 
@@ -371,7 +382,7 @@ def download_latest_compatible_schema(
     session: requests.Session | None = None,
 ) -> SchemaArtifact:
     token = github_token()
-    artifacts = fetch_schema_artifacts(token=token, session=session)
+    artifacts = fetch_schema_artifacts(token=token, session=session, base_branch=base_branch)
     artifact = select_newest_compatible_artifact(artifacts, base_branch=base_branch)
     if artifact is None:
         _emit_selection_diagnostics(artifacts, base_branch=base_branch)

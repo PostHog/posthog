@@ -416,7 +416,8 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  GH_TOKEN: ${{ github.token }}
+                  # Schema artifact lookup pages the artifacts API; keep it off the shared per-repo bucket
+                  GH_TOKEN: ${{ steps.setup-gh-token.outputs.token || github.token }}
               run: |
                   # Download pre-migrated schema from CI
                   ./bin/hogli db:download-schema
@@ -688,7 +689,8 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-                  GH_TOKEN: ${{ github.token }}
+                  # Schema artifact lookup pages the artifacts API; keep it off the shared per-repo bucket
+                  GH_TOKEN: ${{ steps.setup-gh-token.outputs.token || github.token }}
               run: |
                   # Download pre-migrated schema from CI
                   ./bin/hogli db:download-schema

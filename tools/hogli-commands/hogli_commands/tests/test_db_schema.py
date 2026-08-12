@@ -87,6 +87,59 @@ def test_select_ignores_invalid_artifacts(artifact: db_schema.SchemaArtifact) ->
     assert db_schema.select_newest_compatible_artifact([artifact]) is None
 
 
+class _FakeArtifactPagesSession:
+    def __init__(self, pages: list[list[dict[str, Any]]]) -> None:
+        self._pages = pages
+        self.get_count = 0
+
+    def get(self, url: str, *, params: dict[str, Any], headers: dict[str, str], timeout: int) -> Any:
+        self.get_count += 1
+        page = params["page"]
+        payload = {"artifacts": self._pages[page - 1] if page <= len(self._pages) else []}
+        links = {"next": {"url": "next"}} if page < len(self._pages) else {}
+
+        class _Response:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict[str, Any]:
+                return payload
+
+        response = _Response()
+        response.links = links  # type: ignore[attr-defined]
+        return response
+
+
+def _raw_artifact(artifact_id: int, head_branch: str) -> dict[str, Any]:
+    return {
+        "id": artifact_id,
+        "name": db_schema.SCHEMA_ARTIFACT_NAME,
+        "expired": False,
+        "size_in_bytes": db_schema.MIN_SCHEMA_ARTIFACT_BYTES + 1,
+        "archive_download_url": f"https://api.github.com/artifacts/{artifact_id}/zip",
+        "created_at": "2026-01-01T00:00:00Z",
+        "workflow_run": {"head_sha": "sha", "head_branch": head_branch},
+    }
+
+
+def test_fetch_stops_at_first_page_with_compatible_candidate() -> None:
+    session = _FakeArtifactPagesSession([[_raw_artifact(1, "master")], [_raw_artifact(2, "master")]])
+
+    artifacts = db_schema.fetch_schema_artifacts(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
+
+    assert session.get_count == 1
+    assert [artifact.id for artifact in artifacts] == [1]
+
+
+def test_fetch_caps_pages_when_no_candidate_matches() -> None:
+    pages = [[_raw_artifact(page, "some-pr-branch")] for page in range(1, 31)]
+    session = _FakeArtifactPagesSession(pages)
+
+    db_schema.fetch_schema_artifacts(token="t", session=session, base_branch="master")  # type: ignore[arg-type]
+
+    assert session.get_count == db_schema.MAX_ARTIFACT_PAGES
+
+
 def test_select_honors_custom_base_branch() -> None:
     master_artifact = _artifact(1, "sha-a", "2026-01-01T00:00:00Z", head_branch="master")
     release_artifact = _artifact(2, "sha-b", "2026-01-02T00:00:00Z", head_branch="release-26.1")
