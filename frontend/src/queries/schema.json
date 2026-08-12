@@ -25649,7 +25649,9 @@
                 "Motion",
                 "Framer",
                 "Cloudinary",
-                "Uploadcare"
+                "Uploadcare",
+                "WHMCS",
+                "MSG91"
             ],
             "type": "string"
         },
