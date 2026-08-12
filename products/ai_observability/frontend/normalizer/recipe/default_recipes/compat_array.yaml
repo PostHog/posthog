@@ -36,3 +36,19 @@ rules:
                       id: $.id
                       name: $.function.name
                       args: $.function.arguments
+
+    # A bare `{type: function}` block — reached when a sibling block outside the
+    # allowlist above (e.g. a `thinking` block from a Gemini thought summary)
+    # knocks the whole message off the envelope rule and per-block delegation
+    # dispatches each block on its own. Without this no rule claims the block and
+    # salvage stringifies the tool call into raw JSON.
+    - on:
+          type: function
+          function:
+              name: { exists: true }
+      emit:
+          content: ''
+          toolCall:
+              id: $.id
+              name: $.function.name
+              args: $.function.arguments
