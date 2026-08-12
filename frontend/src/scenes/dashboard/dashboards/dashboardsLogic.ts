@@ -580,6 +580,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             actions.openMoveToModal(moving)
             cache.awaitingMove = { ids: new Set(ids), onStillSelected }
         },
+        // Dismissing the modal means nothing will land, and movedItem fires for moves made anywhere in the
+        // project tree, so leaving this set would let a later sidebar move restore the abandoned selection
+        // over whatever the user has selected by then. Only the dismiss path dispatches this: moveToLogic's
+        // submit handler goes straight to closedMoveToModal, which is why clearing on that one cleared the
+        // ticks before any move had landed.
+        [moveToLogic.actionTypes.closeMoveToModal]: () => {
+            cache.awaitingMove = undefined
+        },
         setSearch: ({ search }) => {
             actions.loadSearchedDashboards({
                 search,

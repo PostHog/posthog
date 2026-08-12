@@ -546,6 +546,25 @@ describe('dashboardsLogic', () => {
         expect(onStillSelected).toHaveBeenCalledWith([second.id])
     })
 
+    it('stops tracking a move once the modal is dismissed', async () => {
+        moveToLogic.mount()
+        const [first, second] = logic.values.dashboards.filter((d) => d.file_system_id)
+        const onStillSelected = jest.fn()
+
+        logic.actions.moveDashboardsToFolder([first.id, second.id], 'bulk', onStillSelected)
+        moveToLogic.actions.closeMoveToModal()
+
+        // movedItem fires for moves made anywhere in the project tree. Once the modal is gone, one of those
+        // must not rewrite the table's selection from the abandoned bulk action.
+        projectTreeDataLogic.actions.movedItem(
+            { id: first.file_system_id, type: 'dashboard', ref: String(first.id), path: first.file_system_path } as any,
+            first.file_system_path!,
+            'Revenue/Filed'
+        )
+
+        expect(onStillSelected).not.toHaveBeenCalled()
+    })
+
     it('does not refetch when toggling pinned while a search is active on the /dashboard URL', async () => {
         // Toggling pinned writes ?pinned=true to the URL, which round-trips back through
         // urlToAction. The guard there must not re-dispatch setSearch and trigger a redundant
