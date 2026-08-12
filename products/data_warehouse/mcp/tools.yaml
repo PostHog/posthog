@@ -327,7 +327,6 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        # The run endpoint returns an empty body, so the id has to come from the path params.
         enrich_url: ?open_view={params.id}
         title: Run saved query
         description: >
