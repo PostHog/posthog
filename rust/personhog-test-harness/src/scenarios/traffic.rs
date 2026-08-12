@@ -30,6 +30,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use assignment_coordination::store::{EtcdStore, StoreConfig};
+use futures::stream::{StreamExt, TryStreamExt};
 use metrics::{counter, gauge, histogram};
 use personhog_proto::personhog::types::v1::ConsistencyLevel;
 use rand::{Rng, SeedableRng};
@@ -107,6 +108,11 @@ fn validate_args(args: &TrafficArgs) -> Result<()> {
 /// touched; far below forever, so crashed instances' rows don't
 /// accumulate.
 const STALE_ROW_AGE: Duration = Duration::from_secs(3600);
+
+/// Concurrent identity-service create batches while seeding an epoch's
+/// pools. Bounded so a many-team epoch doesn't dogpile the service its
+/// traffic is about to measure.
+const SEED_CONCURRENCY: usize = 8;
 
 pub async fn run(args: TrafficArgs) -> Result<()> {
     validate_args(&args)?;
@@ -223,24 +229,41 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
             seed::reap_stale_team_rows(&pool, &args.pg_target_table, *team, STALE_ROW_AGE).await?;
         }
 
+        // Seed every lane's pool before any lane starts, concurrently
+        // but bounded so one epoch's create batches don't dogpile the
+        // identity service: the lanes then launch together and share one
+        // load window instead of staggering by the cumulative seeding
+        // time. Fresh ids every epoch, nonce'd per instance: each create
+        // inserts a new row rather than reviving a tombstone, and
+        // sibling instances on the shared teams never resolve onto each
+        // other's rows.
+        let pools: Vec<(i64, Arc<Vec<i64>>)> = if shutdown.load(Ordering::SeqCst) {
+            // A signal before seeding means the pools would only be
+            // seeded to be verified vacuously and deleted.
+            Vec::new()
+        } else {
+            futures::stream::iter(team_ids.iter().map(|&team_id| {
+                let identity = &identity;
+                let nonce = &nonce;
+                async move {
+                    let distinct_ids: Vec<String> = (0..args.pool_size)
+                        .map(|i| format!("bed-{nonce}-e{epoch}-t{team_id}-p{i}"))
+                        .collect();
+                    let ids =
+                        seed::seed_persons_via_identity(identity, team_id, &distinct_ids).await?;
+                    anyhow::Ok((team_id, Arc::new(ids)))
+                }
+            }))
+            .buffered(SEED_CONCURRENCY)
+            .try_collect()
+            .await?
+        };
+
         // One lane per team, each with its own pool, journal, and stats:
         // every verifier downstream is team-scoped, so nothing lane-local
-        // can be shared. Fresh ids every epoch, nonce'd per instance:
-        // each create inserts a new row rather than reviving a tombstone,
-        // and sibling instances on the shared teams never resolve onto
-        // each other's rows.
-        let mut lanes = Vec::with_capacity(team_ids.len());
-        for (lane_index, &team_id) in team_ids.iter().enumerate() {
-            // A signal mid-seed means the remaining lanes would only be
-            // seeded to be verified vacuously and deleted.
-            if shutdown.load(Ordering::SeqCst) {
-                break;
-            }
-            let distinct_ids: Vec<String> = (0..args.pool_size)
-                .map(|i| format!("bed-{nonce}-e{epoch}-t{team_id}-p{i}"))
-                .collect();
-            let person_ids =
-                Arc::new(seed::seed_persons_via_identity(&identity, team_id, &distinct_ids).await?);
+        // can be shared.
+        let mut lanes = Vec::with_capacity(pools.len());
+        for (lane_index, (team_id, person_ids)) in pools.into_iter().enumerate() {
             let collector = Arc::new(StatsCollector::new());
             let state = PersonState::new();
 
@@ -314,54 +337,73 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         // team-scoped and independent, and a lane's worst case (strong
         // reads with retries plus the Postgres quiesce deadline) is what
         // the termination grace window is sized for; closing lanes one
-        // after another would multiply that by the team count.
-        let closed = futures::future::try_join_all(lanes.iter_mut().map(|lane| {
+        // after another would multiply that by the team count. Every
+        // lane closes even when one fails: the error propagates only
+        // after the loop below records the other lanes' verification
+        // results and diagnostics.
+        let closed = futures::future::join_all(lanes.iter_mut().map(|lane| {
             let client = &client;
             let pool = &pool;
             let table = &args.pg_target_table;
             async move {
-                (&mut lane.traffic)
+                let team_id = lane.team_id;
+                let close = async move {
+                    (&mut lane.traffic)
+                        .await
+                        .context("traffic task panicked")??;
+                    let mut lane_violations = (&mut lane.probers)
+                        .await
+                        .context("prober task panicked")??;
+                    lane_violations.extend(lane.state.take_anomalies().await);
+                    lane_violations.extend(
+                        blast::verify_strong(client, &lane.collector, &lane.state, team_id).await?,
+                    );
+                    let journal = lane.state.snapshot().await;
+                    lane_violations.extend(verify_postgres(pool, table, team_id, &journal).await?);
+                    anyhow::Ok((team_id, lane_violations, lane.collector.writes.snapshot()))
+                };
+                close
                     .await
-                    .context("traffic task panicked")??;
-                let mut lane_violations = (&mut lane.probers)
-                    .await
-                    .context("prober task panicked")??;
-                lane_violations.extend(lane.state.take_anomalies().await);
-                lane_violations.extend(
-                    blast::verify_strong(client, &lane.collector, &lane.state, lane.team_id)
-                        .await?,
-                );
-                let journal = lane.state.snapshot().await;
-                lane_violations.extend(verify_postgres(pool, table, lane.team_id, &journal).await?);
-                anyhow::Ok((
-                    lane.team_id,
-                    lane_violations,
-                    lane.collector.writes.snapshot(),
-                ))
+                    .with_context(|| format!("closing the lane for team {team_id}"))
             }
         }))
-        .await?;
+        .await;
         hostile.await.context("hostile task panicked")?;
 
         let mut violations = Vec::new();
         let mut successes: u64 = 0;
         let mut failures: u64 = 0;
-        for (team_id, lane_violations, writes) in closed {
-            // Violation metrics carry no team dimension, so the per-lane
-            // log line is what attributes a bad epoch to its team.
-            tracing::info!(
-                epoch,
-                team_id,
-                writes = writes.successes,
-                failed = writes.failures,
-                violations = lane_violations.len(),
-                "lane closed"
-            );
-            successes += writes.successes;
-            failures += writes.failures;
-            violations.extend(lane_violations);
+        let mut close_error = None;
+        for result in closed {
+            match result {
+                Ok((team_id, lane_violations, writes)) => {
+                    // Violation metrics carry no team dimension, so the
+                    // per-lane log line is what attributes a bad epoch to
+                    // its team.
+                    tracing::info!(
+                        epoch,
+                        team_id,
+                        writes = writes.successes,
+                        failed = writes.failures,
+                        violations = lane_violations.len(),
+                        "lane closed"
+                    );
+                    successes += writes.successes;
+                    failures += writes.failures;
+                    violations.extend(lane_violations);
+                }
+                Err(error) => {
+                    tracing::error!(error = format!("{error:#}"), "lane close failed");
+                    close_error.get_or_insert(error);
+                }
+            }
         }
         traffic_metrics::record_violations(epoch, &violations);
+        if let Some(error) = close_error {
+            // The healthy lanes' violations are recorded above; the
+            // unrotated pools age into the janitor's reap.
+            return Err(error);
+        }
 
         gauge!("personhog_traffic_last_epoch_completed_timestamp_seconds").set(
             SystemTime::now()
@@ -381,12 +423,17 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         // path production deletes take, exercised every epoch under
         // whatever chaos is running. By id, not by team — a successor
         // pod may already be running its own pool against these teams.
-        futures::future::try_join_all(
+        // Every pool's rotation is attempted before the first failure
+        // propagates; a missed pool ages into the janitor's reap.
+        for result in futures::future::join_all(
             lanes
                 .iter()
                 .map(|lane| delete_pool(&lifecycle, lane.team_id, &lane.person_ids)),
         )
-        .await?;
+        .await
+        {
+            result?;
+        }
 
         if shutdown.load(Ordering::SeqCst) {
             tracing::info!("cleaning up and exiting");
