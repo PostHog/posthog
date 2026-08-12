@@ -1,6 +1,7 @@
 """Inbound email webhook endpoint for Mailgun routes."""
 
 import re
+import json
 from datetime import UTC, datetime
 from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 from typing import Any, cast
@@ -20,12 +21,20 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.conversations.backend.mailgun import validate_webhook_signature
-from products.conversations.backend.models import Channel, EmailChannel, EmailChannelKind, EmailMessageMapping, Status
+from products.conversations.backend.models import (
+    Channel,
+    EmailChannel,
+    EmailChannelConnectionStatus,
+    EmailChannelKind,
+    EmailMessageMapping,
+    Status,
+)
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import (
     sanitize_attachment_filename,
     save_file_to_uploaded_media,
 )
+from products.conversations.backend.services.email_channel_setup import capture_google_forwarding_confirmation
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
     ParsedInboundEmail,
@@ -39,6 +48,7 @@ INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
+_DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d=([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
@@ -261,6 +271,40 @@ def _parse_message_ids(value: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(message_id.strip()[:998] for message_id in message_ids if message_id.strip()))
 
 
+def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str, ...]:
+    values: list[str] = []
+    direct_value = request.POST.get(header_name, "")
+    if direct_value:
+        values.append(direct_value)
+
+    raw_headers = request.POST.get("message-headers", "")
+    if raw_headers:
+        try:
+            parsed_headers = json.loads(raw_headers)
+        except (TypeError, ValueError):
+            parsed_headers = []
+        if isinstance(parsed_headers, list):
+            for header in parsed_headers:
+                if (
+                    isinstance(header, list)
+                    and len(header) == 2
+                    and isinstance(header[0], str)
+                    and isinstance(header[1], str)
+                    and header[0].lower() == header_name.lower()
+                ):
+                    values.append(header[1])
+    return tuple(dict.fromkeys(values))
+
+
+def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
+    domains: list[str] = []
+    for signature in _message_header_values(request, "DKIM-Signature"):
+        match = _DKIM_DOMAIN_RE.search(signature)
+        if match is not None:
+            domains.append(match.group(1).rstrip(".").lower())
+    return tuple(dict.fromkeys(domains))
+
+
 def _parse_addresses(value: str) -> tuple[EmailAddress, ...]:
     addresses: list[EmailAddress] = []
     seen: set[str] = set()
@@ -338,6 +382,8 @@ def _parse_inbound_email(request: HttpRequest, config: EmailChannel) -> ParsedIn
         body_plain=request.POST.get("body-plain", "")[:MAX_EMAIL_BODY_LENGTH],
         stripped_text=stripped_text[:MAX_EMAIL_BODY_LENGTH],
         sender_authenticated=_sender_authenticated(request, sender_email),
+        dkim_passed=request.POST.get("X-Mailgun-Dkim-Check-Result", "").lower() == "pass",
+        dkim_signing_domains=_dkim_signing_domains(request),
         capture_address=request.POST.get("recipient", "").strip().lower(),
         attachments=tuple(attachments),
     )
@@ -553,6 +599,22 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=200)
 
     if config.kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+        if config.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+            captured = capture_google_forwarding_confirmation(
+                team_id=config.team_id,
+                channel=config,
+                email=email,
+            )
+            logger.info(
+                "customer_email_confirmation_candidate_processed",
+                team_id=config.team_id,
+                config_id=str(config.id),
+                captured=captured,
+            )
+            return HttpResponse(status=200)
+        if config.connection_status != EmailChannelConnectionStatus.ACTIVE:
+            return HttpResponse(status=200)
+
         result = ingest_customer_email(team_id=config.team_id, channel=config, email=email)
         logger.info(
             "customer_email_inbound_processed",

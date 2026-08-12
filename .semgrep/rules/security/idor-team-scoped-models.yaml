@@ -137,8 +137,8 @@ rules:
                               |DeploymentProject
                               |EarlyAccessFeature
                               |EmailMessageMapping
+                              |EmailChannelSetup
                               |EmailThread
-                              |EmailThreadAccess
                               |EmailThreadMessage
                               |EmailThreadParticipant
                               |EmailReputationSnapshot
@@ -499,8 +499,8 @@ rules:
                         |DeploymentProject
                         |EarlyAccessFeature
                         |EmailMessageMapping
+                        |EmailChannelSetup
                         |EmailThread
-                        |EmailThreadAccess
                         |EmailThreadMessage
                         |EmailThreadParticipant
                         |EmailReputationSnapshot

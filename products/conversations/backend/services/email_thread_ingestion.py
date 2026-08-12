@@ -13,7 +13,6 @@ from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailChannel,
     EmailThread,
-    EmailThreadAccess,
     EmailThreadMessage,
     EmailThreadMessageDirection,
     EmailThreadParticipant,
@@ -43,6 +42,8 @@ class ParsedInboundEmail:
     body_plain: str
     stripped_text: str
     sender_authenticated: bool
+    dkim_passed: bool
+    dkim_signing_domains: tuple[str, ...]
     capture_address: str
     attachments: tuple[UploadedFile, ...]
 
@@ -111,16 +112,6 @@ def _get_or_create_thread(*, team_id: int, email: ParsedInboundEmail) -> EmailTh
         defaults={"subject": email.subject},
     )
     return thread
-
-
-def _grant_owner_access(*, team_id: int, thread: EmailThread, channel: EmailChannel) -> None:
-    if channel.owner_id is None:
-        raise ValueError("Customer communication channels require an owner")
-    EmailThreadAccess.objects.for_team(team_id).get_or_create(
-        team_id=team_id,
-        thread=thread,
-        user_id=channel.owner_id,
-    )
 
 
 def _upsert_participants(
@@ -219,7 +210,6 @@ def _ingest_customer_email_once(
 ) -> EmailThreadIngestionResult:
     existing_message = _find_existing_message(team_id=team_id, email=email)
     if existing_message is not None:
-        _grant_owner_access(team_id=team_id, thread=existing_message.thread, channel=channel)
         return EmailThreadIngestionResult(
             thread_id=existing_message.thread_id,
             message_id=existing_message.id,
@@ -231,14 +221,12 @@ def _ingest_customer_email_once(
 
     existing_message = _find_existing_message(team_id=team_id, email=email)
     if existing_message is not None:
-        _grant_owner_access(team_id=team_id, thread=existing_message.thread, channel=channel)
         return EmailThreadIngestionResult(
             thread_id=existing_message.thread_id,
             message_id=existing_message.id,
             created=False,
         )
 
-    _grant_owner_access(team_id=team_id, thread=thread, channel=channel)
     content = _message_content(thread=thread, email=email)
     comment = Comment.objects.create(
         team_id=team_id,
@@ -281,8 +269,6 @@ def ingest_customer_email(
         existing_message = _find_existing_message(team_id=team_id, email=email)
         if existing_message is None:
             raise
-        with transaction.atomic():
-            _grant_owner_access(team_id=team_id, thread=existing_message.thread, channel=channel)
         return EmailThreadIngestionResult(
             thread_id=existing_message.thread_id,
             message_id=existing_message.id,

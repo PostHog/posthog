@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.test import Client
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -12,13 +15,13 @@ from posthog.models.user import User
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
     EmailChannel,
+    EmailChannelConnectionStatus,
     EmailChannelKind,
+    EmailChannelSetup,
+    EmailChannelSetupProvider,
     EmailOutboxMessage,
     EmailThread,
-    EmailThreadAccess,
     EmailThreadMessage,
-    EmailThreadParticipant,
-    EmailThreadParticipantKind,
     Ticket,
 )
 
@@ -36,6 +39,7 @@ class TestCustomerEmailIngestion(BaseTest):
             from_name="Customer success",
             domain="example.com",
             domain_verified=True,
+            connection_status=EmailChannelConnectionStatus.ACTIVE,
         )
         signature_patcher = patch(
             "products.conversations.backend.api.email_events.validate_webhook_signature",
@@ -68,76 +72,92 @@ class TestCustomerEmailIngestion(BaseTest):
         data.update(overrides)
         return self.client.post("/api/conversations/v1/email/inbound", data)
 
-    def test_forwarding_verification_is_visible_only_to_channel_owner_without_support_side_effects(self) -> None:
-        colleague = User.objects.create(email="colleague@example.com", current_team=self.team)
-        OrganizationMembership.objects.create(
-            organization=self.organization,
-            user=colleague,
-            level=OrganizationMembership.Level.MEMBER,
+    def _start_google_setup(self, *, expires_at=None) -> EmailChannelSetup:
+        self.channel.connection_status = EmailChannelConnectionStatus.PENDING_CONFIRMATION
+        self.channel.save(update_fields=["connection_status"])
+        return EmailChannelSetup.objects.for_team(self.team.id).create(
+            team=self.team,
+            channel=self.channel,
+            provider=EmailChannelSetupProvider.GOOGLE,
+            expires_at=expires_at or timezone.now() + timedelta(hours=24),
         )
 
-        response = self._post_email(
+    def _valid_google_confirmation(self, *, action_suffix: str = "expected") -> dict[str, str]:
+        action = f"https://mail-settings.google.com/mail/vf-{action_suffix}"
+        return {
+            "from": "Gmail forwarding <forwarding-noreply@google.com>",
+            "sender": "forwarding-noreply@google.com",
+            "subject": "(#12345678) Gmail Forwarding Confirmation - Receive Mail from csm@example.com",
+            "body-plain": f"Confirm forwarding by visiting {action}",
+            "stripped-text": f"Confirm forwarding by visiting {action}",
+            "X-Mailgun-Spf": "pass",
+            "X-Mailgun-Dkim-Check-Result": "pass",
+            "DKIM-Signature": "v=1; a=rsa-sha256; d=google.com; s=20230601; b=signature",
+        }
+
+    def test_pending_channel_stores_only_the_first_authenticated_google_confirmation(self) -> None:
+        setup = self._start_google_setup()
+
+        first_response = self._post_email(
             message_id="<forwarding-confirmation@gmail.com>",
-            **{
-                "from": "Gmail forwarding <forwarding-noreply@google.com>",
-                "sender": "forwarding-noreply@google.com",
-                "To": "CSM <csm@example.com>, Colleague <colleague@example.com>",
-                "subject": "Gmail forwarding confirmation",
-                "body-plain": "Use confirmation code 123456 to finish forwarding setup.",
-                "stripped-text": "Use confirmation code 123456 to finish forwarding setup.",
-            },
+            **self._valid_google_confirmation(),
+        )
+        second_response = self._post_email(
+            message_id="<second-forwarding-confirmation@gmail.com>",
+            **self._valid_google_confirmation(action_suffix="replacement"),
         )
 
-        assert response.status_code == 200
-        thread = EmailThread.objects.for_team(self.team.id).get()
-        message = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
-        assert thread.subject == "Gmail forwarding confirmation"
-        assert thread.message_count == 1
-        assert thread.first_message_at is not None
-        assert thread.first_message_at.isoformat() == "2025-06-10T14:30:00+00:00"
-        assert thread.last_message_at == thread.first_message_at
-        assert thread.preview == "Use confirmation code 123456 to finish forwarding setup."
-        assert message.comment.scope == EMAIL_THREAD_COMMENT_SCOPE
-        assert message.comment.item_id == str(thread.id)
-        assert message.comment.content == "Use confirmation code 123456 to finish forwarding setup."
-        assert message.sent_at == thread.first_message_at
-        assert message.sender_email == "forwarding-noreply@google.com"
-        assert message.sender_authenticated is False
-        assert message.to_recipients == [
-            {"name": "CSM", "email": "csm@example.com"},
-            {"name": "Colleague", "email": "colleague@example.com"},
-        ]
-        participants = {
-            participant.email: participant.kind
-            for participant in EmailThreadParticipant.objects.for_team(self.team.id).filter(thread=thread)
-        }
-        assert participants == {
-            "colleague@example.com": EmailThreadParticipantKind.INTERNAL.value,
-            "csm@example.com": EmailThreadParticipantKind.INTERNAL.value,
-            "forwarding-noreply@google.com": EmailThreadParticipantKind.CUSTOMER.value,
-            self.user.email: EmailThreadParticipantKind.INTERNAL.value,
-        }
-        assert EmailThreadAccess.objects.for_team(self.team.id).filter(thread=thread, user=self.user).exists()
+        assert first_response.status_code == 200
+        assert second_response.status_code == 200
+        setup.refresh_from_db()
+        assert setup.confirmation_action == "https://mail-settings.google.com/mail/vf-expected"
+        assert setup.confirmation_message_id_hash
+        assert setup.confirmation_received_at is not None
+        assert not EmailThread.objects.for_team(self.team.id).exists()
         assert not Ticket.objects.filter(team=self.team).exists()
         assert not EmailOutboxMessage.objects.filter(team=self.team).exists()
 
-        self.client.force_login(self.user)
-        list_response = self.client.get("/api/conversations/v1/email/threads")
-        detail_response = self.client.get(f"/api/conversations/v1/email/threads/{thread.id}")
-        assert list_response.status_code == 200
-        assert list_response.json()["count"] == 1
-        assert list_response.json()["results"][0]["subject"] == "Gmail forwarding confirmation"
-        assert detail_response.status_code == 200
-        assert detail_response.json()["messages"][0]["content"] == (
-            "Use confirmation code 123456 to finish forwarding setup."
+    @parameterized.expand(
+        [
+            ("missing_spf", {"X-Mailgun-Spf": ""}),
+            ("wrong_source", {"subject": "Gmail Forwarding Confirmation - Receive Mail from attacker@example.com"}),
+            ("wrong_dkim_domain", {"DKIM-Signature": "v=1; d=attacker.example; b=signature"}),
+            (
+                "lookalike_action_host",
+                {
+                    "body-plain": "https://mail-settings.google.com.attacker.example/mail/vf-token",
+                    "stripped-text": "https://mail-settings.google.com.attacker.example/mail/vf-token",
+                },
+            ),
+        ]
+    )
+    def test_pending_channel_discards_untrusted_confirmation_candidates(
+        self, _name: str, overrides: dict[str, str]
+    ) -> None:
+        setup = self._start_google_setup()
+        payload = self._valid_google_confirmation()
+        payload.update(overrides)
+
+        response = self._post_email(message_id=f"<{_name}@gmail.com>", **payload)
+
+        assert response.status_code == 200
+        setup.refresh_from_db()
+        assert setup.confirmation_action is None
+        assert not EmailThread.objects.for_team(self.team.id).exists()
+
+    def test_expired_setup_is_deleted_and_discards_email(self) -> None:
+        setup = self._start_google_setup(expires_at=timezone.now() - timedelta(seconds=1))
+
+        response = self._post_email(
+            message_id="<expired-forwarding-confirmation@gmail.com>",
+            **self._valid_google_confirmation(),
         )
 
-        self.client.force_login(colleague)
-        other_list_response = self.client.get("/api/conversations/v1/email/threads")
-        other_detail_response = self.client.get(f"/api/conversations/v1/email/threads/{thread.id}")
-        assert other_list_response.status_code == 200
-        assert other_list_response.json() == {"count": 0, "results": []}
-        assert other_detail_response.status_code == 404
+        assert response.status_code == 200
+        assert not EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
+        self.channel.refresh_from_db()
+        assert self.channel.connection_status == EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+        assert not EmailThread.objects.for_team(self.team.id).exists()
 
     @parameterized.expand(["in_reply_to", "references"])
     def test_rfc_reply_headers_continue_the_existing_thread(self, header_kind: str) -> None:
@@ -182,7 +202,7 @@ class TestCustomerEmailIngestion(BaseTest):
             [] if header_kind == "in_reply_to" else ["<older@customer.example>", root_message_id]
         )
 
-    def test_duplicate_delivery_creates_one_message_and_grants_each_channel_owner_access(self) -> None:
+    def test_duplicate_delivery_creates_one_message_across_customer_channels(self) -> None:
         message_id = "<duplicate@customer.example>"
         first_response = self._post_email(message_id=message_id)
         retry_response = self._post_email(message_id=message_id)
@@ -202,6 +222,7 @@ class TestCustomerEmailIngestion(BaseTest):
             from_name="Second CSM",
             domain="example.com",
             domain_verified=True,
+            connection_status=EmailChannelConnectionStatus.ACTIVE,
         )
         second_owner_response = self._post_email(
             message_id=message_id,
@@ -218,6 +239,3 @@ class TestCustomerEmailIngestion(BaseTest):
             Comment.objects.filter(team=self.team, scope=EMAIL_THREAD_COMMENT_SCOPE, item_id=str(thread.id)).count()
             == 1
         )
-        assert set(
-            EmailThreadAccess.objects.for_team(self.team.id).filter(thread=thread).values_list("user_id", flat=True)
-        ) == {self.user.id, second_owner.id}

@@ -12,6 +12,12 @@ class EmailChannelKind(models.TextChoices):
     CUSTOMER_COMMUNICATION = "customer_communication", "Customer communication"
 
 
+class EmailChannelConnectionStatus(models.TextChoices):
+    PENDING_CONFIRMATION = "pending_confirmation", "Pending confirmation"
+    ACTIVE = "active", "Active"
+    CONFIRMATION_EXPIRED = "confirmation_expired", "Confirmation expired"
+
+
 class EmailChannel(UUIDModel):
     """An inbound forwarding address and outbound sender identity for a team."""
 
@@ -29,6 +35,12 @@ class EmailChannel(UUIDModel):
         blank=True,
         db_constraint=False,
         related_name="owned_conversations_email_channels",
+    )
+    connection_status = models.CharField(
+        max_length=32,
+        choices=EmailChannelConnectionStatus.choices,
+        default=EmailChannelConnectionStatus.ACTIVE,
+        db_default=EmailChannelConnectionStatus.ACTIVE,
     )
 
     # The random token keeps the team id out of the public forwarding address and supports rotation.
@@ -67,6 +79,11 @@ class EmailChannel(UUIDModel):
             models.CheckConstraint(
                 condition=models.Q(kind=EmailChannelKind.SUPPORT) | models.Q(is_default=False),
                 name="email_channel_customer_not_default",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(kind=EmailChannelKind.CUSTOMER_COMMUNICATION)
+                | models.Q(connection_status=EmailChannelConnectionStatus.ACTIVE),
+                name="email_channel_support_active",
             ),
             models.CheckConstraint(
                 condition=(
