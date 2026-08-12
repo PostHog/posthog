@@ -17,6 +17,14 @@ export const taskContextMenuInput = z.object({
 
 export const bulkTaskContextMenuInput = z.object({
   taskCount: z.number().int().min(2),
+  // Every selected session is pinned, so the pin item unpins instead.
+  allPinned: z.boolean().optional(),
+  // How many of the selection are still running; shapes the archive confirm.
+  runningCount: z.number().int().min(0).optional(),
+  // Whether archiving would also shut a cloud sandbox down.
+  stopsCloudSandbox: z.boolean().optional(),
+  // "File to…" targets. Omit (or pass empty) to hide the submenu entirely.
+  channels: z.array(z.object({ id: z.string(), name: z.string() })).optional(),
 });
 
 export const archivedTaskContextMenuInput = z.object({
@@ -56,8 +64,13 @@ const taskAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("file-to-channel"), channelId: z.string() }),
 ]);
 
+// `pin` carries no direction: the label and the resolver both derive it from
+// `allPinned`, the same way the single-task `suspend` action does.
 const bulkTaskAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive") }),
+  z.object({ type: z.literal("pin") }),
+  z.object({ type: z.literal("add-to-command-center") }),
+  z.object({ type: z.literal("file-to-channel"), channelId: z.string() }),
 ]);
 
 const archivedTaskAction = z.discriminatedUnion("type", [
