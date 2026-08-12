@@ -1,4 +1,8 @@
-import { validateChannelName } from "@posthog/core/canvas/channelName";
+import {
+  normalizeChannelName,
+  normalizeChannelNameInput,
+  validateChannelName,
+} from "@posthog/core/canvas/channelName";
 import {
   Button,
   Dialog,
@@ -164,7 +168,7 @@ export function CreateChannelModal({
     }
   }
 
-  const trimmedName = name.trim();
+  const trimmedName = normalizeChannelName(name);
   const trimmedDescription = description.trim();
   const remaining = MAX_CONTEXT_NAME_LENGTH - name.length;
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
@@ -374,6 +378,10 @@ export function CreateChannelModal({
               <DialogTitle>
                 Create a {spacesLayout ? "space" : "channel"}
               </DialogTitle>
+              <DialogDescription>
+                Create a {spacesLayout ? "space" : "channel"} to keep related
+                work and context together.
+              </DialogDescription>
             </DialogHeader>
 
             <DialogBody className="flex max-h-[55vh] flex-col gap-4">
@@ -386,7 +394,10 @@ export function CreateChannelModal({
                   placeholder="e.g. mobile"
                   maxLength={MAX_CONTEXT_NAME_LENGTH}
                   disabled={busy}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) =>
+                    setName(normalizeChannelNameInput(e.target.value))
+                  }
+                  onBlur={() => setName(normalizeChannelName(name))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -394,6 +405,9 @@ export function CreateChannelModal({
                     }
                   }}
                 />
+                <FieldDescription>
+                  Names use lowercase letters, numbers, and hyphens.
+                </FieldDescription>
                 {nameError ? (
                   <FieldError>{nameError}</FieldError>
                 ) : (

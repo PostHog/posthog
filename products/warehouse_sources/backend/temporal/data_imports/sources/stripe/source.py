@@ -244,7 +244,10 @@ class StripeSource(
 
 Once created, copy the **Signing secret** from the webhook details page and add it to your source configuration for signature verification.
 
-If automatic creation failed due to a permissions error and you're using a restricted API key (not OAuth), your key needs **Write** access on **Webhook endpoints**. You can update this in your [Stripe API keys settings](https://dashboard.stripe.com/apikeys).""",
+If automatic creation failed with a permissions error, the fix depends on how you connected:
+
+- **Restricted API key**: give the key **Write** access on **Webhook endpoints** in your [Stripe API keys settings](https://dashboard.stripe.com/apikeys), then reconnect the source.
+- **OAuth**: disconnect and reconnect your Stripe account, then accept the permissions PostHog asks for. If the error stays, use the manual steps above.""",
             webhookFields=cast(
                 list[FieldType],
                 [
