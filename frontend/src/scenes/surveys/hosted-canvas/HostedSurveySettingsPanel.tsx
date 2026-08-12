@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { Group } from 'kea-forms'
 
 import { IconPhone, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDialog, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconMonitor } from 'lib/lemon-ui/icons'
+import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 import { SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { canQuestionSkipSubmitButton, isThumbQuestion } from 'scenes/surveys/utils'
@@ -199,6 +201,12 @@ export function HostedSurveySettingsPanel({
                             onChange={(checked) => updateQuestionField('skipSubmitButton', checked)}
                         />
                     )}
+
+                    <div className="border-t pt-3">
+                        <Group name={`questions.${activePageIndex}`}>
+                            <QuestionBranchingInput questionIndex={activePageIndex} question={question} />
+                        </Group>
+                    </div>
                 </>
             ) : null}
 
