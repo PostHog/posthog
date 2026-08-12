@@ -179,6 +179,35 @@ class TestWelcomeEndpoint(APIBaseTest):
         self.assertEqual(len(data["popular_dashboards"]), 1)
         self.assertEqual(data["popular_dashboards"][0]["name"], "Top dashboard")
 
+    def test_popular_dashboards_are_not_shared_between_users(self):
+        from posthog.constants import AvailableFeature
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        # Created up front so the org member count, which is part of the cache key, does not change
+        # between the two requests.
+        member = User.objects.create_and_join(self.organization, "member@example.com", None, "Member")
+        restricted = Dashboard.objects.create(team=self.team, name="Restricted dashboard")
+        restricted.last_accessed_at = timezone.now()
+        restricted.save()
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(restricted.id), access_level="none"
+        )
+
+        admin_response = self.client.get("/api/organizations/@current/welcome/current/")
+        self.assertEqual([d["name"] for d in admin_response.json()["popular_dashboards"]], ["Restricted dashboard"])
+
+        self.client.force_login(member)
+        member_response = self.client.get("/api/organizations/@current/welcome/current/")
+
+        self.assertEqual(member_response.json()["popular_dashboards"], [])
+
     def test_products_in_use_from_ingested_events(self):
         self.team.ingested_event = True
         self.team.save()

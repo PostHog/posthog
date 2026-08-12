@@ -146,8 +146,8 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
     The org-scoped subset is cached for 5 minutes. The cache key includes a time-bucketed
     latest-activity id, org member count, and a hash of onboarding-flag state so that
     team-member joins and product-onboarding changes invalidate the cache within the bucket window.
-    Per-user data (inviter, suggested steps, filtered team members, is_organization_first_user)
-    is always recomputed on read.
+    Per-user data (inviter, suggested steps, filtered team members, popular dashboards,
+    is_organization_first_user) is always recomputed on read.
     """
     access_control = UserAccessControl(user=user, organization_id=str(organization.id))
     accessible_team_ids = _get_accessible_team_ids(organization, access_control)
@@ -174,7 +174,6 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
             "organization_name": organization.name,
             "team_members": _get_team_members(organization),
             "recent_activity": _get_recent_activity(accessible_team_ids, since),
-            "popular_dashboards": _get_popular_dashboards(accessible_team_ids, access_control),
             "products_in_use": _get_products_in_use(organization),
         }
         cache.set(cache_key, cacheable, _CACHE_TTL_SECONDS)
@@ -184,6 +183,9 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
         **cacheable,
         "inviter": _get_inviter(user, organization),
         "team_members": _filter_self(_filter_visible(cacheable["team_members"], organization, user), user),
+        # Dashboard visibility is decided per user, and the cache key carries no user identity,
+        # so this must not be cached alongside the org-wide cards.
+        "popular_dashboards": _get_popular_dashboards(accessible_team_ids, access_control),
         "suggested_next_steps": _build_suggested_next_steps(user, cacheable["products_in_use"]),
         "is_organization_first_user": _is_organization_first_user(user, organization),
     }
