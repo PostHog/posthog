@@ -349,9 +349,18 @@ pub struct TrafficArgs {
     #[arg(long, env = "TRAFFIC_ENABLED", default_value_t = true, action = clap::ArgAction::Set)]
     pub enabled: bool,
 
-    /// Reserved harness team. The traffic mode owns every row on it.
-    #[arg(long, env = "TRAFFIC_TEAM_ID", default_value_t = 900_101)]
-    pub team_id: i64,
+    /// Reserved harness teams (comma-separated). The traffic mode owns
+    /// every row on them. The drawn blast rate and the probers are
+    /// instance totals shared across the teams, so team count tunes
+    /// partition spread, not offered load; pool size and concurrency
+    /// apply per team.
+    #[arg(
+        long,
+        env = "TRAFFIC_TEAM_IDS",
+        value_delimiter = ',',
+        default_value = "900101"
+    )]
+    pub team_ids: Vec<i64>,
 
     /// Dedicated team for the hostile lane, kept out of the exactness
     /// journal (its outcomes are observed as metrics, not verified).
@@ -393,7 +402,10 @@ pub struct TrafficArgs {
     #[arg(long, env = "TRAFFIC_CONCURRENCY", default_value_t = 20)]
     pub concurrency: usize,
 
-    /// Read-your-write probers running alongside the writers.
+    /// Read-your-write probers running alongside the writers: an
+    /// instance total, distributed across the teams and rotated each
+    /// epoch (probers are unpaced, so a per-team count would scale
+    /// probing load with the team count).
     #[arg(long, env = "TRAFFIC_PROBERS", default_value_t = 2)]
     pub probers: usize,
 
