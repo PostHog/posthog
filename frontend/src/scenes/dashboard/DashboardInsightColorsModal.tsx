@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { LemonBanner, LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorPicker, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -207,13 +207,26 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 options={themes.map((theme) => ({ value: theme.id, label: theme.name }))}
             />
 
-            <LemonLabel className="mt-4">Breakdown colors</LemonLabel>
-            <LemonBanner type="info" className="mt-2 mb-4">
-                Colors are grouped by breakdown property, so each property picks its colors on its own. A value shown on
-                two or more insights gets one color across the dashboard, and keeps that color under every property it
-                shows up under, as far as the palette allows. Values on a single insight keep their own colors. Pick a
-                color to pin a value to it.
-            </LemonBanner>
+            <LemonLabel
+                className="mt-4 mb-2"
+                info={
+                    <>
+                        <p className="mb-1">
+                            Colors are grouped by breakdown property, so each property picks its colors on its own.
+                        </p>
+                        <ul className="list-disc pl-4 space-y-1">
+                            <li>
+                                A value shown on two or more insights gets one color across the dashboard, and keeps it
+                                under every property it appears in, as far as the palette allows.
+                            </li>
+                            <li>Values on a single insight keep their own colors.</li>
+                            <li>Pick a color to pin a value to it.</li>
+                        </ul>
+                    </>
+                }
+            >
+                Breakdown colors
+            </LemonLabel>
             {breakdownValueGroups.length === 0 ? (
                 <LemonTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
             ) : (
