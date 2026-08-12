@@ -1473,6 +1473,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                     'p95_count_per_actor',
                                     'p99_count_per_actor',
                                 ]),
+                                zod.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group']),
                                 zod.enum([
                                     'total',
                                     'sum',
@@ -1485,7 +1486,6 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                     'hogql',
                                 ]),
                                 zod.enum(['total', 'dau']),
-                                zod.literal('unique_group'),
                                 zod.literal('hogql'),
                                 zod.null(),
                             ])
@@ -4187,6 +4187,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                     'p95_count_per_actor',
                                     'p99_count_per_actor',
                                 ]),
+                                zod.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group']),
                                 zod.enum([
                                     'total',
                                     'sum',
@@ -4199,7 +4200,6 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                     'hogql',
                                 ]),
                                 zod.enum(['total', 'dau']),
-                                zod.literal('unique_group'),
                                 zod.literal('hogql'),
                                 zod.null(),
                             ])
@@ -6903,6 +6903,7 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                     'p95_count_per_actor',
                                     'p99_count_per_actor',
                                 ]),
+                                zod.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group']),
                                 zod.enum([
                                     'total',
                                     'sum',
@@ -6915,7 +6916,6 @@ export const MarketingAnalyticsConversionGoalsUpdatePartialUpdateBody = /* @__PU
                                     'hogql',
                                 ]),
                                 zod.enum(['total', 'dau']),
-                                zod.literal('unique_group'),
                                 zod.literal('hogql'),
                                 zod.null(),
                             ])
@@ -9806,6 +9806,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                             'p95_count_per_actor',
                             'p99_count_per_actor',
                         ]),
+                        zod.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group']),
                         zod.enum([
                             'total',
                             'sum',
@@ -9818,7 +9819,6 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                             'hogql',
                         ]),
                         zod.enum(['total', 'dau']),
-                        zod.literal('unique_group'),
                         zod.literal('hogql'),
                         zod.null(),
                     ])
@@ -12524,6 +12524,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                             'p95_count_per_actor',
                             'p99_count_per_actor',
                         ]),
+                        zod.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group']),
                         zod.enum([
                             'total',
                             'sum',
@@ -12536,7 +12537,6 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                             'hogql',
                         ]),
                         zod.enum(['total', 'dau']),
-                        zod.literal('unique_group'),
                         zod.literal('hogql'),
                         zod.null(),
                     ])
@@ -15241,6 +15241,7 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                             'p95_count_per_actor',
                             'p99_count_per_actor',
                         ]),
+                        zod.enum(['unique_group', 'first_time_for_group', 'first_matching_event_for_group']),
                         zod.enum([
                             'total',
                             'sum',
@@ -15253,7 +15254,6 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
                             'hogql',
                         ]),
                         zod.enum(['total', 'dau']),
-                        zod.literal('unique_group'),
                         zod.literal('hogql'),
                         zod.null(),
                     ])
