@@ -20,6 +20,7 @@ export const visionActionsCreateBodySynthesisConfigOnePromptGuideMax = 500
 export const visionActionsCreateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsCreateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsCreateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -146,6 +147,12 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
                     ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsCreateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
+                    ),
             })
             .describe(
                 "The alert condition for mode='alert', applied after `selection` targeting. 'every_match'\nnotifies about each new match since the previous check; 'on_breach' compares a metric to a\nthreshold over a rolling window and notifies on the transition into breach."
@@ -199,6 +206,7 @@ export const visionActionsPartialUpdateBodySynthesisConfigOnePromptGuideMax = 50
 export const visionActionsPartialUpdateBodyAlertConfigOneFrequencyDefault = `on_breach`
 export const visionActionsPartialUpdateBodyAlertConfigOneMetricDefault = `count`
 export const visionActionsPartialUpdateBodyAlertConfigOneDirectionDefault = `above`
+export const visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault = false
 
 export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -326,6 +334,12 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n\* `1` - 1 day\n\* `3` - 3 days\n\* `7` - 7 days\n\* `14` - 14 days\n\* `30` - 30 days"
+                    ),
+                include_reasoning: zod
+                    .boolean()
+                    .default(visionActionsPartialUpdateBodyAlertConfigOneIncludeReasoningDefault)
+                    .describe(
+                        "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict\/score\/tags. Useful when piping the message somewhere else to read or act on. Defaults to false."
                     ),
             })
             .describe(

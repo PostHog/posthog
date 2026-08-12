@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTa
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -18,6 +19,7 @@ import { scoutFleetLogic } from 'products/signals/frontend/inbox/logics/scoutFle
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import type { EvaluationConfig } from '../evaluations/types'
+import type { EvaluationReportApi } from '../generated/api.schemas'
 import {
     AI_OBSERVABILITY_SCOUT_TEMPLATES,
     AIObservabilityScoutTemplate,
@@ -78,10 +80,14 @@ export function AIObservabilitySelfDriving(): JSX.Element {
     const { loadSelfDrivingEvaluationReports } = useActions(aiObservabilitySelfDrivingLogic)
 
     const aiObservabilityScouts = scoutConfigs?.filter(isAIObservabilityScout) ?? []
+    const reportFor = (evaluation: EvaluationConfig): EvaluationReportApi | null =>
+        evaluationReportsByEvaluationId?.[evaluation.id] ?? null
     const evaluationColumns: LemonTableColumns<EvaluationConfig> = [
         {
             title: 'Name',
             key: 'name',
+            width: '40%',
+            sorter: (a, b) => a.name.localeCompare(b.name),
             render: (_, evaluation) => (
                 <div className="flex min-w-0 flex-col">
                     <span className="truncate font-semibold">{evaluation.name}</span>
@@ -92,6 +98,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
         {
             title: 'Eval reports',
             key: 'reports',
+            sorter: (a, b) => Number(reportFor(a)?.enabled ?? false) - Number(reportFor(b)?.enabled ?? false),
             render: (_, evaluation) => {
                 if (evaluationReportsByEvaluationId === null) {
                     return <LemonTag type="muted">Unavailable</LemonTag>
@@ -107,6 +114,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
         {
             title: 'Reports generated',
             key: 'generated_report_count',
+            sorter: (a, b) => (reportFor(a)?.generated_report_count ?? 0) - (reportFor(b)?.generated_report_count ?? 0),
             render: (_, evaluation) => {
                 if (evaluationReportsByEvaluationId === null) {
                     return 'Unavailable'
@@ -118,6 +126,10 @@ export function AIObservabilitySelfDriving(): JSX.Element {
         {
             title: 'Last generated',
             key: 'last_generated_at',
+            // Never-generated evals sort as the oldest rather than mixing into the middle of the list.
+            sorter: (a, b) =>
+                dayjs(reportFor(a)?.last_generated_at ?? 0).valueOf() -
+                dayjs(reportFor(b)?.last_generated_at ?? 0).valueOf(),
             render: (_, evaluation) => {
                 if (evaluationReportsByEvaluationId === null) {
                     return 'Unavailable'
@@ -126,6 +138,21 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                 const lastGeneratedAt = evaluationReportsByEvaluationId[evaluation.id]?.last_generated_at
                 return lastGeneratedAt ? <TZLabel time={lastGeneratedAt} /> : 'Never'
             },
+        },
+        {
+            key: 'actions',
+            width: 72,
+            align: 'right',
+            render: (_, evaluation) => (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    to={evaluationEditUrl(evaluation.id)}
+                    data-attr="edit-ai-observability-evaluation"
+                >
+                    Edit
+                </LemonButton>
+            ),
         },
     ]
 
@@ -284,6 +311,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                         dataSource={evaluations}
                         loading={evaluationReportsLoading}
                         loadingSkeletonRows={2}
+                        tableLayout="fixed"
                         rowKey="id"
                         nouns={['eval', 'evals']}
                         data-attr="ai-observability-evaluations-table"
@@ -296,16 +324,6 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                 router.actions.push(evaluationEditUrl(evaluation.id))
                             },
                         })}
-                        rowActions={(evaluation) => (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                to={evaluationEditUrl(evaluation.id)}
-                                data-attr="edit-ai-observability-evaluation"
-                            >
-                                Edit
-                            </LemonButton>
-                        )}
                     />
                 )}
             </section>

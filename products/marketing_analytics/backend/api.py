@@ -800,7 +800,7 @@ class SuggestionSerializer(serializers.Serializer):
     )
     unlocks = serializers.ListField(
         child=serializers.CharField(),
-        help_text="Capabilities this unblocks: cost, attribution, roas, cac, retention_by_channel, ltv_by_channel",
+        help_text="Capabilities this unblocks: cost, attribution, roas, cac",
     )
     # DRF has no discriminated-union field and fighting drf-spectacular for one isn't
     # worth it. The shape is the `ApplyOp` union in `services/setup_types.py`, which is
@@ -832,7 +832,7 @@ class SuggestionSerializer(serializers.Serializer):
 
 
 class CapabilityReadinessSerializer(serializers.Serializer):
-    capability = serializers.CharField(help_text="cost/attribution/roas/cac/retention_by_channel/ltv_by_channel")
+    capability = serializers.CharField(help_text="cost/attribution/roas/cac")
     status = serializers.CharField(help_text="unlocked/partial/blocked")
     explanation = serializers.CharField(help_text="Why it's in that state, in plain English")
     blocked_by = serializers.ListField(

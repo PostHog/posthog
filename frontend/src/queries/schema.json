@@ -281,6 +281,30 @@
             "required": ["kind", "accountId"],
             "type": "object"
         },
+        "AccountsTableAggregateMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/AccountsTableAggregation"
+                },
+                "column": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                "kind": {
+                    "const": "aggregate",
+                    "type": "string"
+                },
+                "scale": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "aggregation", "column"],
+            "type": "object"
+        },
+        "AccountsTableAggregation": {
+            "enum": ["sum", "avg", "min", "max", "median"],
+            "type": "string"
+        },
         "AccountsTableAssignedToFilter": {
             "additionalProperties": false,
             "properties": {
@@ -325,6 +349,37 @@
                 }
             ],
             "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableCountMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "count",
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "AccountsTableCountThresholdMetric": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                "kind": {
+                    "const": "count_threshold",
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AccountsTableThresholdOperator"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "column", "operator", "value"],
             "type": "object"
         },
         "AccountsTableCustomPropertyColumn": {
@@ -451,6 +506,25 @@
             "required": ["kind"],
             "type": "object"
         },
+        "AccountsTableMetric": {
+            "description": "A typed aggregate evaluated against the filtered account set.",
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableCountMetric"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableAggregateMetric"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCountThresholdMetric"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
         "AccountsTableNoteCountColumn": {
             "additionalProperties": false,
             "properties": {
@@ -485,6 +559,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/positive_integer"
+                },
+                "metrics": {
+                    "description": "Aggregates to evaluate against the filtered account set. A metrics query skips row loading.",
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableMetric"
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -530,6 +611,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "Aggregated values in the same order as the requested metrics.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -748,6 +836,10 @@
             },
             "required": ["kind", "tagNames"],
             "type": "object"
+        },
+        "AccountsTableThresholdOperator": {
+            "enum": ["gt", "gte", "lt", "lte", "exact", "is_not"],
+            "type": "string"
         },
         "AccountsTableUnassignedFilter": {
             "additionalProperties": false,
@@ -6156,6 +6248,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "Aggregated values in the same order as the requested metrics.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -18202,6 +18301,13 @@
                                 "limit": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "metricsResults": {
+                                    "description": "Aggregated values in the same order as the requested metrics.",
+                                    "items": {
+                                        "type": ["number", "null"]
+                                    },
+                                    "type": "array"
+                                },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
@@ -25541,7 +25647,11 @@
                 "Wix",
                 "Sevalla",
                 "Motion",
-                "Framer"
+                "Framer",
+                "Cloudinary",
+                "Uploadcare",
+                "WHMCS",
+                "MSG91"
             ],
             "type": "string"
         },
@@ -27134,7 +27244,7 @@
             "type": "string"
         },
         "GroupMathType": {
-            "const": "unique_group",
+            "enum": ["unique_group", "first_time_for_group", "first_matching_event_for_group"],
             "type": "string"
         },
         "GroupNode": {
@@ -42602,6 +42712,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "Aggregated values in the same order as the requested metrics.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -44610,6 +44727,13 @@
                         },
                         "limit": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "metricsResults": {
+                            "description": "Aggregated values in the same order as the requested metrics.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
                         },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",

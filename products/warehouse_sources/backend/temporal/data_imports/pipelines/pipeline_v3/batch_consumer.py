@@ -92,6 +92,17 @@ def _is_server_not_ready_error(error: BaseException) -> bool:
     return any(substring in message for substring in _SERVER_NOT_READY_ERROR_SUBSTRINGS)
 
 
+# psycopg raises ConnectionTimeout only while *establishing* a connection, never mid-query. Every
+# caller here reconnects to a queue DB it (or a sibling pod) was already talking to moments earlier,
+# so a connect-time timeout is the queue DB being momentarily slow to accept, not a config problem —
+# the same self-healing shape as the DNS and server-not-ready refusals above. Mirrors the source-side
+# `_is_dropped_or_connect_timeout` in sources/postgres/postgres.py, which treats a connect timeout on
+# its read/sync path the same way (as opposed to schema discovery, where a timeout usually means a
+# now-unreachable host and is deliberately left to fail fast).
+def _is_connect_timeout_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.ConnectionTimeout)
+
+
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
@@ -476,6 +487,8 @@ class BatchConsumer:
                         logger.warning(self._event("poll_failed_queue_db_dns_unavailable"), error=str(e))
                     elif _is_server_not_ready_error(e):
                         logger.warning(self._event("poll_failed_queue_db_starting_up"), error=str(e))
+                    elif _is_connect_timeout_error(e):
+                        logger.warning(self._event("poll_failed_queue_db_connect_timeout"), error=str(e))
                     else:
                         logger.exception(self._event("poll_failed_queue_db_unreachable"))
                         capture_exception(e)
@@ -1073,6 +1086,8 @@ class BatchConsumer:
                     logger.warning(self._event("recovery_sweep_dns_unavailable"), error=str(e))
                 elif _is_server_not_ready_error(e):
                     logger.warning(self._event("recovery_sweep_db_starting_up"), error=str(e))
+                elif _is_connect_timeout_error(e):
+                    logger.warning(self._event("recovery_sweep_connect_timeout"), error=str(e))
                 else:
                     logger.exception(self._event("recovery_sweep_error"))
                     capture_exception(e)
@@ -1097,6 +1112,8 @@ class BatchConsumer:
                         logger.warning(self._event("reconcile_sweep_dns_unavailable"), error=str(e))
                     elif _is_server_not_ready_error(e):
                         logger.warning(self._event("reconcile_sweep_db_starting_up"), error=str(e))
+                    elif _is_connect_timeout_error(e):
+                        logger.warning(self._event("reconcile_sweep_connect_timeout"), error=str(e))
                     else:
                         logger.exception(self._event("reconcile_sweep_error"))
                         capture_exception(e)

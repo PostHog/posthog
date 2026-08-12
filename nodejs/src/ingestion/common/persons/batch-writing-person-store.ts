@@ -40,7 +40,13 @@ import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { PersonOutputs } from './person-context'
-import { getMetricKey } from './person-update'
+import {
+    EventOps,
+    applyEventPropertyUpdates,
+    computeOpsScalarUpdates,
+    getMetricKey,
+    refineEventOps,
+} from './person-update'
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 
@@ -1315,6 +1321,39 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.incrementCount('updatePersonForMerge', distinctId)
         const batchId = typeof batchIdOrTx === 'number' ? batchIdOrTx : 0
         return Promise.resolve(this.addPersonUpdateToBatch(person, update, distinctId, batchId))
+    }
+
+    async applyEventOps(
+        person: InternalPerson,
+        ops: EventOps,
+        distinctId: string,
+        batchId: number
+    ): Promise<[InternalPerson, PersonMessage[]]> {
+        person.properties ||= {}
+
+        // Snapshot refinement is this store's write-shape preparation:
+        // set_once resolves against current properties, sets are diffed,
+        // and the ignored-property rules classify the outcome. The
+        // intents refine here too — identification only transitions
+        // false→true, last-seen only advances.
+        const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
+        const otherUpdates = computeOpsScalarUpdates(ops, person)
+
+        if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
+            const [updatedPerson] = applyEventPropertyUpdates(refined, person)
+            return [updatedPerson, []]
+        }
+
+        const [updatedPerson, kafkaMessages] = await this.updatePersonWithPropertiesDiffForUpdate(
+            person,
+            refined.toSet,
+            refined.toUnset,
+            otherUpdates,
+            distinctId,
+            batchId,
+            refined.shouldForceUpdate
+        )
+        return [updatedPerson, kafkaMessages]
     }
 
     updatePersonWithPropertiesDiffForUpdate(
