@@ -92,7 +92,7 @@ class TestCustomerEmailIngestion(BaseTest):
             "stripped-text": f"Confirm forwarding by visiting {action}",
             "X-Mailgun-Spf": "pass",
             "X-Mailgun-Dkim-Check-Result": "pass",
-            "DKIM-Signature": "v=1; a=rsa-sha256; d=google.com; s=20230601; b=signature",
+            "DKIM-Signature": ("v=1; a=rsa-sha256; d=google.com; s=20230601; h=from:to:subject:date; b=signature"),
         }
 
     def test_pending_channel_stores_only_the_first_authenticated_google_confirmation(self) -> None:
@@ -121,7 +121,14 @@ class TestCustomerEmailIngestion(BaseTest):
         [
             ("missing_spf", {"X-Mailgun-Spf": ""}),
             ("wrong_source", {"subject": "Gmail Forwarding Confirmation - Receive Mail from attacker@example.com"}),
-            ("wrong_dkim_domain", {"DKIM-Signature": "v=1; d=attacker.example; b=signature"}),
+            (
+                "wrong_dkim_domain",
+                {"DKIM-Signature": "v=1; d=attacker.example; h=from:subject; b=signature"},
+            ),
+            (
+                "unsigned_subject",
+                {"DKIM-Signature": "v=1; d=google.com; h=from:to:date; b=signature"},
+            ),
             (
                 "lookalike_action_host",
                 {

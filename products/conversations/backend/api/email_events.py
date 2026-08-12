@@ -48,7 +48,6 @@ INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
-_DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d=([^;\s]+)", re.IGNORECASE)
 MAX_EMAIL_BODY_LENGTH = 50_000
 MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024  # 10 MB per file
 MAX_ATTACHMENTS = 20
@@ -299,9 +298,15 @@ def _message_header_values(request: HttpRequest, header_name: str) -> tuple[str,
 def _dkim_signing_domains(request: HttpRequest) -> tuple[str, ...]:
     domains: list[str] = []
     for signature in _message_header_values(request, "DKIM-Signature"):
-        match = _DKIM_DOMAIN_RE.search(signature)
-        if match is not None:
-            domains.append(match.group(1).rstrip(".").lower())
+        tags: dict[str, str] = {}
+        for raw_tag in signature.split(";"):
+            key, separator, value = raw_tag.partition("=")
+            if separator:
+                tags[key.strip().lower()] = value.strip()
+        signed_headers = {header.strip().lower() for header in tags.get("h", "").split(":")}
+        domain = tags.get("d", "").rstrip(".").lower()
+        if domain and {"from", "subject"}.issubset(signed_headers) and "l" not in tags:
+            domains.append(domain)
     return tuple(dict.fromkeys(domains))
 
 
