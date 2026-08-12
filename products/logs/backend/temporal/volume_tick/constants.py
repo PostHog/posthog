@@ -11,6 +11,7 @@ SCHEDULE_CRON = "* * * * *"
 
 # Activity
 ACTIVITY_TIMEOUT = timedelta(minutes=1)
+TEAMS_WITH_LOGS_WINDOW = timedelta(minutes=5)
 ACTIVITY_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=5),
