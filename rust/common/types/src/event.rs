@@ -154,6 +154,12 @@ impl CapturedEventHeaders {
 
 impl From<CapturedEventHeaders> for OwnedHeaders {
     fn from(headers: CapturedEventHeaders) -> Self {
+        (&headers).into()
+    }
+}
+
+impl From<&CapturedEventHeaders> for OwnedHeaders {
+    fn from(headers: &CapturedEventHeaders) -> Self {
         let fdpp_str = headers
             .force_disable_person_processing
             .map(|b| b.to_string());
