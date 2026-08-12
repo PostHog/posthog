@@ -69,11 +69,34 @@ FIRST_PAGEVIEW_BREAKDOWN_PROPERTIES: dict[WebStatsBreakdown, tuple[str, ...]] = 
 
 FIRST_PAGEVIEW_BREAKDOWNS = frozenset(FIRST_PAGEVIEW_BREAKDOWN_PROPERTIES)
 
+# Device dimensions read off each event, so a conversion event captured outside
+# the browser (no viewport / device / browser / os property) lands in its own
+# per-event group and its conversions never join the session's real device
+# bucket. These breakdowns reuse the first-pageview machinery to resolve one
+# device value per session from the session's earliest in-range pageview, so
+# the session's conversions attribute to that value. Unlike the FIRST_PAGEVIEW_*
+# breakdowns above, this attribution is not a permanent enum surface and carries
+# no session-filter rewriting — device filters are event properties applied
+# directly on events. It is only used when a conversion goal is set; without one
+# every scanned event is a pageview and already carries the property.
+DEVICE_ATTRIBUTION_BREAKDOWN_PROPERTIES: dict[WebStatsBreakdown, tuple[str, ...]] = {
+    WebStatsBreakdown.VIEWPORT: ("$viewport_width", "$viewport_height"),
+    WebStatsBreakdown.DEVICE_TYPE: ("$device_type",),
+    WebStatsBreakdown.BROWSER: ("$browser",),
+    WebStatsBreakdown.OS: ("$os",),
+}
+
+DEVICE_ATTRIBUTION_BREAKDOWNS = frozenset(DEVICE_ATTRIBUTION_BREAKDOWN_PROPERTIES)
+
+# Property-key lookup shared by the tuple builders below. The routing sets
+# (FIRST_PAGEVIEW_BREAKDOWNS / DEVICE_ATTRIBUTION_BREAKDOWNS) stay separate.
+_ATTRIBUTION_BREAKDOWN_PROPERTIES = {**FIRST_PAGEVIEW_BREAKDOWN_PROPERTIES, **DEVICE_ATTRIBUTION_BREAKDOWN_PROPERTIES}
+
 PAGEVIEW_EVENTS_EXPR = "events.event IN ('$pageview', '$screen')"
 
 
 def first_pageview_property_keys(breakdown: WebStatsBreakdown) -> tuple[str, ...]:
-    return FIRST_PAGEVIEW_BREAKDOWN_PROPERTIES[breakdown]
+    return _ATTRIBUTION_BREAKDOWN_PROPERTIES[breakdown]
 
 
 def first_pageview_properties_expr(breakdown: WebStatsBreakdown) -> ast.Expr:

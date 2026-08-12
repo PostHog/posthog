@@ -1852,6 +1852,75 @@ class TestWebStatsTableQueryRunner(
             "context.columns.cross_sell",
         ] == response.columns
 
+    def _create_pageview_then_backend_conversion(self, distinct_id, session_id, day, pageview_props):
+        """One browser pageview carrying device props, then a same-session
+        conversion event captured outside the browser (no device props)."""
+        _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties={"name": distinct_id})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=f"{day}T10:00:00",
+            properties={"$session_id": session_id, "$current_url": "https://example.com/", **pageview_props},
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=distinct_id,
+            timestamp=f"{day}T10:05:00",
+            properties={"$session_id": session_id},
+        )
+
+    def test_conversion_goal_viewport_attributed_to_session_pageview(self):
+        # The conversion (a backend event) has no viewport; without per-session
+        # attribution it splits into a (NULL, NULL) group and is dropped, showing
+        # a false zero. It must instead attribute to the session's pageview viewport.
+        self._create_pageview_then_backend_conversion(
+            "p1", str(uuid7("2024-06-26")), "2024-06-26", {"$viewport_width": 1920, "$viewport_height": 1080}
+        )
+
+        response = self._run_web_stats_table_query(
+            "all", "2024-06-27", breakdown_by=WebStatsBreakdown.VIEWPORT, custom_event="purchase"
+        )
+
+        assert [[("1920", "1080"), (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+
+    def test_conversion_goal_viewport_surfaces_not_set_when_no_pageview(self):
+        # A session whose only in-range event is the conversion has no pageview
+        # viewport. The conversion must still count, surfaced as "(not set)"
+        # (a (NULL, NULL) tuple), not dropped.
+        d1, day = "d1", "2024-06-26"
+        _create_person(team_id=self.team.pk, distinct_ids=[d1], properties={"name": d1})
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=d1,
+            timestamp=f"{day}T10:05:00",
+            properties={"$session_id": str(uuid7(day))},
+        )
+
+        response = self._run_web_stats_table_query(
+            "all", "2024-06-27", breakdown_by=WebStatsBreakdown.VIEWPORT, custom_event="purchase"
+        )
+
+        assert [[(None, None), (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+
+    @parameterized.expand(
+        [
+            (WebStatsBreakdown.DEVICE_TYPE, "$device_type", "Desktop"),
+            (WebStatsBreakdown.BROWSER, "$browser", "Chrome"),
+            (WebStatsBreakdown.OS, "$os", "Windows"),
+        ]
+    )
+    def test_conversion_goal_device_dimension_attributed_to_session_pageview(self, breakdown, key, expected):
+        # Same bug on the device type / browser / os tabs: without per-session
+        # attribution the backend conversion mis-files under "(not set)".
+        self._create_pageview_then_backend_conversion("p1", str(uuid7("2024-06-26")), "2024-06-26", {key: expected})
+
+        response = self._run_web_stats_table_query("all", "2024-06-27", breakdown_by=breakdown, custom_event="purchase")
+
+        assert [[expected, (1, None), (1, None), (1, None), (1, None), 1, ""]] == response.results
+
     def test_conversion_rate(self):
         s1 = str(uuid7("2023-12-01"))
         s2 = str(uuid7("2023-12-01"))

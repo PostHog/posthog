@@ -33,11 +33,13 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
+    DEVICE_ATTRIBUTION_BREAKDOWNS,
     FIRST_PAGEVIEW_BREAKDOWNS,
     INITIAL_TO_FIRST_PAGEVIEW,
     first_pageview_filter_value_expr,
     first_pageview_prop,
     first_pageview_properties_expr,
+    first_pageview_property_keys,
 )
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
@@ -241,6 +243,14 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
         if breakdown in FIRST_PAGEVIEW_BREAKDOWNS:
             return FirstPageviewAttributionStrategy(self)
+
+        # Device dimensions with a conversion goal: resolve one device value per
+        # session from its first pageview so the session's conversions attribute
+        # to that value instead of splitting into a per-event (not set) group.
+        if self.query.conversionGoal is not None and breakdown in DEVICE_ATTRIBUTION_BREAKDOWNS:
+            return FirstPageviewAttributionStrategy(
+                self, breakdown_override=self._device_attribution_breakdown_value(breakdown)
+            )
 
         # Simple breakdowns whose displayed columns are all event-derived don't
         # need the events↔sessions join at all — the join only supplies the
@@ -877,6 +887,26 @@ WHERE and(
     def _first_pageview_prop(self, key: str) -> ast.Expr:
         return first_pageview_prop(self._effective_breakdown(), key)
 
+    def _device_attribution_breakdown_value(self, breakdown: WebStatsBreakdown) -> ast.Expr:
+        """Breakdown value for a device dimension resolved from the session's
+        first pageview, read out of the aliased ``first_pageview_properties``
+        tuple instead of the current event's own properties."""
+        if breakdown == WebStatsBreakdown.VIEWPORT:
+            return ast.Tuple(
+                exprs=[
+                    ast.Call(
+                        name="tupleElement",
+                        args=[ast.Field(chain=["first_pageview_properties"]), ast.Constant(value=1)],
+                    ),
+                    ast.Call(
+                        name="tupleElement",
+                        args=[ast.Field(chain=["first_pageview_properties"]), ast.Constant(value=2)],
+                    ),
+                ]
+            )
+        # device type / browser / os are single-property string dimensions.
+        return first_pageview_prop(breakdown, first_pageview_property_keys(breakdown)[0])
+
     def _first_pageview_utm_source_medium_campaign(self) -> ast.Expr:
         return self._source_medium_campaign_expr(
             source=self._first_pageview_prop("utm_source"),
@@ -1024,6 +1054,11 @@ WHERE and(
                 # "(not set)" so totals stay consistent with the parent Country view.
                 return parse_expr("tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL")
             case WebStatsBreakdown.VIEWPORT:
+                if self.query.conversionGoal is not None:
+                    # Per-session attribution: a session whose conversion carries no
+                    # pageview viewport keeps its row and surfaces as "(not set)",
+                    # matching the region/city convention, so conversions still count.
+                    return None
                 return parse_expr(
                     "tupleElement(`context.columns.breakdown_value`, 1) IS NOT NULL AND tupleElement(`context.columns.breakdown_value`, 2) IS NOT NULL AND "
                     "tupleElement(`context.columns.breakdown_value`, 1) != 0 AND tupleElement(`context.columns.breakdown_value`, 2) != 0"

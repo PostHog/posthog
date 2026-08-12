@@ -418,13 +418,16 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
+                if (!width || !height) {
+                    return <NotSetBreakdownLabel />
+                }
                 return (
                     <>
                         {width}x{height}
                     </>
                 )
             }
-            break
+            return <NotSetBreakdownLabel />
         case WebStatsBreakdown.Country:
             if (typeof value === 'string') {
                 const countryCode = value
