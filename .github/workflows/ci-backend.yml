@@ -1864,7 +1864,8 @@ jobs:
               with:
                   name: migrated-schema
                   path: schema.sql.gz
-                  # Only the newest artifact is consumed; long retention only grows the listing CI pages through
+                  # Consumers only ever take the newest artifact, so a longer window just
+                  # adds pages to the artifacts listing that db:download-schema walks.
                   retention-days: 7
 
             - name: Save schema to Actions cache for PR shards

@@ -298,7 +298,7 @@ def fetch_schema_artifacts(
                 if artifact is not None:
                     artifacts.append(artifact)
 
-        if base_branch is not None and _filter_and_sort_candidates(artifacts, base_branch=base_branch):
+        if base_branch is not None and select_newest_compatible_artifact(artifacts, base_branch=base_branch):
             break
         if "next" not in response.links or page >= max_pages:
             break
