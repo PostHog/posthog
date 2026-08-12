@@ -11,10 +11,10 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
+from products.apm.backend.facade.api import BUCKET_MINUTES
 from products.logs.backend.temporal.volume_tick.constants import (
     BUCKET_SECONDS,
     FINALIZATION_ALLOWANCE,
-    MINUTE_SHARDS,
     TEAMS_WITH_LOGS_WINDOW,
 )
 from products.logs.backend.temporal.volume_tick.metrics import (
@@ -64,7 +64,7 @@ class TeamsWithLogs:
 
 def count_teams_with_logs(begin: datetime, end: datetime, shard: int) -> TeamsWithLogs:
     """Distinct teams with at least one log record in [begin, end), and the subset
-    whose `team_id % MINUTE_SHARDS` puts them in `shard`.
+    whose `team_id % BUCKET_MINUTES` puts them in `shard`.
 
     Queries the physical `logs_distributed` table, not `logs` — `logs` is the
     HogQL table alias and does not exist for raw `sync_execute` SQL.
@@ -78,7 +78,7 @@ def count_teams_with_logs(begin: datetime, end: datetime, shard: int) -> TeamsWi
             FROM logs_distributed
             WHERE timestamp >= %(begin)s AND timestamp < %(end)s
             """,
-            {"begin": begin, "end": end, "shards": MINUTE_SHARDS, "shard": shard},
+            {"begin": begin, "end": end, "shards": BUCKET_MINUTES, "shard": shard},
             workload=Workload.LOGS,
         )
     return TeamsWithLogs(total=int(rows[0][0]), due_in_shard=int(rows[0][1]))
@@ -91,9 +91,10 @@ async def volume_tick_heartbeat_activity(input: VolumeTickInput) -> VolumeTickOu
     # No aggregation runs yet; the rollup writer replaces this body.
     ticked_at = datetime.now(UTC)
     due = due_bucket_bounds(ticked_at)
-    # The smear is observed, not enforced: this fire's minute selects a cohort
-    # and we report its size, but no per-shard work happens yet.
-    minute_shard = ticked_at.minute % MINUTE_SHARDS
+    # One team cohort per minute of the bucket: the every-minute schedule smears
+    # teams across the bucket's minutes, so team_id % BUCKET_MINUTES is the shard.
+    # Observed, not enforced: no per-shard work happens yet.
+    minute_shard = ticked_at.minute % BUCKET_MINUTES
     started = time.monotonic()
     try:
         counts = await database_sync_to_async_pool(count_teams_with_logs)(

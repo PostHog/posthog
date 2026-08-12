@@ -13,13 +13,14 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.clickhouse.client import sync_execute
 
+from products.apm.backend.facade.api import BUCKET_MINUTES
 from products.logs.backend.temporal.volume_tick.activities import (
     VolumeTickInput,
     VolumeTickOutput,
     count_teams_with_logs,
     due_bucket_bounds,
 )
-from products.logs.backend.temporal.volume_tick.constants import MINUTE_SHARDS, WORKFLOW_NAME
+from products.logs.backend.temporal.volume_tick.constants import WORKFLOW_NAME
 from products.logs.backend.temporal.volume_tick.workflow import LogsVolumeTickWorkflow
 
 TASK_QUEUE = "logs-volume-tick-test"
@@ -112,7 +113,7 @@ class TestCountTeamsWithLogs(ClickhouseTestMixin, BaseTest):
         inside = self.WINDOW_START + timedelta(minutes=1)
         # Residue-controlled ids: team_a lands in shard 1, team_b in shard 2, so
         # the shard subset is exact regardless of what the random base is.
-        base = (secrets.randbelow(2**27) + 1) * MINUTE_SHARDS
+        base = (secrets.randbelow(2**27) + 1) * BUCKET_MINUTES
         team_a, team_b, team_c = base + 1, base + 2, base + 3
         before = count_teams_with_logs(self.WINDOW_START, self.WINDOW_END, shard=1)
 
