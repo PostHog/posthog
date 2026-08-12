@@ -297,6 +297,9 @@ export interface inboxSceneLogicActions {
             id: string
         }
     }
+    reportDetailScrolled: () => {
+        value: true
+    }
     runSessionAnalysis: () => {
         value: true
     }
@@ -320,9 +323,6 @@ export interface inboxSceneLogicActions {
     }
     setScratchpadOpen: (open: boolean) => {
         open: boolean
-    }
-    reportDetailScrolled: () => {
-        value: true
     }
     setSelectedReportId: (
         id: string | null,
