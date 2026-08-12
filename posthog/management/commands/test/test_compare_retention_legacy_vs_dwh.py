@@ -822,6 +822,54 @@ class TestReportDurability(TestCase):
         self.assertIn("# Retention legacy vs DWH-variant comparison", fake.store["retention_compare/perf_report.md"])
 
 
+class TestAttachResourceStats(TestCase):
+    def test_a_resumed_lookup_keeps_the_stats_an_earlier_run_attached(self):
+        # A resumed run only asks the query log for the ids still missing stats, so the attach loop
+        # sees a miss for every finding an earlier run already covered. Assigning those misses wiped
+        # real measurements — leaving a bytes_ratio with n/a byte counts under it in the report — and
+        # the progress file was rewritten with the loss.
+        already = InsightFinding(
+            insight_id=1,
+            short_id="s1",
+            team_id=2,
+            name="",
+            url="",
+            status="OK",
+            legacy_query_ids=["old_legacy"],
+            dwh_query_ids=["old_dwh"],
+            resource_legacy=ResourceStats(1000, 10, 500, 5, 1),
+            resource_dwh=ResourceStats(2000, 20, 700, 6, 1),
+            bytes_ratio=2.0,
+        )
+        still_missing = InsightFinding(
+            insight_id=2,
+            short_id="s2",
+            team_id=2,
+            name="",
+            url="",
+            status="OK",
+            legacy_query_ids=["new_legacy"],
+            dwh_query_ids=["new_dwh"],
+        )
+        command = Command(stdout=StringIO())
+        options = vars(command.create_parser("manage.py", "compare_retention_legacy_vs_dwh").parse_args([]))
+        fresh_stats = {
+            "new_legacy": ResourceStats(400, 4, 100, 2, 1),
+            "new_dwh": ResourceStats(1200, 12, 150, 3, 1),
+        }
+
+        with patch(f"{_QUERY_LOG_MODULE}.fetch_query_log_stats", return_value=fresh_stats):
+            command._attach_resource_stats([already, still_missing], ["new_legacy", "new_dwh"], options)
+
+        assert already.resource_legacy is not None and already.resource_dwh is not None
+        self.assertEqual(already.resource_legacy.read_bytes, 1000)
+        self.assertEqual(already.resource_dwh.read_bytes, 2000)
+        self.assertEqual(already.bytes_ratio, 2.0)
+        assert still_missing.resource_legacy is not None
+        self.assertEqual(still_missing.resource_legacy.read_bytes, 400)
+        self.assertEqual(still_missing.bytes_ratio, 3.0)
+
+
 class TestResourceStats(TestCase):
     def test_parse_query_log_rows(self):
         rows = [("42_x_a", 1000, 50, 9000, 12, 1), ("42_x_b", 2000, 80, 7000, 8, 1)]

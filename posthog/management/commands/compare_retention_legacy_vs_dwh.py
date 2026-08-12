@@ -2313,8 +2313,14 @@ class Command(BaseCommand):
         if not stats_by_id:
             return
         for finding in findings:
-            finding.resource_legacy = aggregate_resource_stats(finding.legacy_query_ids, stats_by_id)
-            finding.resource_dwh = aggregate_resource_stats(finding.dwh_query_ids, stats_by_id)
+            legacy = aggregate_resource_stats(finding.legacy_query_ids, stats_by_id)
+            dwh = aggregate_resource_stats(finding.dwh_query_ids, stats_by_id)
+            # A resumed run only asks for the ids whose stats are still missing, so a miss here means
+            # "an earlier run already covered this finding", not "no stats exist". Overwriting with the
+            # miss wiped those measurements — leaving a bytes_ratio with no byte counts under it in the
+            # report — and save_progress_findings then persisted the loss.
+            finding.resource_legacy = legacy or finding.resource_legacy
+            finding.resource_dwh = dwh or finding.resource_dwh
             if finding.resource_legacy and finding.resource_dwh and finding.resource_legacy.read_bytes > 0:
                 finding.bytes_ratio = finding.resource_dwh.read_bytes / finding.resource_legacy.read_bytes
 
