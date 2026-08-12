@@ -18,6 +18,8 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
 __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
@@ -44,7 +46,7 @@ class CPUnavailableError(RuntimeError):
     pass
 
 
-@dataclass(frozen=True)
+@frozen
 class ServiceCredentialConnect:
     """Where to dial for a minted service credential, returned by the CP on
     every successful mint (see duckgres/CLAUDE.md "Service Credentials").
