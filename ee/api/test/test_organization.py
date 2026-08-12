@@ -367,6 +367,32 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.default_role_id, role.id)
 
+    def test_cannot_set_default_role_from_another_organization(self):
+        from ee.models import Role
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_organization = Organization.objects.create(name="Other Org")
+        foreign_role = Role.objects.create(name="Foreign Role", organization=other_organization)
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"default_role_id": str(foreign_role.id)}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.organization.refresh_from_db()
+        self.assertIsNone(self.organization.default_role_id)
+
+    def test_cannot_set_default_role_to_a_non_existent_id(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"default_role_id": "not-a-uuid"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.organization.refresh_from_db()
+        self.assertIsNone(self.organization.default_role_id)
+
     def test_clear_default_role_via_api(self):
         """Test that the default role can be cleared via the organization API"""
         from ee.models import Role

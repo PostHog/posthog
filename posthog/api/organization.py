@@ -2,6 +2,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
@@ -238,6 +239,24 @@ class OrganizationSerializer(
                 raise serializers.ValidationError("This media does not belong to this organization.")
         else:
             raise serializers.ValidationError("Cannot set logo media when creating an organization.")
+        return value
+
+    def validate_default_role_id(self, value: str | None) -> str | None:
+        # Declared explicitly above, so Meta.read_only_fields does not apply to it and this is the
+        # only scoping the field gets.
+        if value is None:
+            return value
+        if not self.instance:
+            raise serializers.ValidationError("Cannot set a default role when creating an organization.")
+
+        from ee.models.rbac.role import Role  # noqa: PLC0415 — keeps the EE model off the import path
+
+        try:
+            role = Role.objects.get(pk=value)
+        except (Role.DoesNotExist, ValidationError, ValueError):
+            raise serializers.ValidationError("This role does not exist.")
+        if role.organization_id != self.instance.id:
+            raise serializers.ValidationError("This role does not belong to this organization.")
         return value
 
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
