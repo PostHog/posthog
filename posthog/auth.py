@@ -976,9 +976,14 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         Team = apps.get_model(app_label="posthog", model_name="Team")
         try:
             team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
+        except Team.DoesNotExist:
+            raise AuthenticationFailed("Invalid token or conversations not enabled")
         # An ambiguous match identifies no team any more than a miss does, so it fails the same way
         # rather than authenticating the request as whichever colliding team the database returned.
-        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+        # It is logged separately because a bad token is routine and duplicate tokens are not: they
+        # disable the widget for every team holding one until an operator clears the duplicate.
+        except Team.MultipleObjectsReturned:
+            structlog_logger.exception("widget_public_token matches more than one team")
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
         return (None, team)

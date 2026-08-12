@@ -646,6 +646,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             ("slack_enabled", True),
             ("email_enabled", True),
             ("teams_tenant_id", "tenant-of-another-team"),
+            ("github_enabled", True),
+            ("github_integration_id", 12345),
+            ("github_repos", ["acme/private-infra"]),
         ]
     )
     def test_conversations_settings_server_managed_keys_are_not_writable(self, key, injected_value):

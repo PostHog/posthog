@@ -1548,6 +1548,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "teams_channel_id",
             "teams_channel_name",
             "teams_channels",
+            "github_enabled",
+            "github_integration_id",
+            "github_repos",
         ):
             value.pop(managed_key, None)
         # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
