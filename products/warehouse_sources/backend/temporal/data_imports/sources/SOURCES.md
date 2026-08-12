@@ -897,6 +897,7 @@ doesn't conflict with concurrent PRs.
 - clip
 - cloudability
 - cloudbeds
+- cloudinary
 - clover
 - coassemble
 - cockroachdb
@@ -1397,6 +1398,7 @@ doesn't conflict with concurrent PRs.
 - uk_ons
 - umami
 - un_comtrade
+- uploadcare
 - uppromote
 - uptick
 - us_bea

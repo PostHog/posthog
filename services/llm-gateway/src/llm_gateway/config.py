@@ -203,7 +203,11 @@ class Settings(BaseSettings):
 
     # TODO: flip on when Code migrates all users to usage-based billing
     posthog_code_model_gate_enabled: bool = False
-    posthog_code_free_tier_models: list[str] = ["@cf/zai-org/glm-5.2"]
+    posthog_code_free_tier_models: list[str] = [
+        "@cf/zai-org/glm-5.2",
+        "deepseek-ai/deepseek-v4-flash-0731",
+        "moonshotai/kimi-k3",
+    ]
 
     default_fallback_cost_usd: float = 0.01
 

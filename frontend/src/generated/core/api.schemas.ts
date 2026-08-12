@@ -3845,6 +3845,42 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface LeakedKeyReportApi {
+    /**
+     * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
+     * @maxLength 200
+     */
+    token: string
+}
+
+/**
+ * * `personal_api_key` - personal_api_key
+ * * `project_secret_api_key` - project_secret_api_key
+ * * `oauth_access_token` - oauth_access_token
+ * * `oauth_refresh_token` - oauth_refresh_token
+ */
+export type LeakedKeyReportResponseTypeEnumApi =
+    (typeof LeakedKeyReportResponseTypeEnumApi)[keyof typeof LeakedKeyReportResponseTypeEnumApi]
+
+export const LeakedKeyReportResponseTypeEnumApi = {
+    PersonalApiKey: 'personal_api_key',
+    ProjectSecretApiKey: 'project_secret_api_key',
+    OauthAccessToken: 'oauth_access_token',
+    OauthRefreshToken: 'oauth_refresh_token',
+} as const
+
+export interface LeakedKeyReportResponseApi {
+    /** Whether a matching PostHog key or token was found and revoked. */
+    found: boolean
+    /** The type of key that was found and revoked, or null if no match was found.
+     *
+     * * `personal_api_key` - personal_api_key
+     * * `project_secret_api_key` - project_secret_api_key
+     * * `oauth_access_token` - oauth_access_token
+     * * `oauth_refresh_token` - oauth_refresh_token */
+    type: LeakedKeyReportResponseTypeEnumApi | null
+}
+
 /**
  * * `disabled` - disabled
  * * `toolbar` - toolbar
