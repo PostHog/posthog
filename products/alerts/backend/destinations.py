@@ -25,6 +25,8 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
 
+ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10.0
+
 ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "posthog_alert_internal_event_delivery_failures_total",
     "Number of alert internal events that failed delivery",
@@ -104,6 +106,17 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_e
         )
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=owned_ids)
         return deleted_count
+
+
+def count_active_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
+    return HogFunction.objects.filter(
+        _allowed_event_filter(allowed_event_ids),
+        team_id=team_id,
+        deleted=False,
+        enabled=True,
+        template_id__in=DESTINATION_TEMPLATE_IDS.values(),
+        filters__properties__contains=[{"key": "alert_id", "value": alert_id}],
+    ).count()
 
 
 def _allowed_event_filter(allowed_event_ids: Collection[str]) -> Q:

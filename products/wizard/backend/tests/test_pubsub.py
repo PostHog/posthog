@@ -27,6 +27,9 @@ def _dto(team_id: int = 1) -> WizardSessionDTO:
         tasks=(WizardTaskDTO(id="1", title="Install SDK", status=TaskStatus.IN_PROGRESS),),
         event_plan=None,
         error=None,
+        pending_input=None,
+        handoff_text=None,
+        created_by=None,
         created_at=now,
         updated_at=now,
     )

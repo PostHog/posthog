@@ -7,10 +7,13 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
+from asgiref.sync import async_to_sync
+
 from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.hogql import ast
 
+from posthog.api.capture import CaptureInternalError
 from posthog.cdp.validation import compile_hog
 from posthog.models import Organization, Team
 
@@ -558,8 +561,8 @@ class TestEmitTraceEvaluationEventActivity:
             "output_tokens": 18,
         }
 
-        with patch("posthog.temporal.ai_observability.run_trace_evaluation.Team.objects.get", return_value=team):
-            with patch("posthog.temporal.ai_observability.run_trace_evaluation.capture_internal") as mock_capture:
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal") as mock_capture:
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 
                 await emit_trace_evaluation_event_activity(
@@ -587,6 +590,130 @@ class TestEmitTraceEvaluationEventActivity:
                 assert props["$ai_model"] == "gpt-5-mini"
                 assert "$ai_target_event_id" not in props
                 assert "$ai_target_event_type" not in props
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status_code,should_raise",
+        [
+            pytest.param(402, False, id="billing_limit_is_swallowed"),
+            pytest.param(500, True, id="server_error_still_raises"),
+        ],
+    )
+    async def test_emits_event_billing_limit(self, setup_data, status_code: int, should_raise: bool):
+        team = setup_data["team"]
+        result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": True,
+            "reasoning": "Looks good",
+            "allows_na": False,
+            "model": "gpt-5-mini",
+            "provider": "openai",
+        }
+        capture_result = MagicMock(
+            raise_for_status=MagicMock(side_effect=CaptureInternalError("boom", status_code=status_code))
+        )
+        inputs = EmitTraceEvaluationEventInputs(
+            evaluation=evaluation_dict(setup_data),
+            team_id=team.id,
+            trace_id="trace-123",
+            distinct_id="test-user",
+            session_id="session-1",
+            result=result,
+            start_time=datetime(2024, 1, 1, 12, 0, 0),
+        )
+
+        with patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value=team.api_token):
+            with patch("posthog.temporal.ai_observability.team_capture.capture_internal", return_value=capture_result):
+                if should_raise:
+                    with pytest.raises(CaptureInternalError):
+                        await emit_trace_evaluation_event_activity(inputs)
+                else:
+                    await emit_trace_evaluation_event_activity(inputs)
+
+
+@freeze_time(FROZEN_NOW)
+class TestEmitSessionEvaluationEvent:
+    @pytest.mark.parametrize(
+        "target,ai_session_id,expected_target_type,expected_target_id",
+        [
+            ("trace", None, "trace_id", "trace-123"),
+            ("session", "session-abc", "session_id", "session-abc"),
+        ],
+    )
+    def test_target_linkage_per_target(
+        self,
+        target: str,
+        ai_session_id: str | None,
+        expected_target_type: str,
+        expected_target_id: str,
+    ) -> None:
+        captured: dict[str, Any] = {}
+
+        def _capture(**kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            response = MagicMock()
+            response.raise_for_status.return_value = None
+            return response
+
+        with (
+            patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value="phc_test"),
+            patch("posthog.temporal.ai_observability.team_capture.capture_internal", side_effect=_capture),
+        ):
+            async_to_sync(emit_trace_evaluation_event_activity)(
+                EmitTraceEvaluationEventInputs(
+                    evaluation={"id": "eval-1", "name": "n", "output_type": "boolean"},
+                    team_id=1,
+                    trace_id="trace-123",
+                    distinct_id="user-1",
+                    session_id="ph-session-1",
+                    result={"verdict": True, "reasoning": "", "result_type": "boolean"},
+                    start_time=datetime.now(UTC),
+                    target=target,
+                    ai_session_id=ai_session_id,
+                )
+            )
+
+        props = captured["properties"]
+        assert props["$ai_target_type"] == expected_target_type
+        assert props["$ai_target_id"] == expected_target_id
+        # $session_id is the product-analytics session and is unrelated to $ai_session_id.
+        assert props["$session_id"] == "ph-session-1"
+        if ai_session_id is None:
+            assert "$ai_session_id" not in props
+        else:
+            assert props["$ai_session_id"] == ai_session_id
+
+    def test_session_verdict_carries_no_trace_id(self) -> None:
+        captured: dict[str, Any] = {}
+
+        def _capture(**kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            response = MagicMock()
+            response.raise_for_status.return_value = None
+            return response
+
+        with (
+            patch("posthog.temporal.ai_observability.team_capture.get_team_api_token", return_value="phc_test"),
+            patch("posthog.temporal.ai_observability.team_capture.capture_internal", side_effect=_capture),
+        ):
+            async_to_sync(emit_trace_evaluation_event_activity)(
+                EmitTraceEvaluationEventInputs(
+                    evaluation={"id": "eval-1", "name": "n", "output_type": "boolean"},
+                    team_id=1,
+                    trace_id="trace-123",
+                    distinct_id="user-1",
+                    session_id=None,
+                    result={"verdict": True, "reasoning": "", "result_type": "boolean"},
+                    start_time=datetime.now(UTC),
+                    target="session",
+                    ai_session_id="session-abc",
+                )
+            )
+
+        props = captured["properties"]
+        assert "$ai_trace_id" not in props
+        assert props["$ai_session_id"] == "session-abc"
 
 
 class TestRunTraceEvaluationWorkflowInputs:

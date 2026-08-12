@@ -314,31 +314,42 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                     <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                 ) : (
                     <div className="SessionRecordingPlayer__main flex flex-col h-full w-full">
-                        {isRecentAndInvalid ? (
-                            <div className="flex flex-1 flex-col items-center justify-center">
-                                <HedgehogConstruction2 height={200} />
-                                <h1>We're still working on it</h1>
-                                <p>
-                                    This recording hasn't been fully ingested yet. It should be ready to watch in a few
-                                    minutes.
-                                </p>
-                                <LemonButton type="secondary" onClick={loadSnapshots}>
-                                    Reload
-                                </LemonButton>
-                            </div>
-                        ) : isOldAndInvalid ? (
-                            <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
-                                <WarningHog height={200} width={200} />
-                                <h1>This recording can't be played</h1>
-                                <p className="max-w-120">
-                                    The snapshot of the screen taken when this recording started never reached PostHog,
-                                    so there is nothing to play back. This usually happens when the browser is closed or
-                                    goes offline before the recording finishes uploading.{' '}
-                                    <Link to="https://posthog.com/docs/session-replay/troubleshooting">Learn more</Link>
-                                </p>
-                                <LemonButton type="secondary" onClick={loadSnapshots}>
-                                    Reload
-                                </LemonButton>
+                        {isRecentAndInvalid || isOldAndInvalid ? (
+                            <div className="flex flex-col flex-1 w-full relative">
+                                {/* Keep the meta bar so the activity/inspector panel stays reachable */}
+                                <div className="relative">{showMeta ? <PlayerMetaBar /> : null}</div>
+                                <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
+                                    {isOldAndInvalid && !isRecentAndInvalid ? (
+                                        <>
+                                            <WarningHog height={200} width={200} />
+                                            <h1>This recording can't be played</h1>
+                                            <p className="max-w-120">
+                                                The snapshot of the screen taken when this recording started never
+                                                reached PostHog, so there is nothing to play back. This usually happens
+                                                when the browser is closed or goes offline before the recording finishes
+                                                uploading.{' '}
+                                                <Link to="https://posthog.com/docs/session-replay/troubleshooting">
+                                                    Learn more
+                                                </Link>
+                                            </p>
+                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                                Reload
+                                            </LemonButton>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <HedgehogConstruction2 className="h-50" />
+                                            <h1>We're still working on it</h1>
+                                            <p className="max-w-120">
+                                                This recording hasn't been fully ingested yet. It should be ready to
+                                                watch in a few minutes.
+                                            </p>
+                                            <LemonButton type="secondary" onClick={loadSnapshots}>
+                                                Reload
+                                            </LemonButton>
+                                        </>
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <div className="flex w-full h-full">

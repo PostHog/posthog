@@ -8,7 +8,7 @@ from unittest import mock
 import orjson
 from requests import Request
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.yousign.settings import (
     SIGNATURE_REQUEST_SOURCES,

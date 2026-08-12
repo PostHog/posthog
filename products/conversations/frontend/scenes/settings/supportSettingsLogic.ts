@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -14,6 +15,9 @@ import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types
 import { TicketChannel } from '../../types'
 
 const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
+
+/** Kept in sync with SUPPORT_SLACK_FILE_SCOPES in products/conversations/backend/support_slack.py. */
+const SLACK_FILE_SCOPES = ['files:read', 'files:write']
 
 export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
     const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
@@ -91,6 +95,7 @@ export interface supportSettingsLogicValues {
     slackChannelsLoading: boolean
     slackConnected: boolean
     slackEnabled: boolean
+    slackNeedsReconnect: boolean
     slackNotifyOnJoin: boolean
     slackNotifyOnLeave: boolean
     slackNudgeEnabled: boolean
@@ -515,6 +520,7 @@ export interface supportSettingsLogicMeta {
         slackChannelIds: (currentTeam: TeamPublicType | TeamType | null) => string[]
         slackTicketEmoji: (currentTeam: TeamPublicType | TeamType | null) => string
         slackConnected: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        slackNeedsReconnect: (currentTeam: TeamPublicType | TeamType | null) => boolean
         slackBotIconUrl: (currentTeam: TeamPublicType | TeamType | null) => string | null
         slackBotDisplayName: (currentTeam: TeamPublicType | TeamType | null) => string | null
         slackNotifyOnJoin: (currentTeam: TeamPublicType | TeamType | null) => boolean
@@ -997,6 +1003,17 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean =>
                 !!currentTeam?.conversations_settings?.slack_enabled,
+        ],
+        slackNeedsReconnect: [
+            (s) => [s.currentTeam],
+            (currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType): boolean => {
+                const cs = currentTeam?.conversations_settings
+                if (!cs?.slack_enabled) {
+                    return false
+                }
+                const scopes = cs.slack_scopes ?? []
+                return SLACK_FILE_SCOPES.some((scope) => !scopes.includes(scope))
+            },
         ],
         slackBotIconUrl: [
             (s) => [s.currentTeam],
@@ -1622,7 +1639,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 lemonToast.error('Failed to save repository selection')
             }
         },
-        updateCurrentTeamSuccess: () => {
+        updateCurrentTeamSuccess: ({ payload }) => {
             actions.setGreetingInputValue(null)
             actions.setIdentificationFormTitleValue(null)
             actions.setIdentificationFormDescriptionValue(null)
@@ -1630,6 +1647,12 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             actions.setSlackTicketEmojiValue(null)
             actions.setSlackBotIconUrlValue(null)
             actions.setSlackBotDisplayNameValue(null)
+            if (payload?.conversations_enabled) {
+                const storedSource = sessionStorage.getItem('support_activation_source')
+                const source = storedSource ? JSON.parse(storedSource) : { source: 'support_settings' }
+                posthog.capture('support activation completed', source)
+                sessionStorage.removeItem('support_activation_source')
+            }
         },
     })),
     afterMount(({ values, actions }) => {

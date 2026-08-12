@@ -118,6 +118,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0.002,
                     displayLatency: 500,
                     displayUsage: '5 → 7 tokens',
+                    attachedFeedback: [],
                 },
             ]
             const result = buildMinimalTraceJSON(mockTrace, tree)
@@ -169,6 +170,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 200,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
             const result = buildMinimalTraceJSON(mockTrace, tree)
@@ -192,6 +194,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 0,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
             const result = buildMinimalTraceJSON(mockTrace, tree)
@@ -228,6 +231,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 200,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
             const result = buildMinimalTraceJSON(mockTrace, tree)
@@ -242,12 +246,14 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 700,
                     displayUsage: null,
+                    attachedFeedback: [],
                     children: [
                         {
                             event: mockGenerationEvent,
                             displayTotalCost: 0.002,
                             displayLatency: 500,
                             displayUsage: '5 → 7 tokens',
+                            attachedFeedback: [],
                         },
                     ],
                 },
@@ -279,6 +285,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 300,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
             const result = buildMinimalTraceJSON(mockTrace, tree)
@@ -301,6 +308,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 0,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
             const result = buildMinimalTraceJSON(mockTrace, tree)
@@ -328,6 +336,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 0,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
             const result = buildMinimalTraceJSON(mockTrace, tree)
@@ -348,6 +357,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 1000,
                     displayUsage: null,
+                    attachedFeedback: [],
                     children: [
                         {
                             event: {
@@ -358,12 +368,14 @@ describe('traceExportUtils', () => {
                             displayTotalCost: 0,
                             displayLatency: 500,
                             displayUsage: null,
+                            attachedFeedback: [],
                             children: [
                                 {
                                     event: mockGenerationEvent,
                                     displayTotalCost: 0.002,
                                     displayLatency: 300,
                                     displayUsage: '5 → 7 tokens',
+                                    attachedFeedback: [],
                                 },
                             ],
                         },
@@ -372,6 +384,7 @@ describe('traceExportUtils', () => {
                             displayTotalCost: 0.003,
                             displayLatency: 400,
                             displayUsage: '10 → 15 tokens',
+                            attachedFeedback: [],
                         },
                     ],
                 },
@@ -417,6 +430,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 100,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
 
@@ -458,6 +472,7 @@ describe('traceExportUtils', () => {
                     displayTotalCost: 0,
                     displayLatency: 50,
                     displayUsage: null,
+                    attachedFeedback: [],
                 },
             ]
 

@@ -56,6 +56,11 @@ class ActorStrategy:
         return None
 
 
+# Test account filters authored against events (event/element/hogql/session types) have no
+# meaning in a person-level query, so only these types are applied on the persons list.
+PERSON_SCOPE_TEST_ACCOUNT_FILTER_TYPES = ("person", "cohort")
+
+
 class PersonStrategy(ActorStrategy):
     field = "person"
     origin = "persons"
@@ -127,6 +132,15 @@ class PersonStrategy(ActorStrategy):
 
         if self.query.fixedProperties:
             where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
+
+        if self.query.filterTestAccounts:
+            applicable_test_filters = [
+                prop
+                for prop in (self.team.test_account_filters or [])
+                if isinstance(prop, dict) and prop.get("type") in PERSON_SCOPE_TEST_ACCOUNT_FILTER_TYPES
+            ]
+            if applicable_test_filters:
+                where_exprs.append(property_to_expr(applicable_test_filters, self.team, scope="person"))
 
         search = self.query.search.strip() if self.query.search else None
         if search:

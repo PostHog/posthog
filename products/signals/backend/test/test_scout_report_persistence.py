@@ -25,11 +25,13 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutRun,
 )
+from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportSignal,
     create_scout_report,
+    set_report_charts,
     soft_delete_scout_signal,
     update_scout_report,
 )
@@ -296,3 +298,165 @@ class TestScoutReportPersistence(BaseTest):
                 source_id="obs-x",
             )
         self.emit_mock.assert_not_called()
+
+
+class TestScoutReportCharts(BaseTest):
+    _team_scope_cm: AbstractContextManager[None] | None = None
+
+    def setUp(self) -> None:
+        super().setUp()
+        cm = team_scope(self.team.id)
+        cm.__enter__()
+        self._team_scope_cm = cm
+        patcher = patch(f"{PERSISTENCE_MODULE}.emit_embedding_request")
+        self.emit_mock = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def tearDown(self) -> None:
+        if self._team_scope_cm is not None:
+            self._team_scope_cm.__exit__(None, None, None)
+            self._team_scope_cm = None
+        super().tearDown()
+
+    def _chart(self, chart_id: str, title: str) -> ReportChart:
+        return ReportChart(chart_id=chart_id, title=title, query={"kind": "InsightVizNode"})
+
+    def _stored_charts(self, report_id: str) -> list[dict]:
+        return SignalReport.objects.get(id=report_id).charts
+
+    def _create(self, charts: list[ReportChart] | None = None) -> str:
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="Signups dropped",
+            summary="Signups fell 60% on the 6th. [Daily signups](chart:signups-drop)",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            charts=charts or [],
+        )
+        return result.report_id
+
+    def test_charts_are_stored_on_the_report_on_author(self) -> None:
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+
+        assert [c["chart_id"] for c in self._stored_charts(report_id)] == ["signups-drop"]
+
+    def test_charts_survive_a_suppressed_report(self) -> None:
+        # A suppressed report keeps its exhibits so whoever reviews the suppression sees what the
+        # scout was looking at — unlike the autostart inputs, which are only written when it surfaces.
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            status=SignalReport.Status.SUPPRESSED,
+            charts=[self._chart("signups-drop", "Daily signups")],
+            emit_signals=False,
+        )
+        assert len(self._stored_charts(result.report_id)) == 1
+
+    def test_setting_charts_replaces_the_report_s_whole_set(self) -> None:
+        # `charts` is the set the report shows, the way `summary` is the whole summary — a scout that
+        # sends one chart is left with one. Sending an id it already had refreshes that chart in place.
+        report_id = self._create([self._chart("signups-drop", "Daily signups"), self._chart("churn", "Churn")])
+
+        set_report_charts(
+            team_id=self.team.id,
+            report_id=report_id,
+            charts=[self._chart("signups-drop", "Daily signups (rerun)")],
+        )
+
+        stored = self._stored_charts(report_id)
+        assert [c["chart_id"] for c in stored] == ["signups-drop"]
+        assert stored[0]["title"] == "Daily signups (rerun)"
+
+    def test_resending_the_stored_charts_is_not_a_change(self) -> None:
+        # `edit_report` is non-idempotent, so the same call can arrive twice. Reporting a re-send of
+        # what's already stored as a change tallies an edit that changed nothing, and notifies the
+        # report's Slack destination a second time about it.
+        charts = [self._chart("signups-drop", "Daily signups")]
+        report_id = self._create(charts)
+
+        assert set_report_charts(team_id=self.team.id, report_id=report_id, charts=charts) is False
+        assert (
+            set_report_charts(
+                team_id=self.team.id,
+                report_id=report_id,
+                charts=[self._chart("signups-drop", "Daily signups (rerun)")],
+            )
+            is True
+        )
+
+    def test_replacing_charts_is_recorded_on_the_report_s_work_log(self) -> None:
+        # The charts are reader-visible content and `edit_report` can target any inbox report, so a
+        # rewrite of what one shows needs the attributable trail its title and summary rewrites leave.
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+
+        set_report_charts(
+            team_id=self.team.id,
+            report_id=report_id,
+            charts=[self._chart("signups-drop", "Daily signups (rerun)")],
+            attribution=ArtefactAttribution.system(),
+            author="signals-scout-errors",
+        )
+
+        notes = SignalReportArtefact.objects.filter(
+            report_id=report_id, type=SignalReportArtefact.ArtefactType.NOTE
+        ).values_list("content", flat=True)
+        assert any("Replaced report charts" in str(content) for content in notes)
+
+    def test_setting_an_empty_set_takes_the_report_s_charts_down(self) -> None:
+        # An empty set is a real write, not a no-op: it's the only way a scout can retract a chart it
+        # no longer stands behind. "Leave them alone" is expressed by not calling this at all, which
+        # is `_build_edit_charts` returning None for an edit that supplied no `charts`. Clearing a
+        # report that has no charts is still a re-send of what's stored, so it reports no change.
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+
+        assert set_report_charts(team_id=self.team.id, report_id=report_id, charts=[]) is True
+        assert self._stored_charts(report_id) == []
+        assert set_report_charts(team_id=self.team.id, report_id=report_id, charts=[]) is False
+
+    @parameterized.expand(
+        [
+            ("over_the_count_cap", [(f"chart-{i}", {"kind": "InsightVizNode"}) for i in range(MAX_REPORT_CHARTS + 1)]),
+            (
+                "over_the_query_size_cap",
+                [(f"chart-{i}", {"kind": "InsightVizNode", "pad": "x" * 15_000}) for i in range(5)],
+            ),
+        ]
+    )
+    def test_charts_past_a_cap_are_refused(self, _name: str, specs: list[tuple[str, dict]]) -> None:
+        # Both caps bound what one report costs a reader: how many queries fire when it opens, and how
+        # much chart JSON the safety judge is shown in one call. Checked on both writes, which carry
+        # their own copy of the bound — and authoring is the one a scout reaches first, on `emit`.
+        charts = [ReportChart(chart_id=cid, title=cid, query=query) for cid, query in specs]
+
+        with pytest.raises(InvalidScoutReportError):
+            self._create(charts)
+        assert not SignalReport.objects.filter(title="Signups dropped").exists()
+
+        report_id = self._create([self._chart("signups-drop", "Daily signups")])
+        with pytest.raises(InvalidScoutReportError):
+            set_report_charts(team_id=self.team.id, report_id=report_id, charts=charts)
+        assert [c["chart_id"] for c in self._stored_charts(report_id)] == ["signups-drop"]
+
+    def test_setting_charts_on_another_teams_report_is_refused(self) -> None:
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org, name="other")
+        with team_scope(other_team.id):
+            other_report = create_scout_report(
+                team_id=other_team.id,
+                title="theirs",
+                summary="s",
+                signals=[ScoutReportSignal(description="d", source_id="obs")],
+                attribution=ArtefactAttribution.system(),
+            )
+
+        with pytest.raises(InvalidScoutReportError):
+            set_report_charts(
+                team_id=self.team.id,
+                report_id=other_report.report_id,
+                charts=[self._chart("signups-drop", "Daily signups")],
+            )
+        with team_scope(other_team.id):
+            assert self._stored_charts(other_report.report_id) == []

@@ -7,6 +7,28 @@ import type { VisionActionApi } from '../generated/api.schemas'
 import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
 import { buildActionBody, type VisionActionForm, visionActionsLogic } from './visionActionsLogic'
 
+// A fully-populated Slack digest form; the webhook cases spread this and override the delivery fields.
+const slackForm: VisionActionForm = {
+    name: '  Daily digest  ',
+    cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
+    timezone: 'Europe/Prague',
+    prompt_guide: 'focus on checkout',
+    delivery_type: DeliveryTargetTypeEnumApi.Slack,
+    integration_id: 5,
+    channel: 'C123|#general',
+    webhook_url: '',
+    verdict: ['yes'],
+    tags: ['bug'],
+    min_score: 1,
+    max_score: 5,
+    mode: 'group_summary',
+    alert_frequency: 'on_breach',
+    alert_metric: 'count',
+    alert_threshold: 1,
+    alert_direction: 'above',
+    alert_window_days: 1,
+}
+
 const action = (id: string, enabled = true): VisionActionApi => ({
     id,
     name: `action-${id}`,
@@ -109,25 +131,7 @@ describe('visionActionsLogic', () => {
     })
 
     it('buildActionBody maps the form to the API body, including a Slack delivery target and targeting', () => {
-        const form: VisionActionForm = {
-            name: '  Daily digest  ',
-            cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
-            timezone: 'Europe/Prague',
-            prompt_guide: 'focus on checkout',
-            integration_id: 5,
-            channel: 'C123|#general',
-            verdict: ['yes'],
-            tags: ['bug'],
-            min_score: 1,
-            max_score: 5,
-            mode: 'group_summary',
-            alert_frequency: 'on_breach',
-            alert_metric: 'count',
-            alert_threshold: 1,
-            alert_direction: 'above',
-            alert_window_days: 1,
-        }
-        expect(buildActionBody(form, 's1')).toEqual({
+        expect(buildActionBody(slackForm, 's1')).toEqual({
             name: 'Daily digest', // trimmed
             scanner: 's1',
             mode: 'group_summary',
@@ -140,14 +144,39 @@ describe('visionActionsLogic', () => {
         })
     })
 
+    it('buildActionBody maps a webhook delivery target from the url, ignoring stale slack fields', () => {
+        const form: VisionActionForm = {
+            ...slackForm,
+            delivery_type: DeliveryTargetTypeEnumApi.Webhook,
+            // A slack integration/channel left over from switching type must not leak into a webhook target.
+            integration_id: 5,
+            channel: 'C123|#general',
+            webhook_url: 'https://example.com/hook',
+        }
+        expect(buildActionBody(form, 's1').delivery_config).toEqual([
+            { type: DeliveryTargetTypeEnumApi.Webhook, url: 'https://example.com/hook' },
+        ])
+    })
+
+    it('buildActionBody emits empty delivery_config for a webhook type with no url', () => {
+        const form: VisionActionForm = {
+            ...slackForm,
+            delivery_type: DeliveryTargetTypeEnumApi.Webhook,
+            webhook_url: '',
+        }
+        expect(buildActionBody(form, 's1').delivery_config).toEqual([])
+    })
+
     it('buildActionBody emits empty delivery_config and selection when nothing is set', () => {
         const form: VisionActionForm = {
             name: 'No delivery',
             cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
             timezone: 'UTC',
             prompt_guide: '',
+            delivery_type: DeliveryTargetTypeEnumApi.Slack,
             integration_id: null,
             channel: '',
+            webhook_url: '',
             verdict: [],
             tags: [],
             min_score: null,
@@ -173,8 +202,10 @@ describe('visionActionsLogic', () => {
             cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
             timezone: 'UTC',
             prompt_guide: 'leftover from summary mode',
+            delivery_type: DeliveryTargetTypeEnumApi.Slack,
             integration_id: null,
             channel: '',
+            webhook_url: '',
             verdict: [],
             tags: ['rage-click'],
             min_score: null,

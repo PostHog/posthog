@@ -5,8 +5,8 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.signoz import SigNozSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.settings import (
     ENDPOINTS,
@@ -72,6 +72,13 @@ class TestSigNozSource:
     @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
     def test_non_retryable_errors(self, expected_key: str) -> None:
         assert expected_key in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "expected_pattern",
+        ["SigNoz API error (retryable)", "Read timed out", "Max retries exceeded with url"],
+    )
+    def test_retryable_errors(self, expected_pattern: str) -> None:
+        assert expected_pattern in self.source.get_retryable_errors()
 
     def test_get_schemas_returns_all_endpoints(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -176,3 +183,21 @@ class TestSigNozSource:
         _, kwargs = mock_source.call_args
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
+
+    def test_new_sources_default_to_v5(self) -> None:
+        # New sources (no pin) must be created on the current SigNoz query_range API version.
+        assert self.source.default_version == "v5"
+        assert self.source.resolve_api_version(None) == "v5"
+
+    @pytest.mark.parametrize("version", ["v1", "v5"])
+    def test_existing_pin_is_honored(self, version: str) -> None:
+        # Existing instances keep their pinned version verbatim after the default bump, so their
+        # syncs are unaffected.
+        assert version in self.source.supported_versions
+        assert self.source.resolve_api_version(version) == version
+
+    @pytest.mark.parametrize("version", ["v1", "v5"])
+    def test_no_version_is_deprecated(self, version: str) -> None:
+        # This is a plain update, not a sunset: neither label is deprecated, so the in-product
+        # deprecation banner must stay dark for existing v1 pins.
+        assert self.source.get_version_deprecation(version) is None

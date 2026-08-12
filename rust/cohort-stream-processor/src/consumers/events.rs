@@ -42,7 +42,7 @@ use crate::observability::metrics::{
     MERGE_HELD_OFFSET_GAUGE, MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL,
     PARTITIONS_PAUSED, PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL,
     PENDING_HELD_EVENTS, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
-    SEED_HELD_OFFSET_GAUGE,
+    SEED_HELD_OFFSET_GAUGE, SEED_OLDEST_HELD_AGE_MS, SEED_PAUSE_AGE_MS,
 };
 use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
@@ -701,6 +701,8 @@ impl EventDispatcher {
         gauge!(CASCADE_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(SEED_HELD_OFFSET_GAUGE, "partition" => partition.to_string()).set(0.0);
         gauge!(LIVE_WATERMARK_AGE_MS, "partition" => partition.to_string()).set(0.0);
+        gauge!(SEED_PAUSE_AGE_MS, "partition" => partition.to_string()).set(0.0);
+        gauge!(SEED_OLDEST_HELD_AGE_MS, "partition" => partition.to_string()).set(0.0);
 
         let Some(partition_id) = partition_to_store_id(partition) else {
             warn!(
@@ -1454,9 +1456,24 @@ pub(crate) async fn run_pauser_loop(
     while let Some(target) = rx.recv().await {
         let to_pause: Vec<i32> = target.iter().copied().collect();
         let to_resume: Vec<i32> = applied.difference(&target).copied().collect();
-        pauser.pause(&to_pause);
-        pauser.resume(&to_resume);
-        applied = target;
+        // Run the blocking FFI off the worker threads, awaited serially so updates keep their
+        // order.
+        let ffi_pauser = pauser.clone();
+        let applied_ffi = tokio::task::spawn_blocking(move || {
+            ffi_pauser.pause(&to_pause);
+            ffi_pauser.resume(&to_resume);
+        })
+        .await;
+        match applied_ffi {
+            Ok(()) => applied = target,
+            Err(err) => {
+                // The task may have died anywhere between pause and resume, so fold the target
+                // in rather than replace: every possibly-paused partition stays eligible for a
+                // future resume, and resuming a never-paused partition is a librdkafka no-op.
+                applied.extend(target);
+                warn!(error = %err, "pauser task's blocking pause/resume panicked; retrying the delta on the next target update");
+            }
+        }
     }
 }
 
@@ -1472,7 +1489,7 @@ mod tests {
     use tempfile::TempDir;
     use uuid::Uuid;
 
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileTile, RunId};
+    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
 
     use crate::consumers::seeds::SeedWork;
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder, TeamId};
@@ -1484,7 +1501,7 @@ mod tests {
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
         CaptureSink, CaptureStreamEventSink, CaptureTransferSink, CohortMembershipChange,
-        MembershipStatus, ReconcileCompleteMarker,
+        MembershipStatus,
     };
     use crate::stage1::state::AppliedOffsets;
     use crate::stage1::{Stage1State, StatefulRecord};
@@ -1525,13 +1542,6 @@ mod tests {
                 self.release.notified().await;
             }
             changes.into_iter().map(|_| Ok(())).collect()
-        }
-
-        async fn produce_markers(
-            &self,
-            markers: Vec<ReconcileCompleteMarker>,
-        ) -> Vec<Result<(), KafkaProduceError>> {
-            markers.into_iter().map(|_| Ok(())).collect()
         }
     }
 
@@ -1892,6 +1902,7 @@ mod tests {
             // The dispatch tests exercise cross-partition register transfer end to end.
             register_transfer_enabled: true,
             reconcile,
+            person_seed: crate::workers::PersonSeedDeps::default(),
         });
         let dispatcher = EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2290,6 +2301,7 @@ mod tests {
             )),
             partition,
             offset,
+            broker_ts_ms: None,
         }
     }
 
@@ -2600,6 +2612,7 @@ mod tests {
             live_watermarks: Arc::new(crate::partitions::watermarks::LiveWatermarks::new()),
             register_transfer_enabled: false,
             reconcile,
+            person_seed: crate::workers::PersonSeedDeps::default(),
         });
         let dispatcher = Arc::new(EventDispatcher::new(
             PartitionRouter::new(64),
@@ -2614,13 +2627,14 @@ mod tests {
         let tile = ReconcileTile::new(
             TeamId(TEAM),
             CohortId(1),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(1)),
         );
         let held = dispatcher.dispatch_seeds(vec![ConsumedSeed {
             work: SeedWork::Reconcile(tile.clone()),
             partition: 0,
             offset: 5,
+            broker_ts_ms: None,
         }]);
         assert!(held.is_empty());
         for _ in 0..10_000 {
@@ -2672,6 +2686,7 @@ mod tests {
             work: SeedWork::Reconcile(tile.clone()),
             partition: 0,
             offset: 5,
+            broker_ts_ms: None,
         }]);
         assert_eq!(
             held_seed_offsets(held.get(&0).expect("the draining route is held")),

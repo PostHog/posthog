@@ -9,11 +9,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -23,12 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipstation import (
     ShipStationSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.settings import (
-    ENDPOINTS,
-    INCREMENTAL_FIELDS,
+    SHIPSTATION_DEFAULT_VERSION,
+    SHIPSTATION_SUPPORTED_VERSIONS,
+    SHIPSTATION_V1,
+    schema_catalog_for_version,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shipstation.shipstation import (
     ShipStationResumeConfig,
@@ -40,7 +43,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResumeConfig]):
-    api_docs_url = "https://www.shipstation.com/docs/api/"
+    api_docs_url = "https://docs.shipstation.com/"
+
+    supported_versions = SHIPSTATION_SUPPORTED_VERSIONS
+    default_version = SHIPSTATION_DEFAULT_VERSION
+    # ShipStation has deprecated the original v1 API in favor of the ShipEngine-based v2. No
+    # removal date is announced yet; the vendor promises advance notice (sunset_at=None).
+    deprecated_versions = (VersionDeprecation(version=SHIPSTATION_V1, sunset_at=None),)
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -59,6 +68,8 @@ class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResu
         return {
             "401 Client Error: Unauthorized for url: https://ssapi.shipstation.com": "ShipStation authentication failed. Please check your API key and API secret.",
             "403 Client Error: Forbidden for url: https://ssapi.shipstation.com": "ShipStation denied access. Please check that your plan includes API access.",
+            "401 Client Error: Unauthorized for url: https://api.shipstation.com/v2": "ShipStation authentication failed. Please check your API key.",
+            "403 Client Error: Forbidden for url: https://api.shipstation.com/v2": "ShipStation denied access. Please check that your plan includes API access.",
         }
 
     @property
@@ -67,14 +78,19 @@ class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResu
             name=SchemaExternalDataSourceType.SHIP_STATION,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="ShipStation",
-            caption="""Enter your ShipStation API credentials to pull your ShipStation order and shipping data into the PostHog Data warehouse.
+            caption="""Enter your ShipStation API credentials to pull your ShipStation shipping data into the PostHog data warehouse.
 
-You can find your API key and API secret in [ShipStation](https://ship.shipstation.com/settings/api-settings) under Settings > Account > API Settings. API access requires a ShipStation plan tier that includes it.""",
+New connections use ShipStation API v2, which needs only the API key from your [ShipStation API settings](https://docs.shipstation.com/getting-started). The API secret is only for older v1 connections, which ShipStation is deprecating.
+
+API access requires a ShipStation plan tier that includes it.""",
             iconPath="/static/services/shipstation.png",
             docsUrl="https://posthog.com/docs/cdp/sources/shipstation",
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],
+                # The two versions take different credentials: v2 needs only the API key, v1 an
+                # API key + secret. api_key is required either way; api_secret is optional at the
+                # form level and enforced for v1 by `validate_credentials`.
                 [
                     SourceFieldInputConfig(
                         name="api_key",
@@ -86,9 +102,9 @@ You can find your API key and API secret in [ShipStation](https://ship.shipstati
                     ),
                     SourceFieldInputConfig(
                         name="api_secret",
-                        label="API secret",
+                        label="API secret (v1 only)",
                         type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
+                        required=False,
                         placeholder="",
                         secret=True,
                     ),
@@ -105,7 +121,9 @@ You can find your API key and API secret in [ShipStation](https://ship.shipstati
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # v1 and v2 expose different resource catalogs, so discovery must build from the pin.
+        endpoints, incremental_fields = schema_catalog_for_version(self.resolve_api_version(api_version))
+        return build_endpoint_schemas(endpoints, incremental_fields, names)
 
     def validate_credentials(
         self,
@@ -114,10 +132,14 @@ You can find your API key and API secret in [ShipStation](https://ship.shipstati
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_shipstation_credentials(config.api_key, config.api_secret):
+        # The probe host and required credentials differ by version, so probe the resolved pin
+        # (pre-creation calls pass None → default v2, the version a new source is stamped with).
+        ok, error = validate_shipstation_credentials(
+            config.api_key, config.api_secret, self.resolve_api_version(api_version)
+        )
+        if ok:
             return True, None
-
-        return False, "Invalid ShipStation API credentials"
+        return False, error or "Invalid ShipStation API credentials"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ShipStationResumeConfig]:
         return ResumableSourceManager[ShipStationResumeConfig](inputs, ShipStationResumeConfig)
@@ -140,4 +162,5 @@ You can find your API key and API secret in [ShipStation](https://ship.shipstati
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            api_version=self.resolve_api_version(inputs.api_version),
         )

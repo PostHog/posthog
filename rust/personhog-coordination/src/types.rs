@@ -83,6 +83,18 @@ pub enum AssignmentPrecondition {
     Absent { partition: u32 },
 }
 
+/// One cancellation-by-replacement in a plan application: the handoff
+/// record at the partition's key is swapped — guarded on the
+/// `mod_revision` the planner read — for the record that resolves its
+/// stashes (a successor `Freezing` handoff, or a reaffirm `Complete`
+/// toward the live current owner), with the predecessor's acks deleted
+/// in the same transaction.
+#[derive(Debug, Clone)]
+pub struct HandoffReplacement {
+    pub handoff: HandoffState,
+    pub expected_mod_revision: i64,
+}
+
 /// Tracks the progress of moving a partition from one writer pod to another,
 /// or a fresh initial assignment.
 ///
@@ -217,6 +229,12 @@ pub struct RouterFreezeAck {
     /// this ack toward the handoff whose id it names.
     #[serde(default)]
     pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// The old owner's acknowledgment that all inflight request handlers for a
@@ -234,6 +252,12 @@ pub struct PodDrainedAck {
     /// this ack toward the handoff whose id it names.
     #[serde(default)]
     pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// The new owner's acknowledgment that it has consumed Kafka up to the stable
@@ -248,6 +272,12 @@ pub struct PodWarmedAck {
     /// this ack toward the handoff whose id it names.
     #[serde(default)]
     pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// Written to `{prefix}coordinator/leader` by the coordinator that wins
@@ -384,6 +414,7 @@ mod tests {
             router_name: "router-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
             handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
@@ -397,6 +428,7 @@ mod tests {
             pod_name: "leader-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
             handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
@@ -410,6 +442,7 @@ mod tests {
             pod_name: "leader-1".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
             handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();

@@ -24,7 +24,12 @@ from posthog.schema import (
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import User
-from posthog.tasks.alerts.utils import AlertEvaluationResult
+from posthog.slo.types import SloOperation, SloOutcome
+from posthog.tasks.alerts.utils import (
+    AlertEvaluationResult,
+    get_alert_error_notification_recipients,
+    send_notifications_for_errors,
+)
 from posthog.temporal.alerts.activities import cleanup_alert_checks, evaluate_alert, notify_alert, prepare_alert
 from posthog.temporal.alerts.types import (
     EvaluateAlertActivityInputs,
@@ -492,6 +497,8 @@ class TestNotifyAlert:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
         with (
+            patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
             patch(
                 "posthog.tasks.alerts.utils.send_notifications_for_breaches",
                 return_value=["alice@posthog.com"],
@@ -517,9 +524,21 @@ class TestNotifyAlert:
         refreshed_alert = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed_alert.last_notified_at is not None
 
+        completed = [
+            call
+            for call in mock_slo_analytics.capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+        ]
+        assert len(completed) == 1
+        properties = completed[0].kwargs["properties"]
+        assert properties["operation"] == SloOperation.ALERT_DELIVERY
+        assert properties["outcome"] == SloOutcome.SUCCESS
+        assert properties["region"] == "US"
+        assert properties["alert_check_id"] == str(check.id)
+
     async def test_firing_passes_stable_idempotency_key_to_breach_sender(self, alert_with_user) -> None:
-        # MessagingRecord dedupes retries via campaign_key; notify_alert must pass the
-        # AlertCheck id so a retry reuses the same key and the provider skips re-sending.
+        # MessagingRecord dedupes email retries via campaign_key; notify_alert must pass
+        # the AlertCheck id so a retry reuses the same key.
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
         with patch(
@@ -539,13 +558,17 @@ class TestNotifyAlert:
         mock_breaches.assert_called_once()
         call_kwargs = mock_breaches.call_args.kwargs
         assert call_kwargs.get("idempotency_key") == str(check.id), (
-            "notify_alert must pass alert_check.id as idempotency_key so MessagingRecord "
-            "dedupes Temporal retries at the provider level"
+            "notify_alert must pass alert_check.id as idempotency_key so MessagingRecord dedupes email retries"
         )
 
     async def test_sends_error_notifications_when_errored(self, alert_with_user) -> None:
+        next_check_at = datetime(2026, 8, 12, 14, 30, tzinfo=UTC)
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.pk).update)(
+            next_check_at=next_check_at
+        )
+        alert_with_user.next_check_at = next_check_at
         check = await _create_alert_check(
-            alert_with_user, state=AlertState.ERRORED, error={"message": "boom", "traceback": "..."}
+            alert_with_user, state=AlertState.ERRORED, error={"message": "boom.", "traceback": "..."}
         )
 
         with (
@@ -554,6 +577,7 @@ class TestNotifyAlert:
                 "posthog.tasks.alerts.utils.send_notifications_for_errors",
                 return_value=["alice@posthog.com"],
             ) as mock_errors,
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
         ):
             env = ActivityEnvironment()
             await env.run(
@@ -563,6 +587,96 @@ class TestNotifyAlert:
 
         mock_errors.assert_called_once()
         mock_breaches.assert_not_called()
+        assert mock_errors.call_args.kwargs["idempotency_key"] == str(check.id)
+        notification = mock_create_notification.call_args.args[0]
+        assert notification.notification_type.value == "pipeline_failure"
+        assert notification.priority.value == "normal"
+        subscriber_id = await sync_to_async(lambda: alert_with_user.subscribed_users.get().id)()
+        assert notification.target_id == str(subscriber_id)
+        assert notification.resource_id == str(alert_with_user.insight.short_id)
+        assert notification.source_id == str(check.id)
+        assert notification.source_type is None
+        assert (
+            notification.source_url
+            == f"/project/{alert_with_user.team_id}/insights/{alert_with_user.insight.short_id}?alert_id={alert_with_user.id}"
+        )
+        assert "boom. This can happen" in notification.body
+        assert "boom.." not in notification.body
+        assert "when PostHog has a temporary problem" in notification.body
+        assert "Review the alert settings" in notification.body
+        assert "PostHog will try again on August 12, 2026 at 2:30 PM UTC" in notification.body
+        assert "contact support" in notification.body
+
+        refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
+        assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
+
+    @pytest.mark.parametrize("message", [None, "", "   "])
+    async def test_error_notification_uses_fallback_for_missing_reason(self, alert_with_user, message) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": message})
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_errors",
+                return_value=["alice@posthog.com"],
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification") as mock_create_notification,
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
+
+        notification = mock_create_notification.call_args.args[0]
+        assert "Unknown error" in notification.body
+        assert "None" not in notification.body
+
+    async def test_error_email_includes_next_scheduled_check(self, alert_with_user) -> None:
+        next_check_at = datetime(2026, 8, 12, 14, 30, tzinfo=UTC)
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert_with_user.pk).update)(
+            next_check_at=next_check_at
+        )
+        alert_with_user.next_check_at = next_check_at
+
+        with patch("posthog.tasks.alerts.utils.send_alert_email") as mock_send_alert_email:
+            recipients = await sync_to_async(send_notifications_for_errors)(
+                alert_with_user, {"message": "boom"}, "notification-key"
+            )
+
+        subscriber_email = await sync_to_async(lambda: alert_with_user.subscribed_users.get().email)()
+        assert recipients == [subscriber_email]
+        assert mock_send_alert_email.call_args.kwargs["template_context"]["next_check_at"] == next_check_at
+
+    async def test_error_notification_does_not_include_an_unsubscribed_creator(self, alert, auser) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(pk=alert.id).update)(created_by_id=auser.id)
+        recipients = await sync_to_async(get_alert_error_notification_recipients)(alert)
+
+        assert recipients == []
+
+    async def test_error_notification_excludes_subscriber_without_insight_access(self, alert_with_user) -> None:
+        with patch(
+            "posthog.tasks.alerts.utils.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            recipients = await sync_to_async(get_alert_error_notification_recipients)(alert_with_user)
+
+        assert recipients == []
+
+    async def test_error_realtime_notification_failure_does_not_block_recording_delivery(self, alert_with_user) -> None:
+        check = await _create_alert_check(alert_with_user, state=AlertState.ERRORED, error={"message": "boom"})
+
+        with (
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_errors",
+                return_value=["alice@posthog.com"],
+            ),
+            patch("posthog.temporal.alerts.activities.create_notification", side_effect=RuntimeError("kafka down")),
+        ):
+            env = ActivityEnvironment()
+            await env.run(
+                notify_alert,
+                NotifyAlertActivityInputs(alert_id=str(alert_with_user.id), alert_check_id=str(check.id)),
+            )
 
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {"users": ["alice@posthog.com"]}
@@ -612,9 +726,13 @@ class TestNotifyAlert:
     async def test_raises_on_send_failure(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)
 
-        with patch(
-            "posthog.tasks.alerts.utils.send_notifications_for_breaches",
-            side_effect=RuntimeError("SMTP unavailable"),
+        with (
+            patch("posthog.slo.events.posthoganalytics") as mock_slo_analytics,
+            patch("products.alerts.backend.delivery_slo.get_instance_region", return_value="US"),
+            patch(
+                "posthog.tasks.alerts.utils.send_notifications_for_breaches",
+                side_effect=RuntimeError("SMTP unavailable"),
+            ),
         ):
             env = ActivityEnvironment()
             with pytest.raises(RuntimeError):
@@ -630,6 +748,14 @@ class TestNotifyAlert:
         # targets_notified stays empty so Temporal retry re-attempts delivery
         refreshed = await sync_to_async(AlertCheck.objects.get)(pk=check.id)
         assert refreshed.targets_notified == {}
+
+        completed = [
+            call
+            for call in mock_slo_analytics.capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+        ]
+        assert len(completed) == 1
+        assert completed[0].kwargs["properties"]["outcome"] == SloOutcome.FAILURE
 
     async def test_firing_dispatches_realtime_notification(self, alert_with_user) -> None:
         check = await _create_alert_check(alert_with_user, state=AlertState.FIRING)

@@ -18,7 +18,7 @@ import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
-import { notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
+import { NotebookNodeRunTerminalStatus, notebookNodeStalenessLogic } from '../Notebook/notebookNodeStalenessLogic'
 import { NotebookOperation, notebookOperationsLogic } from '../Notebook/notebookOperationsLogic'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
@@ -88,6 +88,10 @@ export type NotebookNodeSQLV2DirectRows = {
 export interface RunQueryOptions {
     nodeType?: 'hogql' | 'python'
     outputName?: string
+    // SQL cells only: the data source to run against instead of PostHog, and whether to send the
+    // code to it verbatim. Absent means PostHog's own ClickHouse.
+    connectionId?: string | null
+    sendRawQuery?: boolean
 }
 
 export interface NotebookNodeSQLV2LogicProps {
@@ -100,6 +104,7 @@ export interface NotebookNodeSQLV2LogicProps {
         nodeId?: string
         runId?: string | null
         result?: NotebookNodeSQLV2Result | null
+        runStatus?: NotebookNodeRunTerminalStatus | null
     }) => void
     // The live notebook document, for staleness marking and chain-dispatched runs (Journey 10).
     getContent?: () => JSONContent | null
@@ -135,12 +140,12 @@ export interface notebookNodeSQLV2LogicActions {
     } // notebookNodeStalenessLogic
     nodeRunFinished: (
         nodeId: string,
-        status: import('../Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus,
+        status: NotebookNodeRunTerminalStatus,
         content: JSONContent | null
     ) => {
         content: JSONContent | null
         nodeId: string
-        status: import('../Notebook/notebookNodeStalenessLogic').NotebookNodeRunTerminalStatus
+        status: NotebookNodeRunTerminalStatus
     } // notebookNodeStalenessLogic
     registerChainNode: (nodeId: string) => {
         nodeId: string
@@ -471,12 +476,13 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     return
                 }
                 // Which lane will this run take? Mirrors the backend's routing: python always
-                // needs the kernel; SQL needs it only when it reads a local (python-made) frame.
+                // needs the kernel; SQL needs it only when it reads a local (python-made) frame,
+                // and never when it targets an external connection (the sandbox can't reach one).
                 // The backend stays authoritative — this only drives the kernel panel, never
                 // dispatch.
                 const isKernelLane =
                     opts.nodeType === 'python' ||
-                    extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local')
+                    (!opts.connectionId && extractDuckSqlTables(code).some((name) => refs[name]?.kind === 'local'))
                 if (isKernelLane) {
                     // The backend provisions the sandbox itself when none is running; open the
                     // kernel panel so the user can watch it come up instead of guessing.
@@ -497,6 +503,11 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                         refs,
                         node_type: opts.nodeType,
                         output_name: opts.outputName,
+                        // Omitted entirely for a PostHog cell — the backend's defaults say the same
+                        // thing, and every existing run body stays byte-identical.
+                        ...(opts.connectionId
+                            ? { connection_id: opts.connectionId, send_raw_query: !!opts.sendRawQuery }
+                            : {}),
                     })
                     // Mark this as the active run so a still-in-flight poll from a previous run
                     // can't overwrite this result or stop this run's poller once it resolves.
@@ -504,7 +515,12 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     // Persisting nodeId pins the cell's identity: markdown-notebook cell ids are
                     // content fingerprints otherwise, so without the pin any later prop change
                     // would orphan this run's node_id and break refs to this cell.
-                    props.updateAttributes({ nodeId: props.nodeId, runId: run_id, result: null })
+                    props.updateAttributes({
+                        nodeId: props.nodeId,
+                        runId: run_id,
+                        result: null,
+                        runStatus: null,
+                    })
                     actions.startPolling(run_id)
                 } catch (error) {
                     actions.setRunError(error instanceof Error ? error.message : 'Failed to run query')
@@ -528,7 +544,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 const opts: RunQueryOptions =
                     self.nodeType === NotebookNodeType.PythonV2
                         ? { nodeType: 'python', outputName: self.returnVariable }
-                        : {}
+                        : { connectionId: self.connectionId ?? null, sendRawQuery: !!self.sendRawQuery }
                 actions.runQuery(self.code ?? '', collectSqlV2Refs(content, props.nodeId), opts)
             },
             startPolling: ({ runId }) => {
@@ -596,7 +612,9 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                                   }
                                 : null
                         )
-                        props.updateAttributes({ result: envelopeResult })
+                        // The outcome rides along with the result so a reload can tell a completed
+                        // run from an interrupted one — both leave a result behind.
+                        props.updateAttributes({ result: envelopeResult, runStatus: 'done' })
                         // A fresh envelope replaces whatever page the user had drilled into.
                         actions.resetPaging()
                         actions.stopPolling()
@@ -606,7 +624,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                     } else if (status === 'interrupted') {
                         // A user-requested stop: the envelope still carries whatever stdout,
                         // stderr, and figures the cell produced before the interrupt landed.
-                        props.updateAttributes({ result: envelopeResult })
+                        props.updateAttributes({ result: envelopeResult, runStatus: 'interrupted' })
                         actions.setRunError(error ?? 'Run interrupted.')
                         actions.resetPaging()
                         actions.stopPolling()

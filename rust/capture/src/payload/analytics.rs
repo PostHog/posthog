@@ -16,6 +16,7 @@ use crate::{
     api::CaptureError,
     debug_or_info,
     extractors::extract_body_with_timeout,
+    ingestion_warnings::SdkAttribution,
     payload::{extract_and_record_metadata, extract_payload_bytes, EventQuery},
     router,
     utils::extract_and_verify_token,
@@ -108,6 +109,10 @@ pub async fn handle_event_payload(
 
     let now = state.timesource.current_time();
 
+    // Snapshot SDK identity while the events are still typed — later stages only
+    // see serialized payloads.
+    let sdk_attribution = SdkAttribution::from_first_event(&events);
+
     let context = ProcessingContext {
         sent_at,
         token,
@@ -120,6 +125,7 @@ pub async fn handle_event_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
+        sdk_attribution,
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");
 

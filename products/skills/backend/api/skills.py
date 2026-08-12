@@ -98,7 +98,7 @@ from .skill_services import (
 
 logger = structlog.get_logger(__name__)
 
-# Generous ceiling for an uploaded skill zip — per-skill content (body, 50 files × 1 MB) is
+# Generous ceiling for an uploaded skill zip — per-skill content (body, 200 files × 1 MB) is
 # already bounded by create_skill, this just caps the upload before we read it into memory.
 MAX_IMPORT_ZIP_BYTES = 10_000_000
 
@@ -467,6 +467,7 @@ class LLMSkillViewSet(
                     files=payload.validated_data.get("files"),
                     file_edits=payload.validated_data.get("file_edits"),
                     base_version=payload.validated_data["base_version"],
+                    version_description=payload.validated_data.get("version_description"),
                 )
                 # Owners are keyed on the logical skill, so this runs only when the caller passed
                 # `owners` — a plain body edit never touches ownership.
@@ -523,6 +524,7 @@ class LLMSkillViewSet(
             "allowed_tools_changed": payload.validated_data.get("allowed_tools") is not None,
             "metadata_changed": payload.validated_data.get("metadata") is not None,
             "owners_changed": owner_uuids is not None,
+            "version_description_set": payload.validated_data.get("version_description") is not None,
         }
         logger.info(
             "llma_skill_version_published",

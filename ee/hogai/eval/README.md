@@ -38,17 +38,18 @@ Sandboxes run locally under Docker by default; `--provider modal` runs them remo
 Every suite runs concurrently, with one global semaphore bounding live sandboxes, so selecting more suites raises throughput without raising peak load.
 
 - [`products/posthog_ai/eval_harness/README.md`](../../../products/posthog_ai/eval_harness/README.md) covers the flags, the provider prerequisites, and how to add a suite.
-- [`products/posthog_ai/evals/AGENTS.md`](../../../products/posthog_ai/evals/AGENTS.md) is the Hedgebox dataset reference every eval case is written against.
+- [`products/posthog_ai/evals/AGENTS.md`](../../../products/posthog_ai/evals/AGENTS.md) is the Hedgebox dataset reference, for eval cases that run against a seeded project.
+- [`AGENTS.md`](./AGENTS.md) covers cases that carry their own data inline instead — where that data may come from, and why anonymizing a real conversation does not make it publishable.
 - [`products/posthog_ai/eval_harness/harness/README.md`](../../../products/posthog_ai/eval_harness/harness/README.md) explains how the harness itself works.
 
 ## Offline evals
 
 ### Datasets
 
-For offline evaluation, you typically need to collect a dataset first. You can do that in [PostHog AI evals](https://us.posthog.com/ai-evals/datasets). There are a few requirements for the shape of a dataset item:
+For offline evaluation, you typically need to collect a dataset first. You can do that in [PostHog AI evals](https://us.posthog.com/ai-evals/datasets). PostHog datasets accept any JSON value, but this evaluation suite requires a narrower item shape:
 
-- The `input`, `output`, `metadata` fields must be valid JSON objects.
-- The `metadata` must contain the `team_id` field.
+- `input`, `expected_output`, and `metadata` must be JSON objects.
+- `metadata` must contain `team_id`.
 
 Remember to continuously review traces and curate your datasets–it's the key to quality.
 
@@ -139,6 +140,7 @@ ops:
   prepare_dataset:
     config:
       dataset_id: '01992de8-3773-7946-afad-e028d45eba01' # Dataset ID
+      revision: 3 # Optional. Omit to run the current revision.
   spawn_evaluation_container:
     config:
       evaluation_module: ee/hogai/eval/offline/eval_sql.py # Evaluation module
@@ -146,7 +148,8 @@ ops:
       image_tag: master # Use master or commit hash of the branch you want to evaluate
 ```
 
-The job will pull the provided dataset, validate dataset items, export team data, run the evaluation, and report results back to you.
+The job resolves one immutable dataset revision, validates its items, exports team data, runs the evaluation, and reports results back to you.
+Results are compared only with earlier runs of the same dataset revision.
 
 If you want to run an evaluation for a branch that is not `master`, you will need to build an image with the `build-ai-evals-image` tag. Once the CI is complete, you are ready to run the evaluation.
 

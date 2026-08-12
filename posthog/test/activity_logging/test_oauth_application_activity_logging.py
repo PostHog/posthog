@@ -137,8 +137,7 @@ class TestOAuthApplicationActivityLogging(BaseTest):
         application = self._create_application(scopes=["insight:read"])
         self._scope_logs(application).delete()
 
-        application.provisioning_active = True
-        application.save(update_fields=["provisioning_active"])
+        application.update_provisioning(active=True)
 
         self.assertEqual(self._scope_logs(application).count(), 0)
 

@@ -292,14 +292,18 @@ def query_repo_overview(
     )
 
     jobs_available = curated.jobs_source() is not None
-    cost_cur, cost_prev = query_workflow_window_costs_with_prev(
+    costs = query_workflow_window_costs_with_prev(
         curated=curated, date_from=date_from, date_to=date_to, prev_from=prev_from
     )
+    cost_cur, cost_prev = costs.by_workflow, costs.by_workflow_prev
     # Per-workflow figures can be None (billable time on an unknown tier) — sum what's known.
     billable_seconds = sum(c.billable_seconds or 0.0 for c in cost_cur.values()) if cost_cur else None
     billable_seconds_prev = sum(c.billable_seconds or 0.0 for c in cost_prev.values()) if cost_prev else None
     cost_usd = sum(c.estimated_cost_usd or 0.0 for c in cost_cur.values()) if cost_cur else None
     cost_usd_prev = sum(c.estimated_cost_usd or 0.0 for c in cost_prev.values()) if cost_prev else None
+    # The queue slice mirrors billable_minutes' null gating so both go null together.
+    queue_minutes = costs.merge_queue_billable_seconds / 60 if cost_cur else None
+    queue_minutes_prev = costs.merge_queue_billable_seconds_prev / 60 if cost_prev else None
 
     return RepoOverview(
         run_count=run_count,
@@ -316,6 +320,8 @@ def query_repo_overview(
         billable_minutes_prev=billable_seconds_prev / 60 if billable_seconds_prev is not None else None,
         estimated_cost_usd=opt_float(cost_usd),
         estimated_cost_usd_prev=opt_float(cost_usd_prev),
+        merge_queue_billable_minutes=queue_minutes,
+        merge_queue_billable_minutes_prev=queue_minutes_prev,
         jobs_available=jobs_available,
         default_branch=default_branch,
         cost_series=series.cost,

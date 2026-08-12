@@ -1,4 +1,4 @@
-"""Fold a shadow-topic message stream into converged per-cohort membership state.
+"""Fold a drained message stream into converged per-cohort membership state.
 
 Max last_updated per (cohort_id, person_id) wins, matching the argMax convergence of the
 old side's ClickHouse table. In practice that is also arrival order (messages are keyed
@@ -8,10 +8,10 @@ keeps replays and clock regressions from shadowing a newer record.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, TypeGuard
 from uuid import UUID
 
 RECONCILE_COMPLETE_TYPE = "reconcile_complete"
@@ -49,6 +49,7 @@ class FoldStats:
     dropped_wrong_team: int = 0
     dropped_before_since: int = 0
     dropped_malformed: int = 0
+    dropped_after_until: int = 0
     cohorts_seen: set[int] = field(default_factory=set)
     reconcile_markers: dict[tuple[str, int], set[int]] = field(default_factory=dict)
     # Count of accepted marker messages, incl. duplicates — the reconcile_markers set dedups by
@@ -86,21 +87,25 @@ def _optional_string(raw: Any) -> Optional[str]:
     return raw if isinstance(raw, str) and raw else None
 
 
+def _is_int(value: Any) -> TypeGuard[int]:
+    # bool subclasses int, so a bare isinstance check would accept True as a team/cohort/partition id.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def _record_marker(
     message: dict[str, Any],
     cohort_id: Any,
     last_updated: Optional[datetime],
     since: datetime,
+    until: Optional[datetime],
     stats: FoldStats,
 ) -> None:
     run_id = _parse_marker_run_id(message.get("run_id"))
     partition = message.get("partition")
     if (
         run_id is None
-        or not isinstance(cohort_id, int)
-        or isinstance(cohort_id, bool)
-        or not isinstance(partition, int)
-        or isinstance(partition, bool)
+        or not _is_int(cohort_id)
+        or not _is_int(partition)
         or not 0 <= partition < RECONCILE_PARTITION_COUNT
         or last_updated is None
     ):
@@ -109,9 +114,22 @@ def _record_marker(
     if last_updated < since:
         stats.dropped_before_since += 1
         return
+    if until is not None and last_updated > until:
+        stats.dropped_after_until += 1
+        return
     stats.reconcile_markers.setdefault((run_id, cohort_id), set()).add(partition)
     stats.reconcile_markers_recorded += 1
     stats.cohorts_seen.add(cohort_id)
+
+
+def _bound_for(
+    cohort_id: Any,
+    until: Optional[datetime],
+    until_by_cohort: Optional[Mapping[int, datetime]],
+) -> Optional[datetime]:
+    if until_by_cohort is None or not _is_int(cohort_id):
+        return until
+    return until_by_cohort.get(cohort_id, until)
 
 
 def fold_membership_changes(
@@ -119,15 +137,22 @@ def fold_membership_changes(
     *,
     team_id: int,
     since: datetime,
+    until: Optional[datetime] = None,
+    until_by_cohort: Optional[Mapping[int, datetime]] = None,
 ) -> tuple[dict[int, dict[str, MembershipRecord]], FoldStats]:
     """Fold messages to {cohort_id: {person_id: final record}}, dropping other teams'
-    messages and anything stamped before `since` (pre-wipe residue)."""
+    messages and anything stamped before `since` (pre-wipe residue).
+
+    `until` bounds the fold to the converged state at an instant: with a pinned comparison clock the
+    fold must not carry decisions the oracle's window cannot see, or every entry made after that
+    instant reads as an unexplained over-count. `until_by_cohort` overrides that bound per cohort,
+    for oracles whose clock is a per-cohort calculation time rather than one team-wide instant."""
     stats = FoldStats()
     state: dict[int, dict[str, MembershipRecord]] = {}
     for message in messages:
         stats.total += 1
         message_team_id = message.get("team_id")
-        if not isinstance(message_team_id, int) or isinstance(message_team_id, bool):
+        if not _is_int(message_team_id):
             stats.dropped_malformed += 1
             continue
         if message_team_id != team_id:
@@ -135,16 +160,16 @@ def fold_membership_changes(
             continue
         cohort_id = message.get("cohort_id")
         last_updated = parse_last_updated(message.get("last_updated"))
+        bound = _bound_for(cohort_id, until, until_by_cohort)
 
         if message.get("type") == RECONCILE_COMPLETE_TYPE:
-            _record_marker(message, cohort_id, last_updated, since, stats)
+            _record_marker(message, cohort_id, last_updated, since, bound, stats)
             continue
 
         person_id = message.get("person_id")
         status = message.get("status")
         if (
-            not isinstance(cohort_id, int)
-            or isinstance(cohort_id, bool)
+            not _is_int(cohort_id)
             or not isinstance(person_id, str)
             or not person_id
             or status not in ("entered", "left")
@@ -154,6 +179,9 @@ def fold_membership_changes(
             continue
         if last_updated < since:
             stats.dropped_before_since += 1
+            continue
+        if bound is not None and last_updated > bound:
+            stats.dropped_after_until += 1
             continue
         # Match the old side's argMax(status, last_updated): timestamp order, not arrival
         # order, so an out-of-order replay cannot shadow a newer record.
@@ -188,12 +216,12 @@ def reconcile_completeness(stats: FoldStats, cohort_id: int) -> tuple[ReconcileR
     return reconcile_completeness_by_cohort(stats).get(cohort_id, ())
 
 
-def members(state: dict[str, MembershipRecord]) -> set[str]:
+def members(state: Mapping[str, MembershipRecord]) -> set[str]:
     """The currently-entered persons of one cohort's folded state."""
     return {person_id for person_id, record in state.items() if record.status == "entered"}
 
 
-def observed(state: dict[str, MembershipRecord]) -> set[str]:
+def observed(state: Mapping[str, MembershipRecord]) -> set[str]:
     """Every person the new pipeline emitted a decision for in this cohort.
 
     Live and seed processing can be flip-only, while reconcile snapshots emit every current

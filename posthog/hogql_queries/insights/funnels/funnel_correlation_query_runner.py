@@ -323,6 +323,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         return events, skewed_totals, hogql, response
 
     def _date_range(self) -> QueryDateRange:
+        # daysOfWeek scopes funnel step attribution, not the correlation event scan: actors are
+        # already day-filtered, and "what else did they do while converting" reads over their whole
+        # window. Deliberate — see test_days_of_week_does_not_filter_correlation_events.
         return QueryDateRange(
             date_range=self.context.query.dateRange,
             team=self.context.team,

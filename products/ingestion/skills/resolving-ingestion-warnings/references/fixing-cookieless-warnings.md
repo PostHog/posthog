@@ -23,7 +23,7 @@ Who supplies which ingredient (browser flow): posthog-js sends `$raw_user_agent`
 
 Which ingredient is missing points at which layer is broken:
 
-1. `posthog:ingestion-warnings-list` with `q: 'cookieless'` (or per type). Samples carry the event name and UUID.
+1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('cookieless_missing_timestamp', 'cookieless_timestamp_out_of_range', 'cookieless_missing_user_agent', 'cookieless_missing_ip', 'cookieless_missing_host') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one ingredient). The `details` JSON carries the event name and UUID.
 2. Map the missing field to the layer:
    - **`$raw_user_agent` / `$host` missing** → the events aren't coming from stock posthog-js: a non-browser producer sending the cookieless sentinel, or middleware (`before_send`, a rewriting proxy) stripping properties.
    - **`$ip` missing** → the capture path saw no client IP — a proxy/CDN in front of PostHog not passing the client address through, or middleware explicitly deleting `$ip` before the identity is computed.
@@ -41,7 +41,7 @@ Which ingredient is missing points at which layer is broken:
 
 ## Verify
 
-Re-run the flow, re-query `posthog:ingestion-warnings-list` with a post-fix `since` — no new `cookieless_*` occurrences — and confirm cookieless events appear with computed anonymous IDs.
+Re-run the flow, re-query `system.ingestion_warnings` with `posthog:execute-sql` (filter `type IN ('cookieless_missing_timestamp', 'cookieless_timestamp_out_of_range', 'cookieless_missing_user_agent', 'cookieless_missing_ip', 'cookieless_missing_host')`, `timestamp` after your fix) — no new `cookieless_*` occurrences — and confirm cookieless events appear with computed anonymous IDs.
 
 ## Related
 

@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, NetworkError, type NetworkFailureReason } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -18,18 +18,6 @@ import { toParams } from 'lib/utils/url'
 import { CohortCalculationHistoryResponse } from 'scenes/cohorts/cohortCalculationHistorySceneLogic'
 import { EventSchema } from 'scenes/data-management/events/eventDefinitionSchemaLogic'
 import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagementLogic'
-import {
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalReportStateRequest,
-    SignalScoutEmission,
-    SignalScoutEmissionReportLink,
-    SignalScoutRunSummary,
-    SignalSourceConfig,
-    SignalTeamConfig,
-    SignalUserAutonomyConfig,
-} from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -120,8 +108,6 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
-    Dataset,
-    DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
@@ -237,6 +223,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { BulkAddOptOutsResultApi, BulkOptOutEntryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -248,12 +235,23 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
+import {
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStateRequest,
+    SignalScoutEmission,
+    SignalScoutEmissionReportLink,
+    SignalScoutRunSummary,
+    SignalSourceConfig,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+} from 'products/signals/frontend/inbox/types'
 import type {
     TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
-import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 import type { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type {
@@ -322,7 +320,7 @@ export interface ApiMethodOptions {
     headers?: Record<string, any>
 }
 
-export { ApiError }
+export { ApiError, NetworkError }
 
 export class RateLimitError extends Error {
     constructor(public retryAfterSeconds: number) {
@@ -366,15 +364,16 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (error) {
-        // A body read cancelled mid-stream (navigation, superseded request) surfaces here as an
-        // AbortError. Propagate it so it flows through the normal cancellation path instead of
-        // masquerading as a successful `null` — otherwise callers dereference it (`.results`,
-        // `.count`, …) and blow up with a `Cannot read properties of null` TypeError.
         if (isAbortError(error)) {
             throw error
         }
         return null
     }
+}
+
+function apiErrorFallback(response: Response, method: string, url: string): string {
+    const pathname = new URL(url, location.origin).pathname
+    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 
 /**
@@ -1993,12 +1992,18 @@ export class ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('generate_link')
     }
 
-    public messagingPreferencesOptOuts(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('opt_outs')
+    public messagingPreferencesExportOptOutsCsv(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
     }
 
-    public messagingPreferencesAddOptOut(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
+    public messagingPreferencesBulkAddOptOuts(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('bulk_add_opt_outs')
     }
 
     public hogFlows(): ApiRequest {
@@ -2019,22 +2024,6 @@ export class ApiRequest {
 
     public wizard(): ApiRequest {
         return this.addPathComponent('wizard')
-    }
-
-    public datasets(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets')
-    }
-
-    public dataset(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets').addPathComponent(id)
-    }
-
-    public datasetItems(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items')
-    }
-
-    public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
 
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
@@ -2245,6 +2234,9 @@ function captureLivestream401Debug(url: string, authHeader: string | undefined, 
         })
     }
 }
+
+/** `?basic=true` response: the serializer drops these fields (see CohortSerializer.__init__). */
+export type BasicCohortType = Omit<CohortType, 'groups' | 'experiment_set' | 'last_error_message'>
 
 const api = {
     cspReporting: {
@@ -2552,7 +2544,10 @@ const api = {
             if (Object.keys(query).length) {
                 request.withQueryString(query)
             }
-            return await request.get({ signal })
+            const response = await request.get({ signal })
+            // Guard the declared array contract: an edge/error response (or a stale bundle) may
+            // return a non-array, which would break callers that iterate over the result.
+            return Array.isArray(response) ? response : []
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -3432,6 +3427,20 @@ const api = {
         ): Promise<CountedPaginatedResponse<CohortType>> {
             return await new ApiRequest().cohorts().withQueryString(toParams(params)).get()
         },
+        async listBasic(
+            params: {
+                limit?: number
+                offset?: number
+                search?: string
+            } = {}
+        ): Promise<CountedPaginatedResponse<BasicCohortType>> {
+            // `?basic=true` returns a trimmed payload — the narrowed BasicCohortType return type
+            // keeps callers from reading a field the serializer dropped (see CohortSerializer).
+            return await new ApiRequest()
+                .cohorts()
+                .withQueryString(toParams({ ...params, basic: true }))
+                .get()
+        },
         async getCohortPersons(cohortId: CohortType['id']): Promise<PaginatedResponse<PersonType>> {
             return await new ApiRequest()
                 .cohortsDetailPersons(cohortId)
@@ -3530,26 +3539,25 @@ const api = {
                 .assembleFullUrl(true)
 
             const abortController = new AbortController()
+            let streamFinished = false
+            const handleConnectionError = (error: any): void => {
+                if (isAbortError(error)) {
+                    return
+                }
+                apiStatusLogic.findMounted()?.actions.onApiResponse(undefined, error)
+                onError(error)
+            }
 
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
                 openWhenHidden: true,
                 onopen: async (response) => {
-                    if (!response.ok) {
-                        // Get server error message if available
-                        let errorMessage = `HTTP ${response.status}`
-                        try {
-                            const errorText = await response.text()
-                            if (errorText) {
-                                errorMessage = `HTTP ${response.status}: ${errorText}`
-                            }
-                        } catch {
-                            // If we can't read the response, just use the status
-                        }
+                    apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                    if (!response.ok) {
+                        const error = await ApiError.fromResponse(response, apiErrorFallback(response, 'GET', url))
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -3558,8 +3566,10 @@ const api = {
                     try {
                         const data = JSON.parse(event.data)
                         if (data.type === 'complete') {
+                            streamFinished = true
                             onComplete()
                         } else if (data.type === 'error') {
+                            streamFinished = true
                             onError(new Error(data.error || 'Streaming error'))
                         } else {
                             onMessage(data)
@@ -3569,9 +3579,15 @@ const api = {
                     }
                 },
                 onerror: (error) => {
-                    onError(error)
+                    handleConnectionError(error)
                 },
-            }).catch(onError)
+            }).then(() => {
+                if (!abortController.signal.aborted && !streamFinished) {
+                    handleConnectionError(
+                        new Error('Dashboard stream ended before loading finished. Refresh the page.')
+                    )
+                }
+            }, handleConnectionError)
 
             return () => abortController.abort()
         },
@@ -3778,13 +3794,13 @@ const api = {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
         },
-        async listClickhouse(params: GroupListParams): Promise<GroupsQueryResponse> {
+        async listClickhouse(params: GroupListParams, options?: ApiMethodOptions): Promise<GroupsQueryResponse> {
             const groupsQuery: GroupsQuery = {
                 kind: NodeKind.GroupsQuery,
                 ...params,
             }
 
-            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
+            return await new ApiRequest().query().create({ ...options, data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })
@@ -4935,6 +4951,8 @@ const api = {
                 refs?: Record<string, { node_id: string; kind: 'hogql' | 'local' }>
                 node_type?: 'hogql' | 'python'
                 output_name?: string
+                connection_id?: string | null
+                send_raw_query?: boolean
             }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
@@ -5161,7 +5179,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+            data: Partial<
+                Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url' | 'assignee'>
+            > & {
                 rollout_to_all?: boolean
             }
         ): Promise<EarlyAccessFeatureType> {
@@ -5210,6 +5230,10 @@ const api = {
             has_implementation_pr?: 'true' | 'false'
             /** Comma-separated reviewer user UUIDs (For-you / teammate scope). */
             suggested_reviewers?: string
+            /** Comma-separated scout skill_name slugs. */
+            scout?: string
+            /** Scout skill_name prefix — matches every scout in the family. */
+            scout_prefix?: string
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
@@ -6134,8 +6158,10 @@ const api = {
         },
     },
     fixHogQLErrors: {
-        async fix(query: string, error?: string): Promise<Record<string, any>> {
-            return await new ApiRequest().fixHogQLErrors().create({ data: { query, error } })
+        async fix(query: string, error?: string, connectionId?: string): Promise<Record<string, any>> {
+            return await new ApiRequest()
+                .fixHogQLErrors()
+                .create({ data: { query, error, connection_id: connectionId } })
         },
     },
 
@@ -6253,8 +6279,8 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().create({ data })
+        async create(data: Partial<IntegrationType> | FormData, teamId?: TeamType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
@@ -6262,8 +6288,16 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
-            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
+            // `kind` and `next` are common to every integration; anything kind-specific (e.g. the
+            // posthog connection's `region`/`scopes`) rides along in `extraParams` rather than
+            // bloating this shared signature.
+            const { extraParams, ...common } = params
+            return new ApiRequest()
+                .integrations()
+                .withAction('authorize')
+                .withQueryString({ ...common, ...extraParams })
+                .assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],
@@ -6651,18 +6685,16 @@ const api = {
             })
             return response.preferences_url || null
         },
-        async getMessageOptOuts(categoryKey?: string, page?: number): Promise<CountedPaginatedResponse<OptOutEntry>> {
-            return await new ApiRequest()
-                .messagingPreferencesOptOuts()
-                .withQueryString({
-                    category_key: categoryKey,
-                    page: page || 1,
-                })
-                .get()
+        async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
+            const response = await new ApiRequest()
+                .messagingPreferencesExportOptOutsCsv()
+                .withQueryString({ category_key: categoryKey })
+                .getResponse()
+            return await response.blob()
         },
-        async addOptOut(identifier: string, categoryKey?: string): Promise<OptOutEntry> {
-            return await new ApiRequest().messagingPreferencesAddOptOut().create({
-                data: { identifier, category_key: categoryKey },
+        async bulkAddOptOuts(optOuts: BulkOptOutEntryApi[], categoryKey?: string): Promise<BulkAddOptOutsResultApi> {
+            return await new ApiRequest().messagingPreferencesBulkAddOptOuts().create({
+                data: { opt_outs: optOuts, category_key: categoryKey },
             })
         },
     },
@@ -7017,39 +7049,6 @@ const api = {
         },
     },
 
-    datasets: {
-        list({
-            ids,
-            ...params
-        }: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-            ids?: string[]
-        }): Promise<CountedPaginatedResponse<Dataset>> {
-            return new ApiRequest()
-                .datasets()
-                .withQueryString({
-                    ...params,
-                    id__in: ids?.join(','),
-                })
-                .get()
-        },
-
-        get(datasetId: string): Promise<Dataset> {
-            return new ApiRequest().dataset(datasetId).get()
-        },
-
-        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().datasets().create({ data })
-        },
-
-        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().dataset(datasetId).update({ data })
-        },
-    },
-
     evaluationRuns: {
         async create(data: {
             evaluation_id: string
@@ -7064,24 +7063,6 @@ const api = {
             target_event_id: string
         }> {
             return await new ApiRequest().evaluationRuns().create({ data })
-        },
-    },
-
-    datasetItems: {
-        list(data: {
-            dataset: string
-            limit?: number
-            offset?: number
-        }): Promise<CountedPaginatedResponse<DatasetItem>> {
-            return new ApiRequest().datasetItems().withQueryString(data).get()
-        },
-
-        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItems().create({ data })
-        },
-
-        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },
 
@@ -7124,6 +7105,7 @@ const api = {
             data: Partial<{
                 status: string
                 escalation_reason: string
+                assignee: { type: 'user' | 'role'; id: string | number } | null
             }>
         ): Promise<any> {
             return await new ApiRequest().conversationsTicket(ticketId).update({ data })
@@ -7341,12 +7323,8 @@ const api = {
                         abortController.abort()
                     }
                 } else if (!response.ok) {
-                    let errorData: any = {}
-                    try {
-                        errorData = await response.json()
-                    } catch {
-                        // If JSON parsing fails, leave errorData empty
-                    }
+                    const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
+                    const errorData = error.data
                     // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
                     // identify which failure mode is producing the livestream auth baseline.
                     // Remove once root cause is known.
@@ -7359,14 +7337,7 @@ const api = {
                             server_message: errorData?.message || errorData?.error,
                         })
                     }
-                    onError(
-                        new ApiError(
-                            errorData.error || `Request failed with status ${response.status}`,
-                            response.status,
-                            response.headers,
-                            errorData
-                        )
-                    )
+                    onError(error)
                     abortController.abort()
                 } else {
                     onOpen?.()
@@ -7521,6 +7492,62 @@ const api = {
 
 const warnedSharedViewLeaks = new Set<string>()
 
+/**
+ * Tracks whether the document is on its way out. A browser cancels every in-flight `fetch` when it
+ * tears the document down, and the rejection it hands back is the same bare `TypeError` a real
+ * connectivity failure produces, so this flag is the only way `handleFetch` can tell the two apart.
+ * `pagehide` also fires when the page enters the back/forward cache, hence the reset on `pageshow`:
+ * a restored page is live again and its requests are expected to succeed.
+ */
+let documentUnloading = false
+if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', () => {
+        documentUnloading = true
+    })
+    window.addEventListener('pageshow', () => {
+        documentUnloading = false
+    })
+}
+
+/**
+ * A malformed URL is one of the things `fetch` rejects with a `TypeError` for, and `new URL` would
+ * throw on the same input. Without the fallback that throw escapes from inside the failure path and
+ * replaces the classified `NetworkError` with a bare crash, losing the request that caused it.
+ */
+function requestPathname(url: string): string {
+    try {
+        return new URL(url, location.origin).pathname
+    } catch {
+        return url
+    }
+}
+
+function classifyNetworkFailure(): NetworkFailureReason {
+    if (documentUnloading) {
+        return 'navigating'
+    }
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return 'offline'
+    }
+    return 'network'
+}
+
+function captureClientRequestFailure(properties: {
+    pathname: string
+    method: string
+    duration: number
+    /** 0 for a request that never reached the server, so network failures are separable from HTTP ones. */
+    status: number
+    is_shared_view: boolean
+    failure_reason?: NetworkFailureReason
+}): void {
+    // when used inside the posthog toolbar, `posthog.capture` isn't loaded
+    // check if the function is available before calling it.
+    if (posthog.capture) {
+        posthog.capture('client_request_failure', properties)
+    }
+}
+
 async function handleFetch(
     url: string,
     method: string,
@@ -7543,6 +7570,24 @@ async function handleFetch(
         if (error && (error as any).name === 'AbortError') {
             throw error
         }
+        // `fetch` rejects with a `TypeError` when the request never reached the server. Classifying it
+        // here is what makes the failure legible: the call site only knows "something threw", while
+        // this frame still knows which endpoint was in flight, how long it ran, and whether the client
+        // was offline or going away. Anything else thrown by the fetcher is a genuine fault in the
+        // request path, so it keeps surfacing as an unclassified `ApiError` rather than being
+        // relabelled as a connectivity problem and filtered out of error tracking.
+        if (error instanceof TypeError) {
+            const reason = classifyNetworkFailure()
+            captureClientRequestFailure({
+                pathname: requestPathname(url),
+                method,
+                duration: new Date().getTime() - startTime,
+                status: 0,
+                is_shared_view: isSharedView(),
+                failure_reason: reason,
+            })
+            throw new NetworkError(reason, error)
+        }
         throw new ApiError(error as any, response?.status)
     }
 
@@ -7559,17 +7604,13 @@ async function handleFetch(
         const duration = new Date().getTime() - startTime
         const pathname = new URL(url, location.origin).pathname
         const inSharedView = isSharedView()
-        // when used inside the posthog toolbar, `posthog.capture` isn't loaded
-        // check if the function is available before calling it.
-        if (posthog.capture) {
-            posthog.capture('client_request_failure', {
-                pathname,
-                method,
-                duration,
-                status: response.status,
-                is_shared_view: inSharedView,
-            })
-        }
+        captureClientRequestFailure({
+            pathname,
+            method,
+            duration,
+            status: response.status,
+            is_shared_view: inSharedView,
+        })
         if (inSharedView && (response.status === 401 || response.status === 403)) {
             const leakKey = `${method} ${pathname}`
             if (!warnedSharedViewLeaks.has(leakKey)) {
@@ -7578,28 +7619,7 @@ async function handleFetch(
             }
         }
 
-        const data = await getJSONOrNull(response)
-
-        if (response.status >= 400 && data) {
-            if (typeof data.error === 'string') {
-                throw new ApiError(data.error, response.status, response.headers, data)
-            }
-
-            if (typeof data.detail === 'string') {
-                throw new ApiError(data.detail, response.status, response.headers, data)
-            }
-
-            if (typeof data.message === 'string') {
-                throw new ApiError(data.message, response.status, response.headers, data)
-            }
-        }
-
-        throw new ApiError(
-            `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`,
-            response.status,
-            response.headers,
-            data
-        )
+        throw await ApiError.fromResponse(response, apiErrorFallback(response, method, url))
     }
 
     return response

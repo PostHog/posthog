@@ -203,6 +203,14 @@ pub struct Config {
     #[envconfig(from = "INGESTION_TRANSPORT_COMPRESSION_ENABLED", default = "true")]
     pub transport_compression_enabled: bool,
 
+    /// Cap on the serialized JSON size of one /ingest request body (bytes).
+    /// Sub-batches above it are split into multiple sequential requests. Must
+    /// stay under the worker's HTTP body limit (20 MB) with headroom for the
+    /// size estimate; a request the worker still rejects with 413 is halved
+    /// and resent. Default 10 MiB.
+    #[envconfig(from = "INGESTION_TRANSPORT_MAX_BODY_BYTES", default = "10485760")]
+    pub transport_max_body_bytes: usize,
+
     /// Shared secret for authenticating with Node.js workers (X-Internal-Api-Secret header)
     #[envconfig(default = "")]
     pub internal_api_secret: String,

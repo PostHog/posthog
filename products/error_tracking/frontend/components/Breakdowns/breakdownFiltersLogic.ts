@@ -13,7 +13,6 @@ import { DEFAULT_DATE_RANGE, DEFAULT_TEST_ACCOUNT } from './consts'
 export interface breakdownFiltersLogicValues {
     breakdownProperty: string
     dateRange: DateRange
-    filterOpen: boolean
     filterTestAccounts: boolean
 }
 
@@ -24,9 +23,6 @@ export interface breakdownFiltersLogicActions {
     }
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange
-    }
-    setFilterOpen: (filterOpen: boolean) => {
-        filterOpen: boolean
     }
     setFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
@@ -41,7 +37,6 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
-        setFilterOpen: (filterOpen: boolean) => ({ filterOpen }),
         setBreakdownProperty: (breakdownProperty: string) => ({ breakdownProperty }),
     }),
     reducers({
@@ -64,12 +59,6 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
             { persist: true },
             {
                 setBreakdownProperty: (_, { breakdownProperty }) => breakdownProperty,
-            },
-        ],
-        filterOpen: [
-            false as boolean,
-            {
-                setFilterOpen: (_, { filterOpen }) => filterOpen,
             },
         ],
     }),

@@ -47,6 +47,21 @@ export function getInsertMenuOptionDomId(menuId: string, commandKey: string): st
     return `${menuId}-option-${commandKey}`
 }
 
+/** Exported so a caller whose registry supersedes the built-in SQL command can hide it by key
+ * without hard-coding the string, which would silently stop matching if the key were renamed. */
+export const QUERY_SQL_INSERT_COMMAND_KEY = 'query-sql'
+
+/** The menu's top group. Exported so a registry component can place its insert command here
+ * without hard-coding the label, which would split into a second group if this were renamed. */
+export const COMMON_INSERT_COMMAND_CATEGORY = 'Common'
+
+export function omitInsertCommands(commands: InsertCommand[], hiddenKeys: string[] | undefined): InsertCommand[] {
+    if (!hiddenKeys?.length) {
+        return commands
+    }
+    return commands.filter((command) => !hiddenKeys.includes(command.key))
+}
+
 export function InsertMenu({
     id,
     query,
@@ -214,7 +229,7 @@ export function buildInsertCommands(
     isAskAIDisabled?: boolean,
     extraCommands: InsertCommand[] = []
 ): InsertCommand[] {
-    const commonCategory = 'Common'
+    const commonCategory = COMMON_INSERT_COMMAND_CATEGORY
 
     const insertComponent = (targetNodeId: string, tagName: string, props: NotebookComponentProps): void => {
         const node: NotebookComponentBlockNode = {
@@ -391,7 +406,7 @@ export function buildInsertCommands(
 
     const sqlCommands: InsertCommand[] = [
         {
-            key: 'query-sql',
+            key: QUERY_SQL_INSERT_COMMAND_KEY,
             label: 'SQL',
             category: commonCategory,
             icon: <IconDatabase />,

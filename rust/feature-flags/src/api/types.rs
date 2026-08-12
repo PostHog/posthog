@@ -154,9 +154,8 @@ impl ConfigResponse {
     ///
     /// This config disables optional features (session recording, surveys, heatmaps, etc.)
     /// to ensure safe degradation when the full config from Python's HyperCache is unavailable.
-    pub fn fallback(api_token: &str, has_feature_flags: bool) -> Self {
+    pub fn fallback(has_feature_flags: bool) -> Self {
         let fallback = serde_json::json!({
-            "token": api_token,
             "hasFeatureFlags": has_feature_flags,
             "supportedCompression": ["gzip", "gzip-js"],
             "sessionRecording": false,
@@ -691,6 +690,10 @@ impl FlagDetails {
                         Some(OperatorType::IsNot) => ("does not equal", "equals"),
                         Some(OperatorType::Icontains) => ("contains", "does not contain"),
                         Some(OperatorType::NotIcontains) => ("does not contain", "contains"),
+                        Some(OperatorType::StartsWith) => ("starts with", "does not start with"),
+                        Some(OperatorType::NotStartsWith) => ("does not start with", "starts with"),
+                        Some(OperatorType::EndsWith) => ("ends with", "does not end with"),
+                        Some(OperatorType::NotEndsWith) => ("does not end with", "ends with"),
                         Some(OperatorType::Gt) => (">", "<="),
                         Some(OperatorType::Lt) => ("<", ">="),
                         Some(OperatorType::Gte) => (">=", "<"),
@@ -1086,6 +1089,14 @@ mod tests {
     use chrono::Utc;
     use rstest::rstest;
     use serde_json::json;
+
+    #[test]
+    fn test_fallback_config_excludes_request_token() {
+        let config = serde_json::to_value(ConfigResponse::fallback(true)).unwrap();
+
+        assert!(config.get("token").is_none());
+        assert_eq!(config["hasFeatureFlags"], json!(true));
+    }
 
     #[rstest]
     #[case::condition_match(

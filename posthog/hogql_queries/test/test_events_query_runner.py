@@ -37,10 +37,13 @@ from products.access_control.backend.property_access_control import PropertyAcce
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
-    def _create_events(self, data: list[tuple[str, str, Any]], event="$pageview"):
+    def _create_events(self, data: list[tuple], event="$pageview"):
         person_result = []
         distinct_ids_handled = set()
-        for distinct_id, timestamp, event_properties in data:
+        for row in data:
+            distinct_id, timestamp, event_properties = row[0], row[1], row[2]
+            # Optional 4th element pins the event uuid so cursor-pagination SQL stays deterministic.
+            event_uuid = row[3] if len(row) > 3 else None
             with freeze_time(timestamp):
                 if distinct_id not in distinct_ids_handled:
                     person_result.append(
@@ -53,13 +56,16 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                         )
                     )
                     distinct_ids_handled.add(distinct_id)
-                _create_event(
-                    team=self.team,
-                    event=event,
-                    distinct_id=distinct_id,
-                    timestamp=timestamp,
-                    properties=event_properties,
-                )
+                create_kwargs: dict[str, Any] = {
+                    "team": self.team,
+                    "event": event,
+                    "distinct_id": distinct_id,
+                    "timestamp": timestamp,
+                    "properties": event_properties,
+                }
+                if event_uuid is not None:
+                    create_kwargs["event_uuid"] = event_uuid
+                _create_event(**create_kwargs)
         return person_result
 
     def _create_boolean_field_test_events(self):
@@ -972,11 +978,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cursor_pagination_multi_page_desc(self):
         self._create_events(
             data=[
-                ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}),
-                ("p1", "2020-01-11T12:00:04Z", {"idx": "4"}),
-                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}),
-                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}),
-                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}),
+                ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}, "00000000-0000-0000-0000-000000000005"),
+                ("p1", "2020-01-11T12:00:04Z", {"idx": "4"}, "00000000-0000-0000-0000-000000000004"),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}, "00000000-0000-0000-0000-000000000003"),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}, "00000000-0000-0000-0000-000000000002"),
+                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}, "00000000-0000-0000-0000-000000000001"),
             ]
         )
 
@@ -1012,11 +1018,11 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_cursor_pagination_multi_page_asc(self):
         self._create_events(
             data=[
-                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}),
-                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}),
-                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}),
-                ("p1", "2020-01-11T12:00:04Z", {"idx": "4"}),
-                ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}),
+                ("p1", "2020-01-11T12:00:01Z", {"idx": "1"}, "00000000-0000-0000-0000-000000000001"),
+                ("p1", "2020-01-11T12:00:02Z", {"idx": "2"}, "00000000-0000-0000-0000-000000000002"),
+                ("p1", "2020-01-11T12:00:03Z", {"idx": "3"}, "00000000-0000-0000-0000-000000000003"),
+                ("p1", "2020-01-11T12:00:04Z", {"idx": "4"}, "00000000-0000-0000-0000-000000000004"),
+                ("p1", "2020-01-11T12:00:05Z", {"idx": "5"}, "00000000-0000-0000-0000-000000000005"),
             ]
         )
 
@@ -1119,7 +1125,46 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CachedEventsQueryResponse)
         assert response.nextCursor is not None
-        self.assertEqual(datetime.fromisoformat(response.nextCursor), datetime.fromisoformat("2020-01-11T12:00:02Z"))
+        cursor_timestamp = response.nextCursor.split("|")[0]
+        self.assertEqual(datetime.fromisoformat(cursor_timestamp), datetime.fromisoformat("2020-01-11T12:00:02Z"))
+
+    def test_cursor_pagination_advances_through_identical_timestamps(self):
+        # Bulk imports (e.g. Amplitude) land many events on the same second. An exclusive
+        # `timestamp <` cursor drops every tied event past the page limit; the uuid tiebreaker
+        # must page through all of them exactly once.
+        shared_timestamp = "2020-01-11T12:00:00Z"
+        self._create_events(
+            data=[
+                ("p1", shared_timestamp, {"idx": str(i)}, f"00000000-0000-0000-0000-00000000000{i}")
+                for i in range(1, 6)
+            ]
+        )
+
+        all_indices: list[str] = []
+        cursor = None
+        for _ in range(5):
+            with freeze_time("2020-01-12"):
+                query = EventsQuery(
+                    kind="EventsQuery",
+                    select=["uuid", "properties.idx", "timestamp"],
+                    after="2020-01-10",
+                    orderBy=["timestamp DESC"],
+                    limit=2,
+                )
+                runner = EventsQueryRunner(query=query, team=self.team)
+                if cursor:
+                    runner.apply_pagination_cursor(cursor)
+                response = runner.run()
+
+            assert isinstance(response, CachedEventsQueryResponse)
+            all_indices.extend(row[1] for row in response.results)
+
+            if response.nextCursor:
+                cursor = response.nextCursor
+            else:
+                break
+
+        self.assertEqual(sorted(all_indices), ["1", "2", "3", "4", "5"])
 
     def test_action_steps_filters_events(self):
         self._create_events(

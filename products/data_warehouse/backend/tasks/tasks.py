@@ -11,7 +11,11 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
-from products.data_warehouse.backend.managed_warehouse_connection import reconcile_managed_warehouse_tables
+from products.managed_warehouse.backend.facade.connection import reconcile_managed_warehouse_tables
+from products.managed_warehouse.backend.facade.cp_teams import (
+    get_org_team_membership,
+    list_enabled_backfill_team_memberships,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -43,9 +47,9 @@ EXTERNAL_DATA_FAILURE_DIGEST_DELAY_SECONDS = 15 * 60
 # Generous bound on one digest build + synchronous send; the lock auto-expires
 # after this if a worker dies mid-flight.
 EXTERNAL_DATA_FAILURE_DIGEST_LOCK_TIMEOUT_SECONDS = 120
-# Live introspection of a large catalog plus the credential handshake can far exceed the
-# digest bound; the select_for_update guards make an overlap harmless, but keep the lock
-# long enough that it stays the normal exclusion mechanism.
+# Live introspection of a large catalog can far exceed the digest bound; the
+# select_for_update guards make an overlap harmless, but keep the lock long enough
+# that it stays the normal exclusion mechanism.
 MANAGED_WAREHOUSE_RECONCILE_LOCK_TIMEOUT_SECONDS = 600
 MANAGED_WAREHOUSE_RECONCILE_INTERVAL_SECONDS = 60
 
@@ -86,8 +90,8 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
 )
 @skip_team_scope_audit
 def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
-    from products.data_warehouse.backend.managed_warehouse_connection import (  # noqa: PLC0415
-        soft_delete_managed_warehouse_sources,
+    from products.managed_warehouse.backend.facade.connection import (
+        soft_delete_managed_warehouse_sources,  # noqa: PLC0415
     )
 
     soft_delete_managed_warehouse_sources(organization_id=organization_id)
@@ -100,20 +104,13 @@ def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUI
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
 @skip_team_scope_audit
 def reconcile_all_managed_warehouse_tables_task() -> None:
-    # Deferred: ducklake pulls duckdb in via common, and that must not load while Celery
-    # imports task modules — keep it off this module's import path.
-    from posthog.ducklake import cp_teams, team_state  # noqa: PLC0415
-
-    rows = cp_teams.list_enabled_backfills()
+    rows = list_enabled_backfill_team_memberships()
     if rows is None:
         # Periodic sweep: an unreachable control plane just skips this run — the next
         # scheduled sweep retries.
         logger.warning("Managed warehouse reconcile sweep skipped: control plane unreachable")
         return
     for row in rows:
-        if team_state.cp_table_suffix(row) is None:
-            # Legacy shared tables can't be exposed as a per-project query connection.
-            continue
         schedule_managed_warehouse_tables_reconcile(team_id=row.team_id, organization_id=row.organization_id)
 
 
@@ -169,29 +166,25 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     """
     # Deferred: ducklake pulls duckdb in via common, and posthog.models must not load
     # while Celery imports task modules — keep both off this module's import path.
-    from posthog.ducklake import cp_teams  # noqa: PLC0415
-    from posthog.ducklake.common import (  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
         NO_HISTORY_SENTINEL,
-        _get_org_id_for_team,
+        get_org_id_for_team,
         resolve_team_earliest_event_date,
+        update_team_earliest_event_date,
     )
 
-    from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-        push_team_earliest_event_date,
-    )
-
-    organization_id = _get_org_id_for_team(team_id)
-    row = cp_teams.get_team(organization_id, team_id)
+    organization_id = get_org_id_for_team(team_id)
+    row = get_org_team_membership(organization_id, team_id)
     if row is None:
         logger.info("No duckling team row for team; skipping earliest event date sync", team_id=team_id)
         return
     if row.earliest_event_date is not None:
         return
     resolved = resolve_team_earliest_event_date(team_id)
-    if resolved == NO_HISTORY_SENTINEL:
+    if resolved is None or resolved == NO_HISTORY_SENTINEL:
         logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
         return
-    push_team_earliest_event_date(organization_id, team_id, resolved)
+    update_team_earliest_event_date(organization_id, team_id, resolved)
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_catchup")

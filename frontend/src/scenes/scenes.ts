@@ -239,32 +239,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.GroupsNew]: { projectBased: true },
     [Scene.Groups]: { projectBased: true, name: 'Groups' },
-    [Scene.Heatmaps]: {
-        projectBased: true,
-        name: 'Heatmaps',
-        iconType: 'heatmap',
-        description: 'Heatmaps are a way to visualize user behavior on your website.',
-    },
-    [Scene.Inbox]: {
-        projectBased: true,
-        name: 'Inbox',
-        description: 'Actionable reports automatically generated from user session analysis and other signals.',
-    },
-    [Scene.Heatmap]: {
-        projectBased: true,
-        name: 'Heatmap',
-        iconType: 'heatmap',
-    },
-    [Scene.HeatmapNew]: {
-        projectBased: true,
-        name: 'New heatmap',
-        iconType: 'heatmap',
-    },
-    [Scene.HeatmapRecording]: {
-        projectBased: true,
-        name: 'Heatmap recording',
-        iconType: 'heatmap',
-    },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
@@ -658,6 +632,9 @@ export const redirects: Record<
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
     '/batch_exports': urls.destinations(),
+    // The scene lives at /code-review (hyphen); catch the old underscore variant, keeping the
+    // ?review= / ?reviews_scope= deep links that PR status comments bake in
+    '/code_review': (_params, searchParams, hashParams) => combineUrl(urls.codeReview(), searchParams, hashParams).url,
     '/comments': () => urls.comments(),
     '/dashboards': urls.dashboards(),
     '/data-management': urls.eventDefinitions(),
@@ -917,10 +894,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
-    [urls.heatmapNew()]: [Scene.HeatmapNew, 'heatmapNew'],
-    [urls.heatmapRecording()]: [Scene.HeatmapRecording, 'heatmapRecording'],
-    [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],
@@ -928,15 +901,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
-    [urls.inbox()]: [Scene.Inbox, 'inbox'],
-    [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
-    // Static memory route, registered before `:skillName` so it isn't read as a scout name.
-    [urls.inboxScratchpad()]: [Scene.Inbox, 'inbox'],
-    // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
-    [urls.inboxScout(':skillName')]: [Scene.Inbox, 'inbox'],
-    // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
-    [urls.inboxScout(':skillName', ':findingId')]: [Scene.Inbox, 'inbox'],
-    [urls.inboxReport(':tab', ':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
     [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
     [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],

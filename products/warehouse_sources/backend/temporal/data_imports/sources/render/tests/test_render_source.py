@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.render import RenderSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.render import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.render.render import RenderResumeConfig

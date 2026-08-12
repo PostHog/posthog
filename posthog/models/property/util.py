@@ -364,6 +364,10 @@ def negate_operator(operator: OperatorType) -> OperatorType:
             "exact": "is_not",
             "icontains": "not_icontains",
             "not_icontains": "icontains",
+            "starts_with": "not_starts_with",
+            "not_starts_with": "starts_with",
+            "ends_with": "not_ends_with",
+            "not_ends_with": "ends_with",
             "regex": "not_regex",
             "not_regex": "regex",
             "gt": "lte",
@@ -469,6 +473,20 @@ def prop_filter_json_extract(
                 prepend=prepend,
                 left=property_expr,
                 property_operator=property_operator,
+            ),
+            params,
+        )
+    elif operator in ("starts_with", "not_starts_with", "ends_with", "not_ends_with"):
+        value = f"{prop.value}%" if operator in ("starts_with", "not_starts_with") else f"%{prop.value}"
+        params = {
+            "k{}_{}".format(prepend, idx): prop.key,
+            "v{}_{}".format(prepend, idx): value,
+        }
+        ilike = "{left} ILIKE %(v{prepend}_{idx})s".format(idx=idx, prepend=prepend, left=property_expr)
+        return (
+            " {property_operator} {condition}".format(
+                property_operator=property_operator,
+                condition=f"NOT ({ilike})" if operator.startswith("not_") else ilike,
             ),
             params,
         )
@@ -876,6 +894,12 @@ def _build_group_key_filter(
     elif operator == "not_icontains":
         filter_query = f"{property_operator} NOT (group_key ILIKE %({param_key})s)"
         param_value = f"%{prop.value}%"
+    elif operator in ("starts_with", "ends_with"):
+        filter_query = f"{property_operator} group_key ILIKE %({param_key})s"
+        param_value = f"{prop.value}%" if operator == "starts_with" else f"%{prop.value}"
+    elif operator in ("not_starts_with", "not_ends_with"):
+        filter_query = f"{property_operator} NOT (group_key ILIKE %({param_key})s)"
+        param_value = f"{prop.value}%" if operator == "not_starts_with" else f"%{prop.value}"
     elif operator in ("regex", "not_regex"):
         regex_func = "match" if operator == "regex" else "NOT match"
         filter_query = f"{property_operator} {regex_func}(group_key, %({param_key})s)"

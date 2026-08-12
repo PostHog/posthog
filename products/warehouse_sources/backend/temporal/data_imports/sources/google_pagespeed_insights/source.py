@@ -9,16 +9,13 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
     GooglePageSpeedInsightsSourceConfig,
 )
@@ -107,6 +104,21 @@ Each analysis is a full Lighthouse run and can take several seconds. Each URL is
             # `key` query param is redacted before the message reaches here).
             "400 Client Error: Bad Request for url: https://pagespeedonline.googleapis.com": "Your API key is invalid, or the PageSpeed Insights API is not enabled for your Google Cloud project. Check the key and enable the API, then reconnect.",
             "403 Client Error: Forbidden for url: https://pagespeedonline.googleapis.com": "Your API key does not have access to the PageSpeed Insights API. Enable the API for your Google Cloud project and check any key restrictions, then reconnect.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried internally with backoff (see google_pagespeed_insights.py's
+        # tenacity-wrapped `_fetch`); if those retries still exhaust, the failure is transient and
+        # self-recovering, so let Temporal retry the activity without surfacing it as tracked
+        # exception noise.
+        return {
+            "PageSpeed Insights API error (retryable)",
+            # Transport-level failures (read timeouts, connection resets/SSL) are retried the same way
+            # by `_fetch`; once exhausted they re-raise as a urllib3 `HTTPSConnectionPool(...)` message.
+            # Same self-recovering class as the 429/5xx path — keep them retryable and out of tracked
+            # noise. Scoped to the fixed API host so it can only match a transient connection failure to
+            # PageSpeed, never the `... Client Error ... for url` shape the auth 400/403s carry.
+            "HTTPSConnectionPool(host='pagespeedonline.googleapis.com'",
         }
 
     def get_schemas(

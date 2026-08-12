@@ -24,6 +24,11 @@ class TestCloudbedsSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.CLOUDBEDS
 
+    def test_new_sources_default_to_latest_version(self) -> None:
+        # New Cloudbeds sources are stamped with default_version; v1.3 is the current PMS API version.
+        assert self.source.supported_versions == ("v1.2", "v1.3")
+        assert self.source.default_version == "v1.3"
+
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
         assert config.name.value == "Cloudbeds"
@@ -110,12 +115,15 @@ class TestCloudbedsSource:
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source.validate_credentials"
     )
-    def test_validate_credentials_delegates_with_api_key_and_property(self, mock_validate: mock.MagicMock) -> None:
+    def test_validate_credentials_delegates_with_api_key_property_and_version(
+        self, mock_validate: mock.MagicMock
+    ) -> None:
         # The status-to-message mapping lives in cloudbeds.validate_credentials; here we only assert
-        # the source probes with the configured credentials and returns the delegate's verdict.
+        # the source probes with the configured credentials on the resolved version (default_version
+        # before a row exists) and returns the delegate's verdict.
         mock_validate.return_value = (False, "Invalid Cloudbeds API key")
         result = self.source.validate_credentials(self.config, self.team_id)
-        mock_validate.assert_called_once_with("cbat_key", "12345")
+        mock_validate.assert_called_once_with("cbat_key", "v1.3", "12345")
         assert result == (False, "Invalid Cloudbeds API key")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
@@ -123,12 +131,14 @@ class TestCloudbedsSource:
         assert isinstance(manager, ResumableSourceManager)
         assert manager._data_class is CloudbedsResumeConfig
 
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+    @parameterized.expand([("pinned_legacy", "v1.2", "v1.2"), ("unpinned_uses_default", None, "v1.3")])
+    def test_source_for_pipeline_plumbs_arguments(self, _name: str, pin: str | None, expected_version: str) -> None:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.cloudbeds.source.cloudbeds_source"
         ) as mock_source:
             inputs = mock.MagicMock()
             inputs.schema_name = "reservations"
+            inputs.api_version = pin
             manager = mock.MagicMock()
 
             self.source.source_for_pipeline(self.config, manager, inputs)
@@ -139,6 +149,8 @@ class TestCloudbedsSource:
             assert kwargs["endpoint"] == "reservations"
             assert kwargs["property_id"] == "12345"
             assert kwargs["resumable_source_manager"] is manager
+            # A pinned row syncs on its own version; an unpinned row follows the new default.
+            assert kwargs["api_version"] == expected_version
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()

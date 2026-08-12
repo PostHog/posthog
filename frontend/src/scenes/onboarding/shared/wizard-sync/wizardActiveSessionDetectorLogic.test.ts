@@ -26,6 +26,9 @@ function makeSession(overrides: Partial<WizardSessionDTOApi> = {}): WizardSessio
         tasks: [],
         event_plan: null,
         error: null,
+        pending_input: null,
+        handoff_text: null,
+        created_by: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         is_stale: false,
@@ -129,8 +132,92 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ permanentlyDisabled: false })
     })
 
+    // With two programs watched, a failure on the live one plus an empty answer from the other is
+    // indistinguishable from "no run" unless the error is taken into account — and acting on it
+    // would tear down a run that is still going.
+    it('does not tear down a live run when one watched program fails and the other returns empty', async () => {
+        logic.actions.watchWorkflow('self-driving')
+        mockLatestRetrieve.mockResolvedValue(makeSession({ run_phase: 'running' }))
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        })
+            .toDispatchActions(['markActive'])
+            .toMatchValues({ hasActiveSession: true })
+
+        mockLatestRetrieve.mockImplementation(async (_projectId: string, params: { workflow_id: string }) => {
+            if (params.workflow_id === 'self-driving') {
+                throw new ApiError('boom', 500)
+            }
+            return null
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        })
+            .toDispatchActions(['pollFailed'])
+            .toNotHaveDispatchedActions(['markInactive', 'scheduleMarkInactive'])
+            .toMatchValues({ hasActiveSession: true })
+    })
+
+    describe('hasResolvedSessionState', () => {
+        it('starts unresolved and resolves on a settled poll, in either direction', async () => {
+            expect(logic.values.hasResolvedSessionState).toBe(false)
+
+            mockLatestRetrieve.mockResolvedValue(null)
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            })
+                .toDispatchActions(['markInactive'])
+                .toMatchValues({ hasResolvedSessionState: true })
+        })
+
+        // Without this, an access-denied user would leave every consumer waiting on a verdict that
+        // can never arrive (the inbox takeover would never show).
+        it('resolves on a permanent access denial', async () => {
+            mockLatestRetrieve.mockRejectedValue(new ApiError('unauthorized', 401))
+            await expectLogic(logic, () => {
+                logic.actions.check()
+            })
+                .toDispatchActions(['markPermanentlyDisabled'])
+                .toMatchValues({ hasResolvedSessionState: true, hasActiveSession: false })
+        })
+
+        // The regression this guards: markInactive doubling as the project-switch reset, which
+        // stamped the new project "resolved, not running" before its first poll answered.
+        it('goes back to unresolved on resetSessionState', () => {
+            logic.actions.markActive('self-driving')
+            expect(logic.values.hasResolvedSessionState).toBe(true)
+
+            logic.actions.resetSessionState()
+            expect(logic.values.hasResolvedSessionState).toBe(false)
+            expect(logic.values.activeWorkflowId).toBeNull()
+        })
+    })
+
+    describe('workflow watch refcounting', () => {
+        it('keeps watching while any registration is open, stops after the last', () => {
+            logic.actions.watchWorkflow('self-driving')
+            logic.actions.watchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+
+            logic.actions.unwatchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+
+            logic.actions.unwatchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).not.toContain('self-driving')
+        })
+
+        // An unbalanced release must not poison the next registration (a negative count would make
+        // one watchWorkflow insufficient to start watching again).
+        it('an extra unwatch does not drive the count negative', () => {
+            logic.actions.unwatchWorkflow('self-driving')
+            logic.actions.watchWorkflow('self-driving')
+            expect(logic.values.watchedWorkflows).toContain('self-driving')
+        })
+    })
+
     it('defers teardown (scheduleMarkInactive) when an active session goes terminal', async () => {
-        logic.actions.markActive()
+        logic.actions.markActive('posthog-integration')
         await expectLogic(logic).toMatchValues({ hasActiveSession: true })
 
         mockLatestRetrieve.mockResolvedValue(makeSession({ run_phase: 'completed' }))
@@ -158,7 +245,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
 
         it('fires markInactive once the 30s grace window elapses', async () => {
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
             logic.actions.scheduleMarkInactive()
 
             // Just before the deadline: the stream is still up.
@@ -175,12 +262,12 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
 
         it('cancels the pending teardown when markActive fires inside the window', async () => {
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
             logic.actions.scheduleMarkInactive()
 
             jest.advanceTimersByTime(15_000)
             // A fresh active signal (e.g. an SSE heartbeat) cancels the scheduled teardown.
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
 
             await expectLogic(logic, () => {
                 jest.advanceTimersByTime(60_000)
@@ -190,7 +277,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
 
         it('keeps the original deadline when scheduleMarkInactive is repeated (idempotent)', async () => {
-            logic.actions.markActive()
+            logic.actions.markActive('posthog-integration')
             logic.actions.scheduleMarkInactive() // deadline = now + 30s
 
             jest.advanceTimersByTime(20_000)

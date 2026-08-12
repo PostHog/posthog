@@ -368,6 +368,7 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("use create_notebook with content containing the complete final notebook markdown", result)
         self.assertIn("Full-notebook replacement content must omit", result)
         self.assertIn("single ph-markdown-notebook node", result)
+        self.assertIn("render a `title` prop in their block header", result)
         mock_from_short_id.assert_not_called()
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")

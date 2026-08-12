@@ -8,10 +8,11 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.settings import (
     SIGNOZ_ENDPOINTS,
     SigNozEndpointConfig,
@@ -21,6 +22,14 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
 MAX_RETRY_AFTER_SECONDS = 60
 DEFAULT_LOOKBACK_DAYS = 30
+
+# SigNoz's current stable telemetry API generation (Query Builder v5, GA August 2025). SigNoz
+# versions this API in the endpoint path, not via a request header, and this source has always
+# queried the v5 `query_range` endpoint. So the framework's legacy unversioned label and this
+# explicit label resolve to the same requests — new sources are stamped "v5" while existing pins
+# keep syncing byte-for-byte. The management REST endpoints (rules, dashboards, channels) are
+# unversioned v1 and stay hardcoded in settings.py.
+SIGNOZ_API_VERSION_V5 = "v5"
 
 QUERY_RANGE_PATH = "/api/v5/query_range"
 
@@ -150,13 +159,13 @@ def validate_credentials(
 
 def _build_query_range_body(
     config: SigNozEndpointConfig,
-    window_start_ms: int,
-    window_end_ms: int,
     offset: int,
+    *,
+    window: SyncWindow[int],
 ) -> dict[str, Any]:
     return {
-        "start": window_start_ms,
-        "end": window_end_ms,
+        "start": window.start,
+        "end": window.end,
         "requestType": "raw",
         "compositeQuery": {
             "queries": [
@@ -240,7 +249,7 @@ def _initial_window(
     config: SigNozEndpointConfig,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> tuple[int, int]:
+) -> SyncWindow[int]:
     end_ms = int(datetime.now(UTC).timestamp() * 1000)
     start_ms: int | None = None
     if should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -248,7 +257,7 @@ def _initial_window(
     if start_ms is None:
         lookback_days = config.default_lookback_days or DEFAULT_LOOKBACK_DAYS
         start_ms = int((datetime.now(UTC) - timedelta(days=lookback_days)).timestamp() * 1000)
-    return start_ms, end_ms
+    return SyncWindow(start=start_ms, end=end_ms)
 
 
 def get_rows(
@@ -318,18 +327,17 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
-        window_start, window_end, offset = resume.window_start_ms, resume.window_end_ms, resume.offset
-        logger.debug(f"SigNoz: resuming {endpoint} at window_start={window_start}, offset={offset}")
+        window: SyncWindow[int] = SyncWindow(start=resume.window_start_ms, end=resume.window_end_ms)
+        offset = resume.offset
+        logger.debug(f"SigNoz: resuming {endpoint} at window_start={window.start}, offset={offset}")
     else:
-        window_start, window_end = _initial_window(
-            config, should_use_incremental_field, db_incremental_field_last_value
-        )
+        window = _initial_window(config, should_use_incremental_field, db_incremental_field_last_value)
         offset = 0
 
     url = f"{base}{QUERY_RANGE_PATH}"
 
     while True:
-        body = _build_query_range_body(config, window_start, window_end, offset)
+        body = _build_query_range_body(config, offset, window=window)
         rows = _extract_raw_rows(fetch(url, json_body=body))
         if not rows:
             break
@@ -345,10 +353,10 @@ def get_rows(
         # the last row's millisecond are re-listed on the next request and skipped via the
         # offset; anything re-yielded across a crash is deduped by primary-key merge.
         last_ts = _to_epoch_ms(rows[-1].get("timestamp"))
-        if last_ts is None or last_ts < window_start:
+        if last_ts is None or last_ts < window.start:
             # No usable timestamp to advance on — fall back to plain offset paging.
             offset += len(rows)
-        elif last_ts == window_start:
+        elif last_ts == window.start:
             # The entire window start millisecond spans multiple pages.
             offset += len(rows)
         else:
@@ -358,13 +366,13 @@ def get_rows(
                     trailing += 1
                 else:
                     break
-            window_start = last_ts
+            window = SyncWindow(start=last_ts, end=window.end)
             offset = trailing
 
         # Save state AFTER yielding the batch — a crash re-yields the last batch (merge
         # dedupes on primary key) instead of skipping it.
         resumable_source_manager.save_state(
-            SigNozResumeConfig(window_start_ms=window_start, window_end_ms=window_end, offset=offset)
+            SigNozResumeConfig(window_start_ms=window.start, window_end_ms=window.end, offset=offset)
         )
 
 

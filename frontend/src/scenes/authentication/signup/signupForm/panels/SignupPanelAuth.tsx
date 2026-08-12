@@ -19,7 +19,6 @@ export function SignupPanelAuth(): JSX.Element | null {
         passkeyRegistered,
         isPasskeyRegistering,
         passkeyError,
-        passkeySignupEnabled,
     } = useValues(signupLogic)
 
     return (
@@ -35,39 +34,33 @@ export function SignupPanelAuth(): JSX.Element | null {
                 </LemonBanner>
             )}
 
-            {passkeySignupEnabled && (
-                <>
-                    {passkeyRegistered ? (
-                        <div className="border border-success-lighter rounded-lg p-4 bg-success-highlight text-center">
-                            <img src={passkeyLogo} alt="Passkey" className="w-8 h-8 mx-auto mb-2" />
-                            <p className="font-semibold text-success mb-1">Passkey registered successfully!</p>
-                            <p className="text-secondary text-sm">
-                                You can use this passkey to sign in to your account.
-                            </p>
-                        </div>
-                    ) : (
-                        <LemonButton
-                            fullWidth
-                            type="secondary"
-                            center
-                            size="large"
-                            icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
-                            onClick={registerPasskey}
-                            loading={isPasskeyRegistering}
-                            disabled={isPasskeyRegistering}
-                            data-attr="signup-passkey"
-                        >
-                            Sign up with passkey
-                        </LemonButton>
-                    )}
-
-                    <div className="flex items-center gap-3 my-4">
-                        <div className="flex-1 border-t border-border" />
-                        <span className="text-secondary text-sm">or use a password</span>
-                        <div className="flex-1 border-t border-border" />
-                    </div>
-                </>
+            {passkeyRegistered ? (
+                <div className="border border-success-lighter rounded-lg p-4 bg-success-highlight text-center">
+                    <img src={passkeyLogo} alt="Passkey" className="w-8 h-8 mx-auto mb-2" />
+                    <p className="font-semibold text-success mb-1">Passkey registered successfully!</p>
+                    <p className="text-secondary text-sm">You can use this passkey to sign in to your account.</p>
+                </div>
+            ) : (
+                <LemonButton
+                    fullWidth
+                    type="secondary"
+                    center
+                    size="large"
+                    icon={<img src={passkeyLogo} alt="Passkey" className="object-contain w-7 h-7" />}
+                    onClick={registerPasskey}
+                    loading={isPasskeyRegistering}
+                    disabled={isPasskeyRegistering}
+                    data-attr="signup-passkey"
+                >
+                    Sign up with passkey
+                </LemonButton>
             )}
+
+            <div className="flex items-center gap-3 my-4">
+                <div className="flex-1 border-t border-border" />
+                <span className="text-secondary text-sm">or use a password</span>
+                <div className="flex-1 border-t border-border" />
+            </div>
 
             <Form logic={signupLogic} formKey="signupPanelAuth" className="deprecated-space-y-4" enableFormOnSubmit>
                 <LemonField
@@ -88,7 +81,6 @@ export function SignupPanelAuth(): JSX.Element | null {
                         className="ph-ignore-input"
                         data-attr="password"
                         placeholder="••••••••••"
-                        autoFocus={!passkeySignupEnabled}
                         disabled={isSignupPanelAuthSubmitting || passkeyRegistered}
                     />
                 </LemonField>

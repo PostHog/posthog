@@ -1387,6 +1387,94 @@ async fn advisory_rejects_graceful_shutdown() {
     );
 }
 
+/// Advisory handle dropped during normal operation — the app keeps running.
+/// The existing stall tests only drop advisory handles after shutdown has
+/// begun, where any drop is treated as completion; this covers the drop that
+/// actually produces a Died event. A best-effort component that fails to
+/// build, or whose task exits early, must not take the process down with it.
+#[tokio::test]
+async fn advisory_handle_drop_during_normal_operation_does_not_trigger_shutdown() {
+    let mut manager = fast_poll_manager(50);
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register("kafka-health", advisory_opts());
+    let guard = manager.monitor_background();
+
+    drop(advisory_handle);
+
+    // Several poll intervals, so a Died-driven cancel would have landed.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !std_handle.is_shutting_down(),
+        "advisory handle drop must not initiate global shutdown"
+    );
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(
+        result.is_ok(),
+        "advisory drop must not surface as a lifecycle error, got {result:?}"
+    );
+}
+
+/// A panic in the task owning an advisory handle unwinds and drops the handle
+/// during normal operation. This is the production shape of the case above:
+/// the warnings emitter's background task panicking must not shut capture down.
+#[tokio::test]
+async fn panic_in_advisory_task_does_not_trigger_shutdown() {
+    let mut manager = fast_poll_manager(50);
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register("kafka-health", advisory_opts());
+    let guard = manager.monitor_background();
+
+    let panicked = tokio::spawn(async move {
+        advisory_handle.report_healthy();
+        panic!("boom");
+    })
+    .await;
+    assert!(panicked.is_err(), "task was expected to panic");
+
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !std_handle.is_shutting_down(),
+        "advisory task panic must not initiate global shutdown"
+    );
+
+    std_handle.request_shutdown();
+    drop(std_handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(result.is_ok(), "expected clean shutdown, got {result:?}");
+}
+
+/// Regression guard for the advisory exemption: a standard handle dropped
+/// during normal operation must still trigger shutdown even when an advisory
+/// component is registered alongside it. Catches an exemption predicate that
+/// matches too broadly.
+#[tokio::test]
+async fn standard_handle_drop_still_triggers_shutdown_when_advisory_registered() {
+    let mut manager = fast_poll_manager(50);
+    let std_handle = manager.register("worker", ComponentOptions::new());
+    let advisory_handle = manager.register("kafka-health", advisory_opts());
+    let guard = manager.monitor_background();
+
+    advisory_handle.report_healthy();
+    drop(std_handle);
+
+    let result = tokio::time::timeout(Duration::from_secs(10), guard.wait())
+        .await
+        .expect("timed out");
+    assert!(
+        matches!(&result, Err(LifecycleError::ComponentDied { tag }) if tag == "worker"),
+        "expected ComponentDied for the standard component, got {result:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Section 9: is_healthy() on non-liveness handles
 //

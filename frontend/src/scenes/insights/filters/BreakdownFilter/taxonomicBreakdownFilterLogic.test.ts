@@ -191,6 +191,23 @@ describe('taxonomicBreakdownFilterLogic', () => {
             })
         })
 
+        it('rejects a taxonomic group that maps to a non-breakdown type', async () => {
+            logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
+            logic.mount()
+            // Error tracking issues map to the `error_tracking_issue` property filter type, which is
+            // not a valid `BreakdownType`. It must not reach the query as a breakdown.
+            const group: TaxonomicFilterGroup = taxonomicGroupFor(
+                TaxonomicFilterGroupType.ErrorTrackingIssues,
+                undefined
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.addBreakdown('some-issue', group)
+            }).toFinishListeners()
+
+            expect(updateBreakdownFilter).not.toHaveBeenCalled()
+        })
+
         it('sets a hide other aggregation', async () => {
             logic = taxonomicBreakdownFilterLogic(makeProps({ breakdownFilter: {} }))
             logic.mount()
