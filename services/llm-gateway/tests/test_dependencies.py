@@ -351,7 +351,6 @@ class TestFreeTierModelGateWiring:
         # the gate must see form-encoded models, not just JSON ones
         from llm_gateway.config import get_settings
 
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_form_request(
@@ -378,7 +377,6 @@ class TestFreeTierModelGateWiring:
         # pins that enforce_throttles actually consults the gate on the request path
         from llm_gateway.config import get_settings
 
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-fable-5", "messages": []}, path="/array/v1/messages")
@@ -404,6 +402,14 @@ class TestFreeTierModelGateWiring:
 
 
 class TestPreviewModelGateWiring:
+    @pytest.fixture(autouse=True)
+    def billed_org(self):
+        with patch(
+            "llm_gateway.dependencies.resolve_plan_and_quota",
+            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+        ):
+            yield
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("flag_result", [False, None])
     async def test_preview_model_blocked_when_flag_off_or_unavailable(self, flag_result: bool | None) -> None:
@@ -447,6 +453,14 @@ class TestPreviewModelGateWiring:
 
 
 class TestBasetenExclusiveModelGateWiring:
+    @pytest.fixture(autouse=True)
+    def billed_org(self):
+        with patch(
+            "llm_gateway.dependencies.resolve_plan_and_quota",
+            AsyncMock(return_value=(MagicMock(), QuotaResourceStatus(limited=False, code_usage_billing_active=True))),
+        ):
+            yield
+
     # DeepSeek V4 Flash is Baseten-only with no fallback and isn't cleared for external rollout,
     # so it's blocked behind its own access flag (not the GLM Baseten routing flag).
     @pytest.mark.asyncio
@@ -505,7 +519,6 @@ class TestServerCredentialRequirementWiring:
         # pins that enforce_product_access actually applies the server-credential check on the path
         from llm_gateway.config import get_settings
 
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
@@ -522,7 +535,6 @@ class TestServerCredentialRequirementWiring:
         # real server-minted token (carrying the marker) would be wrongly rejected here.
         from llm_gateway.config import get_settings
 
-        monkeypatch.setenv("LLM_GATEWAY_POSTHOG_CODE_MODEL_GATE_ENABLED", "true")
         get_settings.cache_clear()
         try:
             request = _make_request({"model": "claude-sonnet-5", "messages": []}, path="/signals/v1/messages")
