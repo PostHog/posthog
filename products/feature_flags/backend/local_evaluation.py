@@ -54,7 +54,9 @@ from products.cohorts.backend.models.util import get_nested_cohort_ids
 from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.cache_keys import EU_CROSS_REGION_MIRROR_CACHE_KEY
 from products.feature_flags.backend.flags_cache import (
+    _blank_inactive_filters,
     _compare_flag_fields,
+    _is_unevaluable,
     get_team_ids_with_recently_updated_flags,
     get_teams_with_flags_queryset,
 )
@@ -630,7 +632,10 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
     for flag in all_flags:
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
         flag._has_experiment = flag.has_experiment_agg
-        referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
+        # A cohort only an unevaluable flag references can never reach the response, so loading
+        # it and walking its nested dependencies below is wasted work.
+        if not _is_unevaluable({"active": flag.active, "deleted": flag.deleted}):
+            referenced_cohort_ids.update(_extract_cohort_ids_from_filters(flag.filters or {}))
 
     # Load only the referenced cohorts and resolve nested dependencies
     # iteratively. Each iteration loads newly discovered nested cohort IDs
@@ -685,42 +690,51 @@ def _get_flags_response_for_local_evaluation_batch(teams: list[Team]) -> dict[in
 
         for feature_flag in team_flags_iter:
             try:
-                filters = feature_flag.get_filters()
+                flag_data = EvaluationFeatureFlagSerializer(feature_flag, context={}).data
 
-                # Pre-populate cache with empty entries for any referenced cohort_id
-                # not already loaded, so get_cohort_ids doesn't make fallback DB queries
-                # for deleted or cross-team cohorts.
-                for cid in _extract_cohort_ids_from_filters(filters):
-                    if cid not in seen_cohorts_cache:
-                        seen_cohorts_cache[cid] = ""
+                # An SDK skips a flag it cannot evaluate before it reads the filters, so the
+                # cohorts behind that targeting would ship for nothing. The targeting itself is
+                # dropped after the loop.
+                if not _is_unevaluable(flag_data):
+                    filters = feature_flag.get_filters()
 
-                cohort_ids = feature_flag.get_cohort_ids(
-                    using_database=DATABASE_FOR_LOCAL_EVALUATION,
-                    seen_cohorts_cache=seen_cohorts_cache,
-                )
+                    # Pre-populate cache with empty entries for any referenced cohort_id
+                    # not already loaded, so get_cohort_ids doesn't make fallback DB queries
+                    # for deleted or cross-team cohorts.
+                    for cid in _extract_cohort_ids_from_filters(filters):
+                        if cid not in seen_cohorts_cache:
+                            seen_cohorts_cache[cid] = ""
 
-                flags_data.append(EvaluationFeatureFlagSerializer(feature_flag, context={}).data)
+                    cohort_ids = feature_flag.get_cohort_ids(
+                        using_database=DATABASE_FOR_LOCAL_EVALUATION,
+                        seen_cohorts_cache=seen_cohorts_cache,
+                    )
 
-                for cohort_id in cohort_ids:
-                    str_id = str(cohort_id)
-                    if str_id not in cohorts:
-                        cohort = project_cohorts.get(cohort_id)
-                        if cohort is not None and not cohort.is_static:
-                            try:
-                                cohorts[str_id] = cohort.properties.to_dict()
-                            except Exception:
-                                logger.error(
-                                    "Error processing cohort properties",
-                                    extra={"cohort_id": cohort_id},
-                                    exc_info=True,
-                                )
+                    for cohort_id in cohort_ids:
+                        str_id = str(cohort_id)
+                        if str_id not in cohorts:
+                            cohort = project_cohorts.get(cohort_id)
+                            if cohort is not None and not cohort.is_static:
+                                try:
+                                    cohorts[str_id] = cohort.properties.to_dict()
+                                except Exception:
+                                    logger.error(
+                                        "Error processing cohort properties",
+                                        extra={"cohort_id": cohort_id},
+                                        exc_info=True,
+                                    )
 
+                flags_data.append(flag_data)
                 flag_id_to_key[str(feature_flag.id)] = feature_flag.key
 
             except Exception:
                 logger.error("Error processing feature flag", extra={"flag_id": feature_flag.pk}, exc_info=True)
                 FLAG_PROCESSING_ERROR_COUNTER.inc()
                 continue
+
+        # The same blanking the flags hypercache applies, for the same reason: the matcher
+        # skips these flags before it reads filters, so the targeting is unreachable weight.
+        _blank_inactive_filters(flags_data)
 
         response_data = _local_eval_response(
             flags=flags_data,
