@@ -63,7 +63,11 @@ function ActivityHeader({
           className="h-[31px] gap-0.5 p-0"
         >
           {ACTIVITY_TABS.map((t) => (
-            <TabsTrigger key={t.key} value={t.key} className="px-2.5">
+            <TabsTrigger
+              key={t.key}
+              value={t.key}
+              className="rounded-none px-2.5"
+            >
               <span className="font-medium text-[13px]">{t.label}</span>
             </TabsTrigger>
           ))}
