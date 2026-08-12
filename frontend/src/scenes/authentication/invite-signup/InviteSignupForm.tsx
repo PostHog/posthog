@@ -20,9 +20,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { loginLogic } from 'scenes/authentication/login/loginLogic'
-import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
-import { OrgTile } from 'scenes/authentication/shared/paperDesk/OrgTile'
-import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { OrgTile } from 'scenes/authentication/shared/authScene/OrgTile'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -30,7 +30,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PrevalidatedInvite, SSOProvider } from '~/types'
 
-import { ErrorCodes, inviteSignupLogic } from '../../inviteSignupLogic'
+import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 
 const HedgehogJudge = pngHoggie(judgePng)
 
@@ -118,7 +118,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
         <div className="flex flex-col gap-3 items-center mb-5">
             <div className="flex gap-3 items-center">
                 <OrgTile name={org} />
-                <span className="PaperDesk__inviteHeader-mark inline-flex opacity-90">
+                <span className="AuthScene__inviteHeader-mark inline-flex opacity-90">
                     <Logomark variant="gradient" size="md" />
                 </span>
             </div>
@@ -134,7 +134,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
 
     const footer = (
         <>
-            <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
+            <p className="AuthScene__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
                 By continuing you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     terms
@@ -158,9 +158,9 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
     )
 
     return (
-        <PaperDeskScene notes={["// you've been invited", `// ${org.toLowerCase()} is waiting`]}>
-            <PaperDeskCard top={inviteHeader} footer={footer}>
-                <CardTitle title="Create your account" sub="Your teammates are already in. This takes a minute." />
+        <AuthScene notes={["// you've been invited", `// ${org.toLowerCase()} is waiting`]}>
+            <AuthSceneCard top={inviteHeader} footer={footer}>
+                <AuthCardTitle title="Create your account" sub="Your teammates are already in. This takes a minute." />
                 {signupManualErrors?.generic && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
@@ -276,8 +276,8 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                         passkeyRegistering={isPasskeyRegistering}
                     />
                 )}
-            </PaperDeskCard>
-        </PaperDeskScene>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
 
@@ -288,12 +288,12 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
     const org = invite.organization_name
 
     return (
-        <PaperDeskScene notes={['// hey, welcome back', '// one more org for you']}>
-            <PaperDeskCard>
+        <AuthScene notes={['// hey, welcome back', '// one more org for you']}>
+            <AuthSceneCard>
                 <div className="mb-4 flex justify-center">
                     <OrgTile name={org} />
                 </div>
-                <CardTitle
+                <AuthCardTitle
                     title={`Join ${org}`}
                     sub="You'll accept this invite with your existing PostHog account:"
                     className="mb-4"
@@ -312,7 +312,7 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
                         </div>
                     </div>
                 )}
-                <p className="PaperDesk__sub mb-4 text-left text-sm text-secondary text-pretty">
+                <p className="AuthScene__sub mb-4 text-left text-sm text-secondary text-pretty">
                     Accepting adds <b className="text-primary">{org}</b> to your account. Switch between organizations
                     any time from the upper left of the app.
                 </p>
@@ -352,8 +352,8 @@ function InviteExistingAccount({ invite }: { invite: PrevalidatedInvite }): JSX.
                         </LemonButton>
                     </div>
                 )}
-            </PaperDeskCard>
-        </PaperDeskScene>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
 
@@ -436,14 +436,14 @@ function InviteInvalid(): JSX.Element {
     )
 
     return (
-        <PaperDeskScene notes={['// hmm', "// this invite isn't right"]}>
-            <PaperDeskCard footer={footer}>
+        <AuthScene notes={['// hmm', "// this invite isn't right"]}>
+            <AuthSceneCard footer={footer}>
                 <div className="flex flex-col items-center text-center">
                     <HedgehogJudge className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                         {titles[code]}
                     </h1>
-                    <p className="PaperDesk__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
+                    <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
                         {details[code]}
                     </p>
                     <div className="flex flex-col gap-2.5 w-full">
@@ -468,12 +468,12 @@ function InviteInvalid(): JSX.Element {
                         </LemonButton>
                     </div>
                 </div>
-            </PaperDeskCard>
-        </PaperDeskScene>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }
 
-function InviteSignup(): JSX.Element {
+export function InviteSignupForm(): JSX.Element {
     const { invite, inviteLoading, error } = useValues(inviteSignupLogic)
     const { user } = useValues(userLogic)
 
@@ -488,5 +488,3 @@ function InviteSignup(): JSX.Element {
     }
     return <SpinnerOverlay sceneLevel />
 }
-
-export { InviteSignup as PaperDeskInviteSignup }
