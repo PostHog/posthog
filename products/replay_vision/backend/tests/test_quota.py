@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
@@ -25,6 +26,7 @@ from products.replay_vision.backend.quota import (
     MONTHLY_CREDIT_QUOTA,
     BillingPeriod,
     ScannerBudget,
+    _parse_org_credit_limit_overrides,
     compute_quota_snapshot,
     compute_scanner_budget,
     compute_scanner_budgets,
@@ -605,6 +607,46 @@ class TestBillingSyncedQuota(_VisionQuotaTestCase):
         self.organization.save()
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.credit_limit == expected_quota
+
+    @parameterized.expand(
+        [
+            # An unlimited plan (billing syncs no limit) gets the override as its cap.
+            ("caps_an_uncapped_org", {"replay_vision_credits": {"limit": None, "usage": 0}}, 500, 500),
+            ("tighter_override_wins", {"replay_vision_credits": {"limit": 42, "usage": 0}}, 10, 10),
+            # The override can only reduce credits; a looser value never overrides billing.
+            ("looser_override_ignored", {"replay_vision_credits": {"limit": 42, "usage": 0}}, 9000, 42),
+        ]
+    )
+    def test_org_credit_limit_override(self, _name: str, usage: dict, override: int, expected_quota: int) -> None:
+        self.organization.usage = usage
+        self.organization.save()
+        with patch.dict(
+            "products.replay_vision.backend.quota.ORG_CREDIT_LIMIT_OVERRIDES",
+            {str(self.organization.id): override},
+        ):
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.credit_limit == expected_quota
+
+    def test_override_for_another_org_changes_nothing(self) -> None:
+        self.organization.usage = {"replay_vision_credits": {"limit": None, "usage": 0}}
+        self.organization.save()
+        with patch.dict(
+            "products.replay_vision.backend.quota.ORG_CREDIT_LIMIT_OVERRIDES",
+            {str(uuid.uuid4()): 500},
+        ):
+            snapshot = compute_quota_snapshot(organization_id=self.organization.id)
+        assert snapshot.credit_limit is None
+
+    @parameterized.expand(
+        [
+            ("valid", '{"a-b-c": 500000}', {"a-b-c": 500000}),
+            ("not_an_object", "[1, 2]", {}),
+            ("non_int_value", '{"a": "lots"}', {}),
+            ("invalid_json", "{nope", {}),
+        ]
+    )
+    def test_parse_org_credit_limit_overrides(self, _name: str, raw: str, expected: dict) -> None:
+        assert _parse_org_credit_limit_overrides(raw) == expected
 
     def test_uncapped_org_is_never_exhausted(self) -> None:
         self.organization.usage = {"replay_vision_credits": {"limit": None, "usage": 0}}

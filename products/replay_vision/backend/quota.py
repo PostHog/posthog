@@ -1,3 +1,4 @@
+import json
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -32,6 +33,26 @@ logger = structlog.get_logger(__name__)
 # limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
 # free-tier org; self-hosted deployments raise it via the env var.
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
+
+
+def _parse_org_credit_limit_overrides(raw: str) -> dict[str, int]:
+    """JSON org-id -> monthly credit cap; malformed config fails toward no override, never toward a crash."""
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"expected an object, got {type(parsed).__name__}")
+        return {str(org_id): int(limit) for org_id, limit in parsed.items()}
+    except (ValueError, TypeError):
+        logger.exception("replay_vision.malformed_org_credit_limit_overrides")
+        return {}
+
+
+# Per-org monthly credit caps applied on top of billing's limit (the tighter one wins). For internal
+# orgs on unlimited plans, where billing correctly syncs no limit but dogfooding spend still needs a
+# ceiling. Enforcement and every spend surface treat it exactly like a billing limit.
+ORG_CREDIT_LIMIT_OVERRIDES: dict[str, int] = get_from_env(
+    "REPLAY_VISION_ORG_CREDIT_LIMIT_OVERRIDES", {}, type_cast=_parse_org_credit_limit_overrides
+)
 
 # Billing's usage_key for this product; see ee/billing/quota_limiting.QuotaResource.REPLAY_VISION_CREDITS.
 USAGE_KEY = "replay_vision_credits"
@@ -403,6 +424,11 @@ def quota_state(organization_id: UUID) -> QuotaState:
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA
+    # The tighter of billing's limit and the override, so a config mistake can only reduce credits;
+    # this is how an internal org on an unlimited plan still gets a spend ceiling.
+    override = ORG_CREDIT_LIMIT_OVERRIDES.get(str(organization_id))
+    if override is not None:
+        credit_limit = override if credit_limit is None else min(credit_limit, override)
     return QuotaState(
         credit_limit=credit_limit,
         credits_used=usage,
