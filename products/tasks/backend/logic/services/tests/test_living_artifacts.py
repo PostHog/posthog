@@ -1,4 +1,5 @@
 import io
+import time
 import zipfile
 from typing import Any, ClassVar
 
@@ -17,10 +18,12 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
     _SLACK_CODE_FENCE,
+    _SLACK_MESSAGE_BLOCK_LIMIT,
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
     _chart_card_blocks,
+    _post_composed_answer_message,
     _section_blocks,
     _SlackImageCard,
     create_living_artifact,
@@ -852,3 +855,33 @@ class TestChartCardBlockBuilders(SimpleTestCase):
         card = _SlackImageCard(TaskArtifact(name="Chart"), {}, image_url=image_url)
         blocks = _chart_card_blocks(card)
         self.assertEqual(blocks[1], {"type": "image", "image_url": image_url, "alt_text": "Chart"})
+
+    @parameterized.expand(
+        [
+            ("composed", 1),
+            # Two blocks per card, so this many cards overflows the cap and takes the per-card path.
+            ("per_card", _SLACK_MESSAGE_BLOCK_LIMIT // 2 + 1),
+        ]
+    )
+    def test_mention_shaped_artifact_name_is_escaped_in_message_text(self, _name, card_count):
+        # Artifact names are task-controlled and Slack parses a message's top-level text as
+        # mrkdwn, so an unescaped name could notify a channel as the PostHog bot.
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ok": True, "ts": "1111.2"}
+        cards = [
+            _SlackImageCard(TaskArtifact(name="<!channel> spike.png"), {}, file_id=f"F{index}")
+            for index in range(card_count)
+        ]
+
+        _post_composed_answer_message(
+            slack,
+            mapping=MagicMock(channel="C123", thread_ts="1111.1"),
+            image_cards=cards,
+            answer_sections=[],
+            mark_delivered=lambda card: None,
+            deadline=time.monotonic() + 30,
+        )
+
+        self.assertEqual(slack.chat_postMessage.call_count, 1 if card_count == 1 else card_count)
+        for call in slack.chat_postMessage.call_args_list:
+            self.assertEqual(call.kwargs["text"], "&lt;!channel&gt; spike")

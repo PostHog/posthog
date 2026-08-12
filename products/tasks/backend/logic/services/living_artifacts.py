@@ -1144,7 +1144,7 @@ def _post_composed_answer_message(
     # Cards alone can exceed the block cap (17+ charts) — composing would then fail
     # deterministically as invalid_blocks, so go straight to the per-card path.
     if len(kept) + len(card_blocks) <= _SLACK_MESSAGE_BLOCK_LIMIT:
-        fallback_text = sections[0] if sections else _artifact_display_title(image_cards[0].artifact)
+        fallback_text = sections[0] if sections else _artifact_fallback_text(image_cards[0].artifact)
         try:
             _post_blocks_with_processing_retry(
                 slack,
@@ -1171,7 +1171,7 @@ def _post_composed_answer_message(
                 slack,
                 channel=mapping.channel,
                 thread_ts=mapping.thread_ts,
-                text=_artifact_display_title(card.artifact),
+                text=_artifact_fallback_text(card.artifact),
                 blocks=_chart_card_blocks(card),
                 attempts=_IMAGE_BLOCK_FALLBACK_ATTEMPTS,
                 deadline=deadline,
@@ -1269,6 +1269,12 @@ def _artifact_display_title(artifact: TaskArtifact) -> str:
     # The artifact name is a filename (the chart endpoint appends .png); Slack titles
     # and notification previews are display copy, so drop the extension there.
     return os.path.splitext(artifact.name)[0] or artifact.name
+
+
+def _artifact_fallback_text(artifact: TaskArtifact) -> str:
+    # Slack parses a message's top-level text as mrkdwn, so an artifact named `<@U…>` or
+    # `<!channel>` would notify from the PostHog bot — escape it like the title block does.
+    return _escape_slack_mrkdwn_text(_artifact_display_title(artifact))
 
 
 def _chart_card_blocks(card: _SlackImageCard) -> list[dict[str, Any]]:
