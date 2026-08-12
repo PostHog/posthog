@@ -2377,6 +2377,15 @@ class TestFileSystemSerializerInputValidation(SimpleTestCase):
             ("meta_too_large", {"path": "a", "type": "doc", "meta": {"k": "x" * (MAX_META_BYTES + 1)}}, "meta"),
             ("path_too_long", {"path": "x" * (MAX_PATH_LENGTH + 1), "type": "doc"}, "path"),
             ("path_too_many_segments", {"path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1)), "type": "doc"}, "path"),
+            ("href_javascript", {"path": "a", "type": "link", "href": "javascript:alert(1)"}, "href"),
+            ("href_javascript_uppercase", {"path": "a", "type": "link", "href": "JaVaScRiPt:alert(1)"}, "href"),
+            ("href_javascript_tab_in_scheme", {"path": "a", "type": "link", "href": "java\tscript:alert(1)"}, "href"),
+            ("href_javascript_leading_space", {"path": "a", "type": "link", "href": "  javascript:alert(1)"}, "href"),
+            ("href_vbscript", {"path": "a", "type": "link", "href": "vbscript:msgbox(1)"}, "href"),
+            ("href_data_uri", {"path": "a", "type": "link", "href": "data:text/html,<script>x</script>"}, "href"),
+            ("href_protocol_relative", {"path": "a", "type": "link", "href": "//evil.example.com/x"}, "href"),
+            ("href_backslash_relative", {"path": "a", "type": "link", "href": "/\\evil.example.com/x"}, "href"),
+            ("href_scheme_relative", {"path": "a", "type": "link", "href": "insights/abc123"}, "href"),
         ]
     )
     def test_rejects_out_of_bounds_input(self, _name: str, payload: dict[str, Any], field: str) -> None:
@@ -2391,6 +2400,12 @@ class TestFileSystemSerializerInputValidation(SimpleTestCase):
             ("meta_absent", {"path": "a/b", "type": "doc"}),
             ("meta_empty", {"path": "a/b", "type": "doc", "meta": {}}),
             ("path_at_segment_limit", {"path": "/".join(["s"] * MAX_PATH_SEGMENTS), "type": "doc"}),
+            ("href_app_path", {"path": "a/b", "type": "link", "href": "/insights/abc123?tab=1#x"}),
+            ("href_root", {"path": "a/b", "type": "link", "href": "/"}),
+            ("href_absolute_https", {"path": "a/b", "type": "link", "href": "https://app.example.com/x"}),
+            ("href_absolute_http", {"path": "a/b", "type": "link", "href": "http://app.example.com/x"}),
+            ("href_empty", {"path": "a/b", "type": "link", "href": ""}),
+            ("href_null", {"path": "a/b", "type": "link", "href": None}),
         ]
     )
     def test_accepts_in_bounds_input(self, _name: str, payload: dict[str, Any]) -> None:
@@ -2408,6 +2423,12 @@ class TestFileSystemInputValidationAPI(APIBaseTest):
 
     def test_create_with_too_many_path_segments_is_rejected_and_writes_nothing(self):
         response = self.client.post(self.url, {"path": "/".join(["s"] * (MAX_PATH_SEGMENTS + 1)), "type": "doc"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 0)
+
+    def test_create_with_a_script_href_is_rejected_and_writes_nothing(self):
+        response = self.client.post(self.url, {"path": "Trap", "type": "link", "href": "javascript:alert(1)"})
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(FileSystem.objects.filter(team=self.team).count(), 0)

@@ -36,6 +36,15 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         self.assertEqual(response_data["path"], "Document.txt")
         self.assertEqual(response_data["type"], "doc-file")
 
+    def test_create_shortcut_with_a_script_href_is_rejected_and_writes_nothing(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/",
+            {"path": "Trap", "type": "link", "href": "javascript:alert(1)"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(FileSystemShortcut.objects.filter(team=self.team).count(), 0)
+
     def test_retrieve_shortcut(self):
         shortcut_obj = FileSystemShortcut.objects.create(
             team=self.team,

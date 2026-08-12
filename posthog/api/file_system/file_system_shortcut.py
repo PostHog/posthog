@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Case, Q, QuerySet, When
@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
+from posthog.api.file_system.file_system import validate_file_system_href
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
@@ -44,6 +45,9 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
             },
             "order": {"help_text": "Display order within the user's shortcut list, ascending."},
         }
+
+    def validate_href(self, href: Optional[str]) -> Optional[str]:
+        return validate_file_system_href(href)
 
     def update(self, instance: FileSystemShortcut, validated_data: dict[str, Any]) -> FileSystemShortcut:
         instance.team_id = self.context["team_id"]

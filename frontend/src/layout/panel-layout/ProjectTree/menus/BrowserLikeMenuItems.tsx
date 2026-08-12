@@ -1,6 +1,7 @@
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
 import { CustomMenuProps } from '../types'
 
@@ -21,6 +22,11 @@ export function BrowserLikeMenuItems({
                 asChild
                 onClick={(e) => {
                     e.stopPropagation()
+                    // `href` is server-supplied for tree and shortcut rows, and window.open honors
+                    // whatever scheme it is handed, unlike Link which rewrites its target.
+                    if (!isTrustedPostHogUrl(href)) {
+                        return
+                    }
                     window.open(href, '_blank')
                     onClick?.()
                 }}

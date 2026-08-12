@@ -73,6 +73,27 @@ MAX_META_BYTES = 1_000_000
 RECENTS_SEARCH_SCAN_LIMIT = 200
 
 
+# Browsers drop C0 controls and DEL from anywhere in a URL, so `java<TAB>script:` navigates as
+# `javascript:`. An href has to be judged on what the browser will resolve, not the stored bytes.
+HREF_IGNORED_CHARS = dict.fromkeys([*range(0x00, 0x20), 0x7F])
+
+# A leading `//` (or `/\`, which browsers read the same way) is a protocol-relative URL to another
+# host rather than an app path, so it doesn't count as relative.
+HREF_ALLOWED_PREFIX = re.compile(r"^(?:/(?![/\\])|https?://)", re.IGNORECASE)
+
+
+def validate_file_system_href(href: Optional[str]) -> Optional[str]:
+    """Keep a caller-supplied href to targets the app can navigate to. A row is readable by everyone
+    in the project and its href reaches raw navigation in the tree menu, so the scheme cannot be
+    left open."""
+    if not href:
+        return href
+    normalized = href.translate(HREF_IGNORED_CHARS).strip()
+    if not HREF_ALLOWED_PREFIX.match(normalized):
+        raise serializers.ValidationError("Href must start with '/' or be an http(s) URL.")
+    return normalized
+
+
 def validate_file_system_path(path: Any) -> str:
     """Bound a caller-supplied path before it reaches the per-segment folder creation loop, which
     costs one existence check plus one insert per segment and autocommits each one."""
@@ -116,6 +137,9 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
 
     def validate_path(self, path: str) -> str:
         return validate_file_system_path(path)
+
+    def validate_href(self, href: Optional[str]) -> Optional[str]:
+        return validate_file_system_href(href)
 
     def validate_meta(self, meta: Any) -> dict[str, Any]:
         # Readers treat `meta` as an object, so anything else stored here breaks every listing that
