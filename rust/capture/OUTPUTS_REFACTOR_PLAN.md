@@ -265,8 +265,8 @@ When all steps land, the five strata hold:
 | 2 · Pure `route()` | done | `refactor(capture): extract pure route() from prepare_record` |
 | 3 · `OutputRegistry` + completeness | done | `refactor(capture): output registry with startup completeness check` |
 | 4 · Serialization layer | done | `refactor(capture): serialization layer behind one seam` |
-| 5 · `Pipeline` + `Lane`; lane resolution | pending | `refactor(capture): pipeline and lane address; lane decision moves to the pipeline layer` |
-| 6 · Kafka sink → backend mechanism | pending | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
+| 5 · `Pipeline` + `Lane`; lane resolution | done | `refactor(capture): lane decision moves to the pipeline layer` |
+| 6 · Kafka sink → backend mechanism | done | `refactor(capture): narrow the kafka sink to backend mechanism over prepared payloads` |
 | 7 · Outputs layer with policies; composites retired | pending | `feat(capture): outputs layer owns the failover policy` |
 | 8a · Call sites on the table | pending | `refactor(capture): call sites publish through outputs` |
 | 8b · `Event` retired | pending | `refactor(capture): retire v0 Event trait` |

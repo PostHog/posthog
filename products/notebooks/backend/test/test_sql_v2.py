@@ -1,10 +1,13 @@
 import io
+import os
 import json
 import math
 import tarfile
 import datetime
+import tempfile
 import threading
 import urllib.error
+import email.message
 import urllib.request
 from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
@@ -14,6 +17,7 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
@@ -1597,6 +1601,25 @@ class TestSQLV2DataPlaneToken(SimpleTestCase):
             verify_data_plane_token(make_token())
 
 
+class TestFrameStoreFlagResolution(SimpleTestCase):
+    @parameterized.expand([("enabled", True), ("disabled", False)])
+    def test_frame_store_flag_is_its_own_flag(self, _name, flag_value):
+        # Every other frame-store test patches is_frame_store_enabled, so this is the only
+        # place the flag key is checked. It shares _flag_enabled_for with is_sql_v2_enabled,
+        # and a refactor that collapsed the two would put every revamped-notebooks user on
+        # object storage — in production only, with the rest of the suite still green.
+        from products.notebooks.backend.sql_v2 import NOTEBOOKS_FRAME_STORE_FLAG, is_frame_store_enabled
+
+        # A structural stub, not a User row: the helper only reads distinct_id and
+        # organization, so this keeps the case off the database.
+        user: Any = SimpleNamespace(distinct_id="user-distinct-id", organization=None)
+        with patch("products.notebooks.backend.sql_v2.posthoganalytics.feature_enabled") as feature_enabled:
+            feature_enabled.return_value = flag_value
+            self.assertEqual(is_frame_store_enabled(user), flag_value)
+        self.assertEqual(feature_enabled.call_args.args[0], NOTEBOOKS_FRAME_STORE_FLAG)
+        self.assertEqual(NOTEBOOKS_FRAME_STORE_FLAG, "notebooks-frame-store")
+
+
 class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     URL = "/internal/notebooks/data_plane/query/"
 
@@ -1675,7 +1698,12 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
 
         frame_uuid = "018e0e7a-1111-2222-3333-444444444444"
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        # Presign against the endpoint this process writes through, dropping the cached storage
+        # client so the override applies — see test_frame_store.py for why both halves matter.
+        with (
+            self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_PUBLIC_ENDPOINT=settings.OBJECT_STORAGE_ENDPOINT),
+            patch.object(object_storage, "_client", object_storage.UnavailableStorage()),
+        ):
             self.addCleanup(self._delete_team_frames)
             response = self._run_to_completion(
                 {
@@ -1698,11 +1726,11 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("frame_store_disabled", False, True),
+            ("object_storage_unconfigured", False, True),
             ("user_not_in_rollout", True, False),
         ]
     )
-    def test_object_delivery_falls_back_to_inline(self, _name, frame_store_enabled, in_rollout):
+    def test_object_delivery_falls_back_to_inline(self, _name, object_storage_enabled, in_rollout):
         # Either gate failing must degrade to the inline (Redis) path rather than hard-fail
         # the cell, and must write no object. The rollout case is the one that matters for
         # the flag: dropping that check would put every user's frames on object storage.
@@ -1710,7 +1738,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
 
         from products.notebooks.backend import frame_store
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=frame_store_enabled, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=object_storage_enabled):
             with patch(
                 "products.notebooks.backend.sql_v2_data_plane.is_frame_store_enabled",
                 return_value=in_rollout,
@@ -1719,6 +1747,9 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
             self.assertEqual(response.status_code, 200, response.content)
             _columns, rows, _types = decode_arrow_stream(response.content)
             self.assertEqual(len(rows), 3)
+        # Checked with storage back on: the unconfigured client returns None for any prefix,
+        # so asserting inside the block above would pass even if a frame had been written.
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             self.assertIsNone(object_storage.list_objects(frame_store.team_prefix(self.team.id)))
 
     def test_object_delivery_failure_surfaces_error_and_stores_no_object(self):
@@ -1729,7 +1760,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         from products.notebooks.backend import frame_store
         from products.notebooks.backend.temporal import frame_materialize
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             with patch.object(frame_materialize.frame_store, "write_stream", side_effect=Exception("upload torn")):
                 response = self._run_to_completion({"query": "select number from numbers(3)", "delivery": "object"})
             self.assertEqual(response.status_code, 400, response.content)
@@ -1741,7 +1772,7 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         # job instead of stacking a second ClickHouse execution.
         from products.notebooks.backend.temporal import frame_materialize
 
-        with self.settings(NOTEBOOKS_FRAME_STORE_ENABLED=True, OBJECT_STORAGE_ENABLED=True):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
             # Leave the job "running": the materialize body never executes, so the status
             # stays incomplete and the cache-key mapping stays registered.
             with patch.object(frame_materialize, "materialize_frame"):
@@ -2316,10 +2347,10 @@ class TestSQLV2KernelPackage(SimpleTestCase):
                 patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
                 patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
             ):
-                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
+                materialized = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "secret-token", "select 1", dest, limit=1000
                 )
-            self.assertEqual(rows, 2)
+            self.assertEqual(materialized.row_count, 2)
             self.assertEqual(pa.ipc.open_file(pa.memory_map(dest)).read_all().num_rows, 2)
 
         (download,) = download_requests
@@ -2327,8 +2358,57 @@ class TestSQLV2KernelPackage(SimpleTestCase):
         self.assertFalse(download.has_header("Authorization"))
         # The surfaced source is a bearer secret truncated to a host-only preview: it must
         # never carry the signature query parameters.
-        self.assertEqual(fetched_from, presigned_url[:30])
-        self.assertNotIn("X-Amz-Signature", fetched_from or "")
+        self.assertEqual(materialized.source, presigned_url[:30])
+        self.assertNotIn("X-Amz-Signature", materialized.source or "")
+
+    def test_a_failure_after_the_accept_keeps_the_transport_it_was_served_by(self):
+        # The transport is only known from the accept body, and everything below the poll
+        # raises without it. If the failure path drops it, every failed run is recorded as
+        # delivery="none" and the per-transport failure ratio only ever counts successes.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, content_type: str, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": content_type}
+
+            def __exit__(self, *args):
+                return False
+
+        def fake_urlopen(request, timeout=None):
+            return _FakeResponse("application/json", b'{"query_id": "q1", "delivery": "object_relay"}')
+
+        def fake_poll_open(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 500, "Boom", email.message.Message(), None)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            patch.object(kernel_data_plane._no_redirect_opener, "open", side_effect=fake_poll_open),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            with self.assertRaises(kernel_data_plane.DataPlaneError) as caught:
+                kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", os.path.join(directory, "df.arrow"), limit=1000
+                )
+        self.assertEqual(caught.exception.delivery, "object_relay")
+
+    def test_a_failure_before_the_accept_has_no_transport_to_report(self):
+        # Nothing chose a transport yet, so the run belongs in the unlabeled bucket rather
+        # than being attributed to whichever transport it would have used.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        def fake_urlopen(request, timeout=None):
+            raise urllib.error.HTTPError(request.full_url, 400, "Bad query", email.message.Message(), None)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            tempfile.TemporaryDirectory() as directory,
+        ):
+            with self.assertRaises(kernel_data_plane.DataPlaneError) as caught:
+                kernel_data_plane.materialize_query_to_file(
+                    "http://backend/dp", "t", "select 1", os.path.join(directory, "df.arrow"), limit=1000
+                )
+        self.assertIsNone(caught.exception.delivery)
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()
@@ -2367,11 +2447,11 @@ class TestSQLV2PythonNodeRun(SimpleTestCase):
                 "urlopen",
                 side_effect=lambda request, timeout=None: _FakeResponse(arrow_bytes),
             ):
-                rows, fetched_from, _download_s = kernel_data_plane.materialize_query_to_file(
+                materialized = kernel_data_plane.materialize_query_to_file(
                     "http://backend/dp", "t", "select 1", dest, limit=1000
                 )
-            self.assertEqual(rows, 2)
-            self.assertIsNone(fetched_from)  # inline body — no presigned source to surface
+            self.assertEqual(materialized.row_count, 2)
+            self.assertIsNone(materialized.source)  # inline body — no presigned source to surface
             table = pa.ipc.open_file(pa.memory_map(dest)).read_all()
             self.assertEqual(table.num_rows, 2)
             self.assertEqual(table.column_names, ["id", "v"])
@@ -2489,7 +2569,8 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
     def test_callback_reports_the_run_with_its_outcome(self, envelope_status, expected_outcome, mock_report):
         run = self._create_run()
         token = mint_callback_token(str(run.id), self.team.id)
-        before = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        labels = {"node_type": "hogql", "outcome": expected_outcome, "delivery": "object_relay"}
+        before = self._histogram_count(labels)
         response = self.client.post(
             f"/internal/notebooks/runs/{run.id}/result/",
             data=json.dumps(
@@ -2497,6 +2578,7 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
                     "envelope": {
                         "status": envelope_status,
                         "row_count": 3,
+                        "delivery": "object_relay",
                         "timings": {"input_wait_s": 1.5, "exec_s": 0.4, "sandbox_total_s": 2.0},
                     }
                 }
@@ -2512,13 +2594,14 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(properties["notebook_short_id"], "nbmet01")
         self.assertEqual(properties["node_type"], "hogql")
         self.assertEqual(properties["row_count"], 3)
+        self.assertEqual(properties["delivery"], "object_relay")
         self.assertEqual(properties["input_wait_seconds"], 1.5)
         self.assertEqual(properties["exec_seconds"], 0.4)
         self.assertEqual(properties["sandbox_total_seconds"], 2.0)
         self.assertGreaterEqual(properties["duration_seconds"], 0)
         # $groups must come from the run's own team, not the user's currently active project.
         self.assertEqual(mock_report.call_args.kwargs["team"].id, self.team.id)
-        after = self._histogram_count({"node_type": "hogql", "outcome": expected_outcome})
+        after = self._histogram_count(labels)
         self.assertEqual(after, before + 1)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
@@ -2649,6 +2732,30 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.DONE)
         properties = mock_report.call_args[0][1]
         self.assertNotIn("exec_seconds", properties)
+
+    @parameterized.expand(
+        [
+            ("forged_string", "'; drop--"),
+            ("unknown_mode", "object_something_new"),
+            ("not_a_string", 17),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_an_unrecognized_delivery_never_becomes_a_metric_label(self, _name, delivery, mock_report):
+        # The envelope is built inside the sandbox, where user code can forge it, and
+        # `delivery` becomes a Prometheus label. Anything outside the known transports must
+        # collapse to "none" rather than minting a new time series per forged value.
+        run = self._create_run()
+        token = mint_callback_token(str(run.id), self.team.id)
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": {"status": "ok", "delivery": delivery}}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_report.call_args[0][1]["delivery"], "none")
+        self.assertEqual(self._histogram_count({"node_type": "hogql", "outcome": "done", "delivery": delivery}), 0.0)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
     def test_completed_event_survives_a_hard_deleted_user(self, mock_report):

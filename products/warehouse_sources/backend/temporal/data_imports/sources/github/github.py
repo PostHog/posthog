@@ -50,12 +50,14 @@ GITHUB_BASE_URL = "https://api.github.com"
 # source's resolved pin; this constant is only the fallback for callers outside a source instance.
 GITHUB_DEFAULT_API_VERSION = "2022-11-28"
 
-# Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, or the
-# "Repository webhooks: read and write" permission on a fine-grained token. Name both so
-# the error/setup guidance doesn't mislead whichever token type the user connected.
+# Managing repo webhooks needs the `admin:repo_hook` scope on a classic token, the "Repository
+# webhooks: read and write" permission on a fine-grained token, or the same permission on an app
+# installation. Name all three so the guidance doesn't mislead whichever way the user connected —
+# an app installation in particular can't be fixed by editing a token.
 _WEBHOOK_PERMISSION_HINT = (
-    "the `admin:repo_hook` scope (classic token) or the "
-    '"Repository webhooks: read and write" permission (fine-grained token)'
+    "the `admin:repo_hook` scope (classic token), the "
+    '"Repository webhooks: read and write" permission (fine-grained token), '
+    "or repository webhook access on the GitHub app installation"
 )
 
 
@@ -1573,7 +1575,7 @@ def create_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1603,7 +1605,7 @@ def ensure_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to create a repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1646,7 +1648,7 @@ def ensure_repo_webhook(
         return WebhookCreationResult(
             success=False,
             error=(
-                f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
+                f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository webhook. "
                 "Add it and reconnect, or set up the webhook manually following the steps below."
             ),
         )
@@ -1733,7 +1735,7 @@ def delete_repo_webhook(
     if error == "permission":
         return WebhookDeletionResult(
             success=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
     if error is not None:
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {error}")
@@ -1757,7 +1759,7 @@ def delete_repo_webhook(
     if _is_repo_hook_permission_error(response):
         return WebhookDeletionResult(
             success=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT}. Please delete the webhook manually.",
         )
     return WebhookDeletionResult(
         success=False, error=f"Failed to delete webhook: {response.status_code} {response.text}"
@@ -1768,7 +1770,7 @@ def _webhook_update_permission_result(events: list[str]) -> WebhookSyncResult:
     return WebhookSyncResult(
         success=False,
         error=(
-            f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
+            f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to update the repository "
             f"webhook. Add it and reconnect, or add these events to the webhook manually: {', '.join(events)}."
         ),
     )
@@ -1853,7 +1855,7 @@ def get_repo_webhook_info(
     if error == "permission":
         return ExternalWebhookInfo(
             exists=False,
-            error=f"Your GitHub token lacks {_WEBHOOK_PERMISSION_HINT} needed to read repository webhooks.",
+            error=f"Your GitHub connection lacks {_WEBHOOK_PERMISSION_HINT} needed to read repository webhooks.",
         )
     if error is not None:
         return ExternalWebhookInfo(exists=False, error=f"Failed to check webhook status: {error}")

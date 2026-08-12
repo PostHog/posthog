@@ -38,6 +38,11 @@ _SLACK_ARTIFACT_DELIVERY_KEY = "slack_artifact_delivery"
 _SLACK_ARTIFACT_DELIVERY_NONE = "none"
 _SLACK_ARTIFACT_DELIVERY_MESSAGE = "message"
 _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE = "canvas_file"
+# Charts are a second key rather than a fourth mode: an agent build that predates them
+# ignores an unknown key and still renders the mode it knows, whereas an unknown *mode*
+# matches nothing and drops the delivery constraints entirely. The agent ships as a
+# published package baked into the sandbox image, so it can lag a backend deploy.
+_SLACK_CHART_DELIVERY_KEY = "slack_chart_delivery"
 
 
 # Cap on how many messages a single follow-up update block can carry. Threads with
@@ -117,11 +122,14 @@ def _indent_body(text: str, indent: str = "  ") -> str:
 def _artifact_delivery_state_updates(integration: Integration) -> dict[str, Any]:
     """Run state telling the agent which Slack delivery routes this workspace has.
 
-    The agent turns the mode into its delivery constraints, so the wording lives with the
+    The agent turns these into its delivery constraints, so the wording lives with the
     agent and the gating stays here. Canvas and file delivery needs its own rollout flag
     *and* the Slack scopes the adapters write with, so that the agent is never invited to
-    create an artifact delivery would reject. Resolved when the run is created, before the
-    sandbox boots and reads the state.
+    create an artifact delivery would reject. Charts are gated on the flag alone: they
+    post as an image block referencing a PostHog-hosted url, which needs no upload and so
+    no ``files:write``. That difference is the whole point of the separate key — a
+    workspace waiting on the in-review scopes can still deliver charts. Resolved when the
+    run is created, before the sandbox boots and reads the state.
     """
     from products.slack_app.backend.feature_flags import (  # noqa: PLC0415
         is_slack_app_canvas_file_artifacts_enabled,
@@ -129,14 +137,14 @@ def _artifact_delivery_state_updates(integration: Integration) -> dict[str, Any]
     )
 
     if not is_slack_app_living_artifacts_enabled(integration):
-        mode = _SLACK_ARTIFACT_DELIVERY_NONE
-    elif is_slack_app_canvas_file_artifacts_enabled(integration) and not SlackIntegration(integration).missing_scopes(
-        _SLACK_CANVAS_FILE_ADAPTER_SCOPES
-    ):
+        return {_SLACK_ARTIFACT_DELIVERY_KEY: _SLACK_ARTIFACT_DELIVERY_NONE, _SLACK_CHART_DELIVERY_KEY: False}
+
+    charts_enabled = is_slack_app_canvas_file_artifacts_enabled(integration)
+    if charts_enabled and not SlackIntegration(integration).missing_scopes(_SLACK_CANVAS_FILE_ADAPTER_SCOPES):
         mode = _SLACK_ARTIFACT_DELIVERY_CANVAS_FILE
     else:
         mode = _SLACK_ARTIFACT_DELIVERY_MESSAGE
-    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode}
+    return {_SLACK_ARTIFACT_DELIVERY_KEY: mode, _SLACK_CHART_DELIVERY_KEY: charts_enabled}
 
 
 def _uploaded_attachment_ids(uploaded_artifacts: list[dict[str, Any]]) -> list[str]:
