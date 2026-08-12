@@ -1,5 +1,4 @@
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
-import { useRevealPanels } from "@posthog/ui/features/panels/useRevealPanels";
 import { createContext, type ReactNode, useCallback, useContext } from "react";
 
 export interface ArtifactTarget {
@@ -8,9 +7,9 @@ export interface ArtifactTarget {
   name: string;
 }
 
-// A surface that shows the session without the task's panels — the command
-// center grid, the canvas side panel — hosts artifact tabs itself, so a file
-// opens where the user is looking instead of on another route.
+// A surface that shows a session without the task's panels — the command center
+// grid, the canvas side panel — hosts artifact tabs itself, so a file opens
+// where the user is looking instead of in a tab strip that isn't mounted.
 const ArtifactTabHostContext = createContext<
   ((artifact: ArtifactTarget) => void) | null
 >(null);
@@ -36,7 +35,6 @@ export function useOpenArtifact(): (
 ) => void {
   const host = useContext(ArtifactTabHostContext);
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
-  const revealPanels = useRevealPanels();
 
   return useCallback(
     (taskId, artifact) => {
@@ -45,8 +43,7 @@ export function useOpenArtifact(): (
         return;
       }
       openArtifactTab(taskId, artifact);
-      revealPanels();
     },
-    [host, openArtifactTab, revealPanels],
+    [host, openArtifactTab],
   );
 }

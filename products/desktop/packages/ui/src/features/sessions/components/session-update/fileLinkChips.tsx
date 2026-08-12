@@ -3,7 +3,6 @@ import { useCallback, useMemo } from "react";
 import { Tooltip } from "../../../../primitives/Tooltip";
 import { usePendingScrollStore } from "../../../code-editor/pendingScrollStore";
 import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
-import { useRevealPanels } from "../../../panels/useRevealPanels";
 import type { FileItem } from "../../../repo-files/useRepoFiles";
 import { useRepoFiles } from "../../../repo-files/useRepoFiles";
 import { useCwd } from "../../../sidebar/useCwd";
@@ -46,7 +45,6 @@ export function InlineFileLink({
   const taskId = useSessionTaskId();
   const repoPath = useCwd(taskId ?? "");
   const openFileInSplit = usePanelLayoutStore((s) => s.openFileInSplit);
-  const revealPanels = useRevealPanels();
   const requestScroll = usePendingScrollStore((s) => s.requestScroll);
 
   const handleClick = useCallback(() => {
@@ -63,16 +61,7 @@ export function InlineFileLink({
       if (line > 0) requestScroll(absolutePath, line);
     }
     openFileInSplit(taskId, relativePath, true);
-    revealPanels();
-  }, [
-    taskId,
-    filePath,
-    lineSuffix,
-    repoPath,
-    openFileInSplit,
-    revealPanels,
-    requestScroll,
-  ]);
+  }, [taskId, filePath, lineSuffix, repoPath, openFileInSplit, requestScroll]);
 
   const tooltipText = resolvedPath ?? text;
 
