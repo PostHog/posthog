@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 
-export function CardTitle({
+export function AuthCardTitle({
     title,
     sub,
     className,
