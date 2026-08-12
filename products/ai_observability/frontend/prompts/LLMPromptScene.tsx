@@ -8,10 +8,8 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -43,7 +41,6 @@ export const scene: SceneExport<PromptLogicProps> = {
         promptName: name && name !== 'new' ? name : 'new',
         // kea-router JSON-decodes query values, so ?edit=true arrives as boolean true
         mode: String(searchParams?.edit) === 'true' ? PromptMode.Edit : PromptMode.View,
-        selectedVersion: searchParams?.version ? Number(searchParams.version) || null : null,
     }),
 }
 
@@ -65,14 +62,10 @@ export function LLMPromptScene(): JSX.Element {
         isPromptFormDirty,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const labelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_PROMPT_LABELS]
     const currentSearchParams = searchParams ?? {}
-    // A ?tab= pointing at a tab that is not rendered (e.g. history with the flag off)
-    // would leave LemonTabs with no matching content; fall back to overview instead.
-    const availableViewTabs = labelsEnabled
-        ? ['code', 'usage', 'experiments', 'history']
-        : ['code', 'usage', 'experiments']
+    // A ?tab= pointing at a tab that is not rendered would leave LemonTabs with no
+    // matching content; fall back to overview instead.
+    const availableViewTabs = ['code', 'usage', 'experiments', 'history']
     const activeViewTab = availableViewTabs.includes(searchParams?.tab) ? searchParams.tab : 'overview'
 
     const {
@@ -236,20 +229,16 @@ export function LLMPromptScene(): JSX.Element {
                                     label: 'Experiments',
                                     content: <PromptExperiments prompt={prompt} />,
                                 },
-                                ...(labelsEnabled
-                                    ? [
-                                          {
-                                              key: 'history',
-                                              label: 'History',
-                                              content: (
-                                                  <ActivityLog
-                                                      scope={ActivityScope.LLM_PROMPT_LABEL}
-                                                      id={prompt.activity_item_id}
-                                                  />
-                                              ),
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: 'history',
+                                    label: 'History',
+                                    content: (
+                                        <ActivityLog
+                                            scope={[ActivityScope.LLM_PROMPT, ActivityScope.LLM_PROMPT_LABEL]}
+                                            id={prompt.activity_item_id}
+                                        />
+                                    ),
+                                },
                             ]}
                         />
                     ) : (

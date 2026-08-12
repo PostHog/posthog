@@ -103,12 +103,12 @@ export interface toolbarConfigLogicActions {
     }
     setOAuthTokens: (
         accessToken: string,
-        refreshToken: string,
+        refreshToken: string | null,
         clientId: string
     ) => {
         accessToken: string
         clientId: string
-        refreshToken: string
+        refreshToken: string | null
     }
     showButton: () => {
         value: true
@@ -156,7 +156,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         showButton: true,
         hideButton: true,
         persistConfig: true,
-        setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => ({
+        setOAuthTokens: (accessToken: string, refreshToken: string | null, clientId: string) => ({
             accessToken,
             refreshToken,
             clientId,
@@ -544,16 +544,29 @@ export function canonicalizeUiHost(candidate: string | undefined | null): string
 
 /**
  * Sanitize an apiHost candidate. Like canonicalizeUiHost, but preserves the URL
- * path so reverse-proxy deployments (e.g. `https://proxy/ingest`) keep working
- * — apiHost is concatenated with `/static/toolbar.css` and `/i/v1/logs`, so the
- * path prefix must survive. Query and fragment are still dropped.
+ * path so reverse-proxy deployments keep working, whether configured absolutely
+ * (`https://proxy/ingest`) or as a relative path (`/ingest`, resolved against the
+ * current origin). apiHost is concatenated with `/static/toolbar.css` and
+ * `/i/v1/logs`, so the path prefix must survive. Query and fragment are dropped.
  */
 export function canonicalizeApiHost(candidate: string | undefined | null): string | null {
     if (!candidate) {
         return null
     }
     try {
-        const parsed = new URL(candidate)
+        // Path-absolute values like "/ingest" are relative reverse-proxy configs;
+        // resolve them against the current origin. Protocol-relative refs
+        // ("//evil.com", "/\evil.com") fall through to base-less parsing and are
+        // rejected, as is any non-path garbage.
+        const trimmed = candidate.trim()
+        const isPathAbsolute = /^\/(?![/\\])/.test(trimmed)
+        const parsed = isPathAbsolute ? new URL(trimmed, window.location.origin) : new URL(candidate)
+        // The regex can't see tab/newline/CR that the WHATWG parser strips mid-string,
+        // so "/\t/evil.com" would normalize to a network-path ref and hijack the origin.
+        // Verify the resolved origin instead of trusting the textual guard.
+        if (isPathAbsolute && parsed.origin !== window.location.origin) {
+            return null
+        }
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
             return null
         }
@@ -572,7 +585,7 @@ export function canonicalizeApiHost(candidate: string | undefined | null): strin
 // ---------------------------------------------------------------------------
 
 type TokenActions = {
-    setOAuthTokens: (accessToken: string, refreshToken: string, clientId: string) => void
+    setOAuthTokens: (accessToken: string, refreshToken: string | null, clientId: string) => void
     setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => void
 }
 type CheckActions = TokenActions & {
@@ -605,14 +618,17 @@ function restoreOAuthTokens(
         return
     }
     const { accessToken, refreshToken, clientId, uiHost: storedUiHost } = parsed as Record<string, unknown>
-    // Validate every field is a non-empty string — guards against a third-party script
+    // Validate the required fields are non-empty strings — guards against a third-party script
     // writing garbage (or an older version writing a different shape) that would later
-    // blow up on fetch header construction.
+    // blow up on fetch header construction. refreshToken is optional (impersonation-minted
+    // tokens are refresh-less); when present it must be a non-empty string, otherwise it's
+    // normalized to null below.
+    const storedRefreshToken = asNonEmptyString(refreshToken)
+    const refreshTokenValid = refreshToken == null || storedRefreshToken !== null
     if (
         typeof accessToken !== 'string' ||
         !accessToken ||
-        typeof refreshToken !== 'string' ||
-        !refreshToken ||
+        !refreshTokenValid ||
         typeof clientId !== 'string' ||
         !clientId
     ) {
@@ -657,7 +673,7 @@ function restoreOAuthTokens(
         localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
         return
     }
-    actions.setOAuthTokens(accessToken, refreshToken, clientId)
+    actions.setOAuthTokens(accessToken, storedRefreshToken, clientId)
 }
 
 /**
@@ -871,9 +887,14 @@ async function exchangeCodeForTokens(
         const data = await res.json().catch(() => null)
         const access = asNonEmptyString(data?.access_token)
         const refresh = asNonEmptyString(data?.refresh_token)
-        if (access && refresh) {
+        // A refresh token is optional: impersonation-minted tokens are refresh-less by design
+        // (they can't outlive the admin's impersonation session), so require only the access
+        // token here. Without a refresh token the short-lived access token is used until it
+        // expires, at which point the user re-authenticates.
+        if (access) {
             toolbarPosthogJS.capture('toolbar oauth exchange', {
                 status: 'success',
+                has_refresh_token: !!refresh,
                 duration_ms: Math.round(performance.now() - startTime),
             })
             actions.setOAuthTokens(access, refresh, clientId)

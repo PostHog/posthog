@@ -32,10 +32,13 @@ import { Logomark } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconStamphog } from 'lib/lemon-ui/icons'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -52,6 +55,7 @@ import type {
 } from 'products/review_hog/frontend/generated/api.schemas'
 import { ReviewHogReviewsListScope } from 'products/review_hog/frontend/generated/api.schemas'
 
+import { PipelineDetailModal } from './PipelineDetailModal'
 import { REVIEWS_PAGE_SIZE, ReviewDrawerTab, ReviewSkillKind, reviewHogSettingsLogic } from './reviewHogSettingsLogic'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
@@ -63,18 +67,22 @@ function prettifySkillName(skillName: string): string {
     return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : skillName
 }
 
+// Step numbering and names match the detailed-view modal (PipelineDetailModal) — keep them in sync.
 const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; title: string; caption: string }[] }[] = [
     {
         name: 'Prepare',
         hint: 'get the diff ready to read',
         steps: [
-            { number: '01', title: 'Changed code', caption: "we fetch the PR's diff" },
+            {
+                number: '01',
+                title: 'Meaningful diff',
+                caption: "we fetch the PR's diff; generated files, lock files, and snapshots are skipped",
+            },
             {
                 number: '02',
-                title: 'Meaningful files',
-                caption: 'generated files, lock files, and snapshots are skipped',
+                title: 'Split into chunks',
+                caption: 'larger PRs are split into logically reviewable chunks',
             },
-            { number: '03', title: 'Chunks', caption: 'larger PRs are split into logically reviewable chunks' },
         ],
     },
     {
@@ -82,21 +90,21 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
         hint: 'pick the lenses, read in parallel',
         steps: [
             {
-                number: '04',
+                number: '03',
                 title: 'Pick perspectives',
                 caption: 'each chunk gets only the perspectives it actually needs',
             },
-            { number: '05', title: 'Perspectives', caption: 'specialist reviewers read each chunk in parallel' },
-            { number: '06', title: 'Blind spots', caption: 'one more sweep for what every perspective missed' },
+            { number: '04', title: 'Perspectives', caption: 'specialist reviewers read each chunk in parallel' },
+            { number: '05', title: 'Blind spots', caption: 'one more sweep for what every perspective missed' },
         ],
     },
     {
         name: 'Refine & publish',
         hint: 'clean up and ship the review',
         steps: [
-            { number: '07', title: 'Dedupe', caption: 'overlapping findings are merged' },
-            { number: '08', title: 'Validate', caption: 'each finding is checked against your quality bar' },
-            { number: '09', title: 'Publish', caption: 'a cleaned-up review lands on the pull request' },
+            { number: '06', title: 'Dedupe', caption: 'overlapping findings are merged' },
+            { number: '07', title: 'Validate', caption: 'each finding is checked against your quality bar' },
+            { number: '08', title: 'Publish', caption: 'a cleaned-up review lands on the pull request' },
         ],
     },
 ]
@@ -124,11 +132,13 @@ function SectionHeader({
     icon,
     title,
     pill,
+    action,
     children,
 }: {
     icon: JSX.Element
     title: string
     pill?: JSX.Element
+    action?: JSX.Element
     children: string
 }): JSX.Element {
     return (
@@ -139,6 +149,7 @@ function SectionHeader({
                 </span>
                 <h3 className="m-0 text-base font-semibold">{title}</h3>
                 {pill}
+                {action && <div className="ml-auto">{action}</div>}
             </div>
             {/* Indented so the copy aligns under the title, not the icon tile */}
             <p className="m-0 ml-9 max-w-160 text-xs text-secondary">{children}</p>
@@ -224,9 +235,23 @@ function ProofCard(): JSX.Element | null {
 }
 
 function PipelineSection(): JSX.Element {
+    const { openPipelineDetail } = useActions(reviewHogSettingsLogic)
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
-            <SectionHeader icon={<IconDirectedGraph />} title="How we review your PRs">
+            <SectionHeader
+                icon={<IconDirectedGraph />}
+                title="How we review your PRs"
+                action={
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => openPipelineDetail()}
+                        data-attr="review-pipeline-detailed-view"
+                    >
+                        Detailed view
+                    </LemonButton>
+                }
+            >
                 Every review runs through the same steps before it's published.
             </SectionHeader>
             <div className="flex flex-wrap items-stretch gap-2.5">
@@ -253,6 +278,7 @@ function PipelineSection(): JSX.Element {
                     </div>
                 ))}
             </div>
+            <PipelineDetailModal />
         </section>
     )
 }
@@ -752,8 +778,8 @@ function DrawerPublishedTab(): JSX.Element {
         return (
             <div className="text-sm text-secondary">
                 {isPublished
-                    ? 'Nothing crossed your urgency threshold — no comments were posted to the pull request.'
-                    : "Nothing crossed your urgency threshold, and this review hasn't been published to the pull request."}
+                    ? "Nothing crossed the review's urgency threshold — no comments were posted to the pull request."
+                    : "Nothing crossed the review's urgency threshold, and this review hasn't been published to the pull request."}
             </div>
         )
     }
@@ -761,8 +787,8 @@ function DrawerPublishedTab(): JSX.Element {
         <div className="flex flex-col gap-2">
             {!isPublished && (
                 <p className="m-0 text-xs text-secondary">
-                    This review hasn't been published to the pull request yet — these findings crossed your urgency
-                    threshold, but no comments have been posted.
+                    This review hasn't been published to the pull request yet — these findings crossed the review's
+                    urgency threshold, but no comments have been posted.
                 </p>
             )}
             <div className="flex flex-col divide-y divide-primary">
@@ -784,14 +810,15 @@ function DrawerBelowThresholdTab(): JSX.Element {
     if (!reviewFindingsSplit.belowThreshold.length) {
         return (
             <div className="text-sm text-secondary">
-                Nothing was held back — every validated finding crossed your urgency threshold.
+                Nothing was held back — every validated finding crossed the review's urgency threshold.
             </div>
         )
     }
     return (
         <div className="flex flex-col gap-2">
             <p className="m-0 text-xs text-secondary">
-                Validated as real, but under the bar you set — kept here instead of the pull request.
+                Validated as real, but under the urgency bar this review ran with — kept here instead of the pull
+                request.
             </p>
             <div className="flex flex-col divide-y divide-primary">
                 {reviewFindingsSplit.belowThreshold.map((finding, i) => (
@@ -970,7 +997,13 @@ function ReviewDetailDrawer(): JSX.Element {
                     tabs={[
                         {
                             key: 'published',
-                            label: `Published${reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''}`,
+                            // "Published" is a claim about the PR — only make it when the review
+                            // actually posted; findings a store-only run kept above the bar read
+                            // "Kept". `review` falls back to the list row, so a published review
+                            // doesn't flash "Kept" while its detail loads.
+                            label: `${review?.published ? 'Published' : 'Kept'}${
+                                reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
+                            }`,
                             content: <DrawerPublishedTab />,
                         },
                         {
@@ -1042,6 +1075,30 @@ function TriggersSection(): JSX.Element {
                         checked={settings?.review_inbox_prs ?? false}
                         onChange={(checked) => updateSettings({ review_inbox_prs: checked })}
                         disabledReason={switchDisabledReason}
+                    />
+                </div>
+                <div className="flex items-center gap-4 p-4">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
+                        <IconStamphog className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold">Let Stamphog review your Inbox PRs</div>
+                        <div className="text-xs text-secondary">
+                            When a self-driving implementation from your Inbox opens a pull request, Stamphog reviews it
+                            and approves it if it passes.
+                        </div>
+                    </div>
+                    <LemonSwitch
+                        aria-label="Let Stamphog review your Inbox PRs"
+                        checked={settings?.stamphog_review_inbox_prs ?? false}
+                        onChange={(checked) => updateSettings({ stamphog_review_inbox_prs: checked })}
+                        disabledReason={
+                            // A switch that is already on stays usable while disconnected, so
+                            // turning it off never requires connecting Stamphog first.
+                            settings && !settings.stamphog_connected && !settings.stamphog_review_inbox_prs
+                                ? 'Connect a repository to Stamphog first. Stamphog is not set up for this project yet.'
+                                : switchDisabledReason
+                        }
                     />
                 </div>
                 <div className="flex items-center gap-4 p-4">
@@ -1519,15 +1576,17 @@ export const scene: SceneExport = {
 /**
  * The "Code review" scene: ReviewHog's combined onboarding and settings page. One scrollable
  * guided-configuration page — every control is live from load, no save step. See
- * `reviewHogSettingsLogic` for the data flow. Staff-only while ReviewHog is an internal alpha;
- * the FEATURE_FLAGS.REVIEW_HOG flag only controls the menu entry's visibility.
+ * `reviewHogSettingsLogic` for the data flow. Access is gated on FEATURE_FLAGS.REVIEW_HOG, the same
+ * flag that shows the menu entry, so whoever discovers the entry can open the page. Staff bypass the
+ * flag, keeping the page reachable by direct URL where the flag is off.
  */
 export function CodeReviewScene(): JSX.Element {
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { blindSpots, validators, initialLoadFailed } = useValues(reviewHogSettingsLogic)
     const { selectBlindSpots, selectValidator, loadAll } = useActions(reviewHogSettingsLogic)
 
-    if (user != null && !user.is_staff) {
+    if (user != null && !user.is_staff && !featureFlags[FEATURE_FLAGS.REVIEW_HOG]) {
         return <NotFound object="page" />
     }
 

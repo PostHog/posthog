@@ -12,7 +12,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 
 import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -20,7 +20,12 @@ import { objectsEqual } from 'lib/utils/objects'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
+import {
+    BREAKPOINTS,
+    BREAKPOINT_COLUMN_COUNTS,
+    getInsightQueryError,
+    isWidgetTileVisibleOnPlacement,
+} from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
 import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
@@ -85,7 +90,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
-        temporaryBreakdownColors,
+        effectiveBreakdownColors,
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
@@ -245,7 +250,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 ? getAddTileMenuItems({
                       dashboardId: dashboard.id,
                       dashboardWidgetsEnabled,
-                      showAddInsightToDashboardModal,
+                      onAddInsight: showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
                       onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
@@ -285,6 +290,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }),
         [layoutEditMode, isMobileView, isLayoutZoomToggled]
     )
+
+    useResizeHandleScrollbarPassThrough(layoutEditMode && !isMobileView)
 
     const onEnterEditModeFromEdge = useMemo(
         () =>
@@ -546,13 +553,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             if (insight) {
                                 // Check if this insight has an error from the server
                                 const isErrorTile = !!tile.error
-                                const apiErrored = isErrorTile || refreshStatus[insight.short_id]?.errored || false
+                                const queryError = getInsightQueryError(insight)
+                                const apiErrored =
+                                    isErrorTile || !!queryError || refreshStatus[insight.short_id]?.errored || false
+                                const refreshError = refreshStatus[insight.short_id]?.error
                                 const apiError = isErrorTile
                                     ? new ApiError(undefined, 500, undefined, {
                                           detail: tile.error!.message,
                                           code: 'dashboard_tile_error',
                                       })
-                                    : refreshStatus[insight.short_id]?.error
+                                    : refreshError || queryError || undefined
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
@@ -580,7 +590,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                        breakdownColorOverride={temporaryBreakdownColors}
+                                        breakdownColorOverride={effectiveBreakdownColors}
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}

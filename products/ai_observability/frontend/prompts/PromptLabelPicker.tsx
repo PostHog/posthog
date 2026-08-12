@@ -63,19 +63,23 @@ export function PromptLabelPicker({ version }: { version: number }): JSX.Element
                 data-attr="llma-prompt-label-picker-input"
             />
             <ComboboxContent>
-                <ComboboxEmpty>{validationError ?? 'No matching labels'}</ComboboxEmpty>
+                {/* h-auto + whitespace-normal: validation messages are longer than one line */}
+                <ComboboxEmpty className="h-auto whitespace-normal py-1.5 text-left">
+                    {validationError ?? 'No matching labels'}
+                </ComboboxEmpty>
                 <ComboboxList>
                     {(item: string) => {
+                        // ps-2: no item is ever "selected" here, so skip the check-indicator gutter
                         if (item === createSentinel) {
                             return (
-                                <ComboboxItem key={item} value={item}>
+                                <ComboboxItem key={item} value={item} className="ps-2">
                                     Create label "{trimmed}"
                                 </ComboboxItem>
                             )
                         }
                         const hint = labelHint(item)
                         return (
-                            <ComboboxItem key={item} value={item}>
+                            <ComboboxItem key={item} value={item} className="ps-2">
                                 <span>{item}</span>
                                 {hint ? <span className="text-xs text-secondary">{hint}</span> : null}
                             </ComboboxItem>

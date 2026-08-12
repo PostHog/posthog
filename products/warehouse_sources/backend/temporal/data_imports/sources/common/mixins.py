@@ -1,5 +1,7 @@
 import time
 import socket
+import ipaddress
+import dataclasses
 from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
@@ -27,8 +29,41 @@ _INTERNAL_IP_ERROR = (
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 
 
+def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
+    """Whether this team may point warehouse sources at PostHog-internal hosts.
+
+    Only our own internal analytics projects: team 2 in US, team 1 in EU.
+    Gates both the SSRF host check and the egress-proxy bypass for direct
+    connections to internal databases.
+    """
+    region = get_instance_region()
+    return (region == "US" and team_id == 2) or (region == "EU" and team_id == 1)
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class HostResolution:
+    """The outcome of `resolve_safe_host`.
+
+    `connect_host` is None exactly when the host was rejected, in which case `error` carries
+    the user-facing reason.
+    """
+
+    connect_host: str | None
+    error: str | None
+
+
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
-    """Validate that a host is not an internal/private IP address.
+    """Whether a host is safe to connect to. See `resolve_safe_host` for the policy.
+
+    Callers that go on to open the connection themselves should use `resolve_safe_host` and
+    connect to the address it returns, so that the address checked is the address used.
+    """
+    resolution = resolve_safe_host(host, team_id)
+    return resolution.connect_host is not None, resolution.error
+
+
+def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
+    """Resolve a host to the address a connection should actually be made to.
 
     Only enforced on cloud deployments — self-hosted instances are allowed
     to connect to any host.
@@ -39,6 +74,13 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
 
     team whitelist: team_id 2 in US, team_id 1 in EU are allowed
     to use internal IPs.
+
+    When the check applies, `connect_host` is one of the validated IPs rather than the
+    hostname that was passed in, and callers must connect to it. Handing the hostname to a
+    connection library resolves it a second time, and a record with a short TTL can answer
+    with a public address for this check and a private one for the connect, which defeats the
+    check entirely. When the check is skipped there is no resolution to pin, so the hostname
+    comes back unchanged.
     """
 
     def _log(decision: str, stage: str, reason: str | None, resolved_ips: list[str] | None = None) -> None:
@@ -59,53 +101,66 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
             resolved_ips=resolved_ips,
         )
 
+    def _allow_unpinned(stage: str) -> HostResolution:
+        _log("allow", stage, None)
+        return HostResolution(connect_host=host, error=None)
+
+    def _block(stage: str, error: str, resolved_ips: list[str] | None = None) -> HostResolution:
+        _log("block", stage, error, resolved_ips)
+        return HostResolution(connect_host=None, error=error)
+
     if not is_cloud():
-        _log("allow", "not_cloud", None)
-        return True, None
+        return _allow_unpinned("not_cloud")
 
     region = get_instance_region()
     if region == "E2E":
-        _log("allow", "e2e", None)
-        return True, None
+        return _allow_unpinned("e2e")
 
-    if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
-        _log("allow", "team_allowlist", None)
-        return True, None
+    if team_id is not None and is_team_allowlisted_for_internal_hosts(team_id):
+        return _allow_unpinned("team_allowlist")
 
     normalized = host.lower().strip().rstrip(".")
 
     # PostHog-managed DuckLake hosts resolve to internal IPs but are safe.
     if normalized.endswith(".postwh.com"):
-        _log("allow", "postwh_managed", None)
-        return True, None
+        return _allow_unpinned("postwh_managed")
 
     if normalized in {"localhost"}:
-        _log("block", "localhost", _INTERNAL_IP_ERROR)
-        return False, _INTERNAL_IP_ERROR
+        return _block("localhost", _INTERNAL_IP_ERROR)
 
     try:
         if not _is_safe_public_ip(host):
-            _log("block", "literal_ip", _INTERNAL_IP_ERROR)
-            return False, _INTERNAL_IP_ERROR
+            return _block("literal_ip", _INTERNAL_IP_ERROR)
     except ValueError:
         pass
 
+    dns_failure_error = (
+        f"Couldn't resolve the host '{host}'. Check that it's spelled correctly and reachable from the public internet."
+    )
     try:
         addrinfo = socket.getaddrinfo(normalized, None, proto=socket.IPPROTO_TCP)
         resolved_ips = [str(sockaddr[0]) for *_meta, sockaddr in addrinfo]
-        for resolved_ip in resolved_ips:
-            if not _is_safe_public_ip(resolved_ip):
-                _log("block", "resolved_ip", _INTERNAL_IP_ERROR, resolved_ips)
-                return False, _INTERNAL_IP_ERROR
-    except socket.gaierror:
+    except (socket.gaierror, UnicodeError):
+        # getaddrinfo IDNA-encodes the host, so a malformed hostname (e.g. a DNS label over 63
+        # bytes) raises UnicodeError ("label too long") instead of gaierror. Either way the host
+        # can't be resolved — return the actionable message rather than crashing.
         _log("block", "dns_failure", _DNS_FAILURE_ERROR)
-        return (
-            False,
-            f"Couldn't resolve the host '{host}'. Check that it's spelled correctly and reachable from the public internet.",
-        )
+        return HostResolution(connect_host=None, error=dns_failure_error)
+
+    for resolved_ip in resolved_ips:
+        if not _is_safe_public_ip(resolved_ip):
+            return _block("resolved_ip", _INTERNAL_IP_ERROR, resolved_ips)
+
+    if not resolved_ips:
+        _log("block", "dns_failure", _DNS_FAILURE_ERROR)
+        return HostResolution(connect_host=None, error=dns_failure_error)
 
     _log("allow", "resolved_ip", None, resolved_ips)
-    return True, None
+    # getaddrinfo returns addresses in the order the resolver prefers, which is the order a
+    # connect would try them in. Pinning the first one gives up that fallback: if it is down,
+    # nothing tries the next. Every address in the list passed the check above, so this costs
+    # availability on multi-address hosts, not safety.
+    return HostResolution(connect_host=resolved_ips[0], error=None)
 
 
 def log_connection_open(
@@ -169,6 +224,40 @@ def _logged_connection(config, team_id: int | None) -> Generator[None]:
         raise
 
 
+def _require_loopback(host: str) -> str:
+    """Refuse to treat a non-loopback address as a tunnel bind.
+
+    ClickHouse skips the egress proxy for tunneled connections on the strength of the tunnel
+    branch only ever yielding its own loopback bind address (`SSHTunnel.get_tunnel` pins
+    `local_bind_address` to 127.0.0.1). That invariant lives in a different file from the
+    bypass, so enforce it where the address is produced: if a future change makes this branch
+    yield anything else — a fallback to the configured host, a non-loopback bind — the proxy
+    bypass would silently extend to it, and this raises instead.
+    """
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = False
+    if not is_loopback:
+        raise Exception(f"SSH tunnel bound to non-loopback address {host!r}; refusing to use it")
+    return host
+
+
+def _pinned_ssh_host(ssh_config, team_id: int | None) -> str:
+    """Resolve the SSH host and return the address to open the tunnel to.
+
+    Enforced here, at the connect, rather than left to `ssh_tunnel_is_valid` at the API layer.
+    That validation runs when a source is created, updated, or directly queried, but the sync
+    path goes from the stored config straight to the tunnel, so a host that resolved to a
+    public address at setup is never re-checked on any later scheduled run. The SSH hop is a
+    raw socket that no egress proxy sees, which makes this check the only thing in its path.
+    """
+    resolution = resolve_safe_host(ssh_config.host, team_id)
+    if resolution.connect_host is None:
+        raise Exception(f"SSH tunnel host not allowed: {resolution.error}")
+    return resolution.connect_host
+
+
 @contextmanager
 def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
@@ -177,11 +266,13 @@ def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, 
         if ssh_config is not None:
             ssh_tunnel = SSHTunnel.from_config(ssh_config)
 
-            with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+            with ssh_tunnel.get_tunnel(
+                config.host, config.port, ssh_host=_pinned_ssh_host(ssh_config, team_id)
+            ) as tunnel:
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
-                yield tunnel.local_bind_host, tunnel.local_bind_port
+                yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
         else:
             yield config.host, config.port
 
@@ -201,10 +292,14 @@ def make_ssh_tunnel_factory(
         @contextmanager
         def with_ssh_func():
             with _logged_connection(config, team_id):
-                with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
+                # Resolved per reopen, not once when the factory is built, so a long-running
+                # sync that reopens the tunnel re-checks the host each time.
+                with ssh_tunnel.get_tunnel(
+                    config.host, config.port, ssh_host=_pinned_ssh_host(ssh_config, team_id)
+                ) as tunnel:
                     if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
-                    yield tunnel.local_bind_host, tunnel.local_bind_port
+                    yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
 
         return with_ssh_func
 
@@ -226,6 +321,16 @@ class SSHTunnelMixin:
         self, config, team_id: int | None = None
     ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
         return make_ssh_tunnel_factory(config, team_id)
+
+    def ssh_tunnel_enabled(self, config) -> bool:
+        """Whether the tunnel helpers above will tunnel rather than connect directly.
+
+        For callers that need to know which branch was taken, because the `(host, port)` they
+        receive means something different in each case: a tunnel yields our own local bind
+        address, while a direct connection yields the user's configured host. Shares
+        `_enabled_ssh_tunnel` with the branch itself so the two cannot drift apart.
+        """
+        return _enabled_ssh_tunnel(config) is not None
 
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:

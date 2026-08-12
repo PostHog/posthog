@@ -47,8 +47,6 @@ DataWarehouseSavedQuery
 DataWarehouseSavedQueryDraft
 DataWarehouseSavedQueryFolder
 DataWarehouseTable
-Dataset
-DatasetItem
 EarlyAccessFeature
 Edge
 EmailChannel
@@ -113,6 +111,7 @@ Link
 LiveDebuggerBreakpoint
 LogsAlertConfiguration
 LogsExclusionRule
+LogsRetentionRule
 LogsView
 MCPAnalyticsSubmission
 MCPServerInstallation

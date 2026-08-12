@@ -46,6 +46,8 @@ export enum Language {
     Kotlin = 'kotlin',
     Groovy = 'groovy',
     CSharp = 'csharp',
+    Lua = 'lua',
+    VBNet = 'vbnet',
     TypeScript = 'typescript',
     HCL = 'terraform',
     Rust = 'rust',
@@ -101,6 +103,14 @@ export const getLanguage = (lang: string): Language => {
             return Language.Kotlin
         case 'groovy':
             return Language.Groovy
+        case 'lua':
+        case 'luau':
+            return Language.Lua
+        case 'vb':
+        case 'vbnet':
+            return Language.VBNet
+        case 'objectivecpp':
+            return Language.ObjectiveC
         case 'hcl':
             return Language.HCL
         case 'rust':
@@ -125,6 +135,11 @@ export interface CodeSnippetProps {
     thing?: string
     /** If set, the snippet becomes expandable when there's more than this number of lines. */
     maxLinesWithoutExpansion?: number
+    /**
+     * Called after the snippet contents reach the clipboard. Useful for telemetry. Not called when
+     * the copy fails, so it is safe to treat as a successful copy.
+     */
+    onCopy?: () => void
 }
 
 export const CodeSnippet = React.memo(function CodeSnippet({
@@ -136,6 +151,7 @@ export const CodeSnippet = React.memo(function CodeSnippet({
     actions,
     thing = 'snippet',
     maxLinesWithoutExpansion,
+    onCopy,
 }: CodeSnippetProps): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
 
@@ -159,7 +175,15 @@ export const CodeSnippet = React.memo(function CodeSnippet({
                     onClick={(e) => {
                         if (text) {
                             e.stopPropagation()
-                            void copyToClipboard(text, thing)
+                            // Only report a copy the user actually got: copyToClipboard resolves
+                            // false when the clipboard is unavailable (no navigator.clipboard over
+                            // plain HTTP) or the write is denied, and callers treat onCopy as
+                            // evidence of a successful copy.
+                            void copyToClipboard(text, thing).then((copied) => {
+                                if (copied) {
+                                    onCopy?.()
+                                }
+                            })
                         }
                     }}
                     size={compact ? 'small' : 'medium'}

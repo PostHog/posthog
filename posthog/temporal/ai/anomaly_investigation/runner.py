@@ -27,7 +27,7 @@ from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
-from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
+from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport, salvage_report
 from posthog.temporal.ai.anomaly_investigation.tools import (
     FetchMetricSeriesArgs,
     InvestigationToolkit,
@@ -42,12 +42,16 @@ from products.alerts.backend.models.alert import AlertConfiguration
 logger = logging.getLogger(__name__)
 
 MAX_TOOL_CALLS = 10
-AGENT_MODEL = "claude-sonnet-4-6"
+AGENT_MODEL = "claude-sonnet-5"
 FINAL_REPORT_TOOL_NAME = "submit_investigation_report"
 MAX_TOOL_RESULT_CHARS = 12_000  # ~3K tokens per call — keeps 10 calls well under the context limit.
+# Sonnet 5 runs adaptive thinking by default, which counts against max_tokens —
+# leave headroom so a thinking-heavy turn can't truncate the final report.
+MAX_OUTPUT_TOKENS = 8192
 # Per-request cap. The surrounding Temporal activity has its own (longer) deadline;
 # this guards against a single stuck HTTP call hanging for the whole activity budget.
-LLM_REQUEST_TIMEOUT_SECONDS = 90.0
+# Sized for adaptive-thinking turns, which run longer than plain tool-call turns.
+LLM_REQUEST_TIMEOUT_SECONDS = 180.0
 
 
 ToolHandler = Callable[[dict[str, Any]], Awaitable[str]]
@@ -133,14 +137,19 @@ async def run_investigation(
         "input_schema": InvestigationReport.model_json_schema(),
     }
 
+    # No temperature: Sonnet 5 rejects non-default sampling params with a 400.
     llm = MaxChatAnthropic(
         model=AGENT_MODEL,
         team=team,
         user=user,
         billable=True,
         inject_context=True,
-        max_retries=2,
-        temperature=0,
+        # One in-request retry absorbs a transient blip cheaply; the Temporal activity retry
+        # (maximum_attempts=2) is the outer safety net. Keeping this low bounds the aggregate
+        # LLM wall-clock so a run stays inside the activity's start_to_close deadline instead of
+        # being killed mid-flight (which would skip the fallback report and re-run the whole agent).
+        max_retries=1,
+        max_tokens=MAX_OUTPUT_TOKENS,
         default_request_timeout=LLM_REQUEST_TIMEOUT_SECONDS,
         posthog_properties={"ai_product": "alert_investigation_agent"},
     )
@@ -157,7 +166,12 @@ async def run_investigation(
             final_report_tool,
         ]
     )
-    llm_with_final_report = llm.bind_tools([final_report_tool], tool_choice=FINAL_REPORT_TOOL_NAME)
+    # Auto tool choice, not forced: Sonnet 5's default thinking mode only supports auto/none tool
+    # choice, so forcing a specific tool returns a 400 and this finalize turn would fall through to
+    # the generic fallback report. Binding *only* the final-report tool, plus the explicit "submit
+    # now" nudge on the budget-exhausted turn, reliably elicits the call without forcing it; if the
+    # model returns plain text instead, the text-JSON fallback in _parse_report still recovers it.
+    llm_with_final_report = llm.bind_tools([final_report_tool])
 
     # Without a langchain CallbackHandler attached, MaxChatAnthropic's posthog_properties
     # never reach AI observability — langchain-anthropic itself doesn't emit $ai_* events.
@@ -172,6 +186,10 @@ async def run_investigation(
     ]
 
     tool_calls_used = 0
+    # Every set of submit_investigation_report args seen, valid or not, oldest first.
+    # When every parse path fails, salvage tries these newest-to-oldest so a corrective
+    # retry that came back worse cannot clobber an earlier salvageable attempt.
+    report_args_history: list[dict[str, Any]] = []
 
     for _ in range(MAX_TOOL_CALLS + 1):
         if heartbeat is not None:
@@ -184,27 +202,64 @@ async def run_investigation(
                 HumanMessage(
                     content=(
                         "Tool call budget exhausted. Submit the final InvestigationReport "
-                        "now using whatever evidence you have."
+                        "now using whatever evidence you have. Pass hypotheses as a JSON "
+                        "array of objects (title, rationale, evidence) and recommendations "
+                        "as a JSON array of strings, never as serialized strings."
                     )
                 )
             )
-            if heartbeat is not None:
-                heartbeat()
-            try:
-                final = await llm_with_final_report.ainvoke(messages, config=config)
-            except Exception as err:
-                # Swallow final-turn failures and return an inconclusive report rather than
-                # bouncing off Temporal retries — MaxChatAnthropic already exhausted its
-                # built-in retry budget, so another activity attempt is unlikely to help.
-                logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
-                return InvestigationRunResult(
-                    report=_fallback_report(f"LLM finalize call failed: {err}"),
-                    tool_calls_used=tool_calls_used,
-                    model=AGENT_MODEL,
-                )
-            messages.append(final)
-            forced_report = _parse_report_message(final)
-            if forced_report is not None:
+            # Production traces show this finalize turn is where Sonnet 5 mangles the
+            # report args (leaked text-tool-call syntax, flattened hypothesis fields), so
+            # give the model one corrective retry with the validation error before
+            # falling back to salvage.
+            for finalize_attempt in range(2):
+                if heartbeat is not None:
+                    heartbeat()
+                try:
+                    final = await llm_with_final_report.ainvoke(messages, config=config)
+                except Exception as err:
+                    # Swallow final-turn failures and return the best report we can rather
+                    # than bouncing off Temporal retries — MaxChatAnthropic already exhausted
+                    # its built-in retry budget, so another activity attempt is unlikely to help.
+                    logger.warning("anomaly_investigation.llm_finalize_error", extra={"error": str(err)})
+                    salvaged = _salvage_from_history(report_args_history) or _fallback_report(
+                        f"LLM finalize call failed: {err}"
+                    )
+                    salvaged.tool_calls_used = tool_calls_used
+                    return InvestigationRunResult(report=salvaged, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+                messages.append(final)
+                final_tool_calls = getattr(final, "tool_calls", None) or []
+                report_args = _final_report_args(final_tool_calls)
+                if report_args is None:
+                    # Plain-text final answer; the text-JSON fallback below handles it.
+                    break
+                report_args_history.append(report_args)
+                try:
+                    forced_report = InvestigationReport.model_validate(report_args)
+                except ValidationError as err:
+                    error_summary = _validation_error_summary(err)
+                    logger.warning(
+                        "anomaly_investigation.report_validation_error",
+                        extra={"error": error_summary, "finalize_attempt": finalize_attempt},
+                    )
+                    if finalize_attempt == 0:
+                        # Answer every pending tool_use block or the retry request is
+                        # rejected by the API for dangling tool calls.
+                        for call in final_tool_calls:
+                            messages.append(
+                                ToolMessage(
+                                    content=(
+                                        f"Report rejected: {error_summary}. Call "
+                                        f"{FINAL_REPORT_TOOL_NAME} again with corrected "
+                                        "arguments: hypotheses must be a JSON array of "
+                                        "objects with title, rationale and evidence keys; "
+                                        "recommendations must be a JSON array of strings."
+                                    ),
+                                    tool_call_id=call.get("id") or call.get("tool_call_id") or "",
+                                )
+                            )
+                        continue
+                    break
                 forced_report.tool_calls_used = tool_calls_used
                 return InvestigationRunResult(report=forced_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
             break
@@ -221,10 +276,19 @@ async def run_investigation(
         messages.append(response)
 
         tool_calls = getattr(response, "tool_calls", None) or []
-        structured_report = _report_from_tool_calls(tool_calls)
-        if structured_report is not None:
-            structured_report.tool_calls_used = tool_calls_used
-            return InvestigationRunResult(report=structured_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+        report_error: str | None = None
+        report_args = _final_report_args(tool_calls)
+        if report_args is not None:
+            report_args_history.append(report_args)
+            try:
+                structured_report = InvestigationReport.model_validate(report_args)
+                structured_report.tool_calls_used = tool_calls_used
+                return InvestigationRunResult(
+                    report=structured_report, tool_calls_used=tool_calls_used, model=AGENT_MODEL
+                )
+            except ValidationError as err:
+                report_error = _validation_error_summary(err)
+                logger.warning("anomaly_investigation.report_validation_error", extra={"error": report_error})
         if not tool_calls:
             break
 
@@ -235,7 +299,11 @@ async def run_investigation(
             # Enforce the cap per-call, not just per-turn — a single assistant
             # response can emit several parallel tool_use blocks.
             if name == FINAL_REPORT_TOOL_NAME:
-                content = "Final report tool call was invalid. Submit it again with all required fields."
+                content = (
+                    f"Final report tool call was invalid ({report_error or 'missing required fields'}). "
+                    "Submit it again: hypotheses must be a JSON array of objects with title, "
+                    "rationale and evidence keys; recommendations must be a JSON array of strings."
+                )
             elif tool_calls_used >= MAX_TOOL_CALLS:
                 content = "[skipped — tool call budget exhausted]"
             else:
@@ -250,14 +318,33 @@ async def run_investigation(
                         logger.warning("anomaly_investigation.tool_error", extra={"tool": name, "error": str(err)})
                         content = f"Tool {name} failed: {err}"
             # Guard against runaway tool responses pushing the conversation past
-            # Anthropic's 200K-token context window. Keep the first slice; if the
+            # the model's context window. Keep the first slice; if the
             # agent needs more it can issue a narrower query.
             if isinstance(content, str) and len(content) > MAX_TOOL_RESULT_CHARS:
                 content = content[:MAX_TOOL_RESULT_CHARS] + "\n[truncated — narrow the query for more]"
             messages.append(ToolMessage(content=content, tool_call_id=tool_call_id))
 
     final_message = messages[-1]
-    report = _parse_report(getattr(final_message, "content", ""))
+    content = getattr(final_message, "content", "")
+    report: InvestigationReport | None = _parse_report_text(content)
+    if report is None:
+        report = _salvage_from_history(report_args_history)
+        if report is not None:
+            logger.warning(
+                "anomaly_investigation.report_salvaged",
+                extra={"hypotheses_kept": len(report.hypotheses), "recommendations_kept": len(report.recommendations)},
+            )
+    if report is None:
+        text = _stringify(content).strip()
+        # Log only length, not content: the agent's final message can echo customer event
+        # data, which must not land in centralized worker logs. The full output stays
+        # available in the run's LLM analytics trace.
+        logger.warning("anomaly_investigation.no_parsable_report", extra={"content_length": len(text)})
+        report = _fallback_report(
+            "Agent returned no final message."
+            if not text
+            else "Agent final message was not valid InvestigationReport JSON."
+        )
     report.tool_calls_used = tool_calls_used
     return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
 
@@ -284,25 +371,37 @@ def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[Ba
     return callbacks
 
 
-def _parse_report_message(message: Any) -> InvestigationReport | None:
-    return _report_from_tool_calls(getattr(message, "tool_calls", None) or [])
-
-
-def _report_from_tool_calls(tool_calls: list[dict[str, Any]]) -> InvestigationReport | None:
+def _final_report_args(tool_calls: list[dict[str, Any]]) -> dict[str, Any] | None:
     for call in tool_calls:
-        if call.get("name") != FINAL_REPORT_TOOL_NAME:
-            continue
-        try:
-            return InvestigationReport.model_validate(call.get("args") or {})
-        except ValidationError:
-            return None
+        if call.get("name") == FINAL_REPORT_TOOL_NAME:
+            return call.get("args") or {}
     return None
 
 
-def _parse_report(content: Any) -> InvestigationReport:
+def _salvage_from_history(report_args_history: list[dict[str, Any]]) -> InvestigationReport | None:
+    for args in reversed(report_args_history):
+        report = salvage_report(args)
+        if report is not None:
+            return report
+    return None
+
+
+def _report_from_tool_calls(tool_calls: list[dict[str, Any]]) -> InvestigationReport | None:
+    args = _final_report_args(tool_calls)
+    if args is None:
+        return None
+    try:
+        return InvestigationReport.model_validate(args)
+    except ValidationError:
+        return None
+
+
+def _validation_error_summary(err: ValidationError) -> str:
+    return "; ".join(f"{'.'.join(str(loc) for loc in detail['loc'])}: {detail['msg']}" for detail in err.errors()[:5])
+
+
+def _parse_report_text(content: Any) -> InvestigationReport | None:
     text = _stringify(content).strip()
-    if not text:
-        return _fallback_report("Agent returned no final message.")
     # Try direct JSON; else find first/last brace.
     for candidate in _json_candidates(text):
         try:
@@ -310,6 +409,16 @@ def _parse_report(content: Any) -> InvestigationReport:
             return InvestigationReport.model_validate(parsed)
         except (ValueError, TypeError, ValidationError):
             continue
+    return None
+
+
+def _parse_report(content: Any) -> InvestigationReport:
+    report = _parse_report_text(content)
+    if report is not None:
+        return report
+    text = _stringify(content).strip()
+    if not text:
+        return _fallback_report("Agent returned no final message.")
     return _fallback_report("Agent final message was not valid InvestigationReport JSON.")
 
 

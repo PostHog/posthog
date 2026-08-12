@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     LemonBanner,
+    LemonBannerProps,
     LemonButton,
     LemonInputSelect,
     LemonInputSelectOption,
@@ -11,36 +12,51 @@ import {
 } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
 import { slackChannelId } from './slackChannel'
 import { slackIntegrationLogic } from './slackIntegrationLogic'
 
-export function SlackNotConfiguredBanner(): JSX.Element {
+export function SlackNotConfiguredBanner({
+    type = 'info',
+    className,
+}: Partial<Pick<LemonBannerProps, 'type' | 'className'>>): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     return (
-        <LemonBanner type="info">
-            <div className="flex justify-between gap-2 items-center">
-                <span>
-                    Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.
-                </span>
-                <Link
-                    to={api.integrations.authorizeUrl({
-                        kind: 'slack',
-                        next: window.location.pathname + '?target_type=slack',
-                    })}
-                    disableClientSideRouting
-                >
-                    <img
-                        alt="Add to Slack"
-                        height="40"
-                        width="139"
-                        src="https://platform.slack-edge.com/img/add_to_slack.png"
-                        srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
-                    />
-                </Link>
+        <LemonBanner type={type} className={className}>
+            <div className="flex flex-col gap-2">
+                <div className="flex justify-between gap-2 items-center">
+                    <span>
+                        Slack is not yet configured for this project. Add PostHog to your Slack workspace to continue.
+                    </span>
+                    <Link
+                        to={api.integrations.authorizeUrl({
+                            kind: 'slack',
+                            next: window.location.pathname + '?target_type=slack',
+                        })}
+                        disableClientSideRouting
+                    >
+                        <img
+                            alt="Add to Slack"
+                            height="40"
+                            width="139"
+                            src="https://platform.slack-edge.com/img/add_to_slack.png"
+                            srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
+                        />
+                    </Link>
+                </div>
+                {featureFlags[FEATURE_FLAGS.SLACK_APP_ASSISTANT] && (
+                    <span className="text-sm text-secondary">
+                        Adding PostHog creates a public #posthog-inbox channel in your Slack workspace, where PostHog
+                        posts what it finds.
+                    </span>
+                )}
             </div>
         </LemonBanner>
     )
@@ -54,10 +70,8 @@ const SLACK_CHANNEL_ID_PATTERN = /^[CGD][A-Z0-9]{8,}$/
 const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): LemonInputSelectOption[] | null => {
     return slackChannels
         ? slackChannels.map((x) => {
-              // Channel names are unique per workspace, so the friendly name alone identifies a channel.
-              // Inaccessible private channels have no readable name, so there we keep the id to disambiguate.
               const displayLabel = x.is_private_without_access
-                  ? `🔒Private channel (${x.id})`
+                  ? '🔒Private channel'
                   : `${x.is_private ? '🔒' : '#'}${x.name}`
               return {
                   key: `${x.id}|#${x.name}`,
@@ -91,8 +105,16 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
+        slackIntegrationInactiveMessage,
     } = useValues(logic)
     const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
+    // Reconnecting overwrites the existing integration, which the API reserves for project admins
+    // (`has_team_management_access`). Without this the banner would send a member through OAuth
+    // only to have the write rejected at the end.
+    const reconnectRestrictionReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
     const [localValue, setLocalValue] = useState<string | null>(null)
     // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
     // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
@@ -119,7 +141,6 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     }
     const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
 
-    // Sometimes the parent will only store the channel ID and not the name, so we need to handle that
     const modifiedValue = useMemo(() => {
         if (value?.split('|').length === 1) {
             const channel = slackChannels.find((x: SlackChannelType) => x.id === value)
@@ -142,21 +163,27 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         }
     }, [logic, loadAllSlackChannels, disabled])
 
-    // Workspaces with hundreds of channels can have the saved channel beyond the first page that
-    // /channels returns. Without a direct lookup the channel never makes it into slackChannels, so
-    // LemonInputSelect can't find an option matching the saved value's key and falls back to
-    // displaying the raw value text — e.g. "C0881TYHT41|#sentry-alerts" instead of the friendly
-    // "#sentry-alerts". Fire the by-id fetch for both bare and composite values so
-    // the channel is merged into slackChannels regardless of bulk-list position; the label only
-    // renders correctly when the option exists in the picker's options list.
+    // Read-only pickers still need a direct lookup because the saved channel may not be on the first page.
     useEffect(() => {
-        if (!disabled && value) {
+        if (value) {
             const channelId = value.split('|')[0]
             if (channelId) {
                 loadSlackChannelById(channelId)
             }
         }
-    }, [loadSlackChannelById, value, disabled])
+    }, [loadSlackChannelById, value])
+
+    const fallbackOption = modifiedValue
+        ? {
+              key: modifiedValue,
+              label: modifiedValue.includes('|') ? modifiedValue.split('|')[1] : 'Slack channel',
+          }
+        : null
+    const availableOptions = slackChannelOptions() ?? []
+    const options =
+        fallbackOption && !availableOptions.some((option) => option.key === fallbackOption.key)
+            ? [...availableOptions, fallbackOption]
+            : availableOptions
 
     return (
         <>
@@ -220,23 +247,35 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         </Link>
                     </p>
                 }
-                options={
-                    slackChannelOptions() ??
-                    (modifiedValue
-                        ? [
-                              {
-                                  key: modifiedValue,
-                                  label: modifiedValue?.split('|')[1] ?? modifiedValue,
-                              },
-                          ]
-                        : [])
-                }
+                options={options}
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
 
+            {slackIntegrationInactiveMessage ? (
+                <LemonBanner type="warning" className="mt-1">
+                    <div className="flex justify-between gap-2 items-center">
+                        <span>
+                            {slackIntegrationInactiveMessage}
+                            {reconnectRestrictionReason ? ' Ask a project admin to reconnect it.' : ''}
+                        </span>
+                        {reconnectRestrictionReason ? null : (
+                            <Link
+                                to={api.integrations.authorizeUrl({
+                                    kind: 'slack',
+                                    next: window.location.pathname + '?target_type=slack',
+                                })}
+                                disableClientSideRouting
+                            >
+                                Reconnect Slack
+                            </Link>
+                        )}
+                    </div>
+                </LemonBanner>
+            ) : null}
+
             {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
                 <p className="text-secondary text-xs mt-1 mb-0">
-                    Only the first page of channels is shown — type to search for a specific channel.
+                    Only the first page of channels is shown. Type to search for a specific channel.
                 </p>
             ) : null}
 

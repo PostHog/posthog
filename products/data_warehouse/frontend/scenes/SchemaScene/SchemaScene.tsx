@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -19,6 +18,8 @@ import { ActivityScope } from '~/types'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
+import { shouldShowManagedSourceMetricsTab, shouldShowManagedSourceSyncsTab } from '../SourceScene/SourceScene'
+import { SyncsTab } from '../SourceScene/tabs/SyncsTab'
 import { ConfigurationTab } from './ConfigurationTab'
 import { MetricsTab } from './MetricsTab'
 import {
@@ -63,7 +64,8 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     const { featureFlags } = useValues(featureFlagLogic)
 
     const cleanedSourceId = cleanSourceId(sourceId)
-    const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const showSyncs = shouldShowManagedSourceSyncsTab(source)
+    const showMetrics = shouldShowManagedSourceMetricsTab(source, !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS])
     const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
     const showColumnsSection = supportsColumnSelection
     const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
@@ -71,10 +73,19 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     )
 
     useEffect(() => {
+        // Wait for the source before deciding a tab is unavailable. While it's null `showSyncs` and
+        // `showMetrics` are false, so a URL-selected "syncs" tab would get bounced to Configuration
+        // and push a bogus history entry over the URL the user actually navigated to.
+        if (!source) {
+            return
+        }
+        if (!showSyncs && currentTab === 'syncs') {
+            setCurrentTab('configuration')
+        }
         if (!showMetrics && currentTab === 'metrics') {
             setCurrentTab('configuration')
         }
-    }, [showMetrics, currentTab, setCurrentTab])
+    }, [source, showSyncs, showMetrics, currentTab, setCurrentTab])
 
     useEffect(() => {
         if (!showColumnsSection && currentSection === 'columns') {
@@ -117,12 +128,8 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                             source={source}
                             section={currentSection}
                             onConfigureSyncMethod={() => setCurrentSection('sync-method')}
-                            onViewSyncHistory={() =>
-                                router.actions.push(
-                                    combineUrl(urls.dataWarehouseSource(sourceId, 'syncs'), {
-                                        schema: schema.name,
-                                    }).url
-                                )
+                            syncHistoryUrl={
+                                showSyncs ? urls.dataWarehouseSourceSchema(sourceId, schema.id, 'syncs') : undefined
                             }
                         />
                     }
@@ -130,6 +137,23 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             ),
         },
     ]
+
+    if (showSyncs) {
+        tabs.push({
+            label: 'Syncs',
+            key: 'syncs',
+            content: (
+                <div className="flex flex-col gap-2">
+                    <div className="flex justify-end">
+                        <LemonButton type="secondary" size="small" to={urls.dataWarehouseSource(sourceId, 'syncs')}>
+                            View all syncs for source
+                        </LemonButton>
+                    </div>
+                    <SyncsTab id={cleanedSourceId} lockedSchema={schema.name} />
+                </div>
+            ),
+        })
+    }
 
     if (showMetrics) {
         tabs.push({
@@ -145,7 +169,10 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
         content: <ActivityLog id={schema.id} scope={ActivityScope.EXTERNAL_DATA_SCHEMA} />,
     })
 
-    const activeTab = !showMetrics && currentTab === 'metrics' ? 'configuration' : currentTab
+    const activeTab =
+        (!showMetrics && currentTab === 'metrics') || (!showSyncs && currentTab === 'syncs')
+            ? 'configuration'
+            : currentTab
 
     return (
         <SceneContent>

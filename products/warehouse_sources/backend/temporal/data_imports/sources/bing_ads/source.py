@@ -14,10 +14,6 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP,
     FieldType,
@@ -34,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingads import (
     BingAdsSourceConfig,
 )
@@ -141,10 +138,26 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads developer token not configured": None,
+            # A report request that names a column not valid for its report type comes back as a coded
+            # WebFault (InvalidReportColumn), surfaced by _wrap_with_fault_detail. This is deterministic —
+            # retrying re-sends the same bad column list forever — and only a fix to a resource's
+            # field_names in schemas.py can resolve it, so it's internal config (None message), not
+            # customer-actionable.
+            "InvalidReportColumn": None,
             # PostHog's Bing Ads OAuth application credentials aren't configured — an empty client_id makes
             # Microsoft reject the token request with AADSTS900144. Internal config, not customer-actionable.
             "Bing Ads OAuth application credentials not configured": None,
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A Bing SOAP call that comes back with a bare HTTP 400 (no SOAP fault) is rejected at the
+        # transport/edge layer, not by request validation — suds surfaces it as `Exception((400,
+        # 'Bad Request'))`, which our wrapper re-raises as `ValueError(... Exception: (400, 'Bad
+        # Request'))`. A genuinely malformed report request instead returns a coded WebFault
+        # (InvalidReportColumn, etc.), so this shape is a transient upstream blip that Temporal's
+        # activity retry clears — keep it out of error tracking as noise rather than paging as a bug.
+        # Match the stable status tuple only; a fault-backed 400 never produces this substring.
+        return {"(400, 'Bad Request')"}
 
     @property
     def get_source_config(self) -> SourceConfig:

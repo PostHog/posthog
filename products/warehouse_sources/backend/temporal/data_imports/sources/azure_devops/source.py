@@ -9,11 +9,9 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_devops.azure_devops import (
+    AZURE_DEVOPS_VERSION_7_2,
+    AZURE_DEVOPS_VERSION_LEGACY,
     AzureDevOpsResumeConfig,
     azure_devops_source,
     validate_credentials as validate_azure_devops_credentials,
@@ -32,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.azuredevops import (
     AzureDevOpsSourceConfig,
 )
@@ -40,7 +39,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResumeConfig]):
-    api_docs_url = "https://learn.microsoft.com/en-us/rest/api/azure/devops"
+    api_docs_url = "https://learn.microsoft.com/en-us/azure/devops/integrate/concepts/rest-api-versioning"
+
+    # The legacy label keeps sending api-version 7.1; 7.2 is the current GA stable API.
+    supported_versions = (AZURE_DEVOPS_VERSION_LEGACY, AZURE_DEVOPS_VERSION_7_2)
+    default_version = AZURE_DEVOPS_VERSION_7_2
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -122,10 +125,10 @@ Your organization is the first path segment of your Azure DevOps URL — for `de
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_azure_devops_credentials(config.organization, config.personal_access_token):
-            return True, None
-
-        return False, "Invalid Azure DevOps credentials"
+        # Pre-creation calls pass no pin and resolve to default_version — the version new rows start on.
+        return validate_azure_devops_credentials(
+            config.organization, config.personal_access_token, self.resolve_api_version(api_version)
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AzureDevOpsResumeConfig]:
         return ResumableSourceManager[AzureDevOpsResumeConfig](inputs, AzureDevOpsResumeConfig)
@@ -142,6 +145,7 @@ Your organization is the first path segment of your Azure DevOps URL — for `de
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

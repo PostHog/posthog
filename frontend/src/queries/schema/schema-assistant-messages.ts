@@ -22,10 +22,6 @@ import type {
     PathsQuery,
     QuerySchema,
     RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsTopCustomersQuery,
     StickinessQuery,
     TrendsQuery,
 } from './schema-general'
@@ -273,10 +269,6 @@ export interface VisualizationItem {
         | PathsQuery
         | LifecycleQuery
         | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
     initiator?: string
 }
 
@@ -480,7 +472,6 @@ export type AssistantTool =
     | 'search'
     | 'read_data'
     | 'todo_write'
-    | 'filter_revenue_analytics'
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
@@ -529,6 +520,22 @@ export type AssistantTool =
     | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
     | 'search_replay_vision_observations'
+    | 'scan_replay_vision_sessions'
+    | 'retry_replay_vision_observation'
+    | 'get_replay_vision_quota'
+    | 'create_replay_vision_scanner'
+    | 'update_replay_vision_scanner'
+    | 'list_replay_vision_scanners'
+    | 'delete_replay_vision_scanner'
+    | 'estimate_replay_vision_scanner'
+    | 'label_replay_vision_observation'
+    | 'analyze_replay_vision_impact'
+    | 'suggest_replay_vision_tags'
+    | 'read_replay_vision_actions'
+    | 'update_replay_vision_action'
+    | 'delete_replay_vision_action'
+    | 'run_replay_vision_action'
+    | 'create_replay_vision_action'
     | 'upsert_account'
     | 'upsert_account_notebook'
     | 'open_account'
@@ -592,7 +599,6 @@ export enum AssistantNavigateUrl {
     Notebooks = 'notebooks',
     Replay = 'replay',
     ReplaySettings = 'replaySettings',
-    RevenueAnalytics = 'revenueAnalytics',
     SavedInsights = 'savedInsights',
     Settings = 'settings',
     SqlEditor = 'sqlEditor',

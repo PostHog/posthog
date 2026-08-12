@@ -110,6 +110,10 @@ const AssistantDataVisualizationChartSettings = z.object({
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
     showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
+    showTotalRow: z.coerce
+        .boolean()
+        .describe('Show a total summing all Y series. Applies to line, bar, and area charts.')
+        .optional(),
     showValuesOnSeries: z.coerce
         .boolean()
         .describe("Render each data point's value as a label directly on the series.")
@@ -145,7 +149,6 @@ const AssistantDataVisualizationTableSettings = z.object({
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
-    showTotalRow: z.coerce.boolean().describe('Show a total row at the bottom of the table.').optional(),
     transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
 })
 

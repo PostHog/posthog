@@ -9,7 +9,7 @@ The product surfaces PR + CI data through **named, typed endpoints** that run cu
 
 Reads are the product. The one write is the test-health sidecar (quarantine: issue plus PR through the team's GitHub App), carved out here because this UI is the fastest surface to iterate on it.
 
-The goal is Signals for PostHog Code (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
+The goal is Signals for PostHog Desktop (README → "The goal"): Signal detection is defined once in `logic/` over the read layer, shared by the surfaces and the Signal emitter. Emission rides the curated builders; it does not wait on lifecycle events.
 
 ## 2. Non-goals
 
@@ -30,7 +30,7 @@ graph TB
     subgraph Consumers
         MCP["MCP clients: Claude Code / Cursor / PostHog AI"]
         UI["in-app UI: React + kea"]
-        Other["PostHog Code & other agent-driven callers"]
+        Other["PostHog Desktop & other agent-driven callers"]
         SQL["insights / subscriptions / execute-sql"]
     end
 
@@ -44,9 +44,9 @@ graph TB
     end
 
     subgraph Storage
-        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members")]
+        WH[("warehouse: GitHub source<br/>pull_requests / workflow_runs<br/>workflow_jobs / team_members<br/>issue_events")]
         LOGS[("Logs: github-ci-logs<br/>thinned CI failure lines")]
-        TRACES[("Traces: per-test CI spans<br/>from Backend CI")]
+        TRACES[("Traces: per-test CI spans<br/>from Backend and Frontend CI")]
     end
 
     JL["Temporal job-logs pipeline"] --> LOGS
@@ -89,6 +89,7 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 - Time windows are `date_from` / `date_to`, relative (`-30d`) or ISO8601.
 - Capped list contracts that include a sibling aggregate return `{items, truncated, limit}` so they never silently undercount against it.
 - Span-derived reads (flaky tests, team CI health) report absolute counts, never rates: sub-threshold runs aren't emitted, so denominators are biased.
+- Test evidence is counted per CI run, never per span or run attempt (one run fans a test across matrix legs, and every attempt re-tests the same commit), and both span-derived reads group the same `run_evidence()` so the grain and the meaning of flaky cannot drift. A test is `confirmed_flake` only on same-commit recovery proof: a re-run attempt going green, or an in-job retry. Unproven failures rank as `suspected_regression` by blast radius.
 - Reads over optional data (e.g. `team_members`) degrade honestly (`has_membership_data: false`), never 500.
 
 ### Exposed warehouse views
@@ -102,12 +103,13 @@ They are non-materialized: the rendered SQL is persisted per team and re-synced 
 - Grain: one row per job attempt (a retry appears once per attempt; correct for cost). Jobs whose run row is missing keep NULL attribution rather than being dropped.
 - NULL cost is disambiguated by `provider` (non-billable: github-hosted, non-Linux, unclassifiable) vs `completed_at` (unsettled). A queued job is never shown as `$0.00`.
 - Cost is defined once, in `logic/cost.py`, rendered to HogQL; a ClickHouse-backed parity test asserts the view equals the Python model. The endpoint cost queries read the same rendered SELECT (via `_curated.job_cost_source()`), so there is no second cost path to drift.
+- `is_merge_queue` splits merge-queue gate spend from the rest without anyone re-deriving what a gate branch is. Both this view and `ci_job_history` carry it, so neither answers "what does the queue cost" by pattern-matching a branch name.
 
 #### `engineering_analytics_ci_job_history`
 
 - The per-job-attempt history with commit attribution, for green/red boundary analysis ("master went red at SHA X, authored by Y, via PR Z").
 - Column order is the locked contract (it fixes the UNION ALL order and the saved-query schema): append, never reorder.
-- Two PR keys, by design (§6): `pr_number` is the run's `pull_requests` association (0 when absent: master pushes, fork PRs); `commit_pr_number` is parsed from the head commit's squash-merge suffix, which is how a master push gets PR attribution at all.
+- Two PR keys, by design (§6): `pr_number` is the run's `pull_requests` association (0 when absent: master pushes, fork PRs), or the PR a merge-queue gate branch was landing when `is_merge_queue`; `commit_pr_number` resolves the merged PR that produced the head commit, which is how a master push gets PR attribution at all.
 - Commit attribution joins the raw runs table on `run_id` alone, never `run_attempt`: the runs snapshot upserts by id so only the newest attempt's row exists, and attribution is attempt-invariant (a re-run is the same commit).
 
 #### `engineering_analytics_ci_failures`
@@ -125,14 +127,23 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
   - `head_branch` is the capture-time / pre-PR / fork fallback (fork runs have an empty association). Branches are reused, so branch-keyed reads must be time-bounded.
   - `head_sha` is per-commit precision only, and always the webhook head SHA, never the ephemeral `refs/pull/N/merge` SHA.
   - Attribution is a possibly-empty, possibly-multi set (a run ↔ PR is 0..N); the read layer credits a run to the first PR in its association.
+  - **Only association entries whose `base.repo.id` is the run's own `repository.id` count.** GitHub lists every PR in the fork network sharing the run's head SHA, so a default-branch push arrives carrying downstream forks' "sync from upstream" PRs; reading the first entry unfiltered attributed those runs to a stranger's PR number under our own owner/name.
+  - `commit_pr_number` is the complementary key and the only PR attribution a default-branch push has. It resolves through the merged PR's `merge_commit_sha` (the commit GitHub records at merge _is_ the run's `head_sha`), and falls back to the head commit's `(#NNNN)` squash-merge suffix when the PR snapshot can't serve it: a repo with no `pull_requests` endpoint synced, or a PR row not landed yet. Consumers read `pr_number` first and fall back to `commit_pr_number`; both are defined once in the `workflow_runs` builder.
+  - **The `merge_commit_sha` lookup is not the head-SHA join banned above.** That ban is about resolving a run through a PR's _current head_, which the snapshot overwrites on every push. `merge_commit_sha` on a **merged** PR is terminal: written once at merge, one commit per PR, so it drops nothing. It must be gated on `merged_at`, because GitHub also fills it on an open PR with the throwaway commit from a test merge. The index is deduped to one row per SHA, because a raw join on a non-unique key fans one run row into several and multiplies every downstream count.
+- **Merge-queue gate branches are CI artifacts, not work — defined once in `logic/merge_queue.py`.** A merge queue (Trunk's `/trunk merge`, GitHub's native queue) lands a PR by pushing a throwaway branch with that PR's commits rebased onto trunk, running the full suite there, and merging only if it stays green. GitHub records that branch as a pull request, so on this repo a third of PR rows and ~13% of CI spend belong to gate attempts.
+  - Gate PRs are dropped in the `pull_requests` builder. They carry no diff, never merge, and no PR surface can act on one, so they are not the bot/draft case (which stays a per-read default so bot-impact analysis can still see bots).
+  - A gate run's `pr_number` resolves through its branch (`trunk-merge/pr-<n>/…`), not its `pull_requests` association — the association names the throwaway PR. This is not the head-SHA join banned above: the branch name is immutable for the branch's life and names exactly one PR. `ci_job_history.is_merge_queue` keeps the two populations separable. The same resolution runs over the CI test spans, where the emitter stamps the gate PR from the webhook payload and would otherwise make one test failing across N merge attempts read as N distinct PRs in every blast-radius count.
+  - A failure on a gate branch that never reached trunk classifies as `blocking_merge_queue`, not `pr_only`: the commit had already passed the PR's own CI, which is the semantic-conflict class the queue exists to catch.
+  - A queue that batched several PRs onto one gate branch would break the one-PR assumption; that needs a new branch shape in `merge_queue.py`, not a new rule at each call site.
 - **Warehouse columns are strings + Nullable JSON; the builders parse and `ifNull`-guard.** Timestamps parse via `parseDateTimeBestEffort`; Nullable columns unwrap before any array function (ClickHouse rejects an Array inside a Nullable). `source_schema.py` mirrors the real landed types so seed and tests exercise the real path; violating this 500'd every endpoint on real data while idealized fixtures stayed green.
 - **The warehouse views are managed data, not code registration.** "No global HogQL views" locks out `Database.create_for` (core importing the product, every team's per-query hot path). A per-team `DataWarehouseSavedQuery`, synced only for qualifying teams, reopens nothing: it exists so cost and CI history are queryable by insights, subscriptions, and `execute-sql`.
+- **CI Signals use immutable evidence.** Flaky checks require job rows from `github_workflow_jobs` showing a failed attempt followed by a successful later attempt for the same `(run_id, job)`. The run snapshot alone cannot prove this transition. Broken-default-branch detection reads GitHub's reported default branch from the PR snapshot's `base.repo`, the only full repository object in the tables this product reads (`query_default_branches` documents why the runs snapshot cannot answer it). A repo with no PR rows resolves nothing and is skipped: `repo_overview`'s master/main run-volume guess stays a display approximation, because a P1 needs GitHub's report, not inference. Detection gates on the rate over runs that reached a verdict (cancelled and skipped runs decide nothing). Duration comparisons require enough successful samples because the percentiles exclude failed and cancelled runs. All three conditions carry a week-stable `source_id`, and the coordinator records each emitted key in `SignalEmissionRecord` so an hourly sweep doesn't re-emit the same standing condition within its week. For broken-default-branch that means one signal per week per workflow, accepting that a distinct second breakage of the same workflow inside one week dedupes into the first rather than minting a signal (and a ledger row) per completed run.
 - **HogQL only for analytics data.** No raw ClickHouse.
 - **No product Postgres DB.** Analytics data lives in the warehouse / ClickHouse; any product-config model goes on the main DB as a team-scoped model (`TeamScopedRootMixin`), never a separate DB.
 - **No author leaderboards or per-developer performance rankings; the author page is allowed.** The surveillance risk is ranking people against each other, not an engineer viewing their own PRs and CI cost. The page is reachable only from PR-row author links; `author_workflow_costs` stays a UI-only read (MCP `enabled: false`).
 - **Bot detection, defined once:** `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist; per-team config deferred.
 - **Bots and drafts excluded by default** in throughput / cycle-time reads; first-class in bot-impact analysis, so never strip them at the substrate.
-- **Time to merge** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined) until state-transition events exist.
+- **Time to merge** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined). The precise companion is `ready_to_merge_seconds` = `merged_at` minus the last observed `ready_for_review` issue event (only the last draft/ready switch counts; a draft can't merge), falling back to `created_at` for a merged PR verifiably never drafted (no transition rows and its whole open-to-merge span inside the observed issue-event window, so the transitions can't merely be unsynced). NULL means "not observed", never zero: GitHub caps the issue-events history walk, so coverage grows forward from the first sync.
 - **Team ownership is stamped at CI emission time, never mirrored server-side.** The CI emitter stamps `test.owner_team` from the repo's ownership map (`products/*/product.yaml` + CODEOWNERS, first listed owner); unstamped spans aggregate as the first-class team `unowned`. Capture-time truth is intentional: a test belongs to whoever owned it when it flaked. Team surfaces stay team-level: author→team joins (via the `team_members` snapshot) produce aggregates only, never per-member figures or cross-team rankings; a slug mismatch yields an empty series, never another team's data.
 - **No provider abstraction until a second code host lands.** GitHub-isms stay below the builder boundary, canonical types above it; that seam makes extracting a `CodeHostProvider` Protocol mechanical.
 
@@ -144,15 +155,16 @@ Warehouse tables (GitHub source):
 - `github_workflow_runs`: CI runs. Webhook-only (the webhook is the source of truth; history is a deliberate one-off backfill). A settled run never changes, so durations and trends are precise; until settled, `status` / `conclusion` mutate (see the freshness caveat).
 - `github_workflow_jobs`: per-job attempts (runner labels, queue and duration timestamps), the cost substrate. Webhook stream plus a window-limited backfill poll; per-run polling is infeasible at this volume.
 - `github_team_members`: org team membership, the author→team key. Optional at the source; every read that touches it must degrade gracefully when unsynced.
+- `github_issue_events`: immutable issue/PR state transitions, landed raw with every event type kept (a source-side filter would pin the desc-walk watermark). The draft/ready transitions in them back `ready_to_merge_seconds` and the lifecycle timeline. GitHub caps the endpoint's history walk, so rows cover a bounded recent window growing forward from the first sync; optional, and reads must degrade gracefully when unsynced.
 
 Other products read as sources:
 
 - Logs: the thinned CI failure lines this product's job-logs pipeline emits (`service.name = github-ci-logs`), keyed by `run_id`.
-- Traces: per-test CI spans emitted by Backend CI (`trace_spans`), behind flaky tests and team CI health.
+- Traces: per-test CI spans emitted by the main Backend pytest and Frontend Jest suites (`trace_spans`), behind flaky tests and team CI health. Jest covers both legacy `frontend/` tests and isolated product frontends through the shared root config; its quarantine adapter records tolerated failures beside JUnit so the trusted reporter can retain that evidence. Package-specific Jest and Vitest jobs are outside this signal.
 
 **Freshness caveat:** a run's `conclusion` settles via the `workflow_run` webhook, which can lag or miss deliveries; the read layer surfaces `status` honestly rather than implying a settled conclusion.
 
-Lifecycle data the snapshots can't hold (PR state transitions, reviews/approvals, deploys, DORA) needs immutable timestamped events (GitHub webhooks → PostHog events, PR as group type). That is the only thing the deferred events destination is for. See README → "The data boundary".
+Lifecycle data the snapshots can't hold and `github_issue_events` doesn't carry (reviews/approvals, deploys, DORA) needs immutable timestamped events (GitHub webhooks → PostHog events, PR as group type). That is the only thing the deferred events destination is for. See README → "The data boundary".
 
 ## 8. Reference reading
 

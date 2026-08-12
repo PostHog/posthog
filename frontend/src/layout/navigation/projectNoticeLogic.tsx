@@ -50,10 +50,6 @@ export interface ProjectNoticeBlueprint {
     mountNoEventsBannerLogic?: boolean
 }
 
-export function shouldShowNoEventsProjectNotice(activeSceneId: string | null, liveEventCount: number): boolean {
-    return activeSceneId !== Scene.Quickstart && !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
-}
-
 const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
 
 // The products we want every provisioned account exploring. Keys resolve in both PRODUCT_BRANDING
@@ -320,9 +316,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {
-                    // A missing or expired session makes this boot-time GET 401. There's no banner to
-                    // show an unauthenticated user, so swallow it rather than polluting error tracking.
-                    if (error instanceof ApiError && error.status === 401) {
+                    // A missing or expired session makes this boot-time GET 401. A restricted org member
+                    // whose access level to the org resource is below read gets a 403 from the RBAC layer.
+                    // Either way there's no banner to show, so swallow it rather than polluting error tracking.
+                    if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
                         return null
                     }
                     throw error
@@ -433,7 +430,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // Belt-and-braces: never claim "no events" while the live activity feed is
                     // actively rendering events on the same screen — `currentTeam.ingested_event`
                     // can lag behind the live SSE stream during the first ingestion window.
-                    shouldShowNoEventsProjectNotice(activeSceneId, liveEventCount)
+                    !(activeSceneId === Scene.LiveEvents && liveEventCount > 0)
                 ) {
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {

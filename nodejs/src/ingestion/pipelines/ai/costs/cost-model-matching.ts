@@ -1,7 +1,7 @@
 import { logger } from '~/common/utils/logger'
 import { Properties } from '~/plugin-scaffold'
 
-import { resolveModelCostForProvider } from './provider-matching'
+import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
 import type { ModelCostRow, ResolvedModelCost } from './providers/types'
 
@@ -38,6 +38,39 @@ const findManualCost = (model: string): ModelCostRow | undefined => {
     return undefined
 }
 
+const resolveBedrockInferenceProfileProvider = (
+    model: string,
+    providerCosts: ModelCostRow['cost'],
+    provider: string | undefined
+): string | undefined => {
+    if (!provider || resolveProviderAliases(provider) !== 'amazon-bedrock') {
+        return provider
+    }
+
+    const lowerCaseModel = model.toLowerCase()
+    const inferenceProfileArn =
+        /^arn:(?:aws|aws-cn|aws-us-gov):bedrock:([a-z0-9-]+):\d{12}:inference-profile\/[^/]+$/.exec(lowerCaseModel)
+    const arnProvider = inferenceProfileArn ? `amazon-bedrock-${inferenceProfileArn[1]}` : undefined
+
+    if (arnProvider && providerCosts[arnProvider]) {
+        return arnProvider
+    }
+
+    const modelId: string = lowerCaseModel.split('/').pop() ?? lowerCaseModel
+    const profilePrefix: string = modelId.split('.')[0]
+    const profileProviderPrefix = `amazon-bedrock-${profilePrefix}`
+
+    if (providerCosts[profileProviderPrefix]) {
+        return profileProviderPrefix
+    }
+
+    const regionalProviders = Object.keys(providerCosts).filter(
+        (providerKey) => providerKey.startsWith(`${profileProviderPrefix}-`) && providerCosts[providerKey]
+    )
+
+    return regionalProviders.length === 1 ? regionalProviders[0] : provider
+}
+
 export const findCostFromModel = (model: string, properties: Properties): CostModelResult | undefined => {
     const providerProperty: unknown = properties['$ai_provider']
 
@@ -46,7 +79,11 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const manualMatch: ModelCostRow | undefined = findManualCost(model)
 
     const resolvedManualMatch: ResolvedModelCost | undefined = manualMatch
-        ? resolveModelCostForProvider(manualMatch.cost, provider, manualMatch.model)
+        ? resolveModelCostForProvider(
+              manualMatch.cost,
+              resolveBedrockInferenceProfileProvider(model, manualMatch.cost, provider),
+              manualMatch.model
+          )
         : undefined
 
     if (resolvedManualMatch) {
@@ -56,7 +93,11 @@ export const findCostFromModel = (model: string, properties: Properties): CostMo
     const openRouterMatch: ModelCostRow | undefined = searchModelInCosts(model, openRouterCostsByModel)
 
     const resolvedOpenRouterMatch: ResolvedModelCost | undefined = openRouterMatch
-        ? resolveModelCostForProvider(openRouterMatch.cost, provider, openRouterMatch.model)
+        ? resolveModelCostForProvider(
+              openRouterMatch.cost,
+              resolveBedrockInferenceProfileProvider(model, openRouterMatch.cost, provider),
+              openRouterMatch.model
+          )
         : undefined
 
     if (resolvedOpenRouterMatch) {

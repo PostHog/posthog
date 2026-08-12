@@ -31,8 +31,10 @@ from zxcvbn import zxcvbn
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
 from posthog.helpers.two_factor_session import enforce_two_factor
+from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
@@ -175,6 +177,7 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
             user, auth = auth_result
             enforce_two_factor(request, user)
+            enforce_verified_domain(request, user)
 
             return (user, auth)
 
@@ -322,6 +325,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 api_key_mask=personal_api_key_object.mask_value,
                 api_key_label=personal_api_key_object.label,
             )
+
+            # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
+            # DRF auth), so signal-driven activity logging would otherwise record bearer-token
+            # requests as system actions. Only write when the middleware owns cleanup: outside a
+            # request cycle (e.g. authenticate() called directly) the thread-local would leak.
+            if activity_storage.is_request_scoped():
+                activity_storage.set_user(personal_api_key_object.user)
 
             self.personal_api_key = personal_api_key_object
             self.personal_api_key_source = source
@@ -864,6 +874,18 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                     team_id=access_token.user.current_team_id,
                     access_method=AccessMethod.OAUTH,
                 )
+
+                # ActivityLoggingMiddleware only captures session-authenticated users (it runs
+                # before DRF auth), so signal-driven activity logging would otherwise record
+                # bearer-token requests as system actions. Only write when the middleware owns
+                # cleanup: outside a request cycle (e.g. authenticate() called directly) the
+                # thread-local would leak.
+                if activity_storage.is_request_scoped():
+                    activity_storage.set_user(access_token.user)
+                    # Tokens minted during staff impersonation must keep the impersonation
+                    # marker in the audit trail.
+                    if access_token.impersonated_by_id is not None:
+                        activity_storage.set_was_impersonated(True)
 
                 return access_token.user, None
 

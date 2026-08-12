@@ -2,11 +2,8 @@ import { type Series } from '@posthog/quill-charts'
 
 import { getSeriesColor } from 'lib/colors'
 
-import { ChartDisplayType } from '~/types'
-
 import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
-import { LineGraphProps } from './LineGraph'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 
 export interface PieSlice {
@@ -112,8 +109,4 @@ export const formatPieSliceCount = (
         return formatted
     }
     return `${formatted} (${shareOfTotal}%)`
-}
-
-export function canRenderSqlPieGraph(props: LineGraphProps): boolean {
-    return props.visualizationType === ChartDisplayType.ActionsPie
 }

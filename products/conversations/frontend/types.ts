@@ -1,7 +1,8 @@
-import type { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
+import type { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
+import type { TicketViewFiltersApi } from './generated/api.schemas'
 
 export type { AssigneeFilterEntry }
 
@@ -28,7 +29,7 @@ export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
 function isAssigneeFilterEntry(value: unknown): value is AssigneeFilterEntry {
-    if (value === 'unassigned') {
+    if (value === 'unassigned' || value === 'me') {
         return true
     }
     if (typeof value !== 'object' || value === null) {
@@ -92,20 +93,13 @@ export interface KnowledgeGapSuggestion {
     created_at: string
 }
 
-export interface TicketViewFilters {
-    status?: TicketStatus[]
-    priority?: TicketPriority[]
-    channel?: TicketChannel | 'all'
-    sla?: TicketSlaState | 'all'
-    aiTriageResult?: AITriageFilterValue[]
+/**
+ * Canonical saved-view filter shape, generated from the backend's TicketViewFiltersSerializer.
+ * `assignee` is widened locally: the API stores filters raw, so old saved views can still
+ * return the legacy single-value shape — always read it through normalizeAssigneeFilter.
+ */
+export type TicketViewFilters = Omit<TicketViewFiltersApi, 'assignee'> & {
     assignee?: AssigneeFilterEntry[] | AssigneeFilterValue
-    tags?: string[]
-    tagsMatch?: TicketTagsMatch
-    tagsExclude?: string[]
-    dateFrom?: string | null
-    dateTo?: string | null
-    sorting?: Sorting | null
-    search?: string
 }
 
 export interface SavedTicketView {
@@ -180,6 +174,8 @@ export interface Ticket {
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
+    /** The effective access level the current user has for this ticket. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface ConversationTicket {
@@ -210,6 +206,7 @@ export interface ConversationMessage {
 }
 
 export interface MessageAuthor {
+    id?: number
     first_name?: string
     last_name?: string
     email?: string
@@ -227,6 +224,8 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    /** Edit count from the comment row. 0 means never edited. */
+    version?: number
     emailDeliveryStatus?: EmailDeliveryStatus
     /** Imported from an external tool (e.g. Zendesk). Such content is untrusted, so its Markdown
      * is rendered with external image auto-loading disabled. */

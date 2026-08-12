@@ -44,7 +44,7 @@ export function InsightAlertNotificationSection({
         <>
             <div className="flex gap-4 items-center">
                 <div>E-mail</div>
-                <div className="flex-auto">
+                <div className="flex-auto" data-prevent-wizard-submit>
                     <MemberSelectMultiple
                         value={alertForm.subscribed_users?.map((user) => user.id) ?? []}
                         idKey="id"

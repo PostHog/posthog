@@ -110,7 +110,7 @@ export function Billing(): JSX.Element {
                         'There was an issue retrieving your current billing information. If this message persists, please '
                     }
                     {preflight?.cloud ? (
-                        <Link onClick={() => openSupportForm({ kind: 'bug', target_area: 'billing' })}>
+                        <Link onClick={() => openSupportForm({ kind: 'bug', billing_issue: true })}>
                             submit a bug report
                         </Link>
                     ) : (
@@ -266,14 +266,14 @@ export function Billing(): JSX.Element {
                                 <div className="flex gap-x-2">
                                     <div>{getProductIcon('IconTerminal', { className: 'text-2xl shrink-0' })}</div>
                                     <div>
-                                        <h3 className="font-bold mb-0">Code</h3>
-                                        <div>Manage existing PostHog Code seats.</div>
+                                        <h3 className="font-bold mb-0">PostHog Desktop</h3>
+                                        <div>Manage existing PostHog Desktop seats.</div>
                                     </div>
                                 </div>
                                 <LemonButton
                                     icon={<IconDocument />}
                                     size="small"
-                                    to="https://posthog.com/docs/posthog-code"
+                                    to="https://posthog.com/docs/posthog-desktop"
                                     tooltip="Read the docs"
                                 />
                             </div>

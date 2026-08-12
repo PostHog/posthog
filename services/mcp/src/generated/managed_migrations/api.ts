@@ -19,7 +19,7 @@ export const ManagedMigrationsSupportListQueryParams = /* @__PURE__ */ zod.objec
     status: zod
         .enum(['completed', 'failed', 'paused', 'running'])
         .optional()
-        .describe('* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running'),
+        .describe('\* `completed` - Completed\n\* `failed` - Failed\n\* `paused` - Paused\n\* `running` - Running'),
     team_id: zod.number().optional(),
 })
 

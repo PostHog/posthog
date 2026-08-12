@@ -25,7 +25,14 @@ from urllib.parse import urlparse
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
+from google.api_core.exceptions import (
+    BadRequest,
+    DeadlineExceeded,
+    Forbidden,
+    InternalServerError,
+    NotFound,
+    ServiceUnavailable,
+)
 from google.api_core.retry import Retry, if_exception_type
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
@@ -40,17 +47,13 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_TABLE_SIZE_BYTES
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
+    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
     incremental_type_to_operator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
@@ -77,6 +80,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     format_projected_select_clause,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigquery import (
     BigQuerySourceConfig,
 )
@@ -191,6 +195,13 @@ BIGQUERY_VALIDATION_GENERIC_ERROR = (
 # the job in place — matched on its stable retry-recommendation wording, not the volatile job id/URL.
 _BIGQUERY_JOB_RETRY_RECOMMENDED = "Retrying the job may solve the problem"
 
+# BigQuery has a second wording for the same transient `jobInternalError` condition above, seen from
+# the same `jobs.getQueryResults` call: "The job encountered an internal error during execution and
+# was unable to complete successfully." — no "Retrying the job may solve the problem" suffix, so
+# `_BIGQUERY_JOB_RETRY_RECOMMENDED` doesn't catch it and it escapes `QueryJob.result()` the same way.
+# Matched on its own stable wording, not the volatile job id/URL.
+_BIGQUERY_JOB_INTERNAL_ERROR = "encountered an internal error during execution and was unable to complete successfully"
+
 
 def _is_transient_rate_quota_exceeded(exc: Exception) -> bool:
     """True for BigQuery's per-second rate quotas, which are transient and recover on their own.
@@ -232,8 +243,10 @@ def _query_should_retry(exc: Exception) -> bool:
     # Defer to the library's own default predicate for the reasons it already covers; importing it
     # directly (rather than reading the private `Retry._predicate`) means a library rename fails
     # loudly at import instead of silently dropping that default coverage.
+    message = str(exc)
     return (
-        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc)
+        _BIGQUERY_JOB_RETRY_RECOMMENDED in message
+        or _BIGQUERY_JOB_INTERNAL_ERROR in message
         or _is_transient_rate_quota_exceeded(exc)
         or _is_transient_queued_jobs_quota_exceeded(exc)
         or _job_should_retry(exc)
@@ -259,6 +272,21 @@ BIGQUERY_READ_ROWS_RETRY = Retry(
     maximum=60.0,
     multiplier=1.3,
     deadline=86400.0,
+)
+
+
+# The same transient gRPC INTERNAL error can surface one call earlier, from `create_read_session`
+# itself, before any stream exists to reconnect. The client's default create_read_session retry
+# only covers DeadlineExceeded/ServiceUnavailable, so INTERNAL escapes as an unhandled
+# InternalServerError and fails the whole import activity. No stream has been read yet at this
+# point, so retrying just creates a fresh session. Parameters mirror the library's default
+# create_read_session retry, widened to also retry INTERNAL.
+BIGQUERY_CREATE_READ_SESSION_RETRY = Retry(
+    predicate=if_exception_type(DeadlineExceeded, ServiceUnavailable, InternalServerError),
+    initial=0.1,
+    maximum=60.0,
+    multiplier=1.3,
+    deadline=600.0,
 )
 
 
@@ -678,10 +706,10 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     """
 
     job_config = QueryJobConfig()
-    job = client.query(query, job_config=job_config, project=table.project, retry=BIGQUERY_QUERY_CREATE_RETRY)
+    rows = _query_result_with_job_retry(client, query, job_config=job_config, project=table.project)
 
     primary_keys = []
-    for row in job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY):
+    for row in rows:
         field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:
@@ -701,6 +729,12 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
 # stay in lockstep if BigQuery ever adjusts the phrasing.
 BIGQUERY_RESOURCES_EXCEEDED_ERROR = "Resources exceeded during query execution"
 
+# Stable wording BigQuery puts in a `billingTierLimitExceeded` query failure's message, raised as a
+# 400 BadRequest from `jobs.getQueryResults` when a query's CPU-second usage relative to bytes
+# billed exceeds the ratio the on-demand pricing model allows. Shared with
+# `BigQuerySource.get_non_retryable_errors` so the two stay in lockstep.
+BIGQUERY_ON_DEMAND_RATIO_EXCEEDED_ERROR = "exceeds the ratio supported by the on-demand pricing model"
+
 
 def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """True for BigQuery's `resourcesExceeded` query failures.
@@ -713,6 +747,18 @@ def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """
     reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
     return "resourcesExceeded" in reasons or BIGQUERY_RESOURCES_EXCEEDED_ERROR in str(error)
+
+
+def _is_bigquery_view_parse_failure(error: BadRequest) -> bool:
+    """True for BigQuery's `failed to parse view` query failures.
+
+    BigQuery raises this when the table being probed is itself a view whose definition no
+    longer compiles (a column, UDF, or upstream table it references was renamed or dropped).
+    See the `"failed to parse view"` key in `BigQuerySource.get_non_retryable_errors` for the
+    main read path — that's a customer-side view problem we can't fix, so this best-effort
+    probe should degrade gracefully instead of treating it as an actionable crash.
+    """
+    return "failed to parse view" in str(error)
 
 
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
@@ -741,6 +787,17 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
             # on every sync.
             structlog.get_logger().warning(
                 "Skipping duplicate primary key check for BigQuery table %s.%s: query exceeded BigQuery memory limits",
+                table.dataset_id,
+                table.table_id,
+            )
+            return False
+        if _is_bigquery_view_parse_failure(e):
+            # The table being probed is itself a broken view — its own definition doesn't
+            # compile, so BigQuery rejects the probe before it can even run. That's a
+            # customer-side view problem this check can't fix, and this check is best-effort,
+            # so skip it quietly rather than capturing non-actionable noise on every sync.
+            structlog.get_logger().warning(
+                "Skipping duplicate primary key check for BigQuery table %s.%s: view failed to parse",
                 table.dataset_id,
                 table.table_id,
             )
@@ -1352,17 +1409,32 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 rest_api_version=_bigquery_rest_api_version(inputs.api_version),
             )
         finally:
-            # Delete the destination table (if it exists) after we're done with it
-            delete_table(
-                table_id=destination_table,
-                project_id=project_id,
-                location=region,
-                private_key=config.key_file.private_key,
-                private_key_id=config.key_file.private_key_id,
-                client_email=config.key_file.client_email,
-                token_uri=config.key_file.token_uri,
-            )
-            inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+            # Delete the destination table (if it exists) after we're done with it. A transient
+            # token-refresh failure here (e.g. a 502 from Google's OAuth endpoint) must not turn
+            # an otherwise-successful sync into a failure — retrying the whole sync just to retry
+            # this delete is wasteful. This must NOT swallow a genuine permission denial: this
+            # table holds a real materialized copy of the customer's data, so if we can't delete
+            # it we need the sync to keep failing (via the "Access Denied:" key in
+            # `get_non_retryable_errors`) rather than silently leaving readable copies to
+            # accumulate on every run.
+            try:
+                delete_table(
+                    table_id=destination_table,
+                    project_id=project_id,
+                    location=region,
+                    private_key=config.key_file.private_key,
+                    private_key_id=config.key_file.private_key_id,
+                    client_email=config.key_file.client_email,
+                    token_uri=config.key_file.token_uri,
+                )
+                inputs.logger.info(f"Deleting bigquery temp destination table: {destination_table}")
+            except RefreshError as e:
+                # `invalid_grant` (rejected credentials) is not transient — `_build_source_response`
+                # authenticates with the same credentials, so genuinely dead credentials need to keep
+                # propagating to the sync-path classifier rather than being silently swallowed here.
+                if "invalid_grant" in str(e):
+                    raise
+                inputs.logger.warning(f"Skipping cleanup of bigquery destination table {destination_table}: {e}")
 
     def _build_source_response(
         self,
@@ -1532,6 +1604,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         read_session=requested_session,
                         # TODO: Currently, single stream. Could multi-thread here for performance.
                         max_stream_count=1,
+                        retry=BIGQUERY_CREATE_READ_SESSION_RETRY,
                     )
 
                     if not read_session.streams:

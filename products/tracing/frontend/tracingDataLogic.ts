@@ -757,10 +757,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             {
                 fetchSpans: () => true,
                 fetchSpansSuccess: () => false,
-                fetchSpansFailure: () => false,
+                // A superseded query is aborted by the newer one that already re-set loading true;
+                // keep loading so the list holds its spinner instead of flashing "No spans found".
+                fetchSpansFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
                 fetchNextPage: () => true,
                 fetchNextPageSuccess: () => false,
-                fetchNextPageFailure: () => false,
+                fetchNextPageFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
             },
         ],
         sparklineLoading: [
@@ -792,7 +794,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
             {
                 fetchAggregation: () => true,
                 fetchAggregationSuccess: () => false,
-                fetchAggregationFailure: () => false,
+                fetchAggregationFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
             },
         ],
         spanTreeLoading: [

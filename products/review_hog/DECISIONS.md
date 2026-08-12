@@ -198,6 +198,99 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-08-12 — review body cut to a severity tally (the chunk summary is gone)
+
+The published body opened with a walk of the chunk tree: a `## <chunk type>` heading per chunk, an `Issues: N`
+line, a collapsed file list, and a collapsed "What were the main changes" block built from the chunker's
+`key_changes`. It was the longest part of a review and the least read — a machine-written summary of a diff the
+author had just written, in front of the findings they actually came for. Sentiment across the company on
+LLM-written PR prose is blunt: people skip it. Decisions:
+
+- **The body is one line: `Found **2 must fix**, **1 consider**.`** Only severities with a non-zero count
+  appear, most urgent first (`PRIORITIES_BY_URGENCY`), and the tally counts exactly what publishes — valid
+  findings at or above the acting user's threshold, bucketed by **effective** (validator-wins) priority. An
+  empty tally renders "No issues to report." (defensive: publish self-skips with nothing publishable, but the
+  body is also stored and shown in the UI for store-only runs).
+- **Labels are shared, not duplicated.** `PRIORITY_LABELS` + `PRIORITIES_BY_URGENCY` moved to `constants.py`,
+  so the body and the status comment's found-counts line can't drift into two vocabularies.
+- **What deliberately stayed:** the `# ReviewHog Report` title (the report's identity in the UI and in the
+  publish test's marker assertions) and the "Other findings (outside the changed lines)" section — that one
+  isn't a summary, it's the only place off-diff findings surface at all.
+- **The chunk tree left the renderer entirely.** `_assemble_report` and
+  `models/prepare_validation_markdown.py` (`ValidationMarkdownReport*`) are deleted, and `build_review_body`
+  no longer takes `chunks_data` — so `_build_and_finalize` drops its `load_chunk_set` call. The chunker's
+  `chunk_type` / `key_changes` are untouched: perspective selection still reads them, and the pipeline-trace UI
+  still shows the chunks. Only the PR-facing prose was the problem.
+- Rejected: keeping the summary behind a `<details>` (still the first thing in the review, still written for
+  nobody), and shortening it with another LLM call (paying per review to generate text we just established
+  people skip).
+
+### ✅ BUILT 2026-07-27 — reviews surface exposed as MCP tools (grantable `review_hog` scope)
+
+Agents needed to drive ReviewHog over MCP — kick off a review, poll progress, pull the finished findings
+([PR #72917](https://github.com/PostHog/posthog/pull/72917)). The capabilities already existed as the reviews
+viewset behind the Code review UI; the blocker was auth: the viewset was `scope_object = "INTERNAL"`
+(session-only), unreachable with the personal API key / OAuth token MCP authenticates with. Decisions:
+
+- **A grantable `review_hog` scope, not a widened INTERNAL.** The viewset moves to `scope_object = "review_hog"`
+  with `trigger` behind `review_hog:write` and `perspective_stats` behind `review_hog:read` (`list` / `retrieve`
+  map to `review_hog:read` by default). Session UI access is unchanged — this only adds token access. The scope
+  is mirrored across the standard lists (`posthog/scopes.py`, the frontend `API_SCOPE_OBJECTS` array + the PAK
+  modal in `scopes.tsx`, the generated agent / OAuth scope lists, the MCP guard lists).
+- **Three thin tools over the existing surface** (`products/review_hog/mcp/tools.yaml`):
+  `review-hog-reviews-trigger` (write), `review-hog-reviews-list` (status polling — running turns first with the
+  `progress` stage / counters), `review-hog-reviews-get` (validated + dismissed findings, published body). All
+  three are gated on the `review-hog` feature flag — the same flag that gates the Code review menu entry —
+  evaluated fail-closed at MCP init. The other scaffolded operations (settings, perspectives, validators, blind
+  spots, perspective stats) stay `enabled: false` until an agent job needs them.
+- **Identity + gates inherited, not widened:** an MCP-triggered review runs under the token's user — the same
+  "requester is both run user and acting user" rule as the UI trigger — and the trigger action keeps the
+  `REVIEWHOG_TEAM_ID` dogfood gate and its synchronous URL / App-access / fork / open-state checks regardless of
+  caller.
+
+### ✅ BUILT 2026-07-21 — held-back reviews reach PR authors (deep links, authored-PRs scope, truthful drawer + comment)
+
+Dogfooding surfaced a dead-end: a review triggered from the Code review scene runs under the **requester's**
+`urgency_threshold` ("requester wins" — deliberate, unchanged), and when every finding fell below it, publish
+self-skipped and the findings were effectively invisible to the PR author — not in their "For you" tab (which
+matched `acting_user` only), no way to link to the report (drawer state was kea-only), the status comment
+blamed "the author's … ReviewHog settings" for a threshold that wasn't theirs, and the drawer's "Published (N)"
+tab claimed publication for findings computed against the _viewer's current_ threshold. Decisions:
+
+- **Report deep links**: `/code-review?review=<report UUID>`, mirrored both ways by the existing URL sync in
+  `reviewHogSettingsLogic` (`replace`, never `push`, so drawer open/close doesn't stack history). The status
+  comment's held-back sentence links here ("View them in PostHog", auth-gated — same posture as Slack links),
+  which makes the param a **permanent public contract**. A deep link has no list row, so the drawer renders
+  entirely from the loaded detail (skeletons until then) via an id-only `openReviewDetailById` action.
+- **`ReviewReport.author_login`** (nullable, refreshed from `pr_metadata.author` every turn at upsert): the
+  "For you" scope becomes `acting_user = me OR author_login ~= my linked GitHub login` — the reverse of the
+  author→user mapping the reviewer already uses. Chosen over joining the snapshot jsonb (per-row parse on a
+  list endpoint) and over resolving login→user at write time (the mapping can change; the login is the stable
+  fact). No backfill: old rows stay null and re-stamp organically on their next turn. Accepted limit: authors
+  without a linked GitHub identity only get the PR-comment link.
+- **`ReviewReport.run_urgency_threshold`**, stamped at **finalize** (with `run_count` / `completed_head_sha`)
+  from the same snapshot the body renderer and publish gate consumed — NOT at resolve, which describes the
+  _next_ turn and would drift mid re-review under a different acting user. The drawer buckets by it; the
+  viewer-settings proxy survives only as the fallback for pre-column rows. "Published (N)" now reads "Kept (N)"
+  unless the review actually posted (`published_head_sha` set).
+- **Default-fallback threshold guard**: a default-resolved run (label trigger, unmapped author) now gates at
+  `DEFAULT_URGENCY_THRESHOLD` instead of the borrowed run user's saved threshold — the same "borrowed settings
+  must not leak into someone else's PR" rule that already forced `review_labeled_prs=True`. Applied where
+  `ResolveActingUserResult` is built so publish, the comment, and the finalize stamp agree. Consequence: a
+  default-resolved run gates at `consider`, so its held-back count is always 0 and the comment's "the default"
+  wording variant is defensive-only (kept + render-tested anyway).
+- **Bot-author guard on `_review_already_posted`**: the publish idempotency marker scan now requires
+  `user.type == "Bot"` like the status comment's `_find_marker_comment` always did — on a public repo anyone
+  can paste the marker, and a spoofed match silently suppressed the publish.
+- **Deferred residual (2026-07-24, pre-merge safety review):** the drawer's published flag is
+  report-lifetime, not per-turn — `published` = `published_head_sha IS NOT NULL`, while the drawer buckets
+  the latest completed turn. A once-published report whose later turn finalizes without posting (store-only
+  re-run, or publish failure past retries — finalize stamps before publish by design) shows that turn's
+  never-posted findings under "Published". Deferred as a follow-up with the user: the edge needs a
+  once-published report plus a never-posting later turn, and store-only re-runs are currently internal
+  experiments. Fix sketch in ARCHITECTURE.md's known issues (per-turn `published_head_sha ==
+completed_head_sha` on the detail payload).
+
 ### ✅ BUILT 2026-07-17 — one-shot LLM stages retry across provider overload spells
 
 First cross-repo dogfood run (a `PostHog/billing` PR via the Stage 5c UI trigger) died in dedup on
@@ -394,11 +487,12 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 
 - **Placement (as of 2026-07-13 — standalone scene):** originally shipped as a `'code-review'`
   `InboxTabKey` after `'archived'` (staff-gated via `INBOX_STAFF_ONLY_TAB_KEYS`, "Alpha" tag from
-  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code_review`, registered
+  `INBOX_TAB_TAG`). Moved out of the Inbox to its own `CodeReview` scene at `/code-review`, registered
   by `products/review_hog/manifest.tsx` with an "Unreleased" nav entry (`ProductItemCategory.UNRELEASED`,
-  `tags: ['alpha']`). Gating is two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
+  `tags: ['alpha']`). Gating was two-layer by design: `FEATURE_FLAGS.REVIEW_HOG` (`review-hog`) controls
   **only the menu entry's visibility** (who discovers it); the scene itself stays **staff-only**
-  (non-staff get `NotFound`) regardless of the flag. The old inbox tab and `/inbox/code-review` URL are
+  (non-staff get `NotFound`) regardless of the flag. (Superseded 2026-08-12 — the scene now honors the
+  flag too; see the follow-up below.) The old inbox tab and `/inbox/code-review` URL are
   gone with no redirect. Body unchanged: hero → pipeline diagram → trigger toggles → urgency slider →
   perspectives → blind-spot check → validation criteria → read-only skill drawer; it no longer sits
   behind the Inbox onboarding takeover.
@@ -442,8 +536,23 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   drawer shows the canonical SKILL.md body, threshold click PATCHes and persists (`must_fix` verified in
   DB, then reset), blind-spot deactivation blocked with the toast. New workflow tests cover the opt-out
   skip, the CLI-override bypass, and threshold threading into body+publish.
-- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); non-staff
-  rollout. (The "Review all your Inbox PRs" behavior is **BUILT** — see Stage 6.)
+- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`). Non-staff
+  rollout is **BUILT** — see the 2026-08-12 follow-up below. (The "Review all your Inbox PRs" behavior
+  is **BUILT** — see Stage 6.)
+
+#### ✅ BUILT 2026-08-12 — scene access follows the menu flag (staff-only gate relaxed)
+
+The two-layer gating above carried an unstated invariant: the `review-hog` flag's audience had to stay
+within Django-staff users, or people would discover a menu entry they couldn't open. The invariant is
+also unenforceable — `is_staff` is a Django DB column, not a person/group property a flag can target —
+and the flag's real rollout (org-wide internally) broke it: non-staff colleagues saw "Code review"
+under Unreleased and got `NotFound` on click. `CodeReviewScene` now allows
+`FEATURE_FLAGS.REVIEW_HOG` **or** `is_staff`, so the menu entry and the page can no longer disagree,
+and staff keep direct-URL access where the flag is off. Rollout control is now entirely the flag's.
+Nothing changed on the backend: the endpoints were already deliberately self-/team-scoped rather than
+staff-gated, and the UI trigger stays behind the `REVIEWHOG_TEAM_ID` dogfood gate. Before widening the
+flag beyond the internal org, close the QAREPORT note about config endpoints returning skill bodies
+without the `llm_analytics` resource check.
 
 #### ✅ BUILT 2026-07-16 — default urgency threshold flipped to "All issues" (`consider`)
 
@@ -2037,7 +2146,7 @@ fixes via a companion PR, maximum reuse of a verified engine), skip B.**
 
 #### Conversational / control surface (optional; channel-agnostic)
 
-Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Code, …) and out of
+Per the maintainer the **interaction channel is pluggable** (Slack, GitHub comments, PostHog Desktop, …) and out of
 scope — design the durable part, leave the UI a thin adapter. **Must-have (ships with Variant A):** `@workflow.query`
 for live state (stage, findings-so-far, lifecycle counts, watermarks — zero history cost; copy `get_buffer_size` /
 `get_paused_state`) and `@workflow.signal` for inject-context / pause / cancel / force-turn (copy `submit_signal` /
@@ -3348,7 +3457,7 @@ reasoning_effort}]` → `get_task_processing_context` reads it back → `start_a
   `build_agent_runtime_env_prefix` (`logic/services/sandbox.py`) emits `env POSTHOG_CODE_{RUNTIME_ADAPTER,PROVIDER,MODEL,
 REASONING_EFFORT}=…` prefixed onto the agent launch command (guarded by `test_agentsh.py`).
 
-**`@posthog/agent` — where they are consumed + applied (the PostHog Code monorepo, _not_ this repo).** Clone via
+**`@posthog/agent` — where they are consumed + applied (the PostHog Desktop monorepo, _not_ this repo).** Clone via
 `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` (legacy alias `LOCAL_TWIG_MONOREPO_ROOT`); package `packages/agent`
 (npm `@posthog/agent`, baked into `Dockerfile.sandbox-base`).
 

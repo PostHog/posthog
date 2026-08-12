@@ -1,3 +1,8 @@
+import os from 'node:os'
+
+import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
+import { RedisConnectionConfig } from '~/common/utils/db/redis'
+
 export type MlMirrorConfig = {
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
@@ -21,6 +26,73 @@ export type MlMirrorConfig = {
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
 
+    /**
+     * Host of a Redis dedicated to this lane. Empty sends the mirror to the shared session-replay
+     * cluster instead, so clearing this value is the supported rollback.
+     *
+     * The mirror's per-session keys otherwise sit on the cluster that also serves the primary replay
+     * lane, so memory pressure from the mirror reaches the lane that gates replay ingestion. Pointing
+     * the mirror at its own instance removes that path.
+     */
+    SESSION_RECORDING_ML_REDIS_HOST: string
+    SESSION_RECORDING_ML_REDIS_PORT: number
+
+    /**
+     * Produce collected original images to the scrub topic. Enabling changes the mirrored JSONL
+     * shape: image fields carry `image:<pseudoTeam>:<hash>` refs instead of blurred data URIs, so
+     * both the scrub consumer lane AND ref-aware downstream readers must be live first.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: boolean
+
+    /**
+     * Collect the URLs of remote images as well, so the fetch lane can download them later.
+     *
+     * Enabling changes the mirrored JSONL shape a second time: a remote image's `src` carries an
+     * `imageurl:<pseudoTeam>:<hash>` ref instead of the grey placeholder. The prefix differs from
+     * the image lane's `image:` on purpose, because this hash names the URL rather than the bytes
+     * behind it. Nothing fetches those URLs yet, so every such ref is dangling, and a dangling ref
+     * renders as the same placeholder it replaced. What this buys is the measurement of how many
+     * URLs and how many distinct hosts real traffic carries.
+     */
+    SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: boolean
+
+    /**
+     * Send the collected URLs to the fetch topic.
+     *
+     * This flag is separate from the collection flag, because the two steps have different risks.
+     * Collection changes only the mirrored data. A produce puts original, unscrubbed URLs onto a
+     * Kafka topic, so the fetch topic is as sensitive as the raw replay topic. Turn this flag on
+     * only after the topic exists with the retention that section 2.5 of the plan gives it.
+     *
+     * The flag does nothing unless SESSION_RECORDING_ML_URL_COLLECTION_ENABLED is also on, because
+     * the anonymizer collects no URLs until then.
+     */
+    SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: boolean
+
+    /**
+     * While true the fetch lane sends no outbound request. It reads the topic, dedupes, writes the
+     * ledger and reports the metrics, which is the phase 0 measurement: how many requests the
+     * fetcher would offer, and how many of those dedup away before one is needed.
+     *
+     * Turning it off makes this deployment send requests to customer sites, so it stays on until
+     * those numbers have been read and the per-site budget has been sized against them.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: boolean
+    SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
+    SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
+    /** A URL older than this is dropped, so a lane with a backlog sheds work rather than fetching stale work. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: number
+    /** Capacity of the per-pod seen-ref cache that sits in front of the Redis ledger. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: number
+    /** Bounds one round trip to the sighting store, including waiting for a pooled connection, so a Redis stall cannot hold the poll loop. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: number
+
+    /**
+     * Capacity of the mirror's produced-URL ref cache, which bounds re-produces onto the fetch
+     * topic. Tunable for the same reason as its image-lane twin below: it trades memory for topic
+     * volume, so a mirror memory incident must be able to shed it without a code deploy.
+     */
+    SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
     SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
@@ -29,13 +101,49 @@ export type MlMirrorConfig = {
     // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
     SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
+    /**
+     * Capacity of the consumer's per-pod seen-ref LRU. The topic is keyed by ref, so duplicates are
+     * partition-affine and a per-pod cache dedupes them exactly up to this many refs. Budget ~200 B
+     * per entry, of which lru-cache commits about an eighth up front by preallocating its backing
+     * arrays. Sized against the 2000M consumer container in
+     * https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-image-scrub/values.yaml,
+     * which also has to hold MAX_BYTES of scrubbed images at ~2x during a flush. Start low and raise
+     * it off ml_mirror_ref_cache_capacity_probe_total rather than guessing.
+     *
+     * 0 disables only this cross-batch cache; duplicates within a poll batch always collapse.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: number
+    /**
+     * The mirror-side twin of the knob above, bounding re-produces onto the scrub topic. Tunable for
+     * the same reason: it is a pure memory-for-throughput trade, and shedding it during a mirror
+     * memory incident should not need a code deploy of the shared replay ingester.
+     */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: number
+    /**
+     * How long to wait for the sidecar to answer one image.
+     *
+     * Must exceed the sidecar's own IMAGE_SCRUB_JOB_TIMEOUT_MS plus the time a request can sit in
+     * its admission queue, and the ordering is load-bearing rather than a matter of taste. The
+     * sidecar answers a job it cannot finish by retiring the worker and returning 500, which is a
+     * considered answer about that image and is what lets a genuinely unprocessable one be blamed
+     * and parked. Give up first and that answer never arrives: the image looks merely slow on every
+     * attempt, never earns blame, and sits at the head of a partition shared by every team whose
+     * records hash to it. A timeout is then what it should be, the sidecar saying nothing at all.
+     */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
-    SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
+    /** Where images the sidecar cannot process are parked so they stop holding their partition. */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: string
+    /** Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s). */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    // Scrub-phase budget. Sized so scrub + 2x the S3 write timeout stays under Kafka's max.poll.interval.ms
-    // (300s), or a hung sidecar/S3 evicts us mid-batch and livelocks.
-    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
+    /**
+     * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
+     * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
+     * compression). <= 0 (the default) resolves to min(available CPUs, threadpool size); an
+     * explicit positive value is used verbatim; 1 restores fully sequential scrubbing.
+     */
+    SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: number
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -49,6 +157,18 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
+        SESSION_RECORDING_ML_REDIS_HOST: '',
+        SESSION_RECORDING_ML_REDIS_PORT: 6379,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
+        SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
+        SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
+        SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
+        SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS: 6 * 60 * 60 * 1000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS: 500_000,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REDIS_TIMEOUT_MS: 5_000,
+        SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
         SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
         // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
@@ -57,9 +177,52 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: 128 * 1024 * 1024,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: 250_000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 45 * 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
+        SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
+    }
+}
+
+const DEFAULT_UV_THREADPOOL_SIZE = 4
+
+/**
+ * `os.availableParallelism()` respects cgroup CPU limits, so in-container this sees the pod's
+ * cores, not the node's.
+ */
+export function resolveMlAnonymizeMaxConcurrency(
+    configured: number,
+    availableParallelism: number = os.availableParallelism(),
+    uvThreadpoolSize: number = parseInt(process.env.UV_THREADPOOL_SIZE ?? '', 10) || DEFAULT_UV_THREADPOOL_SIZE
+): number {
+    if (configured > 0) {
+        return configured
+    }
+    return Math.max(1, Math.min(availableParallelism, uvThreadpoolSize))
+}
+
+/**
+ * A host of whitespace counts as unset: chart values render to an empty string when the underlying
+ * secret key is missing, and connecting to `""` would fail every command rather than return `null`.
+ */
+export function resolveMlMirrorRedisConnection(
+    config: Pick<MlMirrorConfig, 'SESSION_RECORDING_ML_REDIS_HOST' | 'SESSION_RECORDING_ML_REDIS_PORT'> & {
+        SESSION_RECORDING_REDIS_TIMEOUT_MS: number
+    }
+): RedisConnectionConfig | null {
+    const host = config.SESSION_RECORDING_ML_REDIS_HOST.trim()
+    if (!host) {
+        return null
+    }
+    return {
+        url: host,
+        options: {
+            port: config.SESSION_RECORDING_ML_REDIS_PORT,
+            commandTimeout: config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
+        },
+        name: 'session-recording-ml-redis',
     }
 }

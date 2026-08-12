@@ -28,10 +28,18 @@ describe('useAnimatedPresence', () => {
         window.cancelAnimationFrame = originalCancelRaf
     })
 
-    function flushRaf(): void {
+    function runFrame(): void {
         const pending = rafCallbacks
         rafCallbacks = []
         pending.forEach((cb) => cb(0))
+    }
+
+    // Drains nested RAFs too, so callers that just want the enter to settle
+    // don't need to know how many frames the flip takes.
+    function flushRaf(): void {
+        while (rafCallbacks.length) {
+            runFrame()
+        }
     }
 
     it.each([
@@ -42,7 +50,7 @@ describe('useAnimatedPresence', () => {
         expect(result.current).toEqual({ rendered: initial, shown: initial })
     })
 
-    it('renders immediately on enter and flips shown on the next frame', () => {
+    it('renders immediately on enter but holds shown for a frame so the hidden state paints first', () => {
         const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200), {
             initialProps: { isIn: false },
         })
@@ -51,8 +59,30 @@ describe('useAnimatedPresence', () => {
         rerender({ isIn: true })
         expect(result.current).toEqual({ rendered: true, shown: false })
 
-        act(() => flushRaf())
+        // First frame paints the mounted-but-hidden state; shown must not flip
+        // yet, otherwise the browser coalesces both into one paint and the
+        // enter transition never runs.
+        act(() => runFrame())
+        expect(result.current).toEqual({ rendered: true, shown: false })
+
+        // Second frame flips shown, so the transition animates from the
+        // already-painted hidden state.
+        act(() => runFrame())
         expect(result.current).toEqual({ rendered: true, shown: true })
+    })
+
+    it('flips shown synchronously via a reflow when given a ref, without waiting for a frame', () => {
+        const ref = { current: document.createElement('div') }
+        const { result, rerender } = renderHook(({ isIn }) => useAnimatedPresence(isIn, 200, ref), {
+            initialProps: { isIn: false },
+        })
+        expect(result.current).toEqual({ rendered: false, shown: false })
+
+        // The layout effect forces a reflow and flips shown in the same commit —
+        // no RAF is scheduled, so the enter can't be lost to paint coalescing.
+        rerender({ isIn: true })
+        expect(result.current).toEqual({ rendered: true, shown: true })
+        expect(rafCallbacks).toHaveLength(0)
     })
 
     it('flips shown immediately on exit and unrenders after the duration', () => {

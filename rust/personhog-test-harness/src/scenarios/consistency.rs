@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,6 +11,7 @@ use crate::client::HarnessClient;
 use crate::report::{print_report, ConsistencyViolation};
 use crate::state::PersonState;
 use crate::stats::StatsCollector;
+use crate::traffic_metrics;
 
 pub async fn run(args: ConsistencyArgs) -> Result<()> {
     let client = HarnessClient::connect(&args.router_url).await?;
@@ -173,6 +174,7 @@ pub async fn run(args: ConsistencyArgs) -> Result<()> {
 /// violations. A failed read is likewise not a recency violation — reads
 /// legitimately fail while a killed owner's partitions are in limbo, and
 /// end-of-run verification owns readability.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_probers(
     client: &HarnessClient,
     team_id: i64,
@@ -181,6 +183,7 @@ pub async fn run_probers(
     duration: Duration,
     collector: &Arc<StatsCollector>,
     state: &PersonState,
+    stop: Arc<AtomicBool>,
 ) -> Result<Vec<ConsistencyViolation>> {
     let deadline = Instant::now() + duration;
 
@@ -190,12 +193,13 @@ pub async fn run_probers(
         let collector = collector.clone();
         let state = state.clone();
         let person_ids = person_ids.clone();
+        let stop = stop.clone();
 
         handles.push(tokio::spawn(async move {
             let mut violations = Vec::new();
             let mut iteration: usize = 0;
 
-            while Instant::now() < deadline {
+            while Instant::now() < deadline && !stop.load(Ordering::Relaxed) {
                 let person_id = person_ids[(worker_id + iteration) % person_ids.len()];
                 iteration += 1;
                 let marker = uuid::Uuid::new_v4().to_string();
@@ -214,10 +218,15 @@ pub async fn run_probers(
                 {
                     Ok(response) => {
                         collector.writes.record_success(write_start.elapsed());
+                        traffic_metrics::record_write_ok(
+                            traffic_metrics::LANE_PROBER,
+                            write_start.elapsed(),
+                        );
                         response
                     }
                     Err(e) => {
                         collector.writes.record_failure();
+                        traffic_metrics::record_write_failed(traffic_metrics::LANE_PROBER, &e);
                         tracing::warn!(person_id, error = %e, "probe write failed");
                         continue;
                     }
@@ -225,9 +234,13 @@ pub async fn run_probers(
                 let mut written = HashMap::new();
                 written.insert(key.clone(), serde_json::Value::String(marker.clone()));
                 match response.person {
-                    Some(person) => {
+                    Some(person) if response.updated => {
                         state.record_write(person_id, person.version, written).await;
                     }
+                    // A no-change ack (an at-least-once replay whose first
+                    // application landed) echoes a version owned by some
+                    // other write — assert the keys, claim no version.
+                    Some(_) => state.record_write_no_change(person_id, written).await,
                     None => {
                         // Already flagged as a violation by the journal; the
                         // keys still get end-of-run verification.
@@ -243,6 +256,10 @@ pub async fn run_probers(
                 {
                     Ok(Some(person)) => {
                         collector.reads.record_success(read_start.elapsed());
+                        traffic_metrics::record_read_ok(
+                            traffic_metrics::LANE_PROBER,
+                            read_start.elapsed(),
+                        );
                         let props: serde_json::Value = serde_json::from_slice(&person.properties)
                             .unwrap_or_else(|_| serde_json::json!({}));
                         let expected = serde_json::Value::String(marker);
@@ -261,6 +278,10 @@ pub async fn run_probers(
                         // acked write is a violation, not an availability
                         // blip.
                         collector.reads.record_failure();
+                        traffic_metrics::record_read_failed(
+                            traffic_metrics::LANE_PROBER,
+                            "missing",
+                        );
                         violations.push(ConsistencyViolation {
                             person_id,
                             key,
@@ -270,6 +291,10 @@ pub async fn run_probers(
                     }
                     Err(e) => {
                         collector.reads.record_failure();
+                        traffic_metrics::record_read_failed(
+                            traffic_metrics::LANE_PROBER,
+                            traffic_metrics::status_reason(&e),
+                        );
                         tracing::warn!(person_id, error = %e, "probe read failed");
                     }
                 }

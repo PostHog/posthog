@@ -10,13 +10,12 @@ import requests
 from parameterized import parameterized
 
 from posthog.models.integration import GitHubInstallationAccess, GitHubIntegration, GitHubUserAuthorization, Integration
-from posthog.models.oauth import OAuthApplication
 from posthog.models.team.team import Team
-from posthog.models.user import OnboardingSkippedReason
 from posthog.models.user_integration import UserIntegration
 
-from ee.api.agentic_provisioning import GITHUB_GRANT_CACHE_PREFIX, github_grants
-from ee.api.agentic_provisioning.test.base import TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
+from ee.api.agentic_provisioning import github_grants
+from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
+from ee.api.agentic_provisioning.test.base import ProvisioningTestBase
 
 INSTALLATION_ID = "777"
 
@@ -44,18 +43,17 @@ class TestWizardResourceActions(ProvisioningTestBase):
     def setUp(self):
         super().setUp()
         self.bearer = self._get_bearer_token()
-        self.partner = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
 
     def _grant(self) -> github_grants.GitHubGrant:
         return github_grants.create_grant(self.partner, AUTHORIZATION, "octocat@example.com")
 
     def _post_github_integration(self, team_id: int, body: dict):
-        return self._post_signed_with_bearer(
+        return self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{team_id}/github_integration", body, token=self.bearer
         )
 
     def _post_wizard_runs(self, team_id: int, body: dict):
-        return self._post_signed_with_bearer(
+        return self._post_with_bearer(
             f"/api/agentic/provisioning/resources/{team_id}/wizard_runs", body, token=self.bearer
         )
 
@@ -89,26 +87,14 @@ class TestWizardResourceActions(ProvisioningTestBase):
 
         assert cache.get(f"{GITHUB_GRANT_CACHE_PREFIX}{grant.grant_id}") is None
 
+        # Onboarding flags are set at account bootstrap, never on the GitHub linking path,
+        # so linking a grant must not touch them.
         self.user.refresh_from_db()
         self.team.refresh_from_db()
-        assert self.user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
-        assert self.user.onboarding_skipped_at is not None
-        assert self.user.onboarding_skipped_organization_id == self.team.organization_id
-        assert self.team.completed_snippet_onboarding is True
-
-    def test_github_integration_does_not_touch_onboarding_for_claimed_user(self):
-        grant = self._grant()
-        with (
-            patch.object(GitHubIntegration, "verify_user_installation_access", return_value=True),
-            patch.object(GitHubIntegration, "fetch_installation_access", return_value=_installation_access()),
-        ):
-            response = self._post_github_integration(
-                self.team.id, {"grant_id": grant.grant_id, "installation_id": INSTALLATION_ID}
-            )
-        assert response.status_code == 200
-        self.user.refresh_from_db()
         assert self.user.onboarding_skipped_reason is None
         assert self.user.onboarding_skipped_at is None
+        assert self.user.onboarding_skipped_organization_id is None
+        assert self.team.completed_snippet_onboarding is False
 
     def test_github_integration_unknown_grant_returns_404(self):
         response = self._post_github_integration(
@@ -132,11 +118,10 @@ class TestWizardResourceActions(ProvisioningTestBase):
         assert response.status_code == 200
         assert response.json()["github_integration"]["already_linked"] is True
 
-        # Onboarding flags are re-applied on the already-linked retry so a crash between
-        # grant consumption and the flag write doesn't leave the account routed into onboarding.
+        # The GitHub linking path never touches onboarding flags; they are set at bootstrap.
         self.user.refresh_from_db()
-        assert self.user.onboarding_skipped_reason == OnboardingSkippedReason.PROVISIONED
-        assert self.user.onboarding_skipped_at is not None
+        assert self.user.onboarding_skipped_reason is None
+        assert self.user.onboarding_skipped_at is None
 
     @parameterized.expand(
         [
@@ -168,6 +153,19 @@ class TestWizardResourceActions(ProvisioningTestBase):
         assert response.status_code == 403
         assert response.json()["error"]["code"] == "forbidden"
 
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
+    def test_wizard_runs_rejects_a_partner_without_the_capability(self):
+        # Starting a coding-agent run in a customer's repository takes its own grant, which
+        # self-registration never gives out - a bearer token for an active partner is not enough.
+        self.partner.update_provisioning(can_start_wizard_runs=False)
+
+        with patch("ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run") as mock_create:
+            response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world"})
+
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "forbidden"
+        mock_create.assert_not_called()
+
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
     def test_wizard_runs_unavailable_without_oauth_client_id(self):
         response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world"})
@@ -180,7 +178,7 @@ class TestWizardResourceActions(ProvisioningTestBase):
         with (
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
             patch(
-                "ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created
+                "ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run", return_value=created
             ) as mock_create,
         ):
             response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world", "branch": "main"})
@@ -211,7 +209,7 @@ class TestWizardResourceActions(ProvisioningTestBase):
         created = MagicMock(task_id="task-uuid", latest_run=None)
         with (
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=MagicMock()),
-            patch("ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run", return_value=created),
+            patch("ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run", return_value=created),
         ):
             first = self._post_wizard_runs(self.team.id, {"repository": "octocat/one"})
             second = self._post_wizard_runs(self.team.id, {"repository": "octocat/two"})
@@ -227,7 +225,7 @@ class TestWizardResourceActions(ProvisioningTestBase):
         # so a grant for one installation can't report success for an unrelated owner/repo.
         with (
             patch.object(GitHubIntegration, "first_for_team_repository", return_value=None),
-            patch("ee.api.agentic_provisioning.views.tasks_facade.create_wizard_cloud_run") as mock_create,
+            patch("ee.api.agentic_provisioning.wizard.tasks_facade.create_wizard_cloud_run") as mock_create,
         ):
             response = self._post_wizard_runs(self.team.id, {"repository": "octocat/hello-world"})
         assert response.status_code == 400

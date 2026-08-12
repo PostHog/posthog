@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -17,6 +19,7 @@ import { InsightLogicProps, InsightShortId, ItemMode } from '~/types'
 import { areAlertsSupportedForInsight } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import { EditAlertModal } from 'products/alerts/frontend/views/EditAlertModal'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { MetricFromInsightModal } from 'products/data_catalog/frontend/components/MetricFromInsightModal'
 import { EndpointFromInsightModal } from 'products/endpoints/frontend/EndpointFromInsightModal'
 import { SubscriptionsModal } from 'products/subscriptions/frontend/components/Subscriptions/SubscriptionsModal'
 
@@ -35,6 +38,7 @@ export function InsightModals({ insightLogicProps }: { insightLogicProps: Insigh
                     <InsightAlertsModals insightLogicProps={insightLogicProps} />
                     <NewDashboardModal />
                     <InsightEndpointModalWrapper insightLogicProps={insightLogicProps} />
+                    <InsightMetricModalWrapper insightLogicProps={insightLogicProps} />
                 </>
             )}
 
@@ -172,6 +176,26 @@ function InsightEndpointModalWrapper({ insightLogicProps }: { insightLogicProps:
         <EndpointFromInsightModal
             insightQuery={insightQuery as unknown as HogQLQuery | EndpointQueryNode}
             insightShortId={insight.short_id}
+        />
+    )
+}
+
+function InsightMetricModalWrapper({
+    insightLogicProps,
+}: {
+    insightLogicProps: InsightLogicProps
+}): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { insight } = useValues(insightLogic(insightLogicProps))
+
+    if (!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]) {
+        return null
+    }
+
+    return (
+        <MetricFromInsightModal
+            insightShortId={insight.short_id}
+            insightName={insight.name || insight.derived_name || undefined}
         />
     )
 }

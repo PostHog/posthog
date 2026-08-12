@@ -92,6 +92,13 @@
             "intents": ["product_analytics"]
         },
         {
+            "path": "Data catalog",
+            "category": "Analytics",
+            "iconType": "data_warehouse",
+            "type": null,
+            "intents": ["data_catalog"]
+        },
+        {
             "path": "SQL editor",
             "category": "Analytics",
             "iconType": "sql_editor",
@@ -154,6 +161,7 @@
             "type": null,
             "intents": ["marketing_analytics"]
         },
+        { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
         { "path": "Links", "category": "Unreleased", "iconType": null, "type": "link", "intents": ["links"] },
         {
             "path": "Live Debugger",
@@ -177,6 +185,7 @@
             "type": "mcp_analytics",
             "intents": ["mcp_analytics"]
         },
+        { "path": "MCP servers", "category": "AI engineering", "iconType": "tools", "type": null, "intents": [] },
         {
             "path": "Metrics",
             "category": "App monitoring",
@@ -222,15 +231,15 @@
             "type": "replay_vision",
             "intents": ["replay_vision"]
         },
-        {
-            "path": "Revenue analytics",
-            "category": "Analytics",
-            "iconType": null,
-            "type": "revenue",
-            "intents": ["revenue_analytics"]
-        },
         { "path": "Code review", "category": "Unreleased", "iconType": null, "type": null, "intents": ["review_hog"] },
         { "path": "Skills", "category": "Tools", "iconType": null, "type": "llm_skills", "intents": ["skills"] },
+        {
+            "path": "Apps",
+            "category": "Unreleased",
+            "iconType": "tools",
+            "type": "streamlit_app",
+            "intents": ["streamlit_apps"]
+        },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
         { "path": "Toolbar", "category": "Tools", "iconType": "toolbar", "type": "toolbar", "intents": ["toolbar"] },
         {
@@ -304,6 +313,13 @@
             "intents": []
         },
         { "path": "Core events", "category": "Schema", "iconType": null, "type": null, "intents": [] },
+        {
+            "path": "Warehouse properties",
+            "category": "Schema",
+            "iconType": "data_warehouse",
+            "type": null,
+            "intents": []
+        },
         {
             "path": "Sources",
             "category": "Pipeline",

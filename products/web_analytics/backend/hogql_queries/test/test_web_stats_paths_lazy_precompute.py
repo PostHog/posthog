@@ -306,19 +306,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_disqualifying_filter_falls_through(self):
-        # $pathname filter is outside the MVP allowlist.
-        with self._enable_lazy():
-            self._run(
-                self._build_query(
-                    properties=[
-                        EventPropertyFilter(key="$pathname", value="/a", operator=PropertyOperator.EXACT),
-                    ]
-                )
-            )
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
     def test_sampling_falls_through(self):
         with self._enable_lazy():
             self._run(self._build_query(sampling=WebAnalyticsSampling(enabled=True)))
@@ -557,20 +544,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("none_value", None),
-            ("list_value", ["example.com", "other.com"]),
-            ("empty_string", ""),
-        ]
-    )
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_non_string_host_value_falls_through(self, _name: str, host_value) -> None:
-        prop = EventPropertyFilter(key="$host", value=host_value, operator=PropertyOperator.EXACT)
-        with self._enable_lazy():
-            self._run(self._build_query(properties=[prop]))
-        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
-
-    @parameterized.expand(
-        [
             ("utc", "UTC"),
             ("pacific", "America/Los_Angeles"),
             ("tokyo", "Asia/Tokyo"),
@@ -754,25 +727,24 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         return out
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_creates_job_for_multi_non_host_filter(self):
-        # Filters the restricted gate would reject (multiple, non-`$host`,
-        # non-`exact`) precompute fine for an unrestricted team — no org flag
-        # needed, since membership in the unrestricted list implies enrollment.
+    def test_enrolled_team_creates_job_for_multi_non_host_filter(self):
+        # Filters the old restriction rejected (multiple, non-`$host`, non-`exact`)
+        # precompute fine for any enrolled team.
         self._seed_two_sessions()
         props = [
             EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
             EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
         ]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(properties=props))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_distinct_filters_get_distinct_cache_entries(self):
+    def test_enrolled_team_distinct_filters_get_distinct_cache_entries(self):
         self._seed_two_sessions()
         chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
         firefox = [EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT)]
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(properties=chrome))
             chrome_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
             PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
@@ -786,20 +758,20 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_untouched_toggle_creates_job(self):
-        # Unrestricted teams default to opt-out: an untouched toggle (None) still
+    def test_enrolled_team_untouched_toggle_creates_job(self):
+        # Enrolled teams default to opt-out: an untouched toggle (None) still
         # precomputes.
         self._seed_two_sessions()
         query = self._build_query()
         query.useWebAnalyticsPrecompute = None
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(query)
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
 
     @freeze_time("2024-01-15T12:00:00Z")
-    def test_unrestricted_team_explicit_opt_out_falls_through(self):
+    def test_enrolled_team_explicit_opt_out_falls_through(self):
         self._seed_two_sessions()
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
@@ -1019,7 +991,7 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
             return LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
 
         with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
             WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk] if allowlisted else [],
         ):
             runner = self._make_runner(properties=properties, breakdown_by=breakdown_by)
@@ -1104,7 +1076,7 @@ class TestWebStatsPathsSessionIdSetInsert(ClickhouseTestMixin, APIBaseTest):
             )
 
         with override_settings(
-            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
             WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS=[self.team.pk],
         ):
             runner = self._make_runner(

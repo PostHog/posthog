@@ -79,7 +79,7 @@ function SessionRows({
         )
     }
     if (sessions.length === 0) {
-        return <TableEmpty className="py-6 text-secondary">No notable sessions in the last 30 days.</TableEmpty>
+        return <TableEmpty className="py-6 text-secondary">No sessions were flagged in this period.</TableEmpty>
     }
     return (
         <TableBody>
@@ -133,13 +133,11 @@ export function NotableSessionsTable({
                 </TableHeader>
                 <SessionRows sessions={sessions} loading={loading} searchParams={searchParams} />
             </Table>
-            {sessions.length > 0 && (
-                <CardFooter className="justify-end">
-                    <Link to={sessionsUrl(searchParams)} className="text-[10px]">
-                        Open in Sessions tab ↗
-                    </Link>
-                </CardFooter>
-            )}
+            <CardFooter className="justify-end">
+                <Link to={sessionsUrl(searchParams)} className="text-[10px]">
+                    Open in Sessions tab ↗
+                </Link>
+            </CardFooter>
         </Card>
     )
 }

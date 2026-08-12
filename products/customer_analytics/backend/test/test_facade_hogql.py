@@ -15,6 +15,7 @@ from posthog.models import TaggedItem
 
 from products.customer_analytics.backend.facade.hogql import (
     account_custom_property_values,
+    account_custom_property_values_history,
     account_resource_notebooks,
     account_tagged_items,
     accounts,
@@ -30,6 +31,7 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
             ("accounts", accounts, Account),
             ("custom_property_definitions", custom_property_definitions, CustomPropertyDefinition),
             ("account_custom_property_values", account_custom_property_values, CustomPropertyValue),
+            ("account_custom_property_values_history", account_custom_property_values_history, CustomPropertyValue),
             ("account_tagged_items", account_tagged_items, TaggedItem),
             ("account_resource_notebooks", account_resource_notebooks, ResourceNotebook),
         ]

@@ -56,6 +56,7 @@ export enum Scene {
     ErrorNetwork = '4xx',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
+    ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
     ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
@@ -102,6 +103,10 @@ export enum Scene {
     Login2FA = 'Login2FA',
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
+    McpGateway = 'McpGateway',
+    McpGatewayAgent = 'McpGatewayAgent',
+    McpGatewayMember = 'McpGatewayMember',
+    McpGatewayServer = 'McpGatewayServer',
     Models = 'Models',
     NodeDetail = 'NodeDetail',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
@@ -133,7 +138,6 @@ export enum Scene {
     PropertyDefinitions = 'PropertyDefinitions',
     PropertyDefinitionEdit = 'PropertyDefinitionEdit',
     QueryPerformance = 'QueryPerformance',
-    Quickstart = 'Quickstart',
     Replay = 'Replay',
     ReplayFilePlayback = 'ReplayFilePlayback',
     ReplayPlaylist = 'ReplayPlaylist',
@@ -148,7 +152,6 @@ export enum Scene {
     ReplayVisionActionEditor = 'ReplayVisionActionEditor',
     ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
-    RevenueAnalytics = 'RevenueAnalytics',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
@@ -164,6 +167,8 @@ export enum Scene {
     Settings = 'Settings',
     Signup = 'Signup',
     Site = 'Site',
+    Skill = 'Skill',
+    Skills = 'Skills',
     Coupons = 'Coupons',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
@@ -187,6 +192,7 @@ export enum Scene {
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
+    WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
@@ -210,14 +216,19 @@ export enum Scene {
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
+    AIObservabilityTag = 'AIObservabilityTag',
+    AIObservabilityTags = 'AIObservabilityTags',
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
     MCPAnalytics = 'MCPAnalytics',
+    MCPAnalyticsToolDetail = 'MCPAnalyticsToolDetail',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
     LogsSamplingDetail = 'LogsSamplingDetail',
+    LogsRetentionNew = 'LogsRetentionNew',
+    LogsRetentionDetail = 'LogsRetentionDetail',
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
     MarketingAnalytics = 'MarketingAnalytics',
@@ -230,6 +241,8 @@ export enum Scene {
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
+    SupportTicketDetail = 'SupportTicketDetail',
+    SupportSettings = 'SupportSettings',
 }
 
 export type SceneComponent<T> = (props: T) => JSX.Element | null
@@ -343,6 +356,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Insight]: AccessControlResourceType.Insight,
     [Scene.SavedInsights]: AccessControlResourceType.Insight,
 
+    // Heatmaps
+    [Scene.Heatmaps]: AccessControlResourceType.Heatmap,
+    [Scene.Heatmap]: AccessControlResourceType.Heatmap,
+    [Scene.HeatmapNew]: AccessControlResourceType.Heatmap,
+
     // Notebooks
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
@@ -361,9 +379,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
 
-    // Revenue analytics
-    [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
-
     // Toolbar
     [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
 
@@ -380,9 +395,19 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Metrics
     [Scene.Metrics]: AccessControlResourceType.Metrics,
 
+    // Error tracking
+    [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
+    [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
+
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
+
+    // Support (conversations)
+    [Scene.SupportTickets]: AccessControlResourceType.Ticket,
+    [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
@@ -418,9 +443,19 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
-    [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
+    [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,
+    [Scene.AIObservabilityTags]: AccessControlResourceType.Tagger,
     [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
+
+    // MCP analytics
+    [Scene.MCPAnalytics]: AccessControlResourceType.McpAnalytics,
+    [Scene.MCPAnalyticsToolDetail]: AccessControlResourceType.McpAnalytics,
+
+    // Skills
+    [Scene.Skill]: AccessControlResourceType.LlmSkill,
+    [Scene.Skills]: AccessControlResourceType.LlmSkill,
 
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.

@@ -518,7 +518,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         pipeline.provenance = CommitProvenance(
             commit_count=3,
             agent_commit_count=2,
-            generated_by=("PostHog Code",),
+            generated_by=("PostHog Desktop",),
             task_ids=("task-1", "task-2"),
         )
 
@@ -534,7 +534,7 @@ def test_capture_review_completed_includes_familiarity_and_provenance(
         assert props["stamphog_agent_authored"] is True
         assert props["stamphog_agent_commit_count"] == 2
         assert props["stamphog_commit_count"] == 3
-        assert props["stamphog_generated_by"] == ["PostHog Code"]
+        assert props["stamphog_generated_by"] == ["PostHog Desktop"]
         assert props["stamphog_task_ids"] == ["task-1", "task-2"]
     else:
         assert props["stamphog_owner_teams"] == []
@@ -563,3 +563,39 @@ def test_capture_review_completed_merges_server_extras_base_wins(monkeypatch: py
     props = fake_posthog.capture.call_args.kwargs["properties"]
     assert props["stamphog_runtime"] == "hosted"
     assert props["stamphog_repo"] == "PostHog/posthog"
+
+
+@pytest.mark.parametrize(
+    "self_driving,expect_pass",
+    [
+        pytest.param(False, False, id="normal-run-blocks-drafts"),
+        pytest.param(True, True, id="self-driving-reviews-drafts"),
+    ],
+)
+def test_prerequisites_draft_gate_respects_the_self_driving_carve_out(self_driving: bool, expect_pass: bool) -> None:
+    # Self-driving inbox PRs are reviewed while still draft (the verdict must exist at Inbox triage
+    # time); every other run must keep failing prerequisites on a draft.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog", self_driving=self_driving)
+    pr = _fake_pr(head_sha="abc123")
+    pr.draft = True
+    pipeline.pr = pr
+
+    passed, message = pipeline._check_prerequisites()
+
+    assert passed is expect_pass
+    assert ("draft" in message) is not expect_pass
+
+
+def test_self_driving_prerequisites_still_block_changes_requested() -> None:
+    # The carve-out relaxes ONLY the draft issue: an active CHANGES_REQUESTED on a self-driving PR
+    # must keep blocking auto-approval, or the bot could approve over a human's explicit objection.
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog", self_driving=True)
+    pr = _fake_pr(head_sha="abc123")
+    pr.draft = True
+    pr.reviews = [{"user": "carol", "state": "CHANGES_REQUESTED", "is_current_head": True, "commit_id": "abc123"}]
+    pipeline.pr = pr
+
+    passed, message = pipeline._check_prerequisites()
+
+    assert passed is False
+    assert "changes requested" in message

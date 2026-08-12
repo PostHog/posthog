@@ -16,11 +16,7 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -34,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io import api_client
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
@@ -150,8 +147,7 @@ class CustomerIOSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-customer-io",
+            releaseStatus=ReleaseStatus.GA,
             webhookSetupCaption=(
                 "PostHog tries to register the reporting webhook for you using your App API Key. "
                 "Customer.io doesn't return the signing key in the API response, so you still need "
@@ -199,6 +195,17 @@ class CustomerIOSource(
                 "The App API Key doesn't have permission for this endpoint. Make sure the key has "
                 "access to the resources you're syncing."
             ),
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `_get_list_page` already retries 429/5xx and connection/read-timeout errors with
+        # backoff (see api_client.py); if that budget still exhausts, Temporal retries the
+        # whole activity and the failure is transient and self-recovering, so don't surface it
+        # as tracked exception noise.
+        return {
+            api_client.LIST_ENDPOINT_RETRYABLE_ERROR_PREFIX,
+            "HTTPSConnectionPool(host='api.customer.io', port=443)",
+            "HTTPSConnectionPool(host='api-eu.customer.io', port=443)",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

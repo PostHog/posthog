@@ -17,8 +17,9 @@ import {
     FacetFilterKey,
     facetsByGroup,
     filterFacetsByName,
+    logFilterExclusions,
     mergeSelectedIntoOptions,
-    resourceAttributeValues,
+    resourceAttributeSelection,
 } from './facets'
 
 const DEFAULT_WIDTH_PX = 240
@@ -63,12 +64,16 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
 
     const renderFacet = (facet: FacetConfig): JSX.Element => {
         const { source } = facet
-        // Selection: column facets read their dedicated filter field; resource-attribute facets read
-        // their log_resource_attribute filter out of the group.
-        const selected =
+        // Selection: column facets read includes from their dedicated filter field and exclusions
+        // from the is_not log filter under their exclusionKey (when they have one);
+        // resource-attribute facets read their log_resource_attribute filters, both polarities.
+        const { included: selected, excluded } =
             source.type === 'resourceAttribute'
-                ? resourceAttributeValues(filterGroup, source.key)
-                : selectedByKey[source.filterKey]
+                ? resourceAttributeSelection(filterGroup, source.key)
+                : {
+                      included: selectedByKey[source.filterKey],
+                      excluded: source.exclusionKey ? logFilterExclusions(filterGroup, source.exclusionKey) : [],
+                  }
         // Values + counts come from the cross-filtered endpoint, keyed by facet.key.
         const fetched: FacetOption[] = (facetValues[facet.key] ?? []).map((r) => ({
             value: r.value,
@@ -93,6 +98,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                     title={facet.title}
                     options={options}
                     selected={selected}
+                    excluded={excluded}
                     onToggle={onToggle}
                     loading={loading}
                     collapsed={collapsed}
@@ -102,19 +108,20 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
             )
         }
 
-        // Dynamic facet: values + counts come from the cross-filtered endpoint, plus any selected
-        // values it didn't return (zero matches in scope, or below the top-N cutoff) so an active
-        // filter — e.g. from an old saved-view URL — is always visible and removable.
+        // Dynamic facet: values + counts come from the cross-filtered endpoint, plus any selected or
+        // excluded values it didn't return (zero matches in scope, or below the top-N cutoff) so an
+        // active filter — e.g. from an old saved-view URL — is always visible and removable.
         return (
             <Facet
                 key={facet.key}
                 title={facet.title}
                 options={mergeSelectedIntoOptions(
                     fetched,
-                    selected,
+                    [...selected, ...excluded],
                     facet.searchable ? facetSearch[facet.key] : undefined
                 )}
                 selected={selected}
+                excluded={excluded}
                 onToggle={onToggle}
                 loading={loading}
                 emptyLabel={facet.emptyLabel}

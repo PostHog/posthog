@@ -105,7 +105,7 @@ describe('Sandbox approval input area', () => {
             expect(screen.queryByText('Create insight')).not.toBeInTheDocument()
         })
 
-        it('renders the unwrapped PostHog exec payload like PostHog Code', () => {
+        it('renders the unwrapped PostHog exec payload like PostHog Desktop', () => {
             render(
                 <PermissionInput
                     streamKey="conv-1"

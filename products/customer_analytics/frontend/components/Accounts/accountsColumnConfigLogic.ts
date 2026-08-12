@@ -2,6 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import type { SimpleOption } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -91,6 +93,9 @@ export type AccountColumnGroupKey =
     | 'sql_expression'
     | `accounts.${string}`
 
+export const ALL_COLUMNS_KEY = 'all'
+export type PickerGroupKey = AccountColumnGroupKey | typeof ALL_COLUMNS_KEY
+
 // Custom property definition ids are UUIDs, which aren't valid HogQL identifiers (hyphens).
 // Strip them so the column alias is a clean identifier, and so the renderer can map a visible
 // column name back to its definition.
@@ -100,6 +105,38 @@ export function customPropertyAlias(id: string): string {
 
 export function relationshipAlias(id: string): string {
     return `rel_${id.replace(/-/g, '')}`
+}
+
+export type AccountColumnDisplayMode = 'sparkline' | 'trend'
+
+export interface AccountColumnDisplayConfig {
+    mode: AccountColumnDisplayMode
+    window_days: number
+}
+
+// Keyed by custom property definition id (not alias) so the config survives column
+// removal/re-add and matches how saved views key custom-property filters.
+export type AccountColumnDisplayState = Record<string, AccountColumnDisplayConfig>
+
+export const COLUMN_DISPLAY_WINDOW_OPTIONS = [7, 14, 30, 90] as const
+export const DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS = 7
+
+const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS (cp_[0-9a-fA-F]+)$/
+
+// Sparkline/trend columns select the write history instead of the current value. The swap
+// happens at query-build time so the stored column string (saved views, shared URLs) stays
+// in the stable scalar form.
+export function applyColumnDisplayToSelect(columns: string[], columnDisplay: AccountColumnDisplayState): string[] {
+    if (Object.keys(columnDisplay).length === 0) {
+        return columns
+    }
+    return columns.map((column) => {
+        const match = column.match(CUSTOM_PROPERTY_COLUMN_REGEX)
+        if (!match || !columnDisplay[match[1]]) {
+            return column
+        }
+        return `accounts.custom_properties_history.values.\`${match[1]}\` AS ${match[2]}`
+    })
 }
 
 function relationshipExpression(definition: AccountRelationshipDefinitionApi, alias: string): string {
@@ -150,6 +187,32 @@ export type AccountColumnGroup = {
     isFreeform?: boolean
 }
 
+export type AccountPickerColumnOption = AccountColumnOption & { groupLabel: string; isSelected: boolean }
+
+// Null activeGroup means "All columns": search spans every non-freeform group.
+export function filterColumnOptions(
+    groups: AccountColumnGroup[],
+    activeGroup: AccountColumnGroup | null,
+    search: string,
+    selectColumns: string[]
+): AccountPickerColumnOption[] {
+    if (activeGroup?.isFreeform) {
+        return []
+    }
+    const searchableGroups = activeGroup ? [activeGroup] : groups.filter((group) => !group.isFreeform)
+    const query = search.trim().toLowerCase()
+    const selected = new Set(selectColumns)
+    return searchableGroups.flatMap((group) =>
+        group.options
+            .filter((option) => !query || option.name.toLowerCase().includes(query))
+            .map((option) => ({
+                ...option,
+                groupLabel: group.label,
+                isSelected: selected.has(option.expression),
+            }))
+    )
+}
+
 // Field types that point at joined tables/views (lazy joins, virtual tables,
 // user-defined data warehouse joins, saved queries). Each one surfaces as a
 // dedicated dropdown entry in the column configurator.
@@ -158,6 +221,7 @@ const JOIN_FIELD_TYPES = new Set(['lazy_table', 'virtual_table', 'view', 'materi
 // Joins that already have a friendly, definition-driven picker group — surfacing
 // their raw backing tables (account_id + a JSON blob) would just duplicate them.
 const HIDDEN_JOIN_GROUPS = new Set(['custom_properties', 'relationships'])
+const POSTGRES_BACKED_JOIN_GROUPS = new Set(['tags', 'notebooks'])
 
 // Field types we omit from the "Account properties" group — these are
 // navigation aliases, joined tables (handled separately), or unknown types.
@@ -217,7 +281,8 @@ export function buildAccountColumnGroups(
     allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined,
     warehouseJoins: DataWarehouseViewLink[],
     customPropertyDefinitions: CustomPropertyDefinitionApi[] = [],
-    relationshipDefinitions: AccountRelationshipDefinitionApi[] = []
+    relationshipDefinitions: AccountRelationshipDefinitionApi[] = [],
+    postgresColumnsOnly = false
 ): AccountColumnGroup[] {
     const accountsTable = allTablesMap?.[ACCOUNTS_ACCOUNTS_TABLE_NAME]
     const directOptions: AccountColumnOption[] = []
@@ -238,7 +303,10 @@ export function buildAccountColumnGroups(
     if (accountsTable) {
         for (const field of Object.values(accountsTable.fields)) {
             if (JOIN_FIELD_TYPES.has(field.type)) {
-                if (HIDDEN_JOIN_GROUPS.has(field.name)) {
+                if (
+                    HIDDEN_JOIN_GROUPS.has(field.name) ||
+                    (postgresColumnsOnly && !POSTGRES_BACKED_JOIN_GROUPS.has(field.name))
+                ) {
                     continue
                 }
                 const joinedTable = field.table ? allTablesMap?.[field.table] : undefined
@@ -260,21 +328,23 @@ export function buildAccountColumnGroups(
     // separate `joins` array on the schema response (loaded by `joinsLogic`),
     // not inside the source table's `fields`. Surface them as additional
     // first-class column groups so users don't have to drop to SQL.
-    for (const join of warehouseJoins) {
-        if (
-            !join.source_table_name ||
-            !ACCOUNTS_JOIN_SOURCE_TABLE_NAMES.has(join.source_table_name) ||
-            !join.field_name ||
-            !join.joining_table_name
-        ) {
-            continue
+    if (!postgresColumnsOnly) {
+        for (const join of warehouseJoins) {
+            if (
+                !join.source_table_name ||
+                !ACCOUNTS_JOIN_SOURCE_TABLE_NAMES.has(join.source_table_name) ||
+                !join.field_name ||
+                !join.joining_table_name
+            ) {
+                continue
+            }
+            const joinedTable = allTablesMap?.[join.joining_table_name]
+            if (!joinedTable) {
+                continue
+            }
+            const columnNames = Object.keys(joinedTable.fields)
+            addJoinGroup(join.field_name, buildJoinOptions(join.field_name, columnNames, joinedTable))
         }
-        const joinedTable = allTablesMap?.[join.joining_table_name]
-        if (!joinedTable) {
-            continue
-        }
-        const columnNames = Object.keys(joinedTable.fields)
-        addJoinGroup(join.field_name, buildJoinOptions(join.field_name, columnNames, joinedTable))
     }
 
     // Omit definition-driven groups entirely when the team has no definitions, so the
@@ -305,7 +375,9 @@ export function buildAccountColumnGroups(
         ...relationshipGroups,
         ...customPropertyGroups,
         ...joinGroups,
-        { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
+        ...(postgresColumnsOnly
+            ? []
+            : [{ key: 'sql_expression' as const, label: 'SQL expression', options: [], isFreeform: true }]),
     ]
 }
 
@@ -313,22 +385,36 @@ export function buildAccountColumnGroups(
 export interface accountsColumnConfigLogicValues {
     allTablesMap: Record<string, DatabaseSchemaTable> // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     warehouseJoins: DataWarehouseViewLink[] // joinsLogic
     warehouseJoinsLoading: boolean // joinsLogic
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
     accountsColumnGroups: AccountColumnGroup[]
+    activePickerGroup: AccountColumnGroup | null
     aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
     aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi>
     columnConfiguratorVisible: boolean
+    columnDisplay: AccountColumnDisplayState
     customPropertyDefinitions: CustomPropertyDefinitionApi[]
     customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
     customPropertyDefinitionsLoading: boolean
     customPropertyTaxonomicOptions: (SimpleOption & {
+        description?: string
         id: string
+        is_canonical?: boolean
         property_type: PropertyType
     })[]
     defaultSelectColumns: string[]
+    displayByAlias: AccountColumnDisplayState
+    editingColumn: string | null
+    editingColumnIndex: number | null
+    filteredColumnOptions: AccountPickerColumnOption[]
+    hogqlCleanupEnabled: boolean
+    pickerGroupKey: PickerGroupKey
+    pickerSearch: string
+    pickerSearchPlaceholder: string
+    pickerSqlInput: string
     querySelectColumns: string[]
     relationshipDefinitions: AccountRelationshipDefinitionApi[]
     relationshipDefinitionsLoaded: boolean
@@ -350,6 +436,9 @@ export interface accountsColumnConfigLogicActions {
         force?: boolean
     } // databaseTableListLogic
     loadJoins: () => any // joinsLogic
+    addSqlExpression: () => {
+        value: true
+    }
     hideColumnConfigurator: () => {
         value: true
     }
@@ -396,6 +485,28 @@ export interface accountsColumnConfigLogicActions {
     selectColumn: (column: string) => {
         column: string
     }
+    setColumnDisplay: (
+        definitionId: string,
+        config: AccountColumnDisplayConfig | null
+    ) => {
+        config: AccountColumnDisplayConfig | null
+        definitionId: string
+    }
+    setColumnDisplayConfig: (config: AccountColumnDisplayState) => {
+        config: AccountColumnDisplayState
+    }
+    setEditingColumnIndex: (index: number | null) => {
+        index: number | null
+    }
+    setPickerGroupKey: (key: PickerGroupKey) => {
+        key: PickerGroupKey
+    }
+    setPickerSearch: (search: string) => {
+        search: string
+    }
+    setPickerSqlInput: (sqlInput: string) => {
+        sqlInput: string
+    }
     setSelectColumns: (columns: string[]) => {
         columns: string[]
     }
@@ -404,6 +515,13 @@ export interface accountsColumnConfigLogicActions {
     }
     unselectColumn: (column: string) => {
         column: string
+    }
+    updateColumnExpression: (
+        index: number,
+        expression: string
+    ) => {
+        expression: string
+        index: number
     }
 }
 
@@ -418,23 +536,41 @@ export interface accountsColumnConfigLogicMeta {
             selectColumns: string[],
             roleKeyToDefinition: Partial<
                 Record<'account_executive' | 'account_owner' | 'csm', AccountRelationshipDefinitionApi>
-            >
+            >,
+            columnDisplay: AccountColumnDisplayState
         ) => string[]
         visibleColumnNames: (querySelectColumns: string[]) => string[]
+        hogqlCleanupEnabled: (featureFlags: FeatureFlagsSet) => boolean
         accountsColumnGroups: (
             allTablesMap: Record<string, DatabaseSchemaTable>,
             warehouseJoins: DataWarehouseViewLink[],
             customPropertyDefinitions: CustomPropertyDefinitionApi[],
-            relationshipDefinitions: AccountRelationshipDefinitionApi[]
+            relationshipDefinitions: AccountRelationshipDefinitionApi[],
+            hogqlCleanupEnabled: boolean
         ) => AccountColumnGroup[]
+        activePickerGroup: (
+            accountsColumnGroups: AccountColumnGroup[],
+            pickerGroupKey: PickerGroupKey
+        ) => AccountColumnGroup | null
+        filteredColumnOptions: (
+            accountsColumnGroups: AccountColumnGroup[],
+            activePickerGroup: AccountColumnGroup | null,
+            pickerSearch: string,
+            selectColumns: string[]
+        ) => AccountPickerColumnOption[]
+        pickerSearchPlaceholder: (activePickerGroup: AccountColumnGroup | null) => string
         customPropertyDefinitionsById: (
             customPropertyDefinitions: CustomPropertyDefinitionApi[]
         ) => Record<string, CustomPropertyDefinitionApi>
+        editingColumn: (selectColumns: string[], editingColumnIndex: number | null) => string | null
+        displayByAlias: (columnDisplay: AccountColumnDisplayState) => AccountColumnDisplayState
         aliasToDefinition: (
             customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
         ) => Record<string, CustomPropertyDefinitionApi>
         customPropertyTaxonomicOptions: (customPropertyDefinitions: CustomPropertyDefinitionApi[]) => (SimpleOption & {
+            description?: string
             id: string
+            is_canonical?: boolean
             property_type: PropertyType
         })[]
         aliasToRelationshipDefinition: (
@@ -461,6 +597,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             ['currentTeamId'],
             projectLogic,
             ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
             databaseTableListLogic,
             ['allTablesMap', 'databaseLoading'],
             joinsLogic,
@@ -479,6 +617,17 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         resetColumns: true,
         showColumnConfigurator: true,
         hideColumnConfigurator: true,
+        setColumnDisplay: (definitionId: string, config: AccountColumnDisplayConfig | null) => ({
+            definitionId,
+            config,
+        }),
+        setColumnDisplayConfig: (config: AccountColumnDisplayState) => ({ config }),
+        setEditingColumnIndex: (index: number | null) => ({ index }),
+        updateColumnExpression: (index: number, expression: string) => ({ index, expression }),
+        setPickerGroupKey: (key: PickerGroupKey) => ({ key }),
+        setPickerSearch: (search: string) => ({ search }),
+        setPickerSqlInput: (sqlInput: string) => ({ sqlInput }),
+        addSqlExpression: true,
     }),
     reducers({
         selectColumns: [
@@ -498,6 +647,27 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     return next
                 },
                 resetColumns: () => [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
+                updateColumnExpression: (state, { index, expression }) => {
+                    const next = expression.trim()
+                    if (!next || index < 0 || index >= state.length || state[index] === ACCOUNTS_NAME_COLUMN) {
+                        return state
+                    }
+                    return state.map((column, i) => (i === index ? next : column))
+                },
+            },
+        ],
+        // Which visible-column row the configurator's edit section targets. Any action that
+        // reshuffles or replaces the column list closes the editor so the index can't go stale.
+        editingColumnIndex: [
+            null as number | null,
+            {
+                setEditingColumnIndex: (_, { index }) => index,
+                updateColumnExpression: () => null,
+                setSelectColumns: () => null,
+                unselectColumn: () => null,
+                moveColumn: () => null,
+                resetColumns: () => null,
+                hideColumnConfigurator: () => null,
             },
         ],
         columnConfiguratorVisible: [
@@ -505,6 +675,39 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             {
                 showColumnConfigurator: () => true,
                 hideColumnConfigurator: () => false,
+            },
+        ],
+        pickerGroupKey: [
+            ALL_COLUMNS_KEY as PickerGroupKey,
+            {
+                setPickerGroupKey: (_, { key }) => key,
+            },
+        ],
+        pickerSearch: [
+            '',
+            {
+                setPickerSearch: (_, { search }) => search,
+                // A stale query from another category would silently hide results.
+                setPickerGroupKey: () => '',
+            },
+        ],
+        pickerSqlInput: [
+            '',
+            {
+                setPickerSqlInput: (_, { sqlInput }) => sqlInput,
+            },
+        ],
+        columnDisplay: [
+            {} as AccountColumnDisplayState,
+            {
+                setColumnDisplay: (state, { definitionId, config }) => {
+                    if (!config) {
+                        const { [definitionId]: _removed, ...rest } = state
+                        return rest
+                    }
+                    return { ...state, [definitionId]: config }
+                },
+                setColumnDisplayConfig: (_, { config }) => config,
             },
         ],
         // Queries wait for this so the list fetches once with its final columns,
@@ -563,35 +766,93 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         // names resolved through the relationships lazy join (or dropped when the
         // matching definition doesn't exist). Row cells align to THIS list.
         querySelectColumns: [
-            (s) => [s.selectColumns, s.roleKeyToDefinition],
+            (s) => [s.selectColumns, s.roleKeyToDefinition, s.columnDisplay],
             (
                 selectColumns: string[],
-                roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>
-            ): string[] => translateSelectColumns(selectColumns, roleKeyToDefinition),
+                roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>,
+                columnDisplay: AccountColumnDisplayState
+            ): string[] =>
+                applyColumnDisplayToSelect(translateSelectColumns(selectColumns, roleKeyToDefinition), columnDisplay),
         ],
         visibleColumnNames: [
             (s) => [s.querySelectColumns],
             (querySelectColumns: string[]): string[] => querySelectColumns.map((c) => extractDisplayLabel(c)),
         ],
+        hogqlCleanupEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNTS_HOGQL_CLEANUP],
+        ],
         accountsColumnGroups: [
-            (s) => [s.allTablesMap, s.warehouseJoins, s.customPropertyDefinitions, s.relationshipDefinitions],
+            (s) => [
+                s.allTablesMap,
+                s.warehouseJoins,
+                s.customPropertyDefinitions,
+                s.relationshipDefinitions,
+                s.hogqlCleanupEnabled,
+            ],
             (
                 allTablesMap: Record<string, DatabaseSchemaTable>,
                 warehouseJoins: DataWarehouseViewLink[],
                 customPropertyDefinitions: CustomPropertyDefinitionApi[],
-                relationshipDefinitions: AccountRelationshipDefinitionApi[]
+                relationshipDefinitions: AccountRelationshipDefinitionApi[],
+                hogqlCleanupEnabled: boolean
             ): AccountColumnGroup[] =>
                 buildAccountColumnGroups(
                     allTablesMap,
                     warehouseJoins,
                     customPropertyDefinitions,
-                    relationshipDefinitions
+                    relationshipDefinitions,
+                    hogqlCleanupEnabled
                 ),
+        ],
+        activePickerGroup: [
+            (s) => [s.accountsColumnGroups, s.pickerGroupKey],
+            (accountsColumnGroups: AccountColumnGroup[], pickerGroupKey: PickerGroupKey): AccountColumnGroup | null =>
+                pickerGroupKey === ALL_COLUMNS_KEY
+                    ? null
+                    : (accountsColumnGroups.find((group) => group.key === pickerGroupKey) ?? null),
+        ],
+        filteredColumnOptions: [
+            (s) => [s.accountsColumnGroups, s.activePickerGroup, s.pickerSearch, s.selectColumns],
+            (
+                accountsColumnGroups: AccountColumnGroup[],
+                activePickerGroup: AccountColumnGroup | null,
+                pickerSearch: string,
+                selectColumns: string[]
+            ): AccountPickerColumnOption[] =>
+                filterColumnOptions(accountsColumnGroups, activePickerGroup, pickerSearch, selectColumns),
+        ],
+        pickerSearchPlaceholder: [
+            (s) => [s.activePickerGroup],
+            (activePickerGroup: AccountColumnGroup | null): string =>
+                activePickerGroup?.isFreeform
+                    ? 'Use the SQL expression panel below'
+                    : activePickerGroup
+                      ? `Search ${activePickerGroup.label.toLowerCase()}`
+                      : 'Search all columns',
         ],
         customPropertyDefinitionsById: [
             (s) => [s.customPropertyDefinitions],
             (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
                 Object.fromEntries(customPropertyDefinitions.map((definition) => [definition.id, definition])),
+        ],
+        editingColumn: [
+            (s) => [s.selectColumns, s.editingColumnIndex],
+            (selectColumns: string[], editingColumnIndex: number | null): string | null =>
+                editingColumnIndex !== null ? (selectColumns[editingColumnIndex] ?? null) : null,
+        ],
+        // Re-keyed by the cp_<id> column alias so cell renderers can look up their
+        // display mode by visible column name.
+        displayByAlias: [
+            (s) => [s.columnDisplay],
+            (columnDisplay: AccountColumnDisplayState): AccountColumnDisplayState =>
+                Object.fromEntries(
+                    Object.entries(columnDisplay).map(([definitionId, config]) => [
+                        customPropertyAlias(definitionId),
+                        config,
+                    ])
+                ),
         ],
         // The same map re-keyed by the cp_<id> column alias — resolves visible column
         // names back to their definition (table header, configurator labels).
@@ -613,10 +874,17 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             (s) => [s.customPropertyDefinitions],
             (
                 customPropertyDefinitions: CustomPropertyDefinitionApi[]
-            ): (SimpleOption & { id: string; property_type: PropertyType })[] =>
+            ): (SimpleOption & {
+                id: string
+                description?: string
+                is_canonical?: boolean
+                property_type: PropertyType
+            })[] =>
                 customPropertyDefinitions.map((definition) => ({
                     id: definition.id,
                     name: definition.name,
+                    description: definition.description ?? undefined,
+                    is_canonical: definition.is_canonical,
                     property_type: propertyTypeForDisplayType(definition.display_type),
                 })),
         ],
@@ -664,6 +932,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         resetColumns: () => {
             if (!objectsEqual(values.selectColumns, values.defaultSelectColumns)) {
                 actions.setSelectColumns(values.defaultSelectColumns)
+            }
+        },
+        addSqlExpression: () => {
+            const expression = values.pickerSqlInput.trim()
+            if (expression) {
+                actions.selectColumn(expression)
+                actions.setPickerSqlInput('')
             }
         },
     })),

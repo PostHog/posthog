@@ -24,12 +24,14 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
 import {
+    AccessControlLevel,
+    AccessControlResourceType,
     DataWarehouseSyncInterval,
     ExternalDataSchemaStatus,
     ExternalDataSource,
@@ -42,8 +44,8 @@ import {
 } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
+    SchemaEditorAction,
     SourceEditorAction,
-    useSourceEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 import {
@@ -57,10 +59,16 @@ import {
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
-const REVENUE_ENABLED_SOURCES: ExternalDataSourceType[] = ['Stripe']
-
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
+
+// Disabled reason for a row's edit controls, based on the user's effective access to that table.
+const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | null =>
+    getAccessControlDisabledReason(
+        AccessControlResourceType.WarehouseTable,
+        AccessControlLevel.Editor,
+        schema.user_access_level
+    )
 
 export interface SchemasTabProps {
     id: string
@@ -118,7 +126,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         deleteTable,
         loadJobs,
     } = useActions(sourceSettingsLogic)
-    const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
@@ -130,8 +137,15 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     }, [loadJobs, source])
 
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
     const prefixedSourceId = `managed-${id}`
+
+    // Singleton modal — track which schema's access controls are open.
+    const [accessControlSchema, setAccessControlSchema] = useState<ExternalDataSourceSchema | null>(null)
+    const openAccessControl = warehouseAccessControlEnabled
+        ? (schema: ExternalDataSourceSchema): void => setAccessControlSchema(schema)
+        : undefined
 
     return (
         <>
@@ -274,6 +288,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                     resyncSchema={resyncSchema}
                                     cancelSchema={cancelSchema}
                                     deleteTable={deleteTable}
+                                    openAccessControl={openAccessControl}
                                     showMetrics={showMetrics}
                                 />
                             ),
@@ -292,33 +307,20 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     resyncSchema={resyncSchema}
                     cancelSchema={cancelSchema}
                     deleteTable={deleteTable}
+                    openAccessControl={openAccessControl}
                     showMetrics={showMetrics}
                 />
             )}
-            {source?.source_type &&
-                REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
-                featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
-                    <div className="flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            className="mt-2"
-                            tooltip="This source is feeding data into our Revenue analytics product - currently in alpha."
-                            onClick={() => {
-                                addProductIntentForCrossSell({
-                                    from: ProductKey.DATA_WAREHOUSE,
-                                    to: ProductKey.REVENUE_ANALYTICS,
-                                    intent_context: ProductIntentContext.DATA_WAREHOUSE_STRIPE_SOURCE_CREATED,
-                                })
-                                router.actions.push(urls.revenueAnalytics())
-                            }}
-                        >
-                            See data in Revenue analytics
-                            <LemonTag className="ml-2" type="danger" size="small">
-                                ALPHA
-                            </LemonTag>
-                        </LemonButton>
-                    </div>
-                )}
+            {accessControlSchema?.table && (
+                <AccessControlObjectModal
+                    isOpen={!!accessControlSchema}
+                    onClose={() => setAccessControlSchema(null)}
+                    resource={AccessControlResourceType.WarehouseTable}
+                    resource_id={accessControlSchema.table.id}
+                    title={accessControlSchema.label ?? accessControlSchema.name}
+                    description="Control who can query, sync, and manage this table. Members without editor access can't trigger syncs, change its settings, or delete it."
+                />
+            )}
         </>
     )
 }
@@ -334,6 +336,8 @@ interface ManagedSchemaTableProps {
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
+    /** Undefined when the warehouse access control feature is off. */
+    openAccessControl?: (schema: ExternalDataSourceSchema) => void
     showMetrics: boolean
     /** Rendered inside a namespace group — the group header already shows the namespace, so strip it from row names. */
     inSchemaGroup?: boolean
@@ -350,13 +354,13 @@ function ManagedSchemaTable({
     resyncSchema,
     cancelSchema,
     deleteTable,
+    openAccessControl,
     showMetrics,
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
     const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
-    const { disabledReason: editDisabledReason } = useSourceEditorAccess(source)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -373,7 +377,10 @@ function ManagedSchemaTable({
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
             bulkSelection={{
                 getKey: (schema) => schema.id,
-                isRowSelectable: () => (editDisabledReason ? { disabledReason: editDisabledReason } : true),
+                isRowSelectable: (schema) => {
+                    const reason = schemaEditDisabledReason(schema)
+                    return reason ? { disabledReason: reason } : true
+                },
                 noun: ['schema', 'schemas'],
                 barClassName: 'mb-2',
                 renderActions: (ctx) => (
@@ -538,7 +545,7 @@ function ManagedSchemaTable({
                     sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
                     render: function RenderShouldSync(_, schema) {
                         return (
-                            <SourceEditorAction source={source}>
+                            <SchemaEditorAction schema={schema}>
                                 <LemonSwitch
                                     checked={schema.should_sync}
                                     onChange={(active) => {
@@ -596,7 +603,7 @@ function ManagedSchemaTable({
                                         }
                                     }}
                                 />
-                            </SourceEditorAction>
+                            </SchemaEditorAction>
                         )
                     },
                 },
@@ -617,6 +624,7 @@ function ManagedSchemaTable({
                                     type="secondary"
                                     size="xsmall"
                                     to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id, 'configuration')}
+                                    disabledReason={schemaEditDisabledReason(schema)}
                                 >
                                     Configure
                                 </LemonButton>
@@ -627,6 +635,7 @@ function ManagedSchemaTable({
                                     resyncSchema={resyncSchema}
                                     cancelSchema={cancelSchema}
                                     deleteTable={deleteTable}
+                                    onOpenAccessControl={openAccessControl}
                                 />
                             </div>
                         )
@@ -644,8 +653,16 @@ function SchemaBulkActions({
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
 }): JSX.Element {
-    const { bulkEnable, bulkDisable, bulkSetFrequency, bulkSyncNow, bulkResync, bulkDeleteData } =
-        useActions(sourceSettingsLogic)
+    const {
+        bulkEnable,
+        bulkDisable,
+        bulkSetFrequency,
+        bulkSyncNow,
+        bulkResync,
+        bulkDeleteData,
+        pausePolling,
+        resumePolling,
+    } = useActions(sourceSettingsLogic)
     const { bulkEnableLoading } = useValues(sourceSettingsLogic)
 
     // Wrap every action so the selection clears once it's been kicked off.
@@ -657,10 +674,7 @@ function SchemaBulkActions({
     const selected = [...schemas]
     const count = selected.length
 
-    // Only offer frequencies every selected schema supports. Non-CDC schemas floor at 5min, so a
-    // mixed selection falls back to the non-CDC set (which CDC also supports).
-    const allCdc = selected.length > 0 && selected.every((schema) => schema.sync_type === 'cdc')
-    const frequencyOptions = allowedSyncFrequencies(allCdc ? 'cdc' : 'incremental')
+    const frequencyOptions = allowedSyncFrequencies()
 
     const onEnable = (): void => {
         const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
@@ -726,6 +740,11 @@ function SchemaBulkActions({
             </LemonButton>
             <More
                 size="small"
+                // Pause the 5s source refresh while the menu is open — a poll re-renders the table
+                // and dismisses the menu out from under the user.
+                dropdown={{
+                    onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                }}
                 overlay={
                     <>
                         <LemonButton
@@ -784,6 +803,7 @@ function SchemaRowMore({
     resyncSchema,
     cancelSchema,
     deleteTable,
+    onOpenAccessControl,
 }: {
     source: ExternalDataSource | null
     schema: ExternalDataSourceSchema
@@ -791,14 +811,32 @@ function SchemaRowMore({
     resyncSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
+    onOpenAccessControl?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
+    const { pausePolling, resumePolling } = useActions(sourceSettingsLogic)
+
     return (
-        <SourceEditorAction source={source}>
+        <SchemaEditorAction schema={schema}>
             {({ disabledReason }) => (
                 <More
                     disabledReason={disabledReason}
+                    // Pause the 5s source refresh while the menu is open — a poll re-renders the
+                    // table and dismisses the menu out from under the user.
+                    dropdown={{
+                        onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
+                    }}
                     overlay={
                         <>
+                            {onOpenAccessControl && schema.table && (
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    fullWidth
+                                    onClick={() => onOpenAccessControl(schema)}
+                                >
+                                    Access control
+                                </LemonButton>
+                            )}
                             <Tooltip
                                 title={
                                     schema.sync_type === 'cdc'
@@ -930,6 +968,6 @@ function SchemaRowMore({
                     }
                 />
             )}
-        </SourceEditorAction>
+        </SchemaEditorAction>
     )
 }

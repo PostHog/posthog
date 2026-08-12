@@ -6,12 +6,13 @@
 //! tree path plus targeted leak/contract cases.
 
 use posthog_replay_anonymizer::allow_lists::AllowLists;
+use posthog_replay_anonymizer::collect::{hash_image_bytes, image_ref};
 use posthog_replay_anonymizer::snapshot::{
     anonymize_kafka_payload, anonymize_kafka_payload_opts, anonymize_via_tree, AnonymizeOpts,
     AnonymizedMessage, FailKind, Failure, FLAG_ACTIVE, FLAG_CLICK, FLAG_KEYPRESS,
     FLAG_MOUSE_ACTIVITY,
 };
-use posthog_replay_anonymizer::Ctx;
+use posthog_replay_anonymizer::{Ctx, ImageCollection, ImagePolicy};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -368,32 +369,45 @@ fn assert_stream_matches_tree(allow: &AllowLists, inner_json: &str, label: &str)
     let ctx = Ctx::new(allow);
     let tree = anonymize_via_tree(&ctx, "d", inner_json.as_bytes());
 
-    // Both scrub engines are pinned: the parse-free byte walk (with its per-event fallbacks)
-    // and the simd path.
+    // Every engine combination is pinned against the tree reference: the parse-free byte walk
+    // (with its per-event fallbacks) vs the simd path, and inline vs deferred-parallel images.
     for byte_walk in [true, false] {
-        let mut bytes = payload.as_bytes().to_vec();
-        let stream = anonymize_kafka_payload_opts(allow, &mut bytes, AnonymizeOpts { byte_walk });
-        match (&stream, &tree) {
-            (Ok(s), Ok(t)) => {
-                let s_lines = parse_lines(&s.lines);
-                let t_lines = parse_lines(&t.lines);
-                assert_eq!(
-                    s_lines, t_lines,
-                    "lines diverged (walk={byte_walk}): {label}"
-                );
-                assert_eq!(s.meta, t.meta, "meta diverged (walk={byte_walk}): {label}");
+        for image_policy in [ImagePolicy::Inline, ImagePolicy::Parallel] {
+            let mut bytes = payload.as_bytes().to_vec();
+            let stream = anonymize_kafka_payload_opts(
+                allow,
+                &mut bytes,
+                AnonymizeOpts {
+                    byte_walk,
+                    image_policy,
+                },
+                None,
+            );
+            match (&stream, &tree) {
+                (Ok(s), Ok(t)) => {
+                    let s_lines = parse_lines(&s.lines);
+                    let t_lines = parse_lines(&t.lines);
+                    assert_eq!(
+                        s_lines, t_lines,
+                        "lines diverged (walk={byte_walk}, images={image_policy:?}): {label}"
+                    );
+                    assert_eq!(
+                        s.meta, t.meta,
+                        "meta diverged (walk={byte_walk}, images={image_policy:?}): {label}"
+                    );
+                }
+                (Err(s), Err(t)) => {
+                    assert_eq!(
+                        s.kind, t.kind,
+                        "failure kind diverged (walk={byte_walk}, images={image_policy:?}): {label}"
+                    );
+                }
+                (s, t) => panic!(
+                    "outcome diverged (walk={byte_walk}, images={image_policy:?}) for {label}: stream={:?} tree={:?}",
+                    s.as_ref().map(|m| parse_lines(&m.lines)),
+                    t.as_ref().map(|m| parse_lines(&m.lines)),
+                ),
             }
-            (Err(s), Err(t)) => {
-                assert_eq!(
-                    s.kind, t.kind,
-                    "failure kind diverged (walk={byte_walk}): {label}"
-                );
-            }
-            (s, t) => panic!(
-                "outcome diverged (walk={byte_walk}) for {label}: stream={:?} tree={:?}",
-                s.as_ref().map(|m| parse_lines(&m.lines)),
-                t.as_ref().map(|m| parse_lines(&m.lines)),
-            ),
         }
     }
 }
@@ -734,4 +748,140 @@ fn mutation_media_attr_past_the_prescan_budget_declines_to_the_parse() {
         &inner_json,
         "media src past the attribute prescan budget",
     );
+}
+
+// A 16x16 PNG (the same one the stylesheet test uses), as raw base64 for building data URIs.
+const COLLECT_PNG_B64: &str = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg==";
+
+fn collect_payload() -> String {
+    let uri = format!("data:image/png;base64,{COLLECT_PNG_B64}");
+    let css = format!(".a{{background:url({uri})}}");
+    payload_of(&snapshot_message(json!([
+        // Media element src, inline rendered pixels, and a CSS background — three distinct
+        // collection funnels, all carrying the same image.
+        {
+            "type": 2,
+            "timestamp": TS0,
+            "data": {
+                "node": {"type": 0, "childNodes": [
+                    {"type": 2, "tagName": "img", "attributes": {"src": uri}, "childNodes": []},
+                    {"type": 2, "tagName": "div", "attributes": {"rr_dataURL": uri, "_cssText": css}, "childNodes": []}
+                ]},
+                "initialOffset": {"top": 0, "left": 0}
+            }
+        },
+        // Canvas blob carrying the same bytes under a bare base64 payload.
+        {
+            "type": 3,
+            "timestamp": TS0 + 1.0,
+            "data": {"source": 9, "id": 1, "type": 0, "commands": [{"property": "drawImage", "args": [
+                {"rr_type": "Blob", "type": "image/png", "data": [{"rr_type": "ArrayBuffer", "base64": COLLECT_PNG_B64}]}
+            ]}]}
+        },
+    ])))
+}
+
+#[test]
+fn image_collection_replaces_images_with_refs_and_returns_the_bytes() {
+    use base64::Engine;
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let pseudo_team = "0123456789abcdef0123456789abcdef".to_string();
+    let content_key = "fedcba9876543210fedcba9876543210".to_string();
+    let png = base64::engine::general_purpose::STANDARD
+        .decode(COLLECT_PNG_B64)
+        .unwrap();
+    let expected_ref = image_ref(
+        &pseudo_team,
+        &hash_image_bytes(content_key.as_bytes(), &png),
+    );
+
+    // Both image policies: collection must take precedence over the parallel worker pool — a
+    // collected image needs no blur, so it must come back as a ref, never a pool token.
+    for byte_walk in [true, false] {
+        for image_policy in [ImagePolicy::Inline, ImagePolicy::Parallel] {
+            let mut bytes = collect_payload().into_bytes();
+            let out = anonymize_kafka_payload_opts(
+                &allow,
+                &mut bytes,
+                AnonymizeOpts {
+                    byte_walk,
+                    image_policy,
+                },
+                Some(ImageCollection {
+                    pseudo_team: pseudo_team.clone(),
+                    content_key: content_key.clone(),
+                }),
+            )
+            .expect("anonymizes (walk={byte_walk})");
+
+            let lines = String::from_utf8(out.lines.clone()).unwrap();
+            assert!(
+                !lines.contains(COLLECT_PNG_B64),
+                "original image must not pass through (walk={byte_walk} images={image_policy:?})"
+            );
+            assert_eq!(
+            lines.matches(&expected_ref).count(),
+            4,
+            "img src, rr_dataURL, css background, and canvas blob all carry the ref (walk={byte_walk} images={image_policy:?}): {lines}"
+        );
+
+            // One image (deduped across all four funnels), bytes returned verbatim.
+            assert_eq!(out.meta.images.len(), 1, "walk={byte_walk}");
+            let entry = &out.meta.images[0];
+            assert_eq!(entry.hash, hash_image_bytes(content_key.as_bytes(), &png));
+            assert_eq!(entry.offset, 0);
+            assert_eq!(entry.len, png.len());
+            assert_eq!(out.image_bytes, png, "walk={byte_walk}");
+        }
+    }
+}
+
+#[test]
+fn image_collection_off_blurs_inline_and_returns_no_bytes() {
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let mut bytes = collect_payload().into_bytes();
+    let out = anonymize_kafka_payload_opts(&allow, &mut bytes, AnonymizeOpts::default(), None)
+        .expect("anonymizes");
+    let lines = String::from_utf8(out.lines.clone()).unwrap();
+    assert!(
+        !lines.contains(COLLECT_PNG_B64),
+        "image must still be scrubbed"
+    );
+    assert!(!lines.contains("image:"), "no refs without collection");
+    assert!(out.meta.images.is_empty());
+    assert!(out.image_bytes.is_empty());
+}
+
+#[test]
+fn image_collection_svg_stays_on_the_inline_scrub_path() {
+    // SVG is text — PII inside it must not ride to the scrub topic as an "image".
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    use base64::Engine;
+    let svg = base64::engine::general_purpose::STANDARD.encode(
+        "<svg xmlns='http://www.w3.org/2000/svg'><text>john.fakename@example.com</text></svg>",
+    );
+    let inner = snapshot_message(json!([{
+        "type": 2,
+        "timestamp": TS0,
+        "data": {
+            "node": {"type": 0, "childNodes": [
+                {"type": 2, "tagName": "img", "attributes": {"src": format!("data:image/svg+xml;base64,{svg}")}, "childNodes": []}
+            ]},
+            "initialOffset": {"top": 0, "left": 0}
+        }
+    }]));
+    let mut bytes = payload_of(&inner).into_bytes();
+    let out = anonymize_kafka_payload_opts(
+        &allow,
+        &mut bytes,
+        AnonymizeOpts::default(),
+        Some(ImageCollection {
+            pseudo_team: "0123456789abcdef0123456789abcdef".to_string(),
+            content_key: "fedcba9876543210fedcba9876543210".to_string(),
+        }),
+    )
+    .expect("anonymizes");
+    let lines = String::from_utf8(out.lines.clone()).unwrap();
+    assert!(out.meta.images.is_empty(), "svg must not be collected");
+    assert!(!lines.contains(&svg), "raw svg must not pass through");
 }

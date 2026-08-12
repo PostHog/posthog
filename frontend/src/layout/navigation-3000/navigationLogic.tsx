@@ -18,7 +18,6 @@ import {
     IconNotebook,
     IconPeople,
     IconPieChart,
-    IconPiggyBank,
     IconPlug,
     IconPlusSmall,
     IconRewindPlay,
@@ -737,16 +736,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
-                            ? {
-                                  identifier: Scene.RevenueAnalytics,
-                                  label: 'Revenue analytics',
-                                  icon: <IconPiggyBank />,
-                                  to: urls.revenueAnalytics(),
-                                  tag: 'alpha' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
-                              }
-                            : null,
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',

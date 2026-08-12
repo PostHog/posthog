@@ -3,9 +3,7 @@ import { useValues } from 'kea'
 import { normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { smoothingOptions } from 'lib/components/SmoothingFilter/smoothings'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -61,9 +59,6 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showConfidenceIntervals,
         showMovingAverage,
     } = useValues(trendsDataLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hideWeekendsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HIDE_WEEKENDS]
-    const styleRefreshEnabled = !!featureFlags[FEATURE_FLAGS.QUILL_CHART_STYLE_REFRESH]
 
     // The slope graph shows the first vs last interval, so it drops the options that need the points
     // between them (smoothing, multiple axes, alert/annotation overlays, statistical analysis).
@@ -90,6 +85,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
+    const isPie = display === ChartDisplayType.ActionsPie
+    // Percent stacking swaps the raw values out for percentages, so there is no unit left to pick.
+    // A pie is the exception: it can show the value and the percentage together.
+    const showsRawValues = !showPercentStackView || (isPie && !!showValuesOnSeries)
     // When the chart draws its own positioned in-chart legend, show the position selector instead
     // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
     // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
@@ -100,12 +99,10 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
     // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
-    // graphs) draw curves, and only the style-refresh flag curves lines by default — without it
-    // there's no curvature to straighten. Retention and funnel trends default to their line graph
-    // when display is unset.
+    // graphs) draw curves, so they're the only ones with curvature to straighten. Retention and
+    // funnel trends default to their line graph when display is unset.
     const isLineChartInsight = isLineDisplay || ((isRetention || isTrendsFunnel) && !display)
-    const showLineStyleConfig =
-        (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight && styleRefreshEnabled
+    const showLineStyleConfig = (isTrends || isStickiness || isRetention || isTrendsFunnel) && isLineChartInsight
 
     // The box plot and slope graph only show a couple of options each; everything else falls
     // through to the full shared list.
@@ -150,8 +147,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         if ((hasLegend || showFunnelLegendConfig) && !useQuillLegendOptions) {
             displayItems.push(DisplayOptions.Legend)
         }
-        if (display === ChartDisplayType.ActionsPie) {
-            displayItems.push(DisplayOptions.PieTotal)
+        if (isPie) {
+            displayItems.push(DisplayOptions.SliceNames, DisplayOptions.PieTotal)
         }
         if (showAlertThresholdLinesConfig) {
             displayItems.push(DisplayOptions.AlertThresholdLines, DisplayOptions.AlertAnomalyPoints)
@@ -164,9 +161,6 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         }
         if (isTrendsFunnel && !hideContinuousChartOptions) {
             displayItems.push(DisplayOptions.HideIncompleteFunnelPeriods)
-        }
-        if (isTrends && !hideContinuousChartOptions && hideWeekendsEnabled) {
-            displayItems.push(DisplayOptions.HideWeekends)
         }
         if (showAnnotationsConfig) {
             displayItems.push(DisplayOptions.Annotations)
@@ -201,7 +195,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         })
     }
 
-    if (!showPercentStackView && isTrends && !isCalendarHeatmap) {
+    if (showsRawValues && isTrends && !isCalendarHeatmap) {
         items.push({
             title: axisLabel(display || ChartDisplayType.ActionsLineGraph),
             items: [DisplayOptions.Unit],
@@ -253,7 +247,8 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (supportsValueOnSeries && showValuesOnSeries ? 1 : 0) +
         (isLifecycle && showPercentagesOnSeries ? 1 : 0) +
         (showPercentStackView ? 1 : 0) +
-        (!showPercentStackView &&
+        (isPie && trendsFilter?.showLabelsOnSeries ? 1 : 0) +
+        (showsRawValues &&
         isTrends &&
         trendsFilter?.aggregationAxisFormat &&
         trendsFilter.aggregationAxisFormat !== 'numeric'
@@ -265,7 +260,6 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.xAxisLabel) ? 1 : 0) +
         (showAxisLabelsConfig && normalizeAxisLabel(trendsFilter?.yAxisLabel) ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
-        (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0) +
         (showAnnotationsConfig && showAnnotations === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricShowChange === false ? 1 : 0) +
         (isMetric && trendsFilter?.metricColorByDirection ? 1 : 0) +

@@ -87,7 +87,7 @@ import { insightLogic } from './insightLogic'
 import { insightSceneLogic } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
-import { compareQuery } from './utils/queryUtils'
+import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
 export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
     sceneLogic.values.activeSceneId === Scene.Insight &&
@@ -136,6 +136,7 @@ export interface insightDataLogicValues {
     propsQuery: QuerySchema | null | undefined
     query: Node | null
     queryChanged: boolean
+    queryFromUrl: boolean
     showDebugPanel: boolean
     showQueryEditor: boolean
 }
@@ -380,7 +381,11 @@ export interface insightDataLogicActions {
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
     }
-    setQuery: (query: Node | null) => {
+    setQuery: (
+        query: Node | null,
+        fromUrl?: boolean
+    ) => {
+        fromUrl: boolean
         query: Node<Record<string, any>> | null
     }
     syncQueryFromProps: (query: Node | null) => {
@@ -488,7 +493,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     actions({
-        setQuery: (query: Node | null) => ({ query }),
+        setQuery: (query: Node | null, fromUrl: boolean = false) => ({ query, fromUrl }),
         syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
@@ -502,6 +507,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
             {
                 setQuery: (_, { query }) => query,
                 syncQueryFromProps: (_, { query }) => query,
+            },
+        ],
+        queryFromUrl: [
+            false,
+            {
+                setQuery: (_, { fromUrl }) => fromUrl,
+                syncQueryFromProps: () => false,
             },
         ],
         showQueryEditor: [
@@ -706,7 +718,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, cache, values, props }) => ({
         persistDisplayOptions: async ({ query }, breakpoint) => {
             // Never auto-persist while the user is editing this insight in the insight scene.
             // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
@@ -770,6 +782,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
+            // A shared link's query (`#q=`) is applied before the saved insight arrives, so re-syncing
+            // here would silently discard the date range and interval the sender chose.
+            if (values.queryFromUrl) {
+                return
+            }
+
             // `internalQuery` wins over `insight.query` in the `query` selector, and the SQL editor
             // updates a different logic instance — so a reload alone leaves this scene on the stale
             // query until a hard refresh. Re-sync the override to the freshly loaded query.
@@ -818,14 +836,32 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
             }
 
+            // a draft that only differs from the type's default in cosmetic ways (or that the
+            // editor marks as changed by construction) is noise when resurfaced as "unsaved insight"
+            if (!isDraftQueryWorthSaving(query, values.filterTestAccountsDefault)) {
+                // reverting a meaningful edit supersedes the draft this editor persisted — but an
+                // editor that never persisted one must not delete a draft from an earlier session
+                if (cache.persistedDraftQuery) {
+                    cache.persistedDraftQuery = false
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
+                return
+            }
+
             if (isQueryTooLarge(query)) {
-                localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                // same gating as above: only supersede a draft this editor persisted itself
+                if (cache.persistedDraftQuery) {
+                    cache.persistedDraftQuery = false
+                    localStorage.removeItem(`draft-query-${values.currentTeamId}`)
+                }
+                return
             }
 
             localStorage.setItem(
                 `draft-query-${values.currentTeamId}`,
                 crushDraftQueryForLocalStorage(query, Date.now())
             )
+            cache.persistedDraftQuery = true
         },
     })),
     propsChanged(({ actions, props, values }, oldProps) => {

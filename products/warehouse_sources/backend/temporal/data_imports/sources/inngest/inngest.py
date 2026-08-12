@@ -8,10 +8,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.inngest.settings import (
+    INNGEST_DEFAULT_VERSION,
     INNGEST_ENDPOINTS,
     InngestEndpointConfig,
 )
@@ -120,7 +122,7 @@ def _coerce_datetime(value: Any) -> datetime | None:
     return None
 
 
-def _event_window(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> tuple[str, str]:
+def _event_window(should_use_incremental_field: bool, db_incremental_field_last_value: Any) -> SyncWindow[str]:
     """Compute the [received_after, received_before] RFC3339 window for a /v1/events walk.
 
     `received_after` defaults to only 1 hour ago server-side, so it is always passed explicitly.
@@ -139,7 +141,7 @@ def _event_window(should_use_incremental_field: bool, db_incremental_field_last_
     # forever; clamp it so the sync self-heals.
     if after > now:
         after = now
-    return _format_rfc3339(after), _format_rfc3339(now)
+    return SyncWindow(start=_format_rfc3339(after), end=_format_rfc3339(now))
 
 
 def _normalize_event(item: dict[str, Any]) -> dict[str, Any]:
@@ -181,18 +183,18 @@ def _iter_event_pages(
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.received_after and resume.received_before:
-        received_after, received_before = resume.received_after, resume.received_before
+        window: SyncWindow[str] = SyncWindow(start=resume.received_after, end=resume.received_before)
         cursor = resume.cursor
-        logger.debug(f"Inngest: resuming events walk from cursor={cursor}, window ends {received_before}")
+        logger.debug(f"Inngest: resuming events walk from cursor={cursor}, window ends {window.end}")
     else:
-        received_after, received_before = _event_window(should_use_incremental_field, db_incremental_field_last_value)
+        window = _event_window(should_use_incremental_field, db_incremental_field_last_value)
         cursor = None
 
     while True:
         params: dict[str, Any] = {
             "limit": EVENTS_PAGE_SIZE,
-            "received_after": received_after,
-            "received_before": received_before,
+            "received_after": window.start,
+            "received_before": window.end,
         }
         if cursor:
             params["cursor"] = cursor
@@ -209,7 +211,7 @@ def _iter_event_pages(
         # treat it as the end of the walk.
         has_more = len(items) == EVENTS_PAGE_SIZE and bool(next_cursor) and next_cursor != cursor
         next_state = (
-            InngestResumeConfig(cursor=next_cursor, received_after=received_after, received_before=received_before)
+            InngestResumeConfig(cursor=next_cursor, received_after=window.start, received_before=window.end)
             if has_more
             else None
         )
@@ -312,6 +314,7 @@ def _get_v2_list_rows(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: InngestEndpointConfig,
+    path: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Page a v2 list endpoint via its `page.cursor` / `page.hasMore` envelope.
 
@@ -321,7 +324,7 @@ def _get_v2_list_rows(
     cursor: str | None = None
     while True:
         params = {"cursor": cursor} if cursor else None
-        payload = _fetch(session, f"{INNGEST_API_BASE_URL}{config.path}", headers, logger, params=params)
+        payload = _fetch(session, f"{INNGEST_API_BASE_URL}{path}", headers, logger, params=params)
         items = payload.get("data") or []
         rows = [_drop_redacted_fields(item, config.redacted_fields) for item in items if isinstance(item, dict)]
         if rows:
@@ -339,8 +342,9 @@ def _get_v1_list_rows(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     config: InngestEndpointConfig,
+    path: str,
 ) -> Iterator[list[dict[str, Any]]]:
-    payload = _fetch(session, f"{INNGEST_API_BASE_URL}{config.path}", headers, logger)
+    payload = _fetch(session, f"{INNGEST_API_BASE_URL}{path}", headers, logger)
     data = payload.get("data") if isinstance(payload, dict) else payload
     # The v1 spec is ambiguous about whether these small lists come back as an array or a single
     # object; handle both.
@@ -359,8 +363,14 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[InngestResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    api_version: str = INNGEST_DEFAULT_VERSION,
 ) -> Iterator[list[dict[str, Any]]]:
     config = INNGEST_ENDPOINTS[endpoint]
+    # Version-mobile resources (webhooks) select their path + pagination from the source's pin;
+    # version-locked ones fall through to the single `path`/`pagination` on the config.
+    variant = config.version_paths.get(api_version)
+    path = variant.path if variant else config.path
+    pagination = variant.pagination if variant else config.pagination
     headers = _get_headers(signing_key, environment)
     # One session reused across every page (and every per-event runs request) so urllib3 keeps the
     # connection alive. Register the signing key for value-based redaction and disable sample
@@ -377,7 +387,7 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
-    elif config.pagination == "events_cursor":
+    elif pagination == "events_cursor":
         yield from _get_event_rows(
             session,
             headers,
@@ -386,10 +396,10 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
-    elif config.pagination == "v2_cursor":
-        yield from _get_v2_list_rows(session, headers, logger, config)
+    elif pagination == "v2_cursor":
+        yield from _get_v2_list_rows(session, headers, logger, config, path)
     else:
-        yield from _get_v1_list_rows(session, headers, logger, config)
+        yield from _get_v1_list_rows(session, headers, logger, config, path)
 
 
 def inngest_source(
@@ -400,6 +410,7 @@ def inngest_source(
     resumable_source_manager: ResumableSourceManager[InngestResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
+    api_version: str = INNGEST_DEFAULT_VERSION,
 ) -> SourceResponse:
     config = INNGEST_ENDPOINTS[endpoint]
 
@@ -413,6 +424,7 @@ def inngest_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            api_version=api_version,
         ),
         primary_keys=config.primary_keys,
         # The events walk's ordering within the window is undocumented (and could not be

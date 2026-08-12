@@ -21,8 +21,18 @@ interface TileSpec {
     subtitle?: string
 }
 
-function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.Element {
+function KPITile({
+    tile,
+    theme,
+    incompleteTail,
+}: {
+    tile: TileSpec
+    theme: ChartTheme
+    incompleteTail: boolean
+}): JSX.Element {
     const { metric } = tile
+    // Tiles whose metric carries no sparkline (Users, Intent clusters) have no segment to dash.
+    const dashedFromIndex = incompleteTail && metric.sparkline.length >= 2 ? metric.sparkline.length - 1 : undefined
 
     return (
         <Link to={tile.href} subtle className="group/tile flex h-full">
@@ -46,6 +56,7 @@ function KPITile({ tile, theme }: { tile: TileSpec; theme: ChartTheme }): JSX.El
                 hoverChangeFromPreviousPoint
                 restingSubtitle={tile.subtitle ?? tile.summaryLabel}
                 sparklineHeight={50}
+                sparklineDashedFromIndex={dashedFromIndex}
             />
         </Link>
     )
@@ -58,6 +69,7 @@ export function KpiTiles({
     kpisLoading,
     usersLoading,
     theme,
+    incompleteTail,
 }: {
     kpis: KPIData
     users: KPIMetric
@@ -65,6 +77,10 @@ export function KpiTiles({
     kpisLoading: boolean
     usersLoading: boolean
     theme: ChartTheme
+    // When true, the sparklines' final point is the current in-progress interval — dash it so a
+    // partial period doesn't read as a decline. Required rather than optional: an omitted prop
+    // silently renders the partial bucket as settled data.
+    incompleteTail: boolean
 }): JSX.Element {
     const tiles: TileSpec[] = [
         {
@@ -135,7 +151,7 @@ export function KpiTiles({
         <div className="@container">
             <div className="grid grid-cols-2 gap-3 @xl:grid-cols-3 @6xl:grid-cols-6">
                 {tiles.map((tile) => (
-                    <KPITile key={tile.label} tile={tile} theme={theme} />
+                    <KPITile key={tile.label} tile={tile} theme={theme} incompleteTail={incompleteTail} />
                 ))}
             </div>
         </div>

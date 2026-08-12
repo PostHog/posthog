@@ -185,6 +185,11 @@ class JiraIssueSignalInput(SignalInputBase):
 # ── Conversations ───────────────────────────────────────────────────────────────
 
 
+class ConversationsTicketImage(ContractModel):
+    url: str
+    author: str
+
+
 class ConversationsTicketSignalExtra(SignalExtraBase):
     ticket_number: int
     channel_source: str
@@ -193,6 +198,9 @@ class ConversationsTicketSignalExtra(SignalExtraBase):
     priority: str | None
     created_at: str
     email_subject: str | None
+    # Publicly fetchable media URLs pasted into the thread, so the research agent can inspect
+    # screenshots directly. Absent (rather than empty) when the thread has no attachments.
+    images: list[ConversationsTicketImage] | None = None
 
 
 class ConversationsTicketSignalInput(SignalInputBase):
@@ -938,6 +946,25 @@ class HubspotTicketSignalInput(SignalInputBase):
     extra: HubspotTicketSignalExtra
 
 
+# ── Search analytics ──────────────────────────────────────────────────────────────
+
+
+class GoogleSearchConsoleSearchOpportunitySignalExtra(SignalExtraBase):
+    page: str
+    query: str
+    date: str
+    clicks: int
+    impressions: int
+    ctr: float
+    position: float
+
+
+class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
+    source_product: Literal[SignalSourceProduct.GOOGLE_SEARCH_CONSOLE]
+    extra: GoogleSearchConsoleSearchOpportunitySignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -996,7 +1023,8 @@ SignalInput = Annotated[
     | HubspotTicketSignalInput
     | EngineeringAnalyticsCIFlakyCheckSignalInput
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
-    | EngineeringAnalyticsCIDurationRegressionSignalInput,
+    | EngineeringAnalyticsCIDurationRegressionSignalInput
+    | GoogleSearchConsoleSearchOpportunitySignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1053,6 +1081,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     EngineeringAnalyticsCIFlakyCheckSignalInput,
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
+    GoogleSearchConsoleSearchOpportunitySignalInput,
 )
 
 

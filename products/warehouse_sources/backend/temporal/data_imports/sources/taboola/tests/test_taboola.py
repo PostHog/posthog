@@ -100,6 +100,20 @@ class TestEntityEndpoints:
         assert batches == [[{"id": "1"}]]
         assert mock_session.return_value.post.call_count == 2
 
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_initial_token_mint_retries_on_transient_error(self, mock_session, _sleep):
+        mock_session.return_value.post.side_effect = [
+            _response({}, status_code=503),
+            _token_response(),
+        ]
+        mock_session.return_value.get.return_value = _response({"results": [{"id": "1"}]})
+
+        batches = list(get_rows("cid", "sec", "acct", "campaigns", mock.MagicMock(), _make_manager()))
+
+        assert batches == [[{"id": "1"}]]
+        assert mock_session.return_value.post.call_count == 2
+
 
 class TestCampaignItemsFanOut:
     @mock.patch(f"{_MODULE}.make_tracked_session")

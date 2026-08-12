@@ -1,8 +1,10 @@
+import importlib
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
 
+from django.apps import apps
 from django.core.exceptions import ValidationError
 
 from parameterized import parameterized
@@ -233,14 +235,31 @@ class TestTeamLogsConfig(BaseTest):
         # Matches the JS SDK / docs convention so logs from posthog-js are linked to
         # their person without any team configuration.
         assert config.logs_distinct_id_attribute_key == "posthogDistinctId"
+        assert config.logs_distinct_id_attribute_keys == ["posthogDistinctId"]
 
-    def test_custom_attribute_key_persists(self):
+    def test_custom_attribute_keys_persist(self):
         config = get_or_create_team_extension(self.team, TeamLogsConfig)
-        config.logs_distinct_id_attribute_key = "user.id"
+        config.logs_distinct_id_attribute_keys = ["user.id", "posthogDistinctId"]
         config.save()
 
         refetched = get_or_create_team_extension(self.team, TeamLogsConfig)
-        assert refetched.logs_distinct_id_attribute_key == "user.id"
+        assert refetched.logs_distinct_id_attribute_keys == ["user.id", "posthogDistinctId"]
+
+    def test_migration_backfill_carries_customized_single_key_into_array(self):
+        # Simulate the post-AddField state: a team that customized the singular key
+        # before the plural column existed has the ADD COLUMN default in the array.
+        customized = get_or_create_team_extension(self.team, TeamLogsConfig)
+        customized.logs_distinct_id_attribute_key = "user.id"
+        customized.logs_distinct_id_attribute_keys = ["posthogDistinctId"]
+        customized.save()
+
+        backfill_module = importlib.import_module(
+            "products.logs.backend.migrations.0019_backfill_logs_distinct_id_attribute_keys"
+        )
+        backfill_module.backfill_distinct_id_attribute_keys(apps, None)
+
+        customized.refresh_from_db()
+        assert customized.logs_distinct_id_attribute_keys == ["user.id"]
 
     def test_cascade_delete_with_team(self):
         get_or_create_team_extension(self.team, TeamLogsConfig)

@@ -1,6 +1,8 @@
 """Shared OpenAPI parameter vocabulary, query-param helpers, and the viewset base."""
 
 from datetime import datetime
+from enum import Enum
+from typing import TypeVar
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -12,12 +14,15 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.engineering_analytics.backend.facade.contracts import (
+    ENGINEERING_ANALYTICS_FEATURE_FLAG,
     GitHubSourceNotConnectedError,
     QuarantineWriteError,
     WorkflowHealthRunScope,
 )
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
 
 _DATE_FROM = OpenApiParameter(
     name="date_from",
@@ -121,6 +126,18 @@ def _optional_datetime_param(request: Request, name: str) -> datetime | None:
         raise ValueError(f"{name} must be an ISO8601 datetime") from None
 
 
+def _optional_enum_param(request: Request, name: str, choices: type[_EnumT]) -> _EnumT | None:
+    """Optional enum query param; None when absent/blank, ValueError when present but not a member."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return None
+    try:
+        return choices(raw)
+    except ValueError:
+        allowed = ", ".join(member.value for member in choices)
+        raise ValueError(f"{name} must be one of: {allowed}") from None
+
+
 def _bool_param(request: Request, name: str, *, default: bool) -> bool:
     """Optional boolean query param; the default when absent/blank, ValueError when present but not true/false."""
     raw = request.query_params.get(name)
@@ -140,7 +157,7 @@ class EngineeringAnalyticsViewSetBase(TeamAndOrgViewSetMixin, viewsets.GenericVi
     scope_object = "engineering_analytics"
     # Same rollout flag as the UI scene and the MCP tools, so the product is gated end to end.
     permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = "engineering-analytics"
+    posthog_feature_flag = ENGINEERING_ANALYTICS_FEATURE_FLAG
 
     def handle_exception(self, exc: Exception) -> Response:
         # No GitHub warehouse source connected: every read action degrades the same way.

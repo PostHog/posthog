@@ -10,7 +10,11 @@ from rest_framework.response import Response
 from posthog.api.mixins import TypedRequest, validated_request
 
 from products.engineering_analytics.backend.facade import api
-from products.engineering_analytics.backend.facade.contracts import FLAKY_TEST_SIGNAL_CAVEAT, QuarantineRequest
+from products.engineering_analytics.backend.facade.contracts import (
+    FLAKY_TEST_SIGNAL_CAVEAT,
+    CITestRunner,
+    QuarantineRequest,
+)
 from products.engineering_analytics.backend.presentation.serializers.suite_health import (
     BrokenTestsResultSerializer,
     FlakyTestListSerializer,
@@ -24,6 +28,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
     _SOURCE_ID,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
+    _optional_enum_param,
     _optional_int_param,
 )
 
@@ -45,20 +50,12 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
             _DATE_TO,
             OpenApiParameter(
-                name="min_rerun_passes",
-                type=OpenApiTypes.INT,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="A test qualifies once it passed on retry at least this many times in the window "
-                "(OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
-            ),
-            OpenApiParameter(
                 name="min_failed_prs",
                 type=OpenApiTypes.INT,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="A test qualifies once it failed on at least this many distinct pull requests in "
-                "the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+                description="A test with no recorded recovery qualifies once it failed on at least this many "
+                "distinct pull requests in the window. Minimum 1. Defaults to 3.",
             ),
             OpenApiParameter(
                 name="limit",
@@ -67,19 +64,32 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 required=False,
                 description="Maximum number of tests to return (1-200). Defaults to 50.",
             ),
+            OpenApiParameter(
+                name="runner",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=[runner.value for runner in CITestRunner],
+                description="Optional test runner to return: 'pytest' or 'jest'.",
+            ),
             _SOURCE_ID,
             _REPO,
         ],
         responses={
             200: FlakyTestListSerializer,
             400: OpenApiResponse(
-                description="Invalid date, threshold, limit, or source_id, or a window longer than 30 days."
+                description="Invalid date, threshold, limit, runner, or source_id, or a window longer than 30 days."
             ),
         },
         description=(
-            "The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, "
-            "over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least "
-            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
+            "The active test-health queue: pytest and Jest tests worth acting on now, from the per-test CI spans, "
+            "over a "
+            "window (default -7d, maximum 30 days). Evidence is counted per CI run, never per span or run "
+            "attempt. A test is a 'confirmed_flake' when one commit both failed and passed it (a 'Re-run failed "
+            "jobs' attempt went green, or an in-job retry recovered it); 'quarantined' when a tolerated failure "
+            "is recorded while it is masked; otherwise 'suspected_regression'. It qualifies on any same-commit "
+            "recovery, any master/main failure, a quarantined failure, or failures on at least min_failed_prs "
+            "distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -89,15 +99,15 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
                 team=self.team,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
-                min_rerun_passes=_optional_int_param(request, "min_rerun_passes"),
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
+                runner=_optional_enum_param(request, "runner", CITestRunner),
                 source_id=request.query_params.get("source_id") or None,
                 repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, runner, or source_id")
         return Response(FlakyTestListSerializer(instance=result).data)
 
     @extend_schema(
@@ -110,8 +120,11 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         description=(
             "The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct "
             "failures (by test id + normalized error signature) and classified by how each is behaving right "
-            "now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one "
-            "PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the "
+            "now — breaking trunk, blocking the merge queue, a new failure spreading across branches, "
+            "probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. A "
+            "blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the "
+            "commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to "
+            "catch, and it is holding up landings. Also returns breaking_master_jobs, the "
             "default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I "
             "care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. "
             "Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and "

@@ -4,7 +4,7 @@ import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateFilterToText, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { dateFilterToText, dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +14,7 @@ import {
     MCPToolDailyStatItem,
     MCPToolDescriptionItem,
     MCPToolFailureItem,
+    MCPToolFailureOccurrenceItem,
     MCPToolNeighborItem,
     MCPToolSampleIntentItem,
     MCPToolStatsItem,
@@ -22,7 +23,13 @@ import {
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { buildBucketKeys, normalizeBucket } from './timeBuckets'
+import {
+    buildBucketKeys,
+    lastBucketIsInProgress,
+    normalizeBucket,
+    parseIntervalParam,
+    resolveInterval,
+} from './timeBuckets'
 export interface ToolSummary {
     calls: number
     errors: number
@@ -138,8 +145,11 @@ export interface mcpAnalyticsToolDetailLogicValues {
     dateRangeLabel: string
     descriptions: DescriptionRevision[]
     descriptionsLoading: boolean
-    failureRows: ResultRows
-    failureRowsLoading: boolean
+    failureBuckets: MCPToolFailureItem[]
+    failureBucketsLoading: boolean
+    failureOccurrences: MCPToolFailureOccurrenceItem[]
+    failureOccurrencesLoading: boolean
+    incompleteTail: boolean
     intentCoverage: IntentCoverage | null
     intentCoverageLoading: boolean
     interval: IntervalType
@@ -147,8 +157,10 @@ export interface mcpAnalyticsToolDetailLogicValues {
     neighborsAfterRowsLoading: boolean
     neighborsBeforeRows: ResultRows
     neighborsBeforeRowsLoading: boolean
+    pinnedInterval: IntervalType | null
     sampleIntentRows: ResultRows
     sampleIntentRowsLoading: boolean
+    selectedFailure: MCPToolFailureItem | null
     summary: ToolSummary | null
     summaryLoading: boolean
     toolName: string
@@ -206,20 +218,35 @@ export interface mcpAnalyticsToolDetailLogicActions {
         descriptions: DescriptionRevision[]
         payload?: any
     }
-    loadFailureRows: () => any
-    loadFailureRowsFailure: (
+    loadFailureBuckets: () => any
+    loadFailureBucketsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadFailureRowsSuccess: (
-        failureRows: ResultRows,
+    loadFailureBucketsSuccess: (
+        failureBuckets: MCPToolFailureItem[],
         payload?: any
     ) => {
-        failureRows: ResultRows
+        failureBuckets: MCPToolFailureItem[]
         payload?: any
+    }
+    loadFailureOccurrences: (bucket: MCPToolFailureItem) => MCPToolFailureItem
+    loadFailureOccurrencesFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFailureOccurrencesSuccess: (
+        failureOccurrences: MCPToolFailureOccurrenceItem[],
+        payload?: MCPToolFailureItem
+    ) => {
+        failureOccurrences: MCPToolFailureOccurrenceItem[]
+        payload?: MCPToolFailureItem
     }
     loadIntentCoverage: () => any
     loadIntentCoverageFailure: (
@@ -311,12 +338,18 @@ export interface mcpAnalyticsToolDetailLogicActions {
         topUserRows: ResultRows
         payload?: any
     }
+    selectFailure: (bucket: MCPToolFailureItem | null) => {
+        bucket: MCPToolFailureItem | null
+    }
     setDateFilter: (
         dateFrom: string | null,
         dateTo: string | null
     ) => {
         dateFrom: string | null
         dateTo: string | null
+    }
+    setPinnedInterval: (interval: IntervalType | null) => {
+        interval: IntervalType | null
     }
 }
 
@@ -331,7 +364,8 @@ export interface mcpAnalyticsToolDetailLogicMeta {
             interval: IntervalType,
             timezone: string
         ) => DailyChartData
-        interval: (dateFilter: DateFilter) => IntervalType
+        incompleteTail: (dailyChartData: DailyChartData, interval: IntervalType, timezone: string) => boolean
+        interval: (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string) => IntervalType
         dateRange: (dateFilter: DateFilter, timezone: string) => DateRange
         dateRangeLabel: (dateFilter: DateFilter) => string
     }
@@ -351,7 +385,9 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
 
     actions({
         setDateFilter: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setPinnedInterval: (interval: IntervalType | null) => ({ interval }),
         loadAllSections: true,
+        selectFailure: (bucket: MCPToolFailureItem | null) => ({ bucket }),
     }),
 
     reducers({
@@ -359,6 +395,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             DEFAULT_DATE_FILTER,
             {
                 setDateFilter: (_, { dateFrom, dateTo }): DateFilter => ({ dateFrom, dateTo }),
+            },
+        ],
+        // Grouping picked on the Tool quality tab and carried here in the URL; null follows the
+        // auto-choice for the window. This page has no picker of its own.
+        pinnedInterval: [
+            null as IntervalType | null,
+            {
+                setPinnedInterval: (_, { interval }): IntervalType | null => interval,
             },
         ],
     }),
@@ -448,16 +492,39 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 },
             },
         ],
-        failureRows: [
-            [] as ResultRows,
+        failureBuckets: [
+            [] as MCPToolFailureItem[],
             {
-                loadFailureRows: async (): Promise<ResultRows> => {
+                loadFailureBuckets: async (): Promise<MCPToolFailureItem[]> => {
                     const response = (await api.query({
                         kind: NodeKind.MCPToolFailuresQuery,
                         toolName: props.toolName,
                         dateRange: values.dateRange,
                     })) as { results?: MCPToolFailureItem[] }
-                    return (response?.results ?? []).map((r) => [r.message, r.occurrences, r.last_seen, r.harnesses])
+                    return response?.results ?? []
+                },
+            },
+        ],
+        failureOccurrences: [
+            [] as MCPToolFailureOccurrenceItem[],
+            {
+                loadFailureOccurrences: async (
+                    bucket: MCPToolFailureItem,
+                    breakpoint
+                ): Promise<MCPToolFailureOccurrenceItem[]> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolFailureOccurrencesQuery,
+                        toolName: props.toolName,
+                        // Raw bucket parts, not the composed label — the backend normalizes them the
+                        // same way it grouped the failures table, so the bucket round-trips exactly.
+                        errorType: bucket.error_type,
+                        errorStatus: bucket.error_status || undefined,
+                        dateRange: values.dateRange,
+                    })) as { results?: MCPToolFailureOccurrenceItem[] }
+                    // Bail if a newer bucket was selected while this request was in flight,
+                    // so a slow earlier bucket can't overwrite the latest one.
+                    breakpoint()
+                    return response?.results ?? []
                 },
             },
         ],
@@ -532,6 +599,28 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         ],
     })),
 
+    reducers({
+        selectedFailure: [
+            null as MCPToolFailureItem | null,
+            {
+                selectFailure: (_, { bucket }) => bucket,
+            },
+        ],
+        // Reset on every (de)selection so a newly opened bucket shows the loading skeleton
+        // instead of the previous bucket's rows.
+        failureOccurrences: {
+            selectFailure: () => [],
+        },
+    }),
+
+    listeners(({ actions }) => ({
+        selectFailure: ({ bucket }) => {
+            if (bucket) {
+                actions.loadFailureOccurrences(bucket)
+            }
+        },
+    })),
+
     selectors({
         toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
 
@@ -548,11 +637,21 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             },
         ],
 
-        // Grouping interval for the daily series — PostHog's standard auto-choice, matching the query's
-        // dateTrunc so a sub-day window buckets by hour/minute instead of collapsing to one day point.
+        // The trend charts and sparklines dash the final segment when it is the current, still-
+        // collecting interval, so a partial period doesn't read as a fall in calls or a latency win.
+        incompleteTail: [
+            (s) => [s.dailyChartData, s.interval, teamLogic.selectors.timezone],
+            (dailyChartData: DailyChartData, interval: IntervalType, timezone: string): boolean =>
+                lastBucketIsInProgress(dailyChartData.labels, timezone, interval),
+        ],
+
+        // Grouping interval for the daily series, matching the query's dateTrunc: the interval pinned on
+        // the Tool quality tab, else the auto-choice so a sub-day window buckets by hour/minute instead
+        // of collapsing to one day point.
         interval: [
-            (s) => [s.dateFilter],
-            (dateFilter: DateFilter): IntervalType => getDefaultInterval(dateFilter.dateFrom, dateFilter.dateTo),
+            (s) => [s.dateFilter, s.pinnedInterval, teamLogic.selectors.timezone],
+            (dateFilter: DateFilter, pinnedInterval: IntervalType | null, timezone: string): IntervalType =>
+                resolveInterval(dateFilter.dateFrom, dateFilter.dateTo, timezone, pinnedInterval),
         ],
 
         // Resolve the `dateFilter` state (camelCase, nullable, may be relative like '-30d') into the
@@ -581,7 +680,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             actions.loadDescriptions()
             actions.loadIntentCoverage()
             actions.loadDailyStats()
-            actions.loadFailureRows()
+            actions.loadFailureBuckets()
             actions.loadSampleIntentRows()
             actions.loadNeighborsBeforeRows()
             actions.loadNeighborsAfterRows()
@@ -590,9 +689,10 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
         },
     })),
 
-    // The window rides along in the URL from the Tool quality tab. Reading it here (rather than once
-    // in afterMount) keeps the page in sync when only date_from / date_to change for the same tool —
-    // e.g. browser back/forward — since the logic is keyed by toolName and wouldn't remount.
+    // The window and grouping ride along in the URL from the Tool quality tab. Reading them here
+    // (rather than once in afterMount) keeps the page in sync when only date_from / date_to / interval
+    // change for the same tool — e.g. browser back/forward — since the logic is keyed by toolName and
+    // wouldn't remount.
     urlToAction(({ actions, values, cache }) => ({
         [`${urls.mcpAnalyticsToolQuality()}/:toolName`]: (_, searchParams) => {
             const dateFrom =
@@ -602,8 +702,17 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             if (dateChanged) {
                 actions.setDateFilter(dateFrom, dateTo)
             }
+            const interval = parseIntervalParam(searchParams.interval)
+            const intervalChanged = interval !== values.pinnedInterval
+            if (intervalChanged) {
+                actions.setPinnedInterval(interval)
+            }
             if (dateChanged || !cache.hasLoaded) {
                 actions.loadAllSections()
+            } else if (intervalChanged) {
+                // Only the trend series buckets by interval; every other section is a single-window
+                // aggregate that a grouping change cannot move.
+                actions.loadDailyStats()
             }
             cache.hasLoaded = true
         },

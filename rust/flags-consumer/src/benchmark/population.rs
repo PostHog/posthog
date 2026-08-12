@@ -1,121 +1,82 @@
-use crate::storage::{postgres::PostgresStorage, types::PersonUpdateData};
+use crate::storage::{
+    postgres::PostgresStorage,
+    types::{DistinctIdAssignmentData, PersonUpdateData},
+};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use serde::Serialize;
 use sqlx::PgPool;
-use uuid::Uuid;
 
-use super::data_gen::{generate_properties, PersonRegistry};
+use super::world::{generate_properties as generate_world_properties, PopulationView};
 
-/// Uses a separate seeded RNG (seed 43) for properties so the structural
-/// distribution (persons, distinct_ids) is independent of property generation.
-pub async fn populate(
-    pool: &PgPool,
-    storage: &PostgresStorage,
-    registry: &PersonRegistry,
-    batch_size: usize,
-) -> anyhow::Result<()> {
-    let total = registry.persons.len();
-    tracing::info!(total, "populating person rows");
-
-    let mut prop_rng = StdRng::seed_from_u64(43);
-
-    for (batch_idx, chunk) in registry.persons.chunks(batch_size).enumerate() {
-        let updates: Vec<PersonUpdateData> = chunk
-            .iter()
-            .map(|(team_id, uuid)| PersonUpdateData {
-                team_id: *team_id,
-                person_uuid: *uuid,
-                properties: generate_properties(&mut prop_rng, 700),
-                version: 1,
-            })
-            .collect();
-
-        storage.batch_upsert_persons(&updates).await?;
-
-        let done = ((batch_idx + 1) * batch_size).min(total);
-        if done % (total / 10).max(1) < batch_size {
-            tracing::info!(done, total, "persons inserted");
-        }
-    }
-
-    assign_distinct_ids_bulk(pool, registry).await?;
-
-    tracing::info!(total, "population complete");
-    Ok(())
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PopulationSummary {
+    pub persons: u64,
+    pub distinct_ids: u64,
 }
 
-/// Bulk-assigns distinct_ids via UNNEST instead of the single-row transactional
-/// upsert_distinct_id, which would be too slow for initial population.
-async fn assign_distinct_ids_bulk(pool: &PgPool, registry: &PersonRegistry) -> anyhow::Result<()> {
-    let total = registry.distinct_ids.len();
-    tracing::info!(total, "assigning distinct_ids");
+pub async fn populate_world(
+    pool: &PgPool,
+    storage: &PostgresStorage,
+    population: PopulationView<'_>,
+    batch_size: usize,
+) -> anyhow::Result<PopulationSummary> {
+    anyhow::ensure!(batch_size > 0, "population batch size must be positive");
 
-    let mut person_dids: std::collections::HashMap<(i32, Uuid), Vec<String>> =
-        std::collections::HashMap::new();
-    for (team_id, person_uuid, did) in &registry.distinct_ids {
-        person_dids
-            .entry((*team_id, *person_uuid))
-            .or_default()
-            .push(did.clone());
+    let mut property_rng = StdRng::seed_from_u64(population.property_seed());
+    let mut updates = Vec::with_capacity(batch_size);
+    let mut person_count = 0u64;
+    for person in population.persons() {
+        updates.push(PersonUpdateData {
+            team_id: person.team_id,
+            person_uuid: person.person_uuid,
+            properties: generate_world_properties(&mut property_rng, population.property_bytes()),
+            version: person.version,
+        });
+        person_count = person_count.saturating_add(1);
+        if updates.len() == batch_size {
+            storage.batch_upsert_persons(&updates).await?;
+            updates.clear();
+        }
+    }
+    if !updates.is_empty() {
+        storage.batch_upsert_persons(&updates).await?;
     }
 
-    let entries: Vec<((i32, Uuid), Vec<String>)> = person_dids.into_iter().collect();
-    let batch_size = 500;
+    let mut assignments = Vec::with_capacity(batch_size);
+    let mut distinct_id_count = 0u64;
+    for distinct_id in population.distinct_ids() {
+        assignments.push(DistinctIdAssignmentData {
+            team_id: distinct_id.team_id,
+            person_uuid: distinct_id.person_uuid,
+            distinct_id: distinct_id.distinct_id,
+            version: distinct_id.version,
+        });
+        distinct_id_count = distinct_id_count.saturating_add(1);
+        if assignments.len() == batch_size {
+            storage.batch_upsert_distinct_ids(&assignments).await?;
+            assignments.clear();
+        }
+    }
+    if !assignments.is_empty() {
+        storage.batch_upsert_distinct_ids(&assignments).await?;
+    }
 
-    for (batch_idx, chunk) in entries.chunks(batch_size).enumerate() {
-        let team_ids: Vec<i32> = chunk.iter().map(|((tid, _), _)| *tid).collect();
-        let person_uuids: Vec<Uuid> = chunk.iter().map(|((_, uuid), _)| *uuid).collect();
-        let primary_dids: Vec<String> = chunk.iter().map(|(_, dids)| dids[0].clone()).collect();
+    vacuum_analyze_checkpoint(pool).await?;
+    Ok(PopulationSummary {
+        persons: person_count,
+        distinct_ids: distinct_id_count,
+    })
+}
 
-        sqlx::query(
-            r#"
-            UPDATE flags_person_lookup AS f
-            SET distinct_ids = ARRAY[t.did]::text[],
-                distinct_id_version = 1
-            FROM UNNEST($1::int[], $2::uuid[], $3::text[]) AS t(team_id, person_uuid, did)
-            WHERE f.team_id = t.team_id AND f.person_uuid = t.person_uuid
-            "#,
-        )
-        .bind(&team_ids)
-        .bind(&person_uuids)
-        .bind(&primary_dids)
+pub async fn vacuum_analyze_checkpoint(pool: &PgPool) -> anyhow::Result<()> {
+    tracing::info!("vacuuming populated tables");
+    sqlx::query("VACUUM (ANALYZE) flags_person")
         .execute(pool)
         .await?;
-
-        let mut extra_team_ids = Vec::new();
-        let mut extra_uuids = Vec::new();
-        let mut extra_dids = Vec::new();
-        for ((tid, uuid), dids) in chunk {
-            if dids.len() > 1 {
-                for extra_did in &dids[1..] {
-                    extra_team_ids.push(*tid);
-                    extra_uuids.push(*uuid);
-                    extra_dids.push(extra_did.clone());
-                }
-            }
-        }
-
-        if !extra_dids.is_empty() {
-            sqlx::query(
-                r#"
-                UPDATE flags_person_lookup AS f
-                SET distinct_ids = f.distinct_ids || t.did
-                FROM UNNEST($1::int[], $2::uuid[], $3::text[]) AS t(team_id, person_uuid, did)
-                WHERE f.team_id = t.team_id AND f.person_uuid = t.person_uuid
-                "#,
-            )
-            .bind(&extra_team_ids)
-            .bind(&extra_uuids)
-            .bind(&extra_dids)
-            .execute(pool)
-            .await?;
-        }
-
-        let done = ((batch_idx + 1) * batch_size).min(entries.len());
-        if done % (entries.len() / 10).max(1) < batch_size {
-            tracing::info!(done, total = entries.len(), "distinct_ids assigned");
-        }
-    }
-
+    sqlx::query("VACUUM (ANALYZE) flags_distinct_id_map")
+        .execute(pool)
+        .await?;
+    sqlx::query("CHECKPOINT").execute(pool).await?;
     Ok(())
 }

@@ -16,7 +16,9 @@ import yaml
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.tags import slugify_tag
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 logger = logging.getLogger(__name__)
@@ -54,7 +56,7 @@ _ALLOWED_BUNDLE_SUBDIRS = ("references", "scripts")
 # from this module's call sites. Keep the values in sync with skill_services.py.
 _MAX_SKILL_BODY_BYTES = 1_000_000
 _MAX_SKILL_FILE_BYTES = 1_000_000
-_MAX_SKILL_FILE_COUNT = 50
+_MAX_SKILL_FILE_COUNT = 200
 # Matches `LLMSkillFile.path` model `max_length` — checked at parse time so an oversized
 # canonical path fails with a clear error instead of a Postgres `value too long` DataError.
 _MAX_SKILL_FILE_PATH_LENGTH = 500
@@ -87,7 +89,8 @@ class CanonicalSkill:
     frontmatter. `allowed_tools` is optional in frontmatter — defaults to empty (no narrowing).
     The agentskills.io spec uses `allowed-tools` (hyphen); we accept both, preferring the
     spec form. `files` is the recursive content of the `_ALLOWED_BUNDLE_SUBDIRS` directories
-    alongside SKILL.md.
+    alongside SKILL.md. `config_tags` is the optional `scout-tags` frontmatter list, seeded onto
+    the scout's `SignalScoutConfig` when that row is first created.
     """
 
     name: str
@@ -96,6 +99,7 @@ class CanonicalSkill:
     allowed_tools: tuple[str, ...]
     files: tuple[CanonicalSkillFile, ...]
     source_path: Path
+    config_tags: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -139,6 +143,47 @@ SeedResult = SyncResult
 
 class CanonicalSkillParseError(ValueError):
     """A canonical SKILL.md on disk is malformed (missing frontmatter, bad YAML, etc.)."""
+
+
+def _parse_config_tags(frontmatter: dict, skill_file: Path, *, is_scout: bool) -> tuple[str, ...]:
+    """Read the optional `scout-tags` frontmatter list — the tags seeded onto the scout's config.
+
+    This is how a canonical scout claims a product surface's tag (e.g. `ai-observability`, which
+    is what puts a scout in AI observability's self-driving tab) without that product hardcoding
+    a skill name. Normalized through the same `slugify_tag` the config API uses, so a tag written
+    here means what a person typing it in the tag box would get, and bounded by the same caps —
+    a malformed value fails the parse rather than seeding a tag nobody can reproduce by hand.
+
+    Only scouts have a config to tag, so the key is rejected on a companion skill.
+    """
+    if "scout-tags" not in frontmatter:
+        return ()
+    if not is_scout:
+        raise CanonicalSkillParseError(f"Only a signals-scout-* skill may declare 'scout-tags': {skill_file}")
+    raw_tags = frontmatter["scout-tags"]
+    if not isinstance(raw_tags, list) or not all(isinstance(t, str) for t in raw_tags):
+        raise CanonicalSkillParseError(f"SKILL.md frontmatter 'scout-tags' must be a list of strings: {skill_file}")
+    tags: set[str] = set()
+    for raw in raw_tags:
+        tag = slugify_tag(raw)
+        if not tag:
+            raise CanonicalSkillParseError(
+                f"SKILL.md frontmatter tag {raw!r} is empty once normalized to a lowercase slug: {skill_file}"
+            )
+        if len(tag) > SignalScoutConfig.MAX_TAG_LENGTH:
+            raise CanonicalSkillParseError(
+                f"SKILL.md frontmatter tag {raw!r} is {len(tag)} characters once normalized, over the "
+                f"{SignalScoutConfig.MAX_TAG_LENGTH} limit: {skill_file}"
+            )
+        tags.add(tag)
+    # Counted after normalization, like the length cap above is measured on the slug: the cap is
+    # about what lands on the config, so spellings that collapse to one tag cost one tag.
+    if len(tags) > SignalScoutConfig.MAX_TAGS:
+        raise CanonicalSkillParseError(
+            f"SKILL.md frontmatter 'scout-tags' has {len(tags)} tags once normalized, over the "
+            f"{SignalScoutConfig.MAX_TAGS} limit: {skill_file}"
+        )
+    return tuple(sorted(tags))
 
 
 def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> CanonicalSkill:
@@ -203,6 +248,8 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
             f"SKILL.md frontmatter 'allowed-tools'/'allowed_tools' must be a list of strings: {skill_file}"
         )
 
+    config_tags = _parse_config_tags(frontmatter, skill_file, is_scout=is_scout)
+
     body = raw[match.end() :]
     # Enforce the same per-skill limits the REST API uses (skill_services.py). The seed
     # bypasses `create_skill_file` (no service-layer "create from scratch with files"
@@ -246,6 +293,7 @@ def _parse_canonical_skill(skill_dir: Path, *, is_scout: bool = True) -> Canonic
         allowed_tools=tuple(raw_allowed),
         files=tuple(files),
         source_path=skill_dir,
+        config_tags=config_tags,
     )
 
 
@@ -304,6 +352,31 @@ def canonical_skill_names() -> frozenset[str]:
         return frozenset()
 
 
+@lru_cache(maxsize=1)
+def _canonical_config_tags() -> dict[str, tuple[str, ...]]:
+    """`scout-tags` per canonical scout name, for the scouts that declare any.
+
+    Cached for the process like `canonical_skill_names` — the shipped fleet only changes on
+    deploy — and degrades to empty on a malformed canonical rather than failing config
+    registration, which the harness's own sync path already fails loud on.
+    """
+    try:
+        return {skill.name: skill.config_tags for skill in discover_canonical_skills() if skill.config_tags}
+    except CanonicalSkillParseError:
+        logger.warning("canonical_config_tags: malformed canonical skill on disk; seeding no tags")
+        return {}
+
+
+def canonical_config_tags_for(skill_name: str) -> tuple[str, ...]:
+    """Tags the canonical scout of this name declares, to stamp on its config at creation.
+
+    Empty for a custom scout, and for a canonical scout that claims no product surface. Callers
+    must confirm the name is canonical first — a team's own `signals-scout-*` skill can share a
+    canonical name, and it inherits nothing from disk.
+    """
+    return _canonical_config_tags().get(skill_name, ())
+
+
 def scout_skill_origin(skill_name: str, metadata: dict | None) -> Literal["canonical", "custom"]:
     """Classify a scout skill row as `"canonical"` or `"custom"` by who owns it.
 
@@ -336,6 +409,10 @@ def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
 
     SHA-256 is overkill cryptographically but content-addressable hashes are cheap and we want
     no false positives.
+
+    Deliberately excludes `config_tags`: the hash is compared against `_compute_row_hash` over the
+    team's `LLMSkill` row, which stores no tags (they live on the config), so folding them in here
+    would make every seeded row read as diverged forever.
     """
     payload = {
         "description": canonical.description,

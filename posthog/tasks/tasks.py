@@ -1,7 +1,7 @@
 import time
 import datetime
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from posthog.event_usage import AnalyticsProps
@@ -15,6 +15,7 @@ import requests
 from celery import shared_task
 from prometheus_client import Counter, Gauge
 from redis import Redis
+from rest_framework.exceptions import APIException
 from structlog import get_logger
 
 from posthog.hogql.constants import LimitContext
@@ -22,7 +23,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorTooManySimultaneousQueries
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorUnknownTable
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.metrics import pushed_metrics_registry
@@ -44,6 +45,11 @@ FEATURE_FLAG_LAST_CALLED_AT_SYNC_LOCK_CONTENTION_COUNTER = Counter(
 FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER = Counter(
     "posthog_feature_flag_last_called_at_sync_limit_reached_total",
     "Times the ClickHouse query result limit was reached during feature flag last_called_at sync",
+)
+
+FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER = Counter(
+    "posthog_feature_flag_last_called_at_sync_chunk_failures_total",
+    "ClickHouse chunk queries that failed during feature flag last_called_at sync",
 )
 
 
@@ -84,6 +90,16 @@ PREWARMED_QUEUED_TASK_RUN_SWEPT_COUNTER = Counter(
 PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
     "posthog_task_run_prewarmed_queued_errors_total",
     "Errors raised while marking an orphaned prewarmed TaskRun FAILED in the prewarmed-queued cleanup sweep",
+)
+
+PREWARMED_TERMINAL_TASK_SWEPT_COUNTER = Counter(
+    "posthog_task_prewarmed_terminal_swept_total",
+    "Empty tasks hidden after their unclaimed prewarmed run reached a terminal status",
+)
+
+PREWARMED_TERMINAL_TASK_ERRORS_COUNTER = Counter(
+    "posthog_task_prewarmed_terminal_errors_total",
+    "Errors raised while hiding empty tasks left by terminal unclaimed prewarmed runs",
 )
 
 STALE_LOCAL_QUEUED_TASK_RUN_COMPLETED_COUNTER = Counter(
@@ -248,7 +264,20 @@ def kill_stale_queued_task_runs() -> None:
         PREWARMED_QUEUED_TASK_RUN_ERRORS_COUNTER,
     )
 
-    saturated = len(stale_ids) >= BATCH_SIZE or len(local_ids) >= BATCH_SIZE or len(prewarmed_ids) >= BATCH_SIZE
+    terminal_prewarmed_ids = tasks_facade.get_stale_terminal_prewarmed_task_run_ids(PREWARMED_STALE_AFTER, BATCH_SIZE)
+    terminal_prewarmed_swept, terminal_prewarmed_errors = _sweep_each(
+        terminal_prewarmed_ids,
+        tasks_facade.soft_delete_unclaimed_prewarm_task,
+        PREWARMED_TERMINAL_TASK_SWEPT_COUNTER,
+        PREWARMED_TERMINAL_TASK_ERRORS_COUNTER,
+    )
+
+    saturated = (
+        len(stale_ids) >= BATCH_SIZE
+        or len(local_ids) >= BATCH_SIZE
+        or len(prewarmed_ids) >= BATCH_SIZE
+        or len(terminal_prewarmed_ids) >= BATCH_SIZE
+    )
     log = logger.warning if saturated else logger.info
     log(
         "kill_stale_queued_task_runs.sweep_done",
@@ -261,6 +290,9 @@ def kill_stale_queued_task_runs() -> None:
         prewarmed_candidates=len(prewarmed_ids),
         prewarmed_swept=prewarmed_swept,
         prewarmed_errors=prewarmed_errors,
+        terminal_prewarmed_candidates=len(terminal_prewarmed_ids),
+        terminal_prewarmed_swept=terminal_prewarmed_swept,
+        terminal_prewarmed_errors=terminal_prewarmed_errors,
         batch_size=BATCH_SIZE,
         saturated=saturated,
     )
@@ -342,15 +374,46 @@ def redis_heartbeat() -> None:
     get_client().set("POSTHOG_HEARTBEAT", int(time.time()))
 
 
+def _process_query_task_failure(
+    self: Any, exc: Exception, task_id: str, args: tuple[Any, ...], kwargs: dict[str, Any], einfo: Any
+) -> None:
+    # Transient errors (capacity/concurrency) clear the stored completion flags so each
+    # retry re-runs the query. Once Celery gives up, mark the status errored here so
+    # clients don't poll a forever-pending status until it expires.
+    from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager
+
+    bound = dict(zip(("team_id", "user_id", "query_id"), args))
+    bound.update(kwargs)
+    team_id = bound.get("team_id")
+    query_id = bound.get("query_id")
+    if team_id is None or query_id is None:
+        return
+
+    manager = QueryStatusManager(query_id, team_id)
+    try:
+        query_status = manager.get_query_status()
+    except QueryNotFoundError:
+        return
+
+    query_status.complete = True
+    query_status.error = True
+    if isinstance(exc, APIException):
+        # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
+        query_status.error_message = str(exc.detail)
+    query_status.end_time = datetime.datetime.now(datetime.UTC)
+    manager.store_query_status(query_status)
+
+
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
-        CHQueryErrorTooManySimultaneousQueries,
+        ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
     ),
+    on_failure=_process_query_task_failure,
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
@@ -373,6 +436,7 @@ def process_query_task(
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
+    sharing_configuration_id: Optional[int] = None,
 ) -> None:
     """
     Kick off query
@@ -395,6 +459,7 @@ def process_query_task(
         limit_context=limit_context,
         is_query_service=is_query_service,
         analytics_props=analytics_props,
+        sharing_configuration_id=sharing_configuration_id,
     )
 
 
@@ -744,7 +809,9 @@ def capture_task_run_state_metrics() -> None:
             )
             oldest_age_gauge = Gauge(
                 "posthog_tasks_oldest_open_run_age_seconds",
-                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and run_environment.",
+                "Age (seconds) of the oldest TaskRun still in a given non-terminal status, by origin_product and "
+                "run_environment. For `queued` this is time spent waiting in the queue, so a re-queued run counts "
+                "from its re-queue rather than from row creation.",
                 registry=registry,
                 labelnames=["status", "origin_product", "run_environment"],
             )
@@ -948,12 +1015,15 @@ def find_flags_with_enriched_analytics() -> None:
 
     try:
         find_flags_with_enriched_analytics(begin, end)
+    except CHQueryErrorUnknownTable as e:
+        # Expected on self-hosted instances with an incomplete ClickHouse schema (e.g. missing
+        # migrations) - not worth capturing as an exception, just skip this run.
+        logger.warning("Find flags with enriched analytics skipped, table missing", error=e)
     except Exception as e:
         logger.exception("Find flags with enriched analytics failed", error=e)
         capture_exception(
             e, additional_properties={"feature": "feature_flags", "task": "find_flags_with_enriched_analytics"}
         )
-        raise
 
 
 @shared_task(ignore_result=True)
@@ -1179,8 +1249,8 @@ def _queue_delete_team_recordings(team_ids: list[int], deleted_by: str) -> None:
     ignore_result=True,
     queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
     # sync_execute wraps TOO_MANY_SIMULTANEOUS_QUERIES/CANNOT_SCHEDULE_TASK into
-    # ClickHouseAtCapacity, so it must be listed alongside the raw CH error classes.
-    autoretry_for=(*CH_TRANSIENT_ERRORS, ClickHouseAtCapacity),
+    # ClickHouseAtCapacity, which CH_TRANSIENT_ERRORS includes.
+    autoretry_for=CH_TRANSIENT_ERRORS,
     retry_backoff=30,
     retry_backoff_max=120,
     max_retries=3,
@@ -1288,7 +1358,11 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             )
             last_sync_timestamp = max_lookback
 
-        current_sync_timestamp = now
+        # Stop short of now so rows that have not reached the replica answering this query yet
+        # fall into the next run's window rather than being skipped for good.
+        current_sync_timestamp = now - timedelta(
+            seconds=settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_REPLICATION_BUFFER_SECONDS
+        )
         window_seconds = (current_sync_timestamp - last_sync_timestamp).total_seconds()
 
         logger.info(
@@ -1312,14 +1386,24 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         merged_results: dict[tuple[int, str], tuple[datetime | None, int]] = {}
         total_clickhouse_results = 0
 
-        # ORDER BY ensures the most recent rows survive if LIMIT truncates results
+        # ORDER BY ensures the most recent rows survive if LIMIT truncates results.
+        # Celery forces Workload.OFFLINE, so this query lands on
+        # CLICKHOUSE_OFFLINE_CLUSTER_HOST. There, `events_recent` and
+        # `distributed_events_recent` are both Distributed proxies over the same
+        # `sharded_events_recent` data, but they resolve through different clusters:
+        # `distributed_events_recent` reads the batch-export shard through both of its
+        # replicas, while `events_recent` is pinned to a single replica, so one
+        # unavailable node fails the entire scan with nothing to fall back to.
+        # `posthog/models/event/sql.py` defines the two identically, so dev and CI cannot
+        # tell them apart and no test covers the difference. Check the live offline host
+        # rather than this repo before changing the table.
         chunk_query = """
             SELECT
                 team_id,
                 JSONExtractString(properties, '$feature_flag') as flag_key,
                 max(timestamp) as last_called_at,
                 count() as call_count
-            FROM events_recent
+            FROM distributed_events_recent
             PREWHERE event = '$feature_flag_called'
               AND inserted_at > %(last_sync_timestamp)s
               AND inserted_at <= %(current_sync_timestamp)s
@@ -1331,16 +1415,56 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         """
 
         limit_hit = False
+        chunk_failures = 0
+        first_chunk_error: Exception | None = None
+
+        # The checkpoint may only advance over an unbroken run of successful chunks from
+        # the start of the window. A chunk that fails leaves its window unread, so
+        # everything from that point on has to be retried by the next run rather than
+        # skipped, which would silently lose flag calls.
+        checkpoint_timestamp = last_sync_timestamp
 
         for chunk_start_ts, chunk_end_ts in chunks:
-            chunk_result = sync_execute(
-                chunk_query,
-                {
-                    "last_sync_timestamp": chunk_start_ts,
-                    "current_sync_timestamp": chunk_end_ts,
-                    "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
-                },
-            )
+            try:
+                chunk_result = sync_execute(
+                    chunk_query,
+                    {
+                        "last_sync_timestamp": chunk_start_ts,
+                        "current_sync_timestamp": chunk_end_ts,
+                        "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
+                    },
+                    settings={"max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS},
+                )
+            except Exception as e:
+                # Transient errors are what autoretry_for is for. ClickHouseAtCapacity in
+                # particular means the cluster is already shedding load, so the useful
+                # response is to abandon the run and let Celery retry it with backoff rather
+                # than keep querying. Swallowing one here would report a successful sync and
+                # skip the retry that recovers these runs today.
+                if isinstance(e, CH_TRANSIENT_ERRORS):
+                    raise
+
+                chunk_failures += 1
+                if first_chunk_error is None:
+                    first_chunk_error = e
+                logger.warning(
+                    "Feature flag sync chunk failed",
+                    chunk_start=chunk_start_ts.isoformat(),
+                    chunk_end=chunk_end_ts.isoformat(),
+                    error=str(e),
+                )
+                # Nothing has been read yet, so the checkpoint cannot advance and the run
+                # re-raises below. Sweeping the rest of the window would query every
+                # remaining chunk against a cluster that just failed one and then discard
+                # every result. A failure after a successful chunk is different: the later
+                # chunks are still worth reading, they just cannot move the checkpoint
+                # past the gap.
+                if checkpoint_timestamp == last_sync_timestamp:
+                    break
+                continue
+
+            if not chunk_failures:
+                checkpoint_timestamp = chunk_end_ts
 
             if chunk_result:
                 total_clickhouse_results += len(chunk_result)
@@ -1364,15 +1488,33 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if limit_hit:
             FEATURE_FLAG_LAST_CALLED_AT_SYNC_LIMIT_HIT_COUNTER.inc()
 
+        if chunk_failures:
+            FEATURE_FLAG_LAST_CALLED_AT_SYNC_CHUNK_FAILURE_COUNTER.inc(chunk_failures)
+            logger.warning(
+                "Feature flag sync had failed chunks",
+                chunk_failures=chunk_failures,
+                chunks_total=len(chunks),
+                checkpoint_timestamp=checkpoint_timestamp.isoformat(),
+            )
+            # The checkpoint did not move, so this run made no forward progress at all and
+            # the next one will rescan the same window. Re-raise the first error rather
+            # than reporting a successful sync, both so the failure is visible and so the
+            # transient ClickHouse errors in autoretry_for still trigger a Celery retry.
+            # Results from any later chunk that did succeed are dropped, which is safe:
+            # they are re-read on the next run, and last_called_at is only ever advanced.
+            if first_chunk_error is not None and checkpoint_timestamp == last_sync_timestamp:
+                raise first_chunk_error
+
         if not merged_results:
-            # Update checkpoint even when no results so next run starts from current time
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+            # Advance the checkpoint even when no results, so the next run starts from the
+            # end of the window that was read instead of rescanning it
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
 
             # Emit metrics for no-results case
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
             clickhouse_results_gauge.set(0)
-            checkpoint_lag_gauge.set(0.0)
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1390,7 +1532,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
             logger.info(
                 "Feature flag sync: no valid timestamps to update",
                 chunks_processed=len(chunks),
@@ -1398,7 +1540,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             clickhouse_results_gauge.set(total_clickhouse_results)
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
-            checkpoint_lag_gauge.set(0.0)
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
             return
 
         # Fetch flags matching any (team_id, key) combination from updates.
@@ -1440,14 +1582,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 )
                 raise
 
-        # Set final checkpoint to current time
-        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, current_sync_timestamp.isoformat())
+        # Set final checkpoint to the end of the last window that was read successfully
+        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
 
         duration = (timezone.now() - start_time).total_seconds()
         processed_events = sum(count for _ts, count in merged_results.values())
 
         # Emit metrics for successful completion
-        checkpoint_lag_seconds = (timezone.now() - current_sync_timestamp).total_seconds()
+        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
         updated_count_gauge.set(updated_count)
         events_processed_gauge.set(processed_events)
         clickhouse_results_gauge.set(total_clickhouse_results)

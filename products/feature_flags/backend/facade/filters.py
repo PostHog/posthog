@@ -125,6 +125,28 @@ def replace_variant_distribution(current_filters: dict, variants: list[dict]) ->
     return {**current_filters, "multivariate": {"variants": deepcopy(variants)}}
 
 
+def set_first_release_condition_rollout(current_filters: dict, rollout_percentage: int) -> dict:
+    """Set ``groups[0].rollout_percentage``, preserving everything else byte-for-byte.
+
+    Assumes at least one release group exists and raises (KeyError/IndexError) otherwise —
+    callers such as survey adaptive sampling only maintain flags they created with a
+    release condition in place, so a missing group is a broken invariant, not a case
+    to paper over.
+    """
+    new_filters = deepcopy(current_filters)
+    new_filters["groups"][0]["rollout_percentage"] = rollout_percentage
+    return new_filters
+
+
+def replace_release_conditions(current_filters: dict, groups: list[dict]) -> dict:
+    """Replace the release ``groups`` wholesale.
+
+    Every other key (``multivariate``, ``payloads``, aggregation, holdout/super groups)
+    is preserved — only who the flag releases to changes, not what it serves.
+    """
+    return {**current_filters, "groups": deepcopy(groups)}
+
+
 def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_percentage: float | None) -> dict:
     """Set (or clear) the flag-level ``holdout`` object on the filters.
 
@@ -136,6 +158,23 @@ def set_holdout(current_filters: dict, *, holdout_id: int | None, exclusion_perc
     if not holdout_id or exclusion_percentage is None:
         return {**current_filters, "holdout": None}
     return {**current_filters, "holdout": {"id": holdout_id, "exclusion_percentage": exclusion_percentage}}
+
+
+def set_feature_enrollment(current_filters: dict, enrolled: bool | None, *, groups: list | None = None) -> dict:
+    """Set or clear the flag-level ``feature_enrollment`` marker on the filters.
+
+    ``enrolled=None`` clears enrollment by writing the key as None (not removing it),
+    matching what ``FeatureFlag.has_feature_enrollment`` treats as not enrolled.
+    Legacy ``super_groups`` (the pre-marker enrollment encoding) are dropped by the
+    same write either way. ``groups`` optionally replaces the release conditions —
+    early access uses it to roll a generally-available feature out to everyone.
+    Everything else is spread through untouched.
+    """
+    new_filters = {**current_filters, "feature_enrollment": enrolled}
+    new_filters.pop("super_groups", None)
+    if groups is not None:
+        new_filters["groups"] = deepcopy(groups)
+    return new_filters
 
 
 def group_cohort_restriction_blocker(current_filters: dict) -> CohortRestrictionBlocker | None:

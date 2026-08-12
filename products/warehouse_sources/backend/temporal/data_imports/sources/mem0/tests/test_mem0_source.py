@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import SourceFieldInputConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mem0 import Mem0SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.mem0 import Mem0ResumeConfig
@@ -9,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     ENDPOINTS,
     ENTITIES_ENDPOINT,
     EVENTS_ENDPOINT,
+    MEM0_API_VERSION_V3,
     MEMORIES_ENDPOINT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.source import Mem0Source
@@ -82,6 +84,19 @@ class TestMem0SourceSchemas:
         assert set(tables) == set(ENDPOINTS)
         assert tables[MEMORIES_ENDPOINT]["description"]
         assert "Incremental" in tables[MEMORIES_ENDPOINT]["sync_methods"]
+
+
+class TestMem0SourceVersions:
+    def test_supports_v1_and_v3_with_v3_default(self):
+        # v3 is the memory API the source already reads and the new default for fresh sources; the
+        # unversioned placeholder stays supported so existing pinned (or NULL) rows keep resolving
+        # to their unchanged wire behaviour. Both labels resolve to the same requests.
+        source = Mem0Source()
+
+        assert source.supported_versions == (UNVERSIONED_API_VERSION, MEM0_API_VERSION_V3)
+        assert source.default_version == MEM0_API_VERSION_V3
+        assert source.resolve_api_version(None) == MEM0_API_VERSION_V3
+        assert source.resolve_api_version(UNVERSIONED_API_VERSION) == UNVERSIONED_API_VERSION
 
 
 class TestMem0SourceCredentials:

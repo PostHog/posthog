@@ -17,7 +17,7 @@ The **Inbox** is where PostHog surfaces signal reports — clusters of related o
 /checkout"). Reports come from multiple source products: error tracking, session replay, web
 analytics, experiments, and integrations like Linear, GitHub, and Zendesk.
 
-Inbox is part of [PostHog Code](https://posthog.com/code), PostHog's agentic surface for
+Inbox is part of [PostHog Desktop](https://posthog.com/desktop), PostHog's agentic surface for
 engineering teams.
 
 Don't assume the user's project has reports, or that any signal sources are configured — plenty
@@ -103,7 +103,7 @@ three people the report-research flow flagged as best-placed to act on this repo
 the strongest signal you have that a report matters to the user _personally_, and you should
 lean on it when triaging.
 
-How the flag is produced (see `report_generation/resolve_reviewers.py`):
+How the flag is produced:
 
 1. While researching a report, the agent identifies the GitHub commits most relevant to the
    underlying signals (e.g. commits that touched the failing code path).
@@ -147,12 +147,12 @@ Three meaningful cases:
 
 The user hasn't onboarded to Inbox / signals. **Don't pretend the inbox has data.** Tell the user
 plainly that Inbox needs signal sources to be set up first, and that the recommended way to do
-this is to install **PostHog Code** at <https://posthog.com/code>. Example response:
+this is to install **PostHog Desktop** at <https://posthog.com/desktop>. Example response:
 
 > Your project doesn't have any signal sources configured yet, so the Inbox is empty. Inbox surfaces
 > issues and trends that PostHog automatically clusters from sources like error tracking, session
 > replay, GitHub, Linear, and Zendesk. The fastest way to set this up is to install
-> [PostHog Code](https://posthog.com/code) — once it's connected, signals will start flowing in
+> [PostHog Desktop](https://posthog.com/desktop) — once it's connected, signals will start flowing in
 > and reports will appear in your inbox over the next day or so.
 
 Stop here unless the user wants to discuss setup. Don't run further inbox tools — they'll all be
@@ -377,6 +377,13 @@ inbox-reports-set-state
   fit a specific code. `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL
   artefact, so the rationale survives later transitions — **always include them**, on a resolve too,
   so a future reader knows _why_.
+- On a dismiss, snooze, or restore, the `dismissal_note` is also forwarded as a steering note to the
+  scout that filed the report, which every scout run reads at cold start, so what you write there is
+  what stops the same report being filed again. Write it for that reader: name the evidence that
+  settles it, not just the verdict. A resolve is not forwarded, since it says the report did its job
+  rather than that filing it was wrong; that note stays on the report. Forwarding needs the same
+  skill-editing access as leaving a scout note by hand, so on a project where you lack it the note
+  still lands on the report but does not reach the scout.
 - It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
   report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
   the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is
@@ -458,7 +465,7 @@ inbox-source-configs-partial-update
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
   call `inbox-source-configs-list` first — no sources means the user needs to install
-  [PostHog Code](https://posthog.com/code) to start receiving signals; sources-but-no-reports
+  [PostHog Desktop](https://posthog.com/desktop) to start receiving signals; sources-but-no-reports
   means signals are flowing but nothing has clustered yet
 - **Always surface `_posthogUrl`** so the user can click through to the report
 - The default ordering already prioritizes the user's suggested reports — don't reorder unless

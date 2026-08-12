@@ -64,7 +64,7 @@ export function CodeSeatsSection(): JSX.Element {
         <div>
             <div className="flex items-center justify-between mb-4">
                 <div>
-                    <h3 className="mb-1 text-lg font-semibold">Code seats</h3>
+                    <h3 className="mb-1 text-lg font-semibold">Desktop seats</h3>
                     {isAdmin && (
                         <span className="text-muted text-sm">
                             {activeCount} active{cancelingCount > 0 ? `, ${cancelingCount} canceling` : ''} &middot;{' '}
@@ -76,15 +76,15 @@ export function CodeSeatsSection(): JSX.Element {
                 </div>
             </div>
             <LemonBanner type="info" className="mb-4">
-                PostHog Code with usage-based billing launched on July 16, 2026, and existing seats expire on the same
-                date. New seats, upgrades, and reactivations are no longer available. You can still cancel active seats
-                below.
+                PostHog Desktop with usage-based billing launched on July 16, 2026, and existing seats expire on the
+                same date. New seats, upgrades, and reactivations are no longer available. You can still cancel active
+                seats below.
             </LemonBanner>
             <LemonTable
                 loading={orgSeatsLoading}
                 dataSource={displaySeats}
                 defaultSorting={{ columnKey: 'user', order: 1 }}
-                emptyState="No Code seats"
+                emptyState="No Desktop seats"
                 columns={[
                     {
                         title: 'User',

@@ -22,6 +22,10 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props): Reac
     )
 }
 
+function SelectTriggerIcon({ className, ...props }: React.ComponentProps<typeof ChevronDownIcon>): React.ReactElement {
+    return <ChevronDownIcon className={cn('quill-select__icon', className)} {...props} />
+}
+
 function SelectTrigger({
     className,
     size = 'default',
@@ -42,7 +46,7 @@ function SelectTrigger({
             {...props}
         >
             {children}
-            <SelectPrimitive.Icon render={<ChevronDownIcon className="quill-select__icon" />} />
+            <SelectPrimitive.Icon render={<SelectTriggerIcon />} />
         </SelectPrimitive.Trigger>
     )
 }
@@ -170,5 +174,6 @@ export {
     SelectScrollUpButton,
     SelectSeparator,
     SelectTrigger,
+    SelectTriggerIcon,
     SelectValue,
 }

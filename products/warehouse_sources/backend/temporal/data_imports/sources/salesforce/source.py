@@ -7,10 +7,6 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -19,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesforce import (
     SalesforceSourceConfig,
 )
@@ -73,6 +70,19 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             # above never match it. Key off the stable error_description returned by Salesforce
             # when the refresh token is expired/revoked — reconnecting is the only fix.
             "expired access/refresh token": "Your Salesforce connection has expired or been revoked. Please reconnect the source.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `salesforce_refresh_access_token` builds its own tracked session rather than going
+        # through the shared REST client, so a proxy CONNECT failure during token refresh isn't
+        # retried in-process beyond `DEFAULT_RETRY`'s few attempts before it re-raises here. Once
+        # Temporal retries the whole activity the failure is transient and self-recovering (same
+        # class of egress-proxy blip already classified this way for ClickHouse), so don't
+        # surface it as tracked exception noise.
+        return {
+            "Tunnel connection failed: 502",
+            "Tunnel connection failed: 503",
+            "Tunnel connection failed: 504",
         }
 
     def get_schemas(

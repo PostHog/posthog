@@ -4,6 +4,7 @@ from .email_message_mapping import EmailMessageMapping
 from .email_outbox_message import EmailOutboxMessage
 from .github_comment_mapping import GithubCommentMapping
 from .restore_token import ConversationRestoreToken
+from .signing_secret import SigningSecret
 from .team_conversations_email_config import EmailChannel
 from .team_conversations_slack_config import TeamConversationsSlackConfig
 from .team_conversations_teams_channel_sync import TeamConversationsTeamsChannelSync
@@ -23,6 +24,7 @@ __all__ = [
     "GithubCommentMapping",
     "Priority",
     "RuleType",
+    "SigningSecret",
     "Status",
     "TeamConversationsSlackConfig",
     "TeamConversationsTeamsChannelSync",

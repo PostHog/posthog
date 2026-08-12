@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     LEASE_TABLE,
     STATUS_TABLE,
     STATUS_VIEW,
+    TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
     build_status_dual_write_sql,
@@ -193,6 +194,23 @@ async def conn_b(_db_url: str):
 def sync_conn(_db_url: str):
     with psycopg.Connection.connect(_db_url, autocommit=True) as c:
         yield c
+
+
+@pytest.mark.django_db(transaction=True)
+class TestReconcileSweepSlot:
+    @pytest.mark.asyncio
+    async def test_first_acquire_wins_and_slot_is_not_reentrant(self, conn, conn_b):
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token="pod-a") is True
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is False
+        # Same owner is refused too: the slot paces the fleet-wide cadence, it
+        # is not an ownership lock — re-entrancy would let one pod sweep in a
+        # tight loop, which is exactly the stampede the slot exists to prevent.
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token="pod-a") is False
+
+    @pytest.mark.asyncio
+    async def test_expired_slot_is_reacquirable(self, conn, conn_b):
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn, owner_token="pod-a", ttl_seconds=0) is True
+        assert await BatchQueue.try_acquire_reconcile_sweep_slot(conn_b, owner_token="pod-b") is True
 
 
 @pytest.mark.django_db(transaction=True)
@@ -406,12 +424,12 @@ async def _lease_count(conn: psycopg.AsyncConnection[Any], *, team_id: int = 1, 
     return int(row[0]) if row else 0
 
 
-async def _insert_backdated_executing(
-    conn: psycopg.AsyncConnection[Any], *, batch_id: str, age_seconds: int = 120, attempt: int = 1
+async def _write_backdated_status(
+    conn: psycopg.AsyncConnection[Any], *, batch_id: str, job_state: str, age_seconds: int, attempt: int = 1
 ) -> None:
     # Seed through the dual-write, then backdate both clocks, so the log and
     # the state columns stay consistent like they do under real writers.
-    await BatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=attempt)
+    await BatchQueue.update_status(conn, batch_id=batch_id, job_state=job_state, attempt=attempt)
     await conn.execute(
         f"UPDATE {STATUS_TABLE} SET created_at = created_at - make_interval(secs => %s) WHERE batch_id = %s",
         [age_seconds, batch_id],
@@ -419,6 +437,14 @@ async def _insert_backdated_executing(
     await conn.execute(
         f"UPDATE {BATCH_TABLE} SET state_changed_at = state_changed_at - make_interval(secs => %s) WHERE id = %s",
         [age_seconds, batch_id],
+    )
+
+
+async def _insert_backdated_executing(
+    conn: psycopg.AsyncConnection[Any], *, batch_id: str, age_seconds: int = 120, attempt: int = 1
+) -> None:
+    await _write_backdated_status(
+        conn, batch_id=batch_id, job_state="executing", age_seconds=age_seconds, attempt=attempt
     )
 
 
@@ -947,6 +973,110 @@ class TestGetRunActivitySummary:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestGetStaleStrandedRuns:
+    """The abandoned-run query: non-terminal batches, no live lease, no loader progress past the threshold."""
+
+    STALE = 3600  # seconds; batches are backdated well past this to read as stale
+
+    async def _stale_pending(self, conn: psycopg.AsyncConnection[Any], **overrides: Any) -> str:
+        bid = await _insert_batch(conn, **overrides)
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '2 hours' WHERE id = %s", (bid,))
+        return bid
+
+    async def _run(self, conn: psycopg.AsyncConnection[Any]):
+        return await BatchQueue.get_stale_stranded_runs(conn, stale_seconds=self.STALE, limit=100)
+
+    @pytest.mark.asyncio
+    async def test_returns_abandoned_run(self, conn):
+        await self._stale_pending(
+            conn, batch_index=0, run_uuid="strand", job_id="job-s", metadata={"workflow_run_id": "wf-s"}
+        )
+        await self._stale_pending(
+            conn, batch_index=1, run_uuid="strand", job_id="job-s", metadata={"workflow_run_id": "wf-s"}
+        )
+
+        refs = await self._run(conn)
+
+        assert len(refs) == 1
+        ref = refs[0]
+        assert (ref.run_uuid, ref.job_id, ref.team_id, ref.schema_id) == ("strand", "job-s", 1, "schema-1")
+        assert ref.workflow_run_id == "wf-s"
+        assert ref.non_terminal_batches == 2
+
+    @pytest.mark.asyncio
+    async def test_excludes_group_with_live_lease(self, conn):
+        # A live lease means a pod is actively working the group — failing it would kill an in-flight load.
+        await self._stale_pending(conn, run_uuid="leased")
+        await _insert_lease(conn, expires_in_seconds=300)
+
+        assert await self._run(conn) == []
+
+    @pytest.mark.asyncio
+    async def test_excludes_run_with_recent_loader_progress(self, conn):
+        # Oldest batch is old, but the loader just succeeded one: slow-but-live, not abandoned. Guards
+        # against the staleness clock counting batch age instead of loader progress.
+        await self._stale_pending(conn, batch_index=0, run_uuid="live")
+        done = await self._stale_pending(conn, batch_index=1, run_uuid="live")
+        await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
+
+        assert await self._run(conn) == []
+
+    @pytest.mark.asyncio
+    async def test_excludes_run_with_failed_batch(self, conn):
+        # A failed batch is the failed-run reconcile's job; this sweep must not double-handle it.
+        failed = await self._stale_pending(conn, batch_index=0, run_uuid="had-failure")
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await self._stale_pending(conn, batch_index=1, run_uuid="had-failure")
+
+        assert await self._run(conn) == []
+
+    @pytest.mark.asyncio
+    async def test_excludes_fresh_run_within_threshold(self, conn):
+        # Normal backlog waiting to be claimed — younger than the threshold, not abandoned.
+        await _insert_batch(conn, run_uuid="fresh")
+
+        assert await self._run(conn) == []
+
+
+@pytest.mark.django_db(transaction=True)
+class TestReconcileAbandonedRuns:
+    CONSUMER_MOD = (
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer"
+    )
+
+    @pytest.mark.asyncio
+    async def test_reconcile_fails_abandoned_run_and_finalizes(self, conn):
+        # End-to-end through the public reconcile: an abandoned run (pending batches, no failed batch,
+        # no live lease, no loader progress past the staleness threshold) gets its queue batches failed,
+        # its job finalized, and its lock released. Guards the wiring and the fail-batches-first ordering.
+        for i in range(2):
+            bid = await _insert_batch(
+                conn, batch_index=i, run_uuid="abandoned", job_id="job-ab", metadata={"workflow_run_id": "wf-ab"}
+            )
+            await conn.execute(
+                f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 hours' WHERE id = %s", (bid,)
+            )
+
+        adapter = DeltaBatchConsumerAdapter()
+        with (
+            patch(f"{self.CONSUMER_MOD}.mark_job_failed_if_not_terminal", return_value=True) as mock_fail_job,
+            patch(f"{self.CONSUMER_MOD}.release_v3_pipeline_lock", return_value=True) as mock_release,
+        ):
+            await adapter.reconcile_failed_runs(conn, grace_seconds=120, lookback_seconds=86400, limit=100)
+
+        rows = await (
+            await conn.execute(
+                f"SELECT latest_state FROM {BATCH_TABLE} WHERE run_uuid = 'abandoned' ORDER BY batch_index"
+            )
+        ).fetchall()
+        assert [r[0] for r in rows] == ["failed", "failed"]
+        mock_fail_job.assert_called_once()
+        assert mock_fail_job.call_args.kwargs["job_id"] == "job-ab"
+        mock_release.assert_called_once()
+        assert mock_release.call_args.kwargs["token"] == "wf-ab"
+
+
+@pytest.mark.django_db(transaction=True)
 class TestClaimWindowSkipsForeignLeasedGroups:
     @pytest.mark.asyncio
     async def test_foreign_leased_group_does_not_occupy_the_window(self, conn, conn_b):
@@ -1070,6 +1200,7 @@ class TestStateDualWrite:
 
     @pytest.mark.asyncio
     async def test_supersede_fails_columns_of_older_runs(self, conn, sync_conn):
+        # The old run was never claimed, so superseding it loses no load progress.
         old = await _insert_batch(conn, run_uuid="run-old", job_id="job-dw")
         current = await _insert_batch(conn, run_uuid="run-new", job_id="job-dw")
 
@@ -1078,6 +1209,51 @@ class TestStateDualWrite:
         assert superseded == 1
         assert (await _batch_state(conn, old))[0] == "failed"
         assert (await _batch_state(conn, current))[0] == "pending"
+
+    @pytest.mark.parametrize(
+        "job_state,age_seconds,expect_spared",
+        [
+            ("executing", 60, True),
+            ("succeeded", 60, True),
+            ("waiting_retry", 60, True),
+            ("executing", TAKEOVER_STALE_THRESHOLD_SECONDS + 60, False),
+            ("failed", 60, False),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_supersede_spares_runs_with_recent_loader_progress(
+        self, conn, sync_conn, job_state, age_seconds, expect_spared
+    ):
+        # Regression guard for the timer-fired supersede storm: a run the loader is
+        # actively draining must not be failed by a newer attempt's first batch.
+        signal = await _insert_batch(conn, batch_index=0, run_uuid="run-old", job_id="job-dw")
+        sibling = await _insert_batch(conn, batch_index=1, run_uuid="run-old", job_id="job-dw")
+        current = await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-dw")
+        await _write_backdated_status(conn, batch_id=signal, job_state=job_state, age_seconds=age_seconds)
+
+        superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-dw", current_run_uuid="run-new")
+
+        if expect_spared:
+            assert superseded == 0
+            assert (await _batch_state(conn, sibling))[0] == "pending"
+        else:
+            assert superseded > 0
+            assert (await _batch_state(conn, sibling))[0] == "failed"
+        assert (await _batch_state(conn, current))[0] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_supersede_judges_progress_per_run(self, conn, sync_conn):
+        # One live run must not shield a stalled sibling run of the same job.
+        live = await _insert_batch(conn, batch_index=0, run_uuid="run-live", job_id="job-dw")
+        stalled = await _insert_batch(conn, batch_index=0, run_uuid="run-stalled", job_id="job-dw")
+        await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-dw")
+        await _write_backdated_status(conn, batch_id=live, job_state="executing", age_seconds=60)
+
+        superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-dw", current_run_uuid="run-new")
+
+        assert superseded == 1
+        assert (await _batch_state(conn, live))[0] == "executing"
+        assert (await _batch_state(conn, stalled))[0] == "failed"
 
     @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):

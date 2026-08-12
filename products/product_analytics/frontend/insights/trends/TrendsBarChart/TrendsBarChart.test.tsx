@@ -231,13 +231,17 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         })
 
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
-        expect(getHogChart().xAxisLabel()).toBe('Total events')
-        expect(getHogChart().yAxisLabel()).toBe('Series')
-        expect(
-            getHogChart()
-                .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
-                ?.getAttribute('transform')
-        ).toContain('rotate(-90')
+        // Axis titles are a layout-dependent overlay that commits a tick after the
+        // chart's aria-label appears, so read them through waitFor rather than synchronously.
+        await waitFor(() => {
+            expect(getHogChart().xAxisLabel()).toBe('Total events')
+            expect(getHogChart().yAxisLabel()).toBe('Series')
+            expect(
+                getHogChart()
+                    .element.querySelector<SVGTextElement>('[data-attr="hog-chart-axis-title-y"]')
+                    ?.getAttribute('transform')
+            ).toContain('rotate(-90')
+        })
     })
 
     // Five hedgehog breakdowns → by default one series carrying five per-bar colors across five

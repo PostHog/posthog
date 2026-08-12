@@ -1,6 +1,7 @@
-//! The seed contract's newtyped ids: `RunId`, `ClaimEpoch`, `SChunkMs`, and `ConditionHash`. They
-//! ride the [`super::tile::SeedTile`] wire and the seeder's PostgreSQL ledger (hence the `sqlx`
-//! derives), so both ends resolve them to the same types.
+//! The seed contract's newtyped ids: `RunId`, `ClaimEpoch`, `SChunkMs`, `ScannedAtMs`, and
+//! `ConditionHash`. They ride the [`super::tile::SeedTile`] / [`super::person::PersonSeed`] wires
+//! and the seeder's PostgreSQL ledger (hence the `sqlx` derives), so both ends resolve them to the
+//! same types.
 
 use std::borrow::Borrow;
 use std::fmt;
@@ -32,6 +33,16 @@ pub struct ClaimEpoch(pub i32);
 #[serde(transparent)]
 #[sqlx(transparent)]
 pub struct SChunkMs(pub i64);
+
+/// The persons-scan instant (epoch ms, UTC): the last-write-wins input the apply path weighs
+/// against the stored record's stamp. A separate type from [`SChunkMs`] so it cannot reach the
+/// apply fence, which it would answer wrongly.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Type,
+)]
+#[serde(transparent)]
+#[sqlx(transparent)]
+pub struct ScannedAtMs(pub i64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ConditionHash([u8; 16]);

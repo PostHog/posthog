@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
@@ -10,6 +11,7 @@ from products.replay_vision.backend.billing import (
     GEMINI_MODELS,
     OBSERVATION_CREDITS_BY_MODEL,
     get_replay_vision_credits_by_team,
+    get_replay_vision_observations_by_team,
     observation_credits_for_model,
     suggested_observation_credits,
 )
@@ -50,6 +52,19 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         result = dict(get_replay_vision_credits_by_team(begin, end))
         assert result == {self.team.id: 15 + 2, self.team.id + 1: 15}
 
+    def test_counts_receipts_per_team_not_credit_sum(self) -> None:
+        now = timezone.now()
+        begin = now - timedelta(days=1)
+        end = now + timedelta(days=1)
+        # Mixed prices so a count can't be mistaken for the credit sum (15 + 2 credits, but 2 observations).
+        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_6_FLASH)
+        self._receipt(team_id=self.team.id, created_at=now, model=ScannerModel.GEMINI_3_5_FLASH_LITE)
+        self._receipt(team_id=self.team.id, created_at=now - timedelta(days=3))
+        self._receipt(team_id=self.team.id + 1, created_at=now)
+
+        result = dict(get_replay_vision_observations_by_team(begin, end))
+        assert result == {self.team.id: 2, self.team.id + 1: 1}
+
     def test_sums_frozen_receipt_credits_not_live_prices(self) -> None:
         # A receipt priced before a table change keeps billing at its frozen amount.
         now = timezone.now()
@@ -85,8 +100,9 @@ def test_gemini_models_config_mirrors_scanner_model_enum() -> None:
     )
 
 
-def test_flash_credit_price_tracks_the_margin_formula() -> None:
-    # The flash price is contractually the formula output (the budget tier is pinned below it), so a
-    # token price or margin change here must come with a conscious repricing, not silently stale credits.
-    flash = GEMINI_MODELS[ScannerModel.GEMINI_3_6_FLASH]
-    assert flash.credits_per_observation == suggested_observation_credits(flash)
+@pytest.mark.parametrize("model", [ScannerModel.GEMINI_3_FLASH_PREVIEW, ScannerModel.GEMINI_3_6_FLASH])
+def test_flash_credit_price_tracks_the_margin_formula(model: str) -> None:
+    # Both flash-tier prices are contractually the formula output (the budget tier is pinned below it), so a
+    # token price or margin change must come with a conscious repricing, not silently stale credits.
+    info = GEMINI_MODELS[model]
+    assert info.credits_per_observation == suggested_observation_credits(info)

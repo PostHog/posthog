@@ -7,8 +7,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
+import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
 import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
 import { Experiment } from '~/types'
+import type { ExperimentIdType } from '~/types'
 
 import {
     experimentsMetricsRecalculationCreate,
@@ -20,8 +22,6 @@ import type {
     TriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
-import type { ExperimentIdType } from '../../types'
 import { isLaunched } from './experimentsLogic'
 
 type ExperimentSavedMetric = {
@@ -196,6 +196,7 @@ export interface experimentMetricsLogicActions {
             succeeded?: number
             total_metrics?: number
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -216,6 +217,7 @@ export interface experimentMetricsLogicActions {
             succeeded?: number | undefined
             total_metrics?: number | undefined
             trigger?:
+                | 'agent_mcp'
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
@@ -764,6 +766,11 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                         applyResults(recalculation)
                         emitTerminalEvent(recalculation)
                     } else {
+                        if (trigger === 'manual' && !recalculation.is_existing) {
+                            lemonToast.info(
+                                'Recalculating metrics in the background. Results will update as they finish.'
+                            )
+                        }
                         actions.pollRecalculation(recalculation.id)
                     }
                 } catch (error: any) {

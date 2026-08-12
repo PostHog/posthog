@@ -1,1 +1,1 @@
-0003_drop_insightcachingstate_table
+0006_insightvariable_values_query_connection_id

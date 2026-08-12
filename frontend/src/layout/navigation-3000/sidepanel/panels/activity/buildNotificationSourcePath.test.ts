@@ -76,6 +76,16 @@ describe('buildNotificationSourcePath', () => {
         expect(result).toBe('/error_tracking/issue-uuid')
     })
 
+    it('builds path from source_type and source_id for ticket', () => {
+        const result = buildNotificationSourcePath(
+            makeNotification({
+                source_type: 'ticket',
+                source_id: 'ticket-uuid',
+            })
+        )
+        expect(result).toBe('/support/tickets/ticket-uuid')
+    })
+
     it('falls back to source_url when source_type is null', () => {
         const result = buildNotificationSourcePath(
             makeNotification({

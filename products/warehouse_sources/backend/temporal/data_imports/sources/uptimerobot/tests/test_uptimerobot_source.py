@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
     UptimerobotSourceConfig,
 )
@@ -49,11 +50,21 @@ class TestUptimerobotSource:
         assert api_key_field.secret is True
         assert api_key_field.required is True
 
-    def test_non_retryable_errors_match_transport_auth_failure(self):
-        # UptimeRobot signals a bad key in-body over HTTP 200; the transport raises with this message.
-        observed_error = "UptimeRobot API key was rejected: api_key is invalid."
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # UptimeRobot signals a bad key in-body over HTTP 200; the transport raises this message.
+            "UptimeRobot API key was rejected: api_key is invalid.",
+            # A monitor-specific key hitting a scope it isn't granted (e.g. maintenance windows)
+            # comes back as a raw HTTP 403, bypassing the in-body auth check entirely.
+            "403 Client Error: Forbidden for url: https://api.uptimerobot.com/v2/getMWindows",
+            "403 Client Error: Forbidden for url: https://api.uptimerobot.com/v2/getAlertContacts",
+        ],
+    )
+    def test_non_retryable_errors_match_credential_failures(self, observed_error):
+        # Mirrors the production matcher (`error_message_matches`), which is case-insensitive.
         non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
+        assert error_message_matches(observed_error, non_retryable_errors)
 
     @pytest.mark.parametrize(
         "other_error",
@@ -66,6 +77,20 @@ class TestUptimerobotSource:
     def test_non_retryable_errors_do_not_match_transient(self, other_error):
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "UptimeRobot API error (retryable): status=429, method=getMonitors",
+            "UptimeRobot API error (retryable): status=500, method=getMonitors",
+            "UptimeRobot API error (retryable): status=503, method=getAlertContacts",
+        ],
+    )
+    def test_retryable_errors_match_exhausted_backoff(self, error_message):
+        # _post already retries 429/5xx internally with backoff; once those attempts are
+        # exhausted, this must stay classified as retryable so it doesn't get tracked as noise.
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(pattern in error_message for pattern in retryable_errors)
 
     def test_get_schemas_match_endpoints_with_correct_sync_modes(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}

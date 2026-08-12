@@ -11,6 +11,7 @@ import { defaultConfig } from '~/common/config/config'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
 import { PluginsServerConfig } from '../../../types'
+import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
 import { EmailService } from '../../services/messaging/email.service'
@@ -166,7 +167,7 @@ const createGlobals = (
 
 export class TemplateTester {
     public template: HogFunctionTemplateCompiled
-    private hogExecutor: HogExecutorService
+    private hogExecutor: HogExecutorAsyncService
     private nativeExecutor: NativeDestinationExecutorService
     private mockHub: PluginsServerConfig
 
@@ -192,7 +193,7 @@ export class TemplateTester {
         this.nativeExecutor = new NativeDestinationExecutorService(defaultConfig)
     }
 
-    private createHogExecutor(): HogExecutorService {
+    private createHogExecutor(): HogExecutorAsyncService {
         const config = this.mockHub
         const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         const hogInputsService = new HogInputsService(undefined as any, recipientTokensService, undefined as any)
@@ -202,31 +203,41 @@ export class TemplateTester {
                 sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
                 sesRegion: config.SES_REGION,
                 sesEndpoint: config.SES_ENDPOINT,
+                sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: false,
             },
             undefined as any,
             undefined as any,
             config.ENCRYPTION_SALT_KEYS,
             config.SITE_URL,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            undefined as any,
             undefined as any
         )
-        return new HogExecutorService(
+        return new HogExecutorAsyncService(
+            new HogExecutorService(
+                { executionTimeoutMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS },
+                hogInputsService
+            ),
             {
-                hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
                 googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
                 fetchRetries: config.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+                siteUrl: config.SITE_URL,
             },
-            { teamManager: this.mockTeamManager as any, siteUrl: config.SITE_URL },
-            hogInputsService,
-            emailService,
-            recipientTokensService,
-            undefined as any
+            {
+                teamManager: this.mockTeamManager as any,
+                hogInputsService,
+                emailService,
+                recipientTokensService,
+                pushNotificationService: undefined as any,
+            }
         )
     }
 
-    private getExecutor(): HogExecutorService | NativeDestinationExecutorService {
+    private getExecutor(): HogExecutorAsyncService | NativeDestinationExecutorService {
         return isNativeHogFunction({ template_id: this.template.id }) ? this.nativeExecutor : this.hogExecutor
     }
 
@@ -288,7 +299,7 @@ export class TemplateTester {
             template_id: this.template.id,
         }
 
-        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        const globalsWithInputs = await this.hogExecutor.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
         const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
@@ -356,7 +367,7 @@ export class TemplateTester {
             mappings: [compiledMappingInputs],
         }
 
-        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(
+        const globalsWithInputs = await this.hogExecutor.hogExecutor.buildInputsWithGlobals(
             hogFunction,
             this.createGlobals(_globals),
             compiledMappingInputs.inputs
@@ -416,6 +427,7 @@ export const createAdDestinationPayload = (
                 sccid: 'snapchat-id',
                 rdt_cid: 'reddit-id',
                 msclkid: 'microsoft-id',
+                oppref: 'openai-id',
                 phone: '+1234567890',
                 external_id: '1234567890',
                 first_name: 'Max',

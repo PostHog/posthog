@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
+import { getDiscoveryHint } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
@@ -23,12 +24,12 @@ export interface BuildToolResultOptions {
     /** Whether formatted-result text should win over structuredContent for this client profile. */
     suppressStructuredContentForFormattedResults?: boolean | undefined
     /**
-     * For inline-exec UI-app hosts (PostHog Code, Claude Code, Cowork): always drop
-     * top-level `structuredContent` toward the model and re-home the app payload onto
-     * `_meta` instead — even when there's no formatted table (the model then reads the
-     * TOON text). These hosts surface `structuredContent` to the model, so it must
-     * never carry the raw results; the UI app hydrates from `_meta` (see APP_DATA_META_KEY).
-     * Overridden by an explicit `output_format=json` from the caller.
+     * For inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork): when a compact
+     * formatted table is available, drop top-level `structuredContent` toward the model so
+     * it reads the compact table instead of the verbose JSON, and re-home the app payload
+     * onto `_meta` for the UI app (see APP_DATA_META_KEY). When there is NO formatted table
+     * the payload stays in the standard `structuredContent` field and the text channel gets
+     * a pointer instead of a second copy of it. Overridden by an explicit `output_format`.
      */
     forceUiDataToMeta?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
@@ -78,14 +79,26 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 }
 
 /**
- * Estimate output tokens from the text actually returned to the client — the
- * serialized TOON/JSON/formatted string, not the raw handler object. TOON is
- * materially smaller than JSON for tabular results, so measuring the raw object
- * would over-count. `structuredContent` is deliberately excluded: it duplicates
- * the text for UI tools, so counting it would double-bill those calls.
+ * Placeholder that replaces the text content when the payload rides in
+ * `structuredContent` alone (see `buildToolResultPayload`). Kept short and
+ * literal so the model knows where to read the result from.
+ */
+export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's structuredContent field."
+
+/**
+ * Estimate output tokens from what the client actually receives — the serialized
+ * TOON/JSON/formatted string, not the raw handler object. TOON is materially
+ * smaller than JSON for tabular results, so measuring the raw object would
+ * over-count. `structuredContent` is normally excluded because it duplicates the
+ * text for UI tools; when the text is only the `STRUCTURED_CONTENT_ONLY_TEXT`
+ * pointer it duplicates nothing, so the structured payload is what gets counted.
  */
 export function estimateResponseTokens(response: ToolResultPayload): number {
-    return estimateTokens(response.content.map((part) => part.text).join(''))
+    const text = response.content.map((part) => part.text).join('')
+    if (response.structuredContent && text === STRUCTURED_CONTENT_ONLY_TEXT) {
+        return estimateTokens(response.structuredContent)
+    }
+    return estimateTokens(text)
 }
 
 /**
@@ -100,6 +113,9 @@ export function estimateResponseTokens(response: ToolResultPayload): number {
  *    `structuredContent`. Coding agents surface `structuredContent` to the model in
  *    preference to `content[].text`, so keeping it would hide the formatted table
  *    behind raw JSON.
+ * 3. Conversely, a UI tool with no `formattedResults` on an inline-exec UI host keeps
+ *    `structuredContent` and drops the mirrored text, so the payload reaches the agent
+ *    exactly once instead of once per channel.
  */
 export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResultPayload {
     const {
@@ -153,14 +169,40 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         }
     }
 
-    const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
-
-    // Inline-exec UI-app hosts always drop top-level structuredContent (routed to
-    // `_meta` below); other coding-agent clients only drop it when a formatted table
-    // is available to take its place. An explicit `output_format=json` overrides both.
+    // Drop top-level structuredContent only when a compact formatted table exists to take
+    // its place — otherwise the model would just read the full data as TOON text anyway, and
+    // suppressing here only forces the app payload to be duplicated under a non-standard
+    // `_meta` key (see below). With no formatted table we keep the standard structuredContent
+    // field, which UI apps and MCP hosts already prefer. `output_format=json` overrides both.
     const suppressStructuredContent =
         !callerWantsJson &&
-        (!!forceUiDataToMeta || (formattedResults !== undefined && !!suppressStructuredContentForFormattedResults))
+        formattedResults !== undefined &&
+        (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults)
+
+    // Inline-exec UI hosts surface BOTH `content[].text` and `structuredContent` to the
+    // model. A UI tool with no compact formatted table has nothing smaller to offer the
+    // text channel, so mirroring the payload there hands the agent a second full copy of
+    // the same rows. Carry it once, in `structuredContent` — the field the UI app reads
+    // from too — and leave a pointer in the text. `output_format` opts back into the
+    // mirrored serialization for callers that parse the text channel.
+    const structuredContentOnly =
+        !!forceUiDataToMeta && hasUiResource && !isStringResult && !useJson && formattedResults === undefined
+
+    let text = structuredContentOnly
+        ? STRUCTURED_CONTENT_ONLY_TEXT
+        : (formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
+
+    // Discovery hints ride the text channel as a footer, mirroring how error
+    // responses carry `getToolRecoveryHint`. Skipped when the caller asked for
+    // raw JSON (the text must stay machine-parseable) and when the text is only
+    // the structuredContent pointer (the model reads the structured field, and
+    // `estimateResponseTokens` keys off the exact pointer string).
+    if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
+        const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
+        if (discoveryHint) {
+            text = `${text}\n\n${discoveryHint}`
+        }
+    }
 
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],

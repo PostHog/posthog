@@ -5,7 +5,6 @@ from urllib.parse import urlparse
 
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -13,6 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     DEFAULT_BACKFILL_DAYS,
     PLAUSIBLE_ENDPOINTS,
@@ -171,7 +172,7 @@ def _resolve_window(
     resume_config: Optional[PlausibleResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
-) -> tuple[date, date]:
+) -> SyncWindow[date]:
     today = datetime.now(tz=UTC).date()
     start = today - timedelta(days=DEFAULT_BACKFILL_DAYS)
     if should_use_incremental_field:
@@ -192,7 +193,7 @@ def _resolve_window(
 
     if start > end:
         start = end
-    return start, end
+    return SyncWindow(start=start, end=end)
 
 
 def plausible_source(
@@ -209,8 +210,7 @@ def plausible_source(
     config = PLAUSIBLE_ENDPOINTS[endpoint]
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start, end = _resolve_window(resume_config, should_use_incremental_field, db_incremental_field_last_value)
-    start_iso, end_iso = start.isoformat(), end.isoformat()
+    window = _resolve_window(resume_config, should_use_incremental_field, db_incremental_field_last_value)
 
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resume_config is not None:
@@ -219,7 +219,7 @@ def plausible_source(
     body: dict[str, Any] = {
         "site_id": site_id,
         "metrics": config.metrics,
-        "date_range": [start_iso, end_iso],
+        "date_range": [window.start.isoformat(), window.end.isoformat()],
         "dimensions": config.dimensions,
         # Ascending by day so the pipeline's incremental watermark only ever advances forward.
         "order_by": [["time:day", "asc"]],
@@ -256,7 +256,11 @@ def plausible_source(
         # pinned so the resumed query keeps a consistent total_rows/ordering.
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(
-                PlausibleResumeConfig(offset=int(state["offset"]), date_range_start=start_iso, date_range_end=end_iso)
+                PlausibleResumeConfig(
+                    offset=int(state["offset"]),
+                    date_range_start=window.start.isoformat(),
+                    date_range_end=window.end.isoformat(),
+                )
             )
 
     resource = rest_api_resource(

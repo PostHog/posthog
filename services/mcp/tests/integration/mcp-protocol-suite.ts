@@ -1822,7 +1822,7 @@ export function defineStatelessProtocolTests(
         })
 
         it('merges server identity into a tool result that carries its own _meta', async () => {
-            // Only the exec path with a PostHog Code consumer puts `_meta`
+            // Only the exec path with a PostHog Desktop consumer puts `_meta`
             // (ui.resourceUri) on the call result — the one production shape
             // that would expose serverInfo stamping clobbering a tool's meta.
             const harness = await getHarness()

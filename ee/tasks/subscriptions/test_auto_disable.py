@@ -1,9 +1,12 @@
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.models import User
 
 from products.exports.backend.models.subscription import Subscription
 
@@ -13,6 +16,10 @@ from ee.tasks.subscriptions.auto_disable import (
     disable_invalid_subscription,
     send_notifications_for_disabled_subscription,
     validate_re_enable,
+)
+from ee.tasks.subscriptions.failure_notifications import (
+    create_subscription_delivery_failure_notification,
+    send_subscription_delivery_failure_email,
 )
 
 
@@ -63,11 +70,19 @@ class TestDisableInvalidSubscription(APIBaseTest):
     def test_disables_subscription(self):
         sub = self._make_subscription()
 
-        with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
+        with (
+            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
+            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False
+        notification = create_notification_mock.call_args.args[0]
+        assert notification.target_id == str(self.user.id)
+        assert notification.resource_id == str(sub.id)
+        assert notification.title == "t was automatically disabled"
+        assert "slack integration disconnected" in notification.body
         send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
 
     def test_compare_and_swap_no_op_when_already_disabled(self):
@@ -76,11 +91,15 @@ class TestDisableInvalidSubscription(APIBaseTest):
         # disabled-notification email (UUID4 campaign keys defeat MessagingRecord dedup).
         sub = self._make_subscription(enabled=False)
 
-        with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
+        with (
+            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
+            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False
+        create_notification_mock.assert_not_called()
         send_mock.assert_not_called()
 
     @parameterized.expand(
@@ -97,11 +116,44 @@ class TestDisableInvalidSubscription(APIBaseTest):
         else:
             sub = self._make_subscription(created_by=None)
 
-        with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock:
+        with (
+            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
+            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        ):
             disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
 
         sub.refresh_from_db()
         assert sub.enabled is False
+        if use_creator_with_empty_email:
+            create_notification_mock.assert_called_once()
+        else:
+            create_notification_mock.assert_not_called()
+        send_mock.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("former_creator", False),
+            ("deactivated_creator", True),
+        ]
+    )
+    def test_does_not_notify_creator_without_access(self, _label, deactivate_member):
+        if deactivate_member:
+            creator = self.user
+            creator.is_active = False
+            creator.save(update_fields=["is_active"])
+        else:
+            creator = User.objects.create_user(
+                email="former-creator@example.com", first_name="Former", password="password"
+            )
+        sub = self._make_subscription(created_by=creator)
+
+        with (
+            patch("ee.tasks.subscriptions.auto_disable.create_notification") as create_notification_mock,
+            patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        ):
+            disable_invalid_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON)
+
+        create_notification_mock.assert_not_called()
         send_mock.assert_not_called()
 
     def test_send_notifications_uses_unique_campaign_key_per_call(self):
@@ -154,3 +206,70 @@ class TestDisableInvalidSubscription(APIBaseTest):
         assert sub.enabled is False
         send_mock.assert_called_once()
         capture_mock.assert_called_once()
+
+
+@freeze_time("2026-08-01T12:00:00Z")
+class TestSubscriptionDeliveryFailureNotification(APIBaseTest):
+    def test_sends_email_to_the_subscription_creator(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="reports@example.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            title="Weekly report",
+            created_by=self.user,
+        )
+
+        with patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls:
+            send_subscription_delivery_failure_email(subscription)
+
+        assert email_cls.call_args.kwargs["subject"] == 'PostHog subscription "Weekly report" could not be delivered'
+        assert email_cls.call_args.kwargs["template_name"] == "subscription_delivery_failed"
+        assert email_cls.call_args.kwargs["template_context"]["scheduled_at"] == subscription.next_delivery_date
+        assert email_cls.return_value.add_recipient.call_args.kwargs == {"email": self.user.email}
+        email_cls.return_value.send.assert_called_once_with()
+
+    def test_creates_in_app_notification_for_the_subscription_creator(self):
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="reports@example.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            title="Weekly report",
+            created_by=self.user,
+        )
+
+        with patch("ee.tasks.subscriptions.failure_notifications.create_notification") as create_notification_mock:
+            create_subscription_delivery_failure_notification(subscription)
+
+        data = create_notification_mock.call_args.args[0]
+        assert data.notification_type.value == "pipeline_failure"
+        assert data.target_id == str(self.user.id)
+        assert data.resource_id == str(subscription.id)
+        assert "scheduled for" in data.body
+
+    def test_does_not_notify_creator_without_project_access(self):
+        former_creator = User.objects.create_user(
+            email="former-creator@example.com", first_name="Former", password="password"
+        )
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="reports@example.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            title="Weekly report",
+            created_by=former_creator,
+        )
+
+        with (
+            patch("ee.tasks.subscriptions.failure_notifications.EmailMessage") as email_cls,
+            patch("ee.tasks.subscriptions.failure_notifications.create_notification") as create_notification_mock,
+        ):
+            send_subscription_delivery_failure_email(subscription)
+            create_subscription_delivery_failure_notification(subscription)
+
+        email_cls.assert_not_called()
+        create_notification_mock.assert_not_called()

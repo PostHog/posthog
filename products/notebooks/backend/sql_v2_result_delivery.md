@@ -38,11 +38,14 @@ state.
   endpoint surfaces it like a `done` envelope. When no kernel is reachable the
   endpoint marks the run `interrupted` itself, so a user can always break out of
   a RUNNING-forever row (the kernel lane has no backend watchdog). For
-  **direct (hogql) runs** there is nothing to signal and no cancellation: the
-  endpoint marks the row abandoned immediately (the query runs to its bounded
-  completion; the guarded poll transition can't overwrite the interrupt), and the
-  UI hides Stop for these runs. Real cancellation (`cancel_query`: Celery revoke
-  plus CH KILL) is a one-call upgrade if long queries warrant it.
+  **direct (hogql) runs** there is no kernel to signal, so the endpoint marks the
+  row abandoned itself (the guarded poll transition can't overwrite the interrupt)
+  and then stops the query at the async manager: `cancel_query` revokes a
+  still-queued Celery task, otherwise it KILLs the query on ClickHouse under the
+  run's derived query id. That cancellation is best effort, because the row is
+  already terminal: a cluster that refuses the KILL just leaves the query running
+  to its bounded completion with its result discarded. Stop is offered for both
+  lanes.
 
 Chosen because the result is a **single terminal value**, not a live event stream.
 Polling a durable row is simpler than SSE and inherently resilient to connection
@@ -94,9 +97,9 @@ not a Redis Stream** — we deliver one terminal result, so we don't need replay
   streams.
 - **Unsubscribe/cleanup** on every exit path (result, error, timeout, disconnect).
 
-### Why not a Redis Stream (like PostHog Code)
+### Why not a Redis Stream (like PostHog Desktop)
 
-PostHog Code streams many incremental agent events and needs replay on reconnect
+PostHog Desktop streams many incremental agent events and needs replay on reconnect
 (`Last-Event-ID` cursor over a trimmed stream). SQLV2 delivers one terminal
 result, so pub/sub + a durable row is sufficient and much simpler. Revisit the
 Stream approach only if SQLV2 starts streaming incremental output (stdout,
@@ -193,7 +196,7 @@ fresh `result_id`. Durable storage is what removes this later.
 ## Related model notes
 
 - **`KernelRuntime.server_url` / `server_connect_token`** are stored **plaintext**
-  (`TextField`). This matches PostHog Code, which keeps `sandbox_url` /
+  (`TextField`). This matches PostHog Desktop, which keeps `sandbox_url` /
   `sandbox_connect_token` plaintext in `TaskRun.state` (a plain JSONField). The
   connect token is an ephemeral Modal tunnel token, not a durable account secret
   (those, e.g. env vars, tasks _does_ encrypt via `EncryptedJSONStringField`). If

@@ -60,7 +60,10 @@ interface UrlChangeTrackerConfig {
 }
 
 const DEFAULT_CONFIG: UrlChangeTrackerConfig = {
-    maxChangesPerSecond: 4,
+    // A settling action<->URL round trip converges within a handful of writes, landing right around
+    // 5-6 changes in the window. Keep the ceiling above that so ordinary sync churn isn't flagged;
+    // only a burst that fails to converge (7+) looks like a genuine loop.
+    maxChangesPerSecond: 6,
     windowMs: 3000,
     throttleWarningMs: 60000,
     // Above this many changes in the window we always treat the burst as a loop, even when every URL

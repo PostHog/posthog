@@ -67,6 +67,7 @@ export type NativeSourceHierarchyStatus = {
 
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
+    ATTRIBUTION = 'attribution',
     INTEGRATION_HEALTH = 'integration-health',
 }
 

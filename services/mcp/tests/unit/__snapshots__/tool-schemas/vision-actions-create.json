@@ -1,0 +1,185 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "A Replay Vision action: a scheduled \"and then…\" automation over a scanner's observations.",
+    "properties": {
+        "alert_config": {
+            "description": "Alert condition; required when mode is 'alert', ignored otherwise.",
+            "properties": {
+                "direction": {
+                    "default": "above",
+                    "description": "Which side of the threshold breaches: 'above' fires when the metric is at or above it, 'below' when at or below (e.g. an average score dropping under a floor). Both inclusive. Defaults to 'above'; ignored for every_match.\n\n* `above` - At or above\n* `below` - At or below",
+                    "enum": ["above", "below"],
+                    "type": "string"
+                },
+                "frequency": {
+                    "default": "on_breach",
+                    "description": "'every_match' notifies about every new matching observation (batched per check); 'on_breach' notifies once when the threshold condition starts holding. Defaults to 'on_breach'.\n\n* `every_match` - Every new match\n* `on_breach` - When a threshold is crossed",
+                    "enum": ["every_match", "on_breach"],
+                    "type": "string"
+                },
+                "include_reasoning": {
+                    "default": false,
+                    "description": "When true, each example line in the alert message includes the scanner's full reasoning for that observation, not just its verdict/score/tags. Useful when piping the message somewhere else to read or act on. Defaults to false.",
+                    "type": "boolean"
+                },
+                "metric": {
+                    "default": "count",
+                    "description": "What to measure over the window: 'count' of targeted observations, or 'avg_score' (the mean scorer score; scorer scanners only). every_match supports 'count' only.\n\n* `count` - Count of matching observations\n* `avg_score` - Average score",
+                    "enum": ["count", "avg_score"],
+                    "type": "string"
+                },
+                "threshold": {
+                    "description": "The alert fires when the metric is at or above ('above') or at or below ('below') this value, per 'direction'. Required for on_breach; ignored for every_match.",
+                    "type": "number"
+                },
+                "window_days": {
+                    "anyOf": [
+                        {
+                            "const": 1,
+                            "type": "number"
+                        },
+                        {
+                            "const": 3,
+                            "type": "number"
+                        },
+                        {
+                            "const": 7,
+                            "type": "number"
+                        },
+                        {
+                            "const": 14,
+                            "type": "number"
+                        },
+                        {
+                            "const": 30,
+                            "type": "number"
+                        }
+                    ],
+                    "description": "Rolling lookback window for on_breach conditions, ending at each check. Defaults to 1 day. every_match ignores it (each check covers what's new since the previous one).\n\n* `1` - 1 day\n* `3` - 3 days\n* `7` - 7 days\n* `14` - 14 days\n* `30` - 30 days"
+                }
+            },
+            "type": "object"
+        },
+        "delivery_config": {
+            "description": "List of delivery destinations the synthesized summary is sent to.",
+            "items": {
+                "description": "A single delivery destination: a Slack channel or an HTTP webhook URL.",
+                "properties": {
+                    "channel": {
+                        "description": "Slack channel ID or name the summary is posted to. Required when type is 'slack'.",
+                        "type": "string"
+                    },
+                    "integration_id": {
+                        "description": "ID of the Slack Integration on this team used to deliver. Required when type is 'slack'.",
+                        "type": "number"
+                    },
+                    "type": {
+                        "description": "Destination type: 'slack' posts to a Slack channel; 'webhook' POSTs a JSON payload to a URL.\n\n* `slack` - Slack\n* `webhook` - Webhook",
+                        "enum": ["slack", "webhook"],
+                        "type": "string"
+                    },
+                    "url": {
+                        "description": "HTTPS endpoint the summary is POSTed to as JSON. Required when type is 'webhook'. Redacted to scheme+host in responses for users without editor access to the scanner.",
+                        "format": "uri",
+                        "type": "string"
+                    }
+                },
+                "required": ["type"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "enabled": {
+            "description": "When false, the scheduler skips this action.",
+            "type": "boolean"
+        },
+        "is_scanner_digest": {
+            "description": "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner.",
+            "type": "boolean"
+        },
+        "mode": {
+            "description": "What the action produces. MVP supports 'group_summary' only.\n\n* `group_summary` - Group summary\n* `alert` - Alert\n* `per_observation` - Per observation",
+            "enum": ["group_summary", "alert", "per_observation"],
+            "type": "string"
+        },
+        "name": {
+            "description": "Human-readable action name. Unique within the team.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "scanner": {
+            "description": "Scanner whose observations this action operates on. Must belong to the same team.",
+            "type": "string"
+        },
+        "selection": {
+            "description": "Targeting predicate: which of the scanner's observations this action runs on.",
+            "properties": {
+                "max_score": {
+                    "description": "Only run on scorer observations with a score at or below this value (inclusive).",
+                    "type": "number"
+                },
+                "min_score": {
+                    "description": "Only run on scorer observations with a score at or above this value (inclusive).",
+                    "type": "number"
+                },
+                "scanner_ids": {
+                    "description": "Restrict to observations produced by these scanner IDs. Defaults to the bound scanner.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "description": "Only run on classifier observations carrying any of these tags (fixed or freeform).",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "verdict": {
+                    "description": "Only run on monitor observations with one of these verdicts (yes/no/inconclusive).",
+                    "items": {
+                        "description": "* `yes` - yes\n* `no` - no\n* `inconclusive` - inconclusive",
+                        "enum": ["yes", "no", "inconclusive"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "synthesis_config": {
+            "description": "Synthesis options for the group summary, e.g. {prompt_guide}.",
+            "properties": {
+                "prompt_guide": {
+                    "description": "Free-form guidance steering how the group summary is written.",
+                    "maxLength": 500,
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "trigger_config": {
+            "description": "Trigger parameters. For schedule triggers: {rrule, timezone}.",
+            "properties": {
+                "rrule": {
+                    "description": "iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately).",
+                    "type": "string"
+                },
+                "timezone": {
+                    "default": "UTC",
+                    "description": "IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "trigger_type": {
+            "description": "What fires the action. MVP supports 'schedule' only.\n\n* `schedule` - Schedule\n* `threshold` - Threshold",
+            "enum": ["schedule", "threshold"],
+            "type": "string"
+        }
+    },
+    "required": ["name", "scanner"],
+    "type": "object"
+}

@@ -225,3 +225,113 @@ class TestDispatchLoopEventChannelIsolation(LoopNotificationsTestCase):
         fake_slack_client.chat_postMessage.assert_called_once()
         # Only the original event's in-app notification: slack succeeded so no disable notice fired.
         mock_create_notification.assert_called_once()
+
+
+class TestDispatchLoopEventEmailReport(LoopNotificationsTestCase):
+    @parameterized.expand(
+        [
+            ("report_present", {"report": "Weekly summary: all green."}, "Weekly summary: all green."),
+            ("report_absent", {}, ""),
+            ("report_none", {"report": None}, ""),
+        ]
+    )
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.is_email_available", return_value=True)
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.EmailMessage")
+    def test_email_template_context_report(
+        self, _name, payload, expected_report, mock_email_message_cls, _mock_email_available, _mock_create_notification
+    ):
+        loop = self.create_loop(notifications={"email": {"enabled": True, "events": ["run_completed"]}})
+
+        dispatch_loop_event(loop, "run_completed", payload)
+
+        mock_email_message_cls.assert_called_once()
+        template_context = mock_email_message_cls.call_args.kwargs["template_context"]
+        self.assertEqual(template_context["report"], expected_report)
+
+
+class TestDispatchLoopEventSlackReport(LoopNotificationsTestCase):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"team": {"id": "T123"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def create_loop_with_slack(self, **overrides) -> Loop:
+        notifications = {
+            "slack": {
+                "enabled": True,
+                "events": ["run_completed"],
+                "params": {"integration_id": self.integration.id, "channel": "C123"},
+            }
+        }
+        return self.create_loop(notifications=notifications, **overrides)
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
+    def test_slack_body_uses_report_when_present(self, mock_slack_cls, _mock_create_notification):
+        loop = self.create_loop_with_slack()
+        fake_client = MagicMock()
+        mock_slack_cls.return_value.client = fake_client
+
+        dispatch_loop_event(loop, "run_completed", {"report": "Weekly summary: all green."})
+
+        fake_client.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            text='*Loop "Daily digest" finished*\nWeekly summary: all green.',
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
+    def test_slack_report_escapes_control_tokens(self, mock_slack_cls, _mock_create_notification):
+        loop = self.create_loop_with_slack(name='Digest <!channel> & "more"')
+        fake_client = MagicMock()
+        mock_slack_cls.return_value.client = fake_client
+
+        dispatch_loop_event(loop, "run_completed", {"report": "Investigate <!channel> and <https://evil.test|this>."})
+
+        fake_client.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            text=(
+                '*Loop "Digest &lt;!channel&gt; &amp; "more"" finished*\n'
+                "Investigate &lt;!channel&gt; and &lt;https://evil.test|this&gt;."
+            ),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
+    def test_slack_body_falls_back_to_default_body_without_report(self, mock_slack_cls, _mock_create_notification):
+        loop = self.create_loop_with_slack()
+        fake_client = MagicMock()
+        mock_slack_cls.return_value.client = fake_client
+
+        dispatch_loop_event(loop, "run_completed", {})
+
+        fake_client.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            text='*Loop "Daily digest" finished*\nThe run finished successfully.',
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
+    def test_slack_report_is_truncated_to_slack_body_limit(self, mock_slack_cls, _mock_create_notification):
+        loop = self.create_loop_with_slack()
+        fake_client = MagicMock()
+        mock_slack_cls.return_value.client = fake_client
+
+        dispatch_loop_event(loop, "run_completed", {"report": "x" * 4000})
+
+        text = fake_client.chat_postMessage.call_args.kwargs["text"]
+        self.assertEqual(len(text), 3000)
+        self.assertTrue(text.startswith('*Loop "Daily digest" finished*\n'))
+        self.assertTrue(text.endswith("…"))

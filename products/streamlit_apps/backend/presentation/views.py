@@ -16,11 +16,16 @@ from posthog.models.user import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle
 
 from products.streamlit_apps.backend.facade import api
-from products.streamlit_apps.backend.facade.contracts import CreateAppInput, UpdateAppInput
+from products.streamlit_apps.backend.facade.contracts import (
+    CreateAppInput,
+    CreateVersionFromSourceInput,
+    UpdateAppInput,
+)
 from products.streamlit_apps.backend.presentation.serializers import (
     ActivateVersionRequestSerializer,
     ActivateVersionResponseSerializer,
     CreateAppInputSerializer,
+    CreateVersionFromSourceInputSerializer,
     StreamlitAppMinimalSerializer,
     StreamlitAppsAccessPermission,
     StreamlitAppSandboxSerializer,
@@ -37,11 +42,46 @@ logger = structlog.get_logger(__name__)
 
 _STATUS_CACHE_TTL_SECONDS = 2
 
+# Actions that let a token ship app code, choose which code runs, or make it run.
+# The sandbox bridge executes the active version's HogQL as that version's author,
+# so tokens driving these paths must themselves hold query:read — otherwise a
+# streamlit_app-only key escalates to HogQL reads through code it uploads, or by
+# activating a version authored by someone with broader access. activate_version
+# counts without an explicit start of its own: the next start by anyone, or a live
+# sandbox its best-effort stop failed to reclaim, runs the newly activated code.
+_QUERY_CAPABLE_WRITE_ACTIONS = frozenset(
+    {"upload_version", "create_version_from_source", "activate_version", "start", "restart"}
+)
+
 
 class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "streamlit_app"
+    # Custom actions are invisible to the default CRUD scope derivation, so
+    # without these lists personal-API-key (and MCP) calls to them are refused.
+    scope_object_read_actions = ["list", "retrieve", "versions", "get_status", "connect_info"]
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "destroy",
+        "upload_version",
+        "create_version_from_source",
+        "activate_version",
+        "start",
+        "stop",
+        "restart",
+    ]
     permission_classes = [StreamlitAppsAccessPermission]
     lookup_field = "short_id"
+
+    def dangerously_get_required_scopes(self, request: Request, view: "StreamlitAppViewSet") -> list[str] | None:
+        action = getattr(view, "action", None)
+        if action in _QUERY_CAPABLE_WRITE_ACTIONS:
+            return ["streamlit_app:write", "query:read"]
+        if action == "connect_info":
+            # The iframe renders whatever the app queried — reading it is reading query results.
+            return ["streamlit_app:read", "query:read"]
+        return None
 
     @extend_schema(summary="List streamlit apps", responses={200: StreamlitAppMinimalSerializer(many=True)})
     def list(self, request: Request, **kwargs: Any) -> Response:
@@ -137,7 +177,7 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=UploadVersionRequestSerializer,
         responses={201: StreamlitAppVersionSerializer},
     )
-    @action(methods=["POST"], detail=True, url_path="upload_version")
+    @action(methods=["POST"], detail=True, url_path="upload_version", throttle_classes=[ClickHouseBurstRateThrottle])
     def upload_version(self, request: Request, short_id: str, **kwargs: Any) -> Response:
         zip_file = request.FILES.get("file")
         if not zip_file:
@@ -165,6 +205,37 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(status=status.HTTP_404_NOT_FOUND)
         except api.ZipTooLargeError as e:
             return Response({"detail": str(e)}, status=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        except api.InvalidZipError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except api.ConcurrentUploadError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(StreamlitAppVersionSerializer(version).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=CreateVersionFromSourceInputSerializer,
+        summary="Create an app version from source code",
+        responses={201: OpenApiResponse(response=StreamlitAppVersionSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="create_version_from_source",
+        throttle_classes=[ClickHouseBurstRateThrottle],
+    )
+    def create_version_from_source(
+        self, request: TypedRequest[CreateVersionFromSourceInput], short_id: str, **kwargs: Any
+    ) -> Response:
+        try:
+            version = api.create_version_from_source(
+                team_id=self.team_id,
+                short_id=short_id,
+                user=cast(User, request.user),
+                data=request.validated_data,
+                was_impersonated=is_impersonated_session(request),
+            )
+        except api.AppNotFoundError:
+            return Response(status=status.HTTP_404_NOT_FOUND)
         except api.InvalidZipError as e:
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         except api.ConcurrentUploadError as e:

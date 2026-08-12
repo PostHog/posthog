@@ -257,6 +257,14 @@ BEDROCK_PARAM_STRIPPED = Counter(
     labelnames=["param", "product"],
 )
 
+CLEAR_THINKING_EDIT_DROPPED = Counter(
+    "llm_gateway_clear_thinking_edit_dropped_total",
+    "Requests where a clear_thinking_20251015 context-management edit was stripped because the "
+    "request didn't enable thinking. No model label: this fires before the model is validated, so "
+    "a caller-supplied id would be unbounded cardinality.",
+    labelnames=["product"],
+)
+
 BEDROCK_COUNT_TOKENS_ERRORS = Counter(
     "llm_gateway_bedrock_count_tokens_errors_total",
     "Bedrock CountTokens provider-call failures before fallback handling",

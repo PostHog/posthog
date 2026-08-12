@@ -17,7 +17,7 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repla
 # the canonical label set and ships it in the Avro payload); the ingest MVs store it
 # verbatim and never recompute it. This is the TSDB / Snuffle-default approach — the
 # storage engine must not compute identity, or two independent MVs diverge (and the
-# stored-map MV context corrupts the hash). See docs/internal/metrics for the history.
+# stored-map MV context corrupts the hash).
 #
 # Distinct from `metrics1` (pre-aggregated rollups for dashboards/alerts): this
 # keeps every raw sample, for exact quantiles, per-emission drill-down, and the

@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.campfire import CampfireResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.canonical_descriptions import (
@@ -15,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.c
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.campfire.source import CampfireSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.campfire import (
     CampfireSourceConfig,
 )

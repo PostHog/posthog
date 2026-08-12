@@ -37,6 +37,12 @@ const summarizerAlert = {
     selection: {},
 } as unknown as VisionActionApi
 
+const webhookAction = {
+    ...existingAction,
+    id: 'wh',
+    delivery_config: [{ type: 'webhook', url: 'https://example.com/hook' }],
+} as unknown as VisionActionApi
+
 describe('actionEditorSceneLogic', () => {
     let logic: ReturnType<typeof actionEditorSceneLogic.build>
 
@@ -44,7 +50,13 @@ describe('actionEditorSceneLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/vision/actions/:id/': ({ params }) =>
-                    params.id === 'al1' ? existingAlert : params.id === 'al2' ? summarizerAlert : existingAction,
+                    params.id === 'al1'
+                        ? existingAlert
+                        : params.id === 'al2'
+                          ? summarizerAlert
+                          : params.id === 'wh'
+                            ? webhookAction
+                            : existingAction,
                 '/api/projects/:team/vision/scanners/:id/': ({ params }) =>
                     params.id === 's2'
                         ? { id: 's2', name: 'Digest scanner', scanner_type: 'summarizer' }
@@ -101,8 +113,10 @@ describe('actionEditorSceneLogic', () => {
                     cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
                     timezone: 'Europe/Prague',
                     prompt_guide: 'focus on checkout',
+                    delivery_type: 'slack',
                     integration_id: 5,
                     channel: 'C123',
+                    webhook_url: '',
                     verdict: ['yes'],
                     tags: [],
                     min_score: 2,
@@ -113,6 +127,7 @@ describe('actionEditorSceneLogic', () => {
                     alert_threshold: 1,
                     alert_direction: 'above',
                     alert_window_days: 1,
+                    alert_include_reasoning: false,
                 },
             })
 
@@ -122,6 +137,18 @@ describe('actionEditorSceneLogic', () => {
         await expectLogic(logic).toMatchValues({
             actionForm: expect.objectContaining({ verdict: [], tags: [], min_score: null, max_score: null }),
         })
+    })
+
+    it('the edit route seeds the webhook delivery type and url from a webhook action', async () => {
+        router.actions.push(urls.replayVisionActionEdit('wh'))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                actionForm: expect.objectContaining({
+                    delivery_type: 'webhook',
+                    webhook_url: 'https://example.com/hook',
+                }),
+            })
     })
 
     it('editing an alert seeds the mode and condition instead of flipping to summary', async () => {

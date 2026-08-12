@@ -1029,26 +1029,26 @@ class TestResolver(BaseTest):
         assert "events__override" in sql
         assert "LEFT" in sql.upper()
 
-    def test_join_using(self):
-        node = self._select(
-            "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a"
-        )
+    @parameterized.expand(
+        [
+            (
+                "cte",
+                "WITH my_table AS (SELECT 1 AS a) SELECT q1.a FROM my_table AS q1 INNER JOIN my_table AS q2 USING a",
+            ),
+            ("table", "SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event"),
+        ],
+    )
+    def test_join_using_desugars_to_on(self, _name: str, query: str):
+        node = self._select(query)
         node = resolve_types(node, self.context, dialect="clickhouse")
         assert isinstance(node, ast.SelectQuery)
         assert isinstance(node.select_from, ast.JoinExpr)
         assert isinstance(node.select_from.next_join, ast.JoinExpr)
-        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
         constraint = node.select_from.next_join.constraint
-        assert constraint.constraint_type == "USING"
-        assert cast(ast.Alias, constraint.expr).alias == "a"
-
-        node = self._select("SELECT q1.event FROM events AS q1 INNER JOIN events AS q2 USING event")
-        node = resolve_types(node, self.context, dialect="clickhouse")
-        assert isinstance(node, ast.SelectQuery)
-        assert isinstance(node.select_from, ast.JoinExpr)
-        assert isinstance(node.select_from.next_join, ast.JoinExpr)
-        assert isinstance(node.select_from.next_join.constraint, ast.JoinConstraint)
-        assert node.select_from.next_join.constraint.constraint_type == "USING"
+        assert isinstance(constraint, ast.JoinConstraint)
+        assert constraint.constraint_type == "ON"
+        assert isinstance(constraint.expr, ast.CompareOperation)
+        assert constraint.expr.op == ast.CompareOperationOp.Eq
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -2117,3 +2117,9 @@ class TestResolver(BaseTest):
     def test_uuid_literal_comparison_allows(self, _name, query):
         expr = self._select(query)
         resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_uuid_literal_guard_skipped_for_non_clickhouse_dialects(self):
+        # other target dialects accept UUID text forms ClickHouse doesn't (braces, no dashes),
+        # so the canonical-form guard must not reject their queries
+        expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
+        resolve_types(expr, self.context, dialect="postgres")

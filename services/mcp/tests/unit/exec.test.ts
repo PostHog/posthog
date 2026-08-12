@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { STRUCTURED_CONTENT_ONLY_TEXT } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
@@ -11,6 +12,8 @@ import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
     createExecTool,
+    describeApiValidationError,
+    describeExecCommand,
     describeValidationError,
     type ExecInnerCallProperties,
     type ExecToolOptions,
@@ -295,7 +298,7 @@ describe('exec tool', () => {
             )
         })
 
-        it('propagates the UI resource URI and exec brand when the inner tool has a UI app and consumer is posthog-code', async () => {
+        it('keeps UI data in structuredContent (not _meta) when the tool has no formatted table', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
@@ -307,19 +310,21 @@ describe('exec tool', () => {
                 __execBuiltPayload?: true
             }
 
-            // Text content still includes the TOON-formatted result for model context
-            expect(result.content[0]!.text).toContain('id: 1')
-            // structuredContent is dropped; the UI data (with analytics) rides on _meta.
-            expect(result.structuredContent).toBeUndefined()
-            const appData = result._meta[APP_DATA_META_KEY] as {
+            // Text content points at structuredContent instead of repeating the result
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            // With no compact table to protect, the app payload stays in the standard
+            // structuredContent field (with analytics) rather than being duplicated under
+            // the non-standard `_meta` app-data key.
+            const structured = result.structuredContent as {
                 id: number
                 _analytics: { distinctId: string; toolName: string }
             }
-            expect(appData.id).toBe(1)
-            expect(appData._analytics).toEqual({
+            expect(structured.id).toBe(1)
+            expect(structured._analytics).toEqual({
                 distinctId: 'test-distinct-id',
                 toolName: 'mock-tool',
             })
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
             // _meta on the response exposes the UI resource URI to clients that
             // only see the `exec` tool registered (single-exec mode). Both the
             // new nested key and the legacy flat key are emitted for
@@ -332,7 +337,7 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        // Inline-exec UI-app hosts: PostHog Code (via consumer) plus Claude Code and
+        // Inline-exec UI-app hosts: PostHog Desktop (via consumer) plus Claude Code and
         // Cowork (via the client-profile flag). All three surface structuredContent to
         // the model, so it must be dropped and the UI data re-homed onto _meta.
         it.each([
@@ -372,7 +377,7 @@ describe('exec tool', () => {
             }
         )
 
-        it('re-homes UI data onto _meta and gives the model TOON text even when there is no formatted override', async () => {
+        it('carries the payload once — in structuredContent — when there is no formatted override', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 handler: async () => ({
@@ -387,11 +392,14 @@ describe('exec tool', () => {
                 _meta: { [key: string]: unknown }
             }
 
-            // Without a compact table the model reads TOON text, never verbose structuredContent.
-            expect(result.structuredContent).toBeUndefined()
-            expect(result.content[0]!.text).toContain('_posthogUrl')
-            const appData = result._meta[APP_DATA_META_KEY] as { results: unknown }
-            expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            // With no compact table there is nothing smaller to put in the text channel, so
+            // the payload stays in the standard structuredContent field and the text carries
+            // a pointer — neither a second copy in text nor one under the `_meta` key.
+            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+            expect(result.content[0]!.text).not.toContain('_posthogUrl')
+            const structured = result.structuredContent as { results: unknown }
+            expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
         })
 
         // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
@@ -1250,6 +1258,56 @@ describe('exec tool', () => {
         })
     })
 
+    describe('describeExecCommand', () => {
+        const isKnownToolName = (name: string): boolean => ['execute-sql', 'query-trends', 'my-tool'].includes(name)
+
+        // The verb/target pair is what separates schema discovery from tool search
+        // from a mistyped verb in analytics. Flag handling differs per verb, so a
+        // parser regression silently collapses the funnel back into one bucket.
+        it.each([
+            ['tools', 'tools', undefined],
+            ['search query-', 'search', undefined],
+            ['info execute-sql', 'info', 'execute-sql'],
+            ['info --json execute-sql', 'info', 'execute-sql'],
+            ['schema query-trends series', 'schema', 'query-trends'],
+            // `info` matches the whole remainder as an exact tool name, so a
+            // trailing token makes the lookup fail — telemetry must mirror the
+            // dispatcher's rejection, not credit the valid first token.
+            ['info execute-sql extra', 'info', 'unrecognized'],
+            ['call my-tool {"a":1}', 'call', 'my-tool'],
+            ['call --json --confirm my-tool {}', 'call', 'my-tool'],
+            ['  info   execute-sql  ', 'info', 'execute-sql'],
+            // A removed tool is still one of our own names, so the redirect it
+            // triggers stays diagnosable.
+            ['call query-run {}', 'call', 'query-run'],
+            // Verb present, target absent: nothing to record for the tool, but the
+            // verb still is.
+            ['info', 'info', undefined],
+            ['call', 'call', undefined],
+            ['', undefined, undefined],
+        ])('describes "%s" as verb=%s target=%s', (command, expectedVerb, expectedTarget) => {
+            expect(describeExecCommand(command, isKnownToolName)).toEqual({
+                verb: expectedVerb,
+                ...(expectedTarget !== undefined ? { targetTool: expectedTarget } : {}),
+            })
+        })
+
+        // Both fields reach analytics, and a token the grammar rejected is caller
+        // text — sanitizing its charset would leave an identifier-shaped secret
+        // intact, so it is replaced outright. Same value-free constraint
+        // `describeValidationError` holds for schema rejections.
+        it.each([
+            ['an unknown verb', 'sk-live-abc123 {"a":1}', { verb: 'unrecognized' }],
+            ['an unresolvable call target', 'call sk-live-abc123 {}', { verb: 'call', targetTool: 'unrecognized' }],
+            ['an unresolvable info target', 'info sk-live-abc123', { verb: 'info', targetTool: 'unrecognized' }],
+        ])('records a sentinel instead of %s', (_label, command, expected) => {
+            const shape = describeExecCommand(command, isKnownToolName)
+
+            expect(shape).toEqual(expected)
+            expect(JSON.stringify(shape)).not.toContain('sk-live-abc123')
+        })
+    })
+
     describe('exec tool description', () => {
         function createExecContext(): Context {
             return {
@@ -1356,7 +1414,7 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
             expect(detail.inputKeys).toEqual(['organizationId'])
             // Never record input values — the raw uuid must not appear anywhere.
@@ -1369,10 +1427,111 @@ describe('exec tool', () => {
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
-            const detail = describeValidationError(result.error!, input)
+            const detail = describeValidationError(result.error!, input, schema)
 
-            expect(detail.fields).toContain('projectId:invalid_type')
+            expect(detail.fields).toContain('projectId:invalid_type:string')
             expect(JSON.stringify(detail)).not.toContain('not-a-number')
+        })
+
+        // `invalid_type` alone conflates an omitted parameter with one sent under the
+        // right name but the wrong shape — the two dominant rejection classes, and
+        // they need different fixes (aliasing vs coercion/envelope). The received
+        // type is what separates them.
+        it.each([
+            ['omitted entirely', {}, 'id:invalid_type:undefined'],
+            ['sent as the wrong primitive', { id: 42 }, 'id:invalid_type:number'],
+            ['sent as an envelope object', { id: { value: 'x' } }, 'id:invalid_type:object'],
+            ['sent as an array', { id: ['x'] }, 'id:invalid_type:array'],
+            ['sent as null', { id: null }, 'id:invalid_type:null'],
+        ])('distinguishes a required param %s', (_label, input, expected) => {
+            const schema = z.object({ id: z.string() })
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input as Record<string, unknown>, schema).fields).toEqual([
+                expected,
+            ])
+        })
+
+        // The received type is only meaningful for the type-shaped codes; appending it
+        // to every code would bloat the descriptor and say nothing (`too_big:string`).
+        it('omits the received type for a code the type does not explain', () => {
+            const schema = z.object({ description: z.string().max(3) })
+            const input = { description: 'far too long' }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['description:too_big'])
+        })
+
+        // A malformed array produces one issue per element. Collapsing indices keeps
+        // them a single descriptor — otherwise they fill the 20-descriptor cap with
+        // restatements of one defect and evict the genuinely different field that
+        // failed after them, which is the information the event exists to carry.
+        it('collapses array indices so one bad array cannot evict other failed fields', () => {
+            const schema = z.object({
+                series: z.array(z.object({ event: z.string() })),
+                dateRange: z.string(),
+            })
+            const input = {
+                series: Array.from({ length: 50 }, () => ({ event: 123 })),
+                dateRange: 456,
+            }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const { fields } = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+
+            expect(fields).toEqual(['series.N.event:invalid_type:number', 'dateRange:invalid_type:number'])
+        })
+
+        // The full issue path is what distinguishes a flattened envelope from a bad
+        // discriminator, but under an open record (`generate-app-url`'s `params`) the
+        // path's own segments are the caller's keys. Masking them keeps the field that
+        // held the bad value visible without recording anything the caller chose.
+        it('masks a path segment the schema never declared', () => {
+            const schema = z.object({
+                url: z.string(),
+                params: z.record(z.string(), z.string()),
+            })
+            const input = { url: '/project/2', params: { 'sk-live-abc123': 42 } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            const detail = describeValidationError(result.error!, input as Record<string, unknown>, schema)
+
+            expect(detail.fields).toEqual(['params.*:invalid_type:number'])
+            expect(JSON.stringify(detail)).not.toContain('sk-live-abc123')
+        })
+
+        // Nested schema fields are ours, so they must survive the mask — otherwise
+        // every descriptor collapses to `*` and the reason the PR widened the path
+        // (telling `query:invalid_union` apart from `query.kind:invalid_type`) is lost.
+        it('keeps a declared nested path intact', () => {
+            const schema = z.object({ query: z.object({ kind: z.literal('TrendsQuery') }) })
+            const input = { query: { kind: 'trends' } }
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(describeValidationError(result.error!, input, schema).fields).toEqual(['query.kind:invalid_value'])
+        })
+    })
+
+    describe('describeApiValidationError', () => {
+        // API-layer rejections carried no structured field at all, so they could only
+        // be reached by string-parsing $mcp_error_message. Same format as the schema
+        // path so a single query spans both.
+        it.each([
+            ['name', 'required', 'name:required'],
+            ['series.0.event', 'invalid', 'series.N.event:invalid'],
+            [undefined, 'invalid', '(root):invalid'],
+            ['name', undefined, 'name:unknown'],
+        ])('describes attr=%s code=%s as %s', (attr, code, expected) => {
+            expect(describeApiValidationError(attr, code)).toEqual([expected])
+        })
+
+        it('bounds an over-long attr to the shared key-length cap', () => {
+            expect(describeApiValidationError('a'.repeat(200), 'invalid')[0]).toBe(`${'a'.repeat(64)}:invalid`)
         })
     })
 

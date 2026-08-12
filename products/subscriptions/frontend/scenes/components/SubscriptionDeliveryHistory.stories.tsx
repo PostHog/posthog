@@ -14,7 +14,7 @@ const noopTestDelivery = (): void => undefined
 
 const meta: Meta<typeof SubscriptionDeliveryHistory> = {
     component: SubscriptionDeliveryHistory,
-    title: 'Scenes-App/Subscriptions/Subscription delivery history',
+    title: 'Products/Subscriptions/Subscription delivery history',
     parameters: {
         mockDate: '2026-04-07',
     },

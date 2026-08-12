@@ -6,6 +6,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 from rest_framework import status
 
 from posthog.middleware import EnvironmentsRewriteMiddleware
+from posthog.models.organization import OrganizationMembership
 
 # EnvironmentsRewriteMiddleware serves /api/environments/* through the equivalent /api/projects/*
 # viewset (same id — Project ↔ primary Team are 1:1 and share it) via an in-process path rewrite.
@@ -65,6 +66,9 @@ class TestEnvironmentsRewriteIntegration(APIBaseTest):
         self.assertEqual(response["Link"], '</api/projects/@current/>; rel="successor-version"')
 
     def test_write_round_trips_method_and_body(self):
+        # Renaming is admin-only, so run as an admin here — this test covers the rewrite, not the permission check.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         response = self.client.patch("/api/environments/@current/", {"name": "renamed via env alias"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "renamed via env alias")

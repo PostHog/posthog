@@ -1,4 +1,14 @@
-import { buildDailyChartData, type DailyToolStat } from './mcpAnalyticsToolDetailLogic'
+import { expectLogic } from 'kea-test-utils'
+
+import api from 'lib/api'
+
+import { initKeaTests } from '~/test/init'
+
+import { type DailyToolStat, buildDailyChartData, mcpAnalyticsToolDetailLogic } from './mcpAnalyticsToolDetailLogic'
+
+jest.mock('lib/api')
+
+const mockApi = api as jest.Mocked<typeof api>
 
 function stat(overrides: Partial<DailyToolStat> & { day: string }): DailyToolStat {
     return {
@@ -52,5 +62,161 @@ describe('buildDailyChartData', () => {
         expect(data.calls).toEqual([0, 12, 0])
         expect(data.p95).toEqual([NaN, 200, NaN])
         expect(data.sessions).toEqual([0, 5, 0])
+    })
+})
+
+describe('incompleteTail', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        initKeaTests()
+        jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+    })
+
+    // An open-ended relative window always ends in the bucket that is still collecting, and a window
+    // that closed in the past never does, so this holds whenever the suite runs.
+    it.each([
+        ['an open-ended window', '-30d', null, true],
+        ['a window that already closed', '2026-06-01', '2026-06-10', false],
+    ])('is %s: %s', async (_label, dateFrom, dateTo, expected) => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.setDateFilter(dateFrom, dateTo)
+        }).toFinishAllListeners()
+        // Seeded directly: with no rows the chart data short-circuits to empty, and an empty axis
+        // has no tail to dash either way.
+        logic.actions.loadDailyStatsSuccess([stat({ day: '2026-06-02 00:00:00', calls: 1 })])
+
+        expect(logic.values.incompleteTail).toBe(expected)
+    })
+})
+
+describe('failure drill-down', () => {
+    beforeEach(() => {
+        jest.clearAllMocks()
+        initKeaTests()
+        jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+    })
+
+    // The occurrences query must receive the bucket's RAW parts (not the composed display
+    // label), and the no-status bucket must omit errorStatus so the backend's
+    // "only events without a status" branch applies.
+    it.each([
+        ['statused bucket', '500', '500'],
+        ['no-status bucket', '', undefined],
+    ])(
+        'selecting a %s queries occurrences with raw bucket params and stores the results',
+        async (_label, bucketStatus, expectedStatus) => {
+            const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+            logic.mount()
+            const occurrence = {
+                timestamp: '2026-07-15 00:00:00',
+                distinct_id: 'd1',
+                session_id: 's1',
+                harness: 'Claude Code',
+                intent: '',
+                error_message: 'boom: table not found',
+                error_status: bucketStatus,
+            }
+            mockApi.query.mockClear()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [occurrence] })
+
+            await expectLogic(logic, () => {
+                logic.actions.selectFailure({
+                    message: 'api_5xx (HTTP 500)',
+                    error_type: 'api_5xx',
+                    error_status: bucketStatus,
+                    occurrences: 2,
+                    last_seen: '2026-07-15 00:00:00',
+                    harnesses: [],
+                })
+            }).toDispatchActions(['loadFailureOccurrences', 'loadFailureOccurrencesSuccess'])
+
+            expect(mockApi.query).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    kind: 'MCPToolFailureOccurrencesQuery',
+                    toolName: 'query_run',
+                    errorType: 'api_5xx',
+                    errorStatus: expectedStatus,
+                })
+            )
+            expect(logic.values.failureOccurrences).toEqual([occurrence])
+        }
+    )
+
+    // Guards the stale-response race: bucket A selected, then bucket B before A resolves.
+    // Without the loader breakpoint, A's late response would overwrite B's occurrences
+    // while the modal header still shows B.
+    it('discards a superseded bucket load so a slow earlier bucket cannot overwrite the latest one', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        const occurrenceFor = (id: string): Record<string, string> => ({
+            timestamp: '2026-07-15 00:00:00',
+            distinct_id: id,
+            session_id: 's1',
+            harness: 'Claude Code',
+            intent: '',
+            error_message: `boom from ${id}`,
+            error_status: '',
+        })
+        let resolveSlowA: (value: unknown) => void = () => {}
+        const slowA = new Promise((resolve) => {
+            resolveSlowA = resolve
+        })
+        jest.spyOn(mockApi, 'query')
+            .mockImplementationOnce(() => slowA as any)
+            .mockImplementationOnce(() => Promise.resolve({ results: [occurrenceFor('bucketB')] }))
+
+        const bucket = (errorType: string): any => ({
+            message: errorType,
+            error_type: errorType,
+            error_status: '',
+            occurrences: 1,
+            last_seen: '2026-07-15 00:00:00',
+            harnesses: [],
+        })
+        await expectLogic(logic, () => {
+            logic.actions.selectFailure(bucket('api_5xx'))
+            logic.actions.selectFailure(bucket('internal'))
+        }).toDispatchActions(['loadFailureOccurrencesSuccess'])
+        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+
+        // Bucket A's request resolves late — its stale result must be discarded.
+        resolveSlowA({ results: [occurrenceFor('bucketA')] })
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        expect(logic.values.failureOccurrences).toEqual([occurrenceFor('bucketB')])
+    })
+
+    it('clears the previous bucket occurrences when deselecting', async () => {
+        const logic = mcpAnalyticsToolDetailLogic({ toolName: 'query_run' })
+        logic.mount()
+        jest.spyOn(mockApi, 'query').mockResolvedValue({
+            results: [
+                {
+                    timestamp: '2026-07-15 00:00:00',
+                    distinct_id: 'd1',
+                    session_id: 's1',
+                    harness: 'Claude Code',
+                    intent: '',
+                    error_message: 'boom',
+                    error_status: '',
+                },
+            ],
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.selectFailure({
+                message: 'internal',
+                error_type: 'internal',
+                error_status: '',
+                occurrences: 1,
+                last_seen: '2026-07-15 00:00:00',
+                harnesses: [],
+            })
+        }).toDispatchActions(['loadFailureOccurrencesSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.selectFailure(null)
+        }).toMatchValues({ selectedFailure: null, failureOccurrences: [] })
     })
 })

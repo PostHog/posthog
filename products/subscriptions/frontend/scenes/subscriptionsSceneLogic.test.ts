@@ -1,8 +1,11 @@
-import { MOCK_DEFAULT_USER, MOCK_USER_UUID } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER, MOCK_USER_UUID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -87,6 +90,11 @@ describe('subscriptionsSceneLogic', () => {
         it('sends resource_type=ai_prompt on AI reports tab', async () => {
             await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
             subscriptionRequestUrls.length = 0
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true })
 
             await expectLogic(logic, () => {
                 logic.actions.setCurrentTab(SubscriptionsTab.AI)
@@ -95,6 +103,20 @@ describe('subscriptionsSceneLogic', () => {
             expect(subscriptionRequestUrls).toHaveLength(1)
             const params = subscriptionListParamsFromUrl(subscriptionRequestUrls[0])
             expect(params.get('resource_type')).toBe('ai_prompt')
+        })
+
+        it('ignores an AI reports URL when AI subscriptions are unavailable', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            subscriptionRequestUrls.length = 0
+
+            await expectLogic(logic, () => {
+                router.actions.push(`${urls.subscriptions()}?tab=ai_prompt`)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ currentTab: SubscriptionsTab.All })
+
+            expect(subscriptionRequestUrls).toHaveLength(1)
+            expect(subscriptionListParamsFromUrl(subscriptionRequestUrls[0]).has('resource_type')).toBe(false)
         })
 
         it('sends created_by for Mine tab', async () => {
