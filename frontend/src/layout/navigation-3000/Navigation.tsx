@@ -44,8 +44,8 @@ export function Navigation({
     const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible, navbarWidth } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
     const { activeSceneId } = useValues(sceneLogic)
-    const { registerScenePanelElement } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpenManual } = useValues(sceneLayoutLogic)
+    const { registerScenePanelElement, registerSceneTakeoverElement } = useActions(sceneLayoutLogic)
+    const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
     const { sidePanelOpen } = useValues(sidePanelStateLogic)
     const { sidePanelWidth } = useValues(panelLayoutLogic)
 
@@ -79,6 +79,13 @@ export function Navigation({
             registerScenePanelElement(null)
         }
     }, [registerScenePanelElement])
+
+    // Unlike the inline panel above, nothing else ever overrides this registration, so the
+    // callback ref's own null call on unmount is enough cleanup.
+    const takeoverCallbackRef = useCallback(
+        (node: HTMLDivElement | null) => registerSceneTakeoverElement(node),
+        [registerSceneTakeoverElement]
+    )
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -209,6 +216,19 @@ export function Navigation({
                                 <SidePanel />
                             </SceneLayout>
                         </main>
+
+                        {/* Scene takeover host: fullscreen-in-scene surfaces (the email editor)
+                            portal here to fill the main well at full height, while the navigation
+                            stays visible and the side panel stays usable beside it (z-50 keeps this
+                            under the side panel). Mirrors main's max-width shrink so it never sits
+                            underneath the open side panel. */}
+                        <div
+                            ref={takeoverCallbackRef}
+                            className={cn('absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col', {
+                                hidden: !sceneTakeoverActive,
+                                'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOpen,
+                            })}
+                        />
 
                         {scenePanelIsPresent && (
                             <>

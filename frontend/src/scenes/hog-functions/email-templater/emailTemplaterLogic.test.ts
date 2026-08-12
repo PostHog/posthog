@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -506,6 +507,57 @@ describe('emailTemplaterLogic', () => {
 
             expect(loadDesign).toHaveBeenCalledTimes(3)
             expect(loadDesign).toHaveBeenLastCalledWith(DESIGN_EXTERNAL)
+        })
+    })
+
+    describe('editor URL sync', () => {
+        it('opening pushes ?editor=email and closing strips it', async () => {
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.editor).toBe('email')
+
+            logic.actions.setIsModalOpen(false)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.searchParams.editor).toBeUndefined()
+        })
+
+        it('removing the param from the url (browser back) closes the editor', async () => {
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toFinishAllListeners()
+
+            router.actions.push(router.values.location.pathname, {})
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isModalOpen).toBe(false)
+        })
+
+        it('a url already carrying the param opens the editor on mount', async () => {
+            router.actions.push('/some-page', { editor: 'email' })
+
+            logic = emailTemplaterLogic(makeProps())
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isModalOpen).toBe(true)
+        })
+
+        it('the inline layout neither writes nor reads the param', async () => {
+            router.actions.push('/some-page', { editor: 'email' })
+
+            logic = emailTemplaterLogic(makeProps({ layout: 'inline' }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isModalOpen).toBe(false)
+
+            logic.actions.setIsModalOpen(true)
+            router.actions.push('/some-page', {})
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isModalOpen).toBe(true)
         })
     })
 })

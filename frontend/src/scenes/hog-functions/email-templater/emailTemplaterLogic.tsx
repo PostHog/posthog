@@ -14,6 +14,7 @@ import {
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-editor'
 
 import { LemonDialog } from '@posthog/lemon-ui'
@@ -144,6 +145,10 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
         },
     } as unknown as JSONTemplate
 }
+
+// URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
+const EMAIL_EDITOR_URL_PARAM = 'editor'
+const EMAIL_EDITOR_URL_VALUE = 'email'
 
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
@@ -772,6 +777,41 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
+    actionToUrl(({ props }) => ({
+        setIsModalOpen: ({ isModalOpen }) => {
+            // Inline layouts render no editor container; leave their URLs untouched.
+            if (props.layout === 'inline') {
+                return undefined
+            }
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            // Already in sync (e.g. closed by the back button): pushing again would add a
+            // duplicate history entry and break forward/back.
+            if (isModalOpen === (searchParams[EMAIL_EDITOR_URL_PARAM] === EMAIL_EDITOR_URL_VALUE)) {
+                return undefined
+            }
+            const next = { ...searchParams }
+            if (isModalOpen) {
+                next[EMAIL_EDITOR_URL_PARAM] = EMAIL_EDITOR_URL_VALUE
+            } else {
+                delete next[EMAIL_EDITOR_URL_PARAM]
+            }
+            // A push, not a replace: the browser back button closes the editor.
+            return [pathname, next, hashParams]
+        },
+    })),
+
+    urlToAction(({ actions, values, props }) => ({
+        '*': (_, searchParams) => {
+            if (props.layout === 'inline') {
+                return
+            }
+            const shouldBeOpen = searchParams[EMAIL_EDITOR_URL_PARAM] === EMAIL_EDITOR_URL_VALUE
+            if (shouldBeOpen !== values.isModalOpen) {
+                actions.setIsModalOpen(shouldBeOpen)
+            }
+        },
+    })),
+
     propsChanged(({ actions, props, values, cache }, oldProps) => {
         if (props.value && !objectsEqual(props.value, oldProps.value)) {
             actions.resetEmailTemplate(props.value)
@@ -811,6 +851,15 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         if (props.value) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
+        }
+
+        // Deep links and refreshes reopen the editor; urlToAction only fires on navigation
+        // after mount, so the initial URL is handled here.
+        if (
+            props.layout !== 'inline' &&
+            router.values.searchParams[EMAIL_EDITOR_URL_PARAM] === EMAIL_EDITOR_URL_VALUE
+        ) {
+            actions.setIsModalOpen(true)
         }
 
         actions.loadTemplates()

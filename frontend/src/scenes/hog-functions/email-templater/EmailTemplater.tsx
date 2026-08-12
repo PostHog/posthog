@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { ReactNode, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
 import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
@@ -15,6 +16,8 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
+
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
@@ -729,29 +732,19 @@ function SaveTemplateModal({
     )
 }
 
-function EmailTemplaterModal({
+function EmailTemplaterEditorPanel({
     liveChanges,
     saveIndicator,
+    onClose,
 }: {
     liveChanges?: boolean
     saveIndicator?: ReactNode
+    // The takeover has no LemonModal chrome, so it asks for an explicit close button here.
+    onClose?: () => void
 }): JSX.Element {
-    const {
-        isModalOpen,
-        isEmailEditorReady,
-        emailTemplateChanged,
-        isSaveTemplateModalOpen,
-        isTemplatePickerOpen,
-        activeContentTab,
-    } = useValues(emailTemplaterLogic)
-    const {
-        closeWithConfirmation,
-        submitEmailTemplate,
-        saveAsTemplate,
-        setIsSaveTemplateModalOpen,
-        setIsTemplatePickerOpen,
-        setActiveContentTab,
-    } = useActions(emailTemplaterLogic)
+    const { isModalOpen, isEmailEditorReady, activeContentTab } = useValues(emailTemplaterLogic)
+    const { closeWithConfirmation, submitEmailTemplate, setIsSaveTemplateModalOpen, setActiveContentTab } =
+        useActions(emailTemplaterLogic)
     // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
     const [fieldsHidden, setFieldsHidden] = useState(true)
 
@@ -762,73 +755,156 @@ function EmailTemplaterModal({
     }, [isModalOpen])
 
     return (
-        <>
-            <LemonModal
-                isOpen={isModalOpen}
-                fullScreen
-                simple
-                title=""
-                onClose={() => closeWithConfirmation()}
-                hasUnsavedInput={liveChanges ? false : emailTemplateChanged}
-            >
-                {/* simple puts us directly in the modal's flex column, so flex-1 fills the screen;
-                    a percentage height would collapse inside the default non-flex content wrapper. */}
-                <div className="flex-1 min-h-0 flex relative p-4">
-                    {/* Aligned with the modal's close button (top-3 right-4), sitting just left of it */}
-                    <div className="absolute top-3 right-14 z-10 flex items-center gap-2">
-                        {saveIndicator}
-                        {/* The toggle label changes width; keeping it left of the right-anchored
-                            tabs means the tabs never shift when it flips */}
-                        <LemonButton
-                            type="tertiary"
-                            size="small"
-                            icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
-                            onClick={() => setFieldsHidden(!fieldsHidden)}
-                        >
-                            {fieldsHidden ? 'Show fields' : 'Hide fields'}
-                        </LemonButton>
-                        <LemonSegmentedButton
-                            size="small"
-                            value={activeContentTab}
-                            onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
-                            options={[
-                                { value: 'visual', label: 'Visual' },
-                                { value: 'plaintext', label: 'Plain text' },
-                            ]}
-                        />
-                    </div>
-                    <div className="flex flex-col flex-1">
-                        <div className="shrink-0">
-                            <h2>Editing email template</h2>
-                        </div>
-                        <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
-                        <div className="flex gap-2 items-center mt-2">
-                            <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
-                                Save as new template
-                            </LemonButton>
-                            <div className="flex-1" />
-                            {liveChanges ? (
-                                // Edits propagate live and the host persists them, so the only
-                                // action left is leaving the editor.
-                                <LemonButton type="primary" onClick={() => closeWithConfirmation()}>
-                                    Done
-                                </LemonButton>
-                            ) : (
-                                <>
-                                    <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={() => submitEmailTemplate()}
-                                        disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
-                                    >
-                                        Save
-                                    </LemonButton>
-                                </>
-                            )}
-                        </div>
-                    </div>
+        <div className="flex-1 min-h-0 flex relative p-4">
+            {/* Without onClose this sits just left of the modal's own close button (top-3 right-4) */}
+            <div className={clsx('absolute top-3 z-10 flex items-center gap-2', onClose ? 'right-4' : 'right-14')}>
+                {saveIndicator}
+                {/* The toggle label changes width; keeping it left of the right-anchored
+                    tabs means the tabs never shift when it flips */}
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={fieldsHidden ? <IconExpand /> : <IconCollapse />}
+                    onClick={() => setFieldsHidden(!fieldsHidden)}
+                >
+                    {fieldsHidden ? 'Show fields' : 'Hide fields'}
+                </LemonButton>
+                <LemonSegmentedButton
+                    size="small"
+                    value={activeContentTab}
+                    onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
+                    options={[
+                        { value: 'visual', label: 'Visual' },
+                        { value: 'plaintext', label: 'Plain text' },
+                    ]}
+                />
+                {onClose && (
+                    <LemonButton size="small" icon={<IconX />} onClick={onClose} tooltip="Close" aria-label="Close" />
+                )}
+            </div>
+            <div className="flex flex-col flex-1">
+                <div className="shrink-0">
+                    <h2>Editing email template</h2>
                 </div>
-            </LemonModal>
+                <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
+                <div className="flex gap-2 items-center mt-2">
+                    <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
+                        Save as new template
+                    </LemonButton>
+                    <div className="flex-1" />
+                    {liveChanges ? (
+                        // Edits propagate live and the host persists them, so the only
+                        // action left is leaving the editor.
+                        <LemonButton type="primary" onClick={() => closeWithConfirmation()}>
+                            Done
+                        </LemonButton>
+                    ) : (
+                        <>
+                            <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => submitEmailTemplate()}
+                                disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
+                            >
+                                Save
+                            </LemonButton>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function EmailTemplaterTakeover({
+    liveChanges,
+    saveIndicator,
+    host,
+}: {
+    liveChanges?: boolean
+    saveIndicator?: ReactNode
+    host: HTMLElement
+}): JSX.Element | null {
+    const { isModalOpen } = useValues(emailTemplaterLogic)
+    const { closeWithConfirmation } = useActions(emailTemplaterLogic)
+    const { setSceneTakeoverActive } = useActions(sceneLayoutLogic)
+
+    // The host div is always mounted (and would cover the scene even when empty), so its
+    // visibility follows our open state.
+    useEffect(() => {
+        setSceneTakeoverActive(isModalOpen)
+        return () => setSceneTakeoverActive(false)
+    }, [isModalOpen, setSceneTakeoverActive])
+
+    // LemonModal handled Escape for the modal variant; the takeover binds its own.
+    useEffect(() => {
+        if (!isModalOpen) {
+            return
+        }
+        const onKeyDown = (e: KeyboardEvent): void => {
+            if (e.key === 'Escape') {
+                closeWithConfirmation()
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        return () => window.removeEventListener('keydown', onKeyDown)
+    }, [isModalOpen, closeWithConfirmation])
+
+    if (!isModalOpen) {
+        // Mount the editor fresh on every open: re-parenting or hiding a mounted Unlayer iframe
+        // reloads it anyway, so there is nothing worth keeping alive while closed.
+        return null
+    }
+
+    return createPortal(
+        <EmailTemplaterEditorPanel
+            liveChanges={liveChanges}
+            saveIndicator={saveIndicator}
+            onClose={() => closeWithConfirmation()}
+        />,
+        host
+    )
+}
+
+function EmailTemplaterModal({
+    liveChanges,
+    saveIndicator,
+}: {
+    liveChanges?: boolean
+    saveIndicator?: ReactNode
+}): JSX.Element {
+    const { isModalOpen, emailTemplateChanged, isSaveTemplateModalOpen, isTemplatePickerOpen } =
+        useValues(emailTemplaterLogic)
+    const { closeWithConfirmation, saveAsTemplate, setIsSaveTemplateModalOpen, setIsTemplatePickerOpen } =
+        useActions(emailTemplaterLogic)
+    const { sceneTakeoverElement } = useValues(sceneLayoutLogic)
+
+    return (
+        <>
+            {sceneTakeoverElement ? (
+                // Fill the main well while the navigation and the AI side panel stay usable
+                // beside the editor. A fullscreen LemonModal buries both under its overlay.
+                <EmailTemplaterTakeover
+                    liveChanges={liveChanges}
+                    saveIndicator={saveIndicator}
+                    host={sceneTakeoverElement}
+                />
+            ) : (
+                // No takeover host registered (minimal/zen layouts): keep the fullscreen modal.
+                <LemonModal
+                    isOpen={isModalOpen}
+                    fullScreen
+                    simple
+                    title=""
+                    onClose={() => closeWithConfirmation()}
+                    hasUnsavedInput={liveChanges ? false : emailTemplateChanged}
+                >
+                    {/* simple puts us directly in the modal's flex column, so the panel's flex-1
+                        fills the screen; a percentage height would collapse inside the default
+                        non-flex content wrapper. */}
+                    <EmailTemplaterEditorPanel liveChanges={liveChanges} saveIndicator={saveIndicator} />
+                </LemonModal>
+            )}
             <TemplatePickerModal isOpen={isTemplatePickerOpen} onClose={() => setIsTemplatePickerOpen(false)} />
             <SaveTemplateModal
                 isOpen={isSaveTemplateModalOpen}
