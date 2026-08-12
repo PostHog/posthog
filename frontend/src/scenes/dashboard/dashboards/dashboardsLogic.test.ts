@@ -498,6 +498,26 @@ describe('dashboardsLogic', () => {
         expect(moveToLogic.values.isOpen).toBe(true)
     })
 
+    it('moves a dashboard the search returned that the model never loaded', async () => {
+        moveToLogic.mount()
+        const filed = logic.values.dashboards.find((d) => d.file_system_id)!
+        // A dashboard created after this page loaded is reachable through search but absent from the model
+        delete (dashboardsModel.values.rawDashboards as Record<string, unknown>)[filed.id]
+
+        logic.actions.moveDashboardsToFolder([filed.id], 'single')
+
+        expect(moveToLogic.values.isOpen).toBe(true)
+    })
+
+    it('carries the href the project tree needs to keep the moved row clickable', async () => {
+        moveToLogic.mount()
+        const filed = logic.values.dashboards.find((d) => d.file_system_id)!
+
+        logic.actions.moveDashboardsToFolder([filed.id], 'single')
+
+        expect(moveToLogic.values.movingItems[0]).toEqual(expect.objectContaining({ href: urls.dashboard(filed.id) }))
+    })
+
     it('does nothing for a dashboard that is not filed anywhere', async () => {
         moveToLogic.mount()
         const unfiled = logic.values.dashboards.find((d) => !d.file_system_id)!

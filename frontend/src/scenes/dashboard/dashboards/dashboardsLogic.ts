@@ -10,6 +10,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -61,6 +62,8 @@ function moveTargetFor(dashboard: DashboardBasicType | undefined): FileSystemEnt
         path: dashboard.file_system_path,
         type: 'dashboard',
         ref: String(dashboard.id),
+        // The move writes this entry into the project tree's stores, and its rows only open with an href.
+        href: urls.dashboard(dashboard.id),
     }
 }
 
@@ -76,6 +79,7 @@ export interface dashboardsLogicValues {
     breadcrumbs: Breadcrumb[]
     currentTab: DashboardsTab
     dashboards: DashboardBasicType[]
+    dashboardsById: Record<string, DashboardBasicType>
     filedDashboardIds: Set<number>
     filteredTags: string[]
     filters: DashboardsFilters
@@ -97,9 +101,6 @@ export interface dashboardsLogicActions {
         count: number
         method: 'bulk' | 'single'
     } // eventUsageLogic
-    closedMoveToModal: () => {
-        value: true
-    } // moveToLogic
     openMoveToModal: (items: FileSystemEntry[]) => {
         items: FileSystemEntry[]
     } // moveToLogic
@@ -196,6 +197,7 @@ export interface dashboardsLogicMeta {
             currentTab: DashboardsTab,
             user: UserType | null
         ) => DashboardBasicType[]
+        dashboardsById: (dashboards: DashboardBasicType[]) => Record<string, DashboardBasicType>
         filedDashboardIds: (dashboards: DashboardBasicType[]) => Set<number>
     }
 }
@@ -408,6 +410,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
 
+        dashboardsById: [
+            (s) => [s.dashboards],
+            (dashboards: DashboardBasicType[]): Record<string, DashboardBasicType> =>
+                Object.fromEntries(dashboards.map((dashboard) => [dashboard.id, dashboard])),
+        ],
         filedDashboardIds: [
             (s) => [s.dashboards],
             (dashboards: DashboardBasicType[]): Set<number> =>
@@ -564,7 +571,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         },
         moveDashboardsToFolder: ({ ids, method, onStillSelected }) => {
             const moving = ids
-                .map((id) => moveTargetFor(dashboardsModel.values.rawDashboards[id] as DashboardBasicType))
+                .map((id) => moveTargetFor(values.dashboardsById[id]))
                 .filter((entry): entry is FileSystemEntry => !!entry)
             if (moving.length === 0) {
                 return
