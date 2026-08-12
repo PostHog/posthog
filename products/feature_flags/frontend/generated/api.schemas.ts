@@ -563,7 +563,7 @@ export interface FeatureFlagApi {
      */
     last_called_at?: string | null
     _create_in_folder?: string
-    /** Check if this feature flag is used in any team's session recording linked flag setting. */
+    /** Check if any team gates session recording on this flag, by linked flag or trigger group. */
     readonly is_used_in_replay_settings: boolean
     /** Whether this flag can back an experiment: multivariate with 2 to 20 variants. */
     readonly is_eligible_for_experiment: boolean

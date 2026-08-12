@@ -1,92 +1,93 @@
+from typing import Any
+
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import relink_teams, update_linked_flag_key
+from products.feature_flags.backend.session_recording_links import replay_gated_flags, teams_gating_replay_on_flag
+from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups
+
+GATED = True
+NOT_GATED = False
 
 
-class TestUpdateLinkedFlagKey(BaseTest):
-    def test_preserves_a_concurrent_edit_to_the_linked_flag(self) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
-        self.team.session_recording_linked_flag = {"id": flag.id, "key": "replay-gate", "variant": "control"}
+class TestReplayGateMatchersAgree(BaseTest):
+    # Both ways of asking "does a team gate replay on this flag" have to give the same answer.
+    # `teams_gating_replay_on_flag` asks Postgres with JSONB containment, one flag at a time, and
+    # backs the relink and the delete guard's unannotated fallback. `replay_gated_flags` scans a
+    # project's stored config in Python and backs the bulk guard and the list annotation. A
+    # disagreement lets a flag delete through one path that the other refuses, and the team stops
+    # recording with nothing raised anywhere.
+
+    # Each case stores a gate built from the flag under test and an unrelated flag, so a matcher
+    # that ignores which flag a reference names fails rather than passing by coincidence.
+    @parameterized.expand(
+        [
+            ("linked_flag_by_id", lambda gate, other: ({"id": gate.id, "key": "stale"}, None), GATED),
+            (
+                "linked_flag_naming_another_flag",
+                lambda gate, other: ({"id": other.id, "key": gate.key}, None),
+                NOT_GATED,
+            ),
+            ("trigger_group_bare_key", lambda gate, other: (None, [{"flag": gate.key}]), GATED),
+            (
+                "trigger_group_object_key",
+                lambda gate, other: (None, [{"flag": {"id": gate.id, "key": gate.key}}]),
+                GATED,
+            ),
+            ("trigger_group_object_without_id", lambda gate, other: (None, [{"flag": {"key": gate.key}}]), GATED),
+            # The stored key has moved on, but the id still names the flag. Only the guards keep a
+            # delete from taking away the repair command's one route back.
+            (
+                "trigger_group_stale_key_live_id",
+                lambda gate, other: (None, [{"flag": {"id": gate.id, "key": "stale"}}]),
+                GATED,
+            ),
+            # Nothing type-checks `conditions.flag`'s id on write, and Postgres compares JSON
+            # numbers numerically, so a stored float satisfies the containment probe. The Python
+            # scan has to read it the same way or the two matchers split.
+            (
+                "trigger_group_float_id",
+                lambda gate, other: (None, [{"flag": {"id": float(gate.id), "key": "stale"}}]),
+                GATED,
+            ),
+            ("trigger_group_naming_another_flag", lambda gate, other: (None, [{"flag": other.key}]), NOT_GATED),
+            ("trigger_group_key_prefix", lambda gate, other: (None, [{"flag": f"{gate.key}-v2"}]), NOT_GATED),
+            ("trigger_group_key_only_in_events", lambda gate, other: (None, [{"events": [gate.key]}]), NOT_GATED),
+            (
+                "trigger_group_without_a_flag",
+                lambda gate, other: (None, [{"urls": [{"url": "/x", "matching": "regex"}]}]),
+                NOT_GATED,
+            ),
+            ("second_group_matches", lambda gate, other: (None, [{"flag": other.key}, {"flag": gate.key}]), GATED),
+            ("nothing_stored", lambda gate, other: (None, None), NOT_GATED),
+            ("empty_groups", lambda gate, other: (None, []), NOT_GATED),
+        ]
+    )
+    def test_both_matchers_agree(self, _name: str, build_gate: Any, expected: bool) -> None:
+        gate_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrelated")
+        linked_flag, group_conditions = build_gate(gate_flag, other_flag)
+
+        self.team.session_recording_linked_flag = linked_flag
+        self.team.session_recording_trigger_groups = (
+            None if group_conditions is None else trigger_groups(*group_conditions)
+        )
         self.team.save()
-        # Stands in for a team a caller loaded earlier in a batch, before the edit below lands.
-        stale_team = Team.objects.get(pk=self.team.pk)
 
-        self.team.session_recording_linked_flag = {"id": flag.id, "key": "replay-gate", "variant": "test"}
-        self.team.save()
+        assert teams_gating_replay_on_flag(gate_flag, key=gate_flag.key).exists() is expected
+        assert replay_gated_flags(self.team.project_id).gates(gate_flag) is expected
 
-        update_linked_flag_key(stale_team, flag.id, "replay-gate-v2")
+    def test_both_matchers_ignore_another_project(self) -> None:
+        # Keys are unique only within a project, so an unscoped matcher would call a flag gated
+        # because an unrelated project happens to store the same key.
+        gate_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other_project_team = Team.objects.create(organization=self.organization)
+        other_project_team.session_recording_trigger_groups = trigger_groups({"flag": "replay-gate"})
+        other_project_team.save()
 
-        self.team.refresh_from_db()
-        assert self.team.session_recording_linked_flag == {
-            "id": flag.id,
-            "key": "replay-gate-v2",
-            "variant": "test",
-        }
-
-    def test_skips_the_write_when_the_team_now_links_a_different_flag(self) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
-        other_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
-        self.team.session_recording_linked_flag = {"id": flag.id, "key": "replay-gate"}
-        self.team.save()
-        stale_team = Team.objects.get(pk=self.team.pk)
-
-        # Concurrent edit: an admin repoints the team at a different flag entirely.
-        self.team.session_recording_linked_flag = {"id": other_flag.id, "key": "other-gate"}
-        self.team.save()
-
-        update_linked_flag_key(stale_team, flag.id, "replay-gate-v2")
-
-        self.team.refresh_from_db()
-        assert self.team.session_recording_linked_flag == {"id": other_flag.id, "key": "other-gate"}
-
-
-class TestRelinkTeams(BaseTest):
-    def test_converges_on_the_current_key_despite_a_stale_signal_snapshot(self) -> None:
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-c")
-        # Stands in for an on_commit callback's captured snapshot from an earlier rename that
-        # committed first but is only now getting around to relinking teams: the DB has already
-        # moved on to a newer key by the time this callback runs.
-        stale_flag = FeatureFlag(pk=flag.pk, team=flag.team, key="gate-b")
-        # A faster, later rename's callback already brought this team up to date.
-        self.team.session_recording_linked_flag = {"id": flag.id, "key": "gate-c"}
-        self.team.save()
-
-        relink_teams(stale_flag)
-
-        self.team.refresh_from_db()
-        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-c"}
-
-    def test_one_teams_write_failure_does_not_strand_its_siblings(self) -> None:
-        # relink_teams wraps each team's update in its own try/except so that one row it can't
-        # write (a lock timeout, a constraint violation) doesn't stop the rename from reaching
-        # every other team gating replay on the same flag.
-        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-old")
-        other_team = Team.objects.create(organization=self.organization, project=self.team.project)
-        self.team.session_recording_linked_flag = {"id": flag.id, "key": "gate-old"}
-        self.team.save()
-        other_team.session_recording_linked_flag = {"id": flag.id, "key": "gate-old"}
-        other_team.save()
-
-        real_update_linked_flag_key = update_linked_flag_key
-
-        def _raise_for_other_team(team: Team, expected_flag_id: int, new_key: str) -> None:
-            if team.pk == other_team.pk:
-                raise Exception("simulated write failure")
-            real_update_linked_flag_key(team, expected_flag_id, new_key)
-
-        flag.key = "gate-new"
-        with patch(
-            "products.feature_flags.backend.session_recording_links.update_linked_flag_key",
-            side_effect=_raise_for_other_team,
-        ):
-            with self.captureOnCommitCallbacks(execute=True):
-                flag.save()
-
-        self.team.refresh_from_db()
-        other_team.refresh_from_db()
-        assert self.team.session_recording_linked_flag == {"id": flag.id, "key": "gate-new"}
-        assert other_team.session_recording_linked_flag == {"id": flag.id, "key": "gate-old"}
+        assert teams_gating_replay_on_flag(gate_flag, key=gate_flag.key).exists() is False
+        assert replay_gated_flags(self.team.project_id).gates(gate_flag) is False

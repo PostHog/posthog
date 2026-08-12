@@ -1007,8 +1007,11 @@
   '''
   SELECT 1 AS "a"
   FROM "posthog_team"
-  WHERE ("posthog_team"."project_id" = 99999
-         AND "posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb)
+  WHERE (("posthog_team"."session_recording_linked_flag" @> '{"id": 99999}'::jsonb
+          OR "posthog_team"."session_recording_trigger_groups" @> '{"groups": [{"conditions": {"flag": "copied-flag-key"}}]}'::jsonb
+          OR "posthog_team"."session_recording_trigger_groups" @> '{"groups": [{"conditions": {"flag": {"key": "copied-flag-key"}}}]}'::jsonb
+          OR "posthog_team"."session_recording_trigger_groups" @> '{"groups": [{"conditions": {"flag": {"id": 99999}}}]}'::jsonb)
+         AND "posthog_team"."project_id" = 99999)
   LIMIT 1
   '''
 # ---

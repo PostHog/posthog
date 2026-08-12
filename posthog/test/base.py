@@ -311,10 +311,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    # The replay gate containment probes embed feature flag IDs in JSON, normalize them. Both
+    # columns are covered: the linked flag holds an id directly, and a trigger group nests one
+    # inside `conditions.flag`. The whole JSON literal is matched and every id inside it rewritten,
+    # so a probe carrying more than one leaves none of them raw.
     query = re.sub(
-        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
-        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        r"""session_recording_(?:linked_flag|trigger_groups)" @> '[^']*'""",
+        lambda probe: re.sub(r'"id": \d+', '"id": 99999', probe.group(0)),
         query,
     )
 

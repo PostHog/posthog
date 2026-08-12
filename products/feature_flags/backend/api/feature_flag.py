@@ -14,8 +14,7 @@ from typing import Any, NoReturn, Optional, cast
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch, Q, QuerySet, deletion
-from django.db.models.functions import JSONObject
+from django.db.models import BooleanField, Case, Count, Prefetch, Q, QuerySet, Value, When, deletion
 
 import grpc
 import requests
@@ -118,8 +117,9 @@ from products.feature_flags.backend.models.evaluation_context import normalize_c
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
 from products.feature_flags.backend.session_recording_links import (
     REPLAY_LINKED_FLAG_DELETE_ERROR,
-    replay_linked_flag_ids,
-    teams_linking_flag,
+    ReplayFlagGates,
+    replay_gated_flags,
+    teams_gating_replay_on_flag,
     teams_linking_flag_in_project,
 )
 from products.feature_flags.backend.types import PropertyFilterType
@@ -1298,7 +1298,7 @@ class FeatureFlagSerializer(
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_is_used_in_replay_settings(self, feature_flag: FeatureFlag) -> bool:
-        """Check if this feature flag is used in any team's session recording linked flag setting."""
+        """Check if any team gates session recording on this flag, by linked flag or trigger group."""
         # Use annotated value if available (set by queryset annotation)
         if hasattr(feature_flag, "is_used_in_replay_settings_annotation"):
             return bool(feature_flag.is_used_in_replay_settings_annotation)
@@ -1306,7 +1306,7 @@ class FeatureFlagSerializer(
         if not hasattr(feature_flag, "team") or feature_flag.team is None:
             return False
         # Fallback to database query if annotation is not available
-        return teams_linking_flag(feature_flag).exists()
+        return teams_gating_replay_on_flag(feature_flag, key=feature_flag.key).exists()
 
     def validate(self, attrs):
         """Validate feature flag creation/update including evaluation tag requirements."""
@@ -2080,8 +2080,9 @@ class FeatureFlagSerializer(
             # Check for other flags that depend on this flag
             raise_if_flag_has_dependents(instance, action="delete")
 
-            # Check if flag is used in session replay settings
-            if teams_linking_flag(instance).exists():
+            # Reuses the annotation the queryset already carries, falling back to a query only for
+            # callers that built the serializer with an unannotated instance.
+            if self.get_is_used_in_replay_settings(instance):
                 raise exceptions.ValidationError(REPLAY_LINKED_FLAG_DELETE_ERROR)
 
             # If the flag is linked to any experiment, rename the key to free it up.
@@ -3079,8 +3080,15 @@ class FeatureFlagViewSet(
         """Apply filters from request query params to queryset."""
         return self._apply_filters(request.GET.dict(), queryset)
 
+    @functools.cached_property
+    def _replay_gates(self) -> ReplayFlagGates:
+        """The project's replay gates, resolved once per request.
+
+        `get_object` builds the queryset twice, so a detail action would otherwise scan twice.
+        """
+        return replay_gated_flags(self.project_id)
+
     def safely_get_queryset(self, queryset) -> QuerySet:
-        from django.db.models import Exists, OuterRef
 
         from products.early_access_features.backend.models import EarlyAccessFeature
         from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
@@ -3112,15 +3120,15 @@ class FeatureFlagViewSet(
             )
         )
 
-        # Matches the containment check in FeatureFlagSerializer.get_is_used_in_replay_settings,
-        # so the annotated and unannotated paths agree. Containment never casts, so a
-        # non-integer id in the JSON yields False instead of erroring the query.
+        # One project-wide scan resolves the annotation for every flag on the page. A correlated
+        # subquery would instead run a JSONB containment probe per stored reference shape against
+        # every team in the project, for every flag row. Sorted so the `IN` lists keep a stable
+        # order: set iteration order varies per process, which would churn query snapshots.
+        replay_gates = self._replay_gates
+        gated = Q(id__in=sorted(replay_gates.flag_ids)) | Q(key__in=sorted(replay_gates.flag_keys))
         queryset = queryset.annotate(
-            is_used_in_replay_settings_annotation=Exists(
-                Team.objects.filter(
-                    project_id=OuterRef("team__project_id"),
-                    session_recording_linked_flag__contains=JSONObject(id=OuterRef("id")),
-                )
+            is_used_in_replay_settings_annotation=Case(
+                When(gated, then=Value(True)), default=Value(False), output_field=BooleanField()
             )
         )
 
@@ -3812,7 +3820,7 @@ class FeatureFlagViewSet(
         # Batch query for dependent flags
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
-        replay_linked_ids = replay_linked_flag_ids(self.project_id, [flag.id for flag in flags_list])
+        replay_gates = self._replay_gates
 
         deleted = []
         errors = []
@@ -3884,7 +3892,7 @@ class FeatureFlagViewSet(
 
             # Deleting a flag a team gates recording on stops that team recording, and the
             # tombstone rename below fires no signal to relink them.
-            if flag_id in replay_linked_ids:
+            if replay_gates.gates(flag):
                 errors.append(
                     {
                         "id": flag_id,
