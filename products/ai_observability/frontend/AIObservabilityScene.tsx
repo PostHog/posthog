@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React from 'react'
 
-import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -571,7 +571,14 @@ function AIObservabilitySceneContent(): JSX.Element {
     if (selfDrivingEnabled) {
         tabs.splice(1, 0, {
             key: 'self-driving',
-            label: 'Self-driving',
+            label: (
+                <>
+                    Self-driving{' '}
+                    <LemonTag type="completion" size="small" className="ml-1">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <AIObservabilitySelfDriving />,
             link: combineUrl(urls.aiObservabilitySelfDriving(), searchParams).url,
             'data-attr': 'self-driving-tab',
