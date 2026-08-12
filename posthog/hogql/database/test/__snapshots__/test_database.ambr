@@ -833,6 +833,16 @@
                   "table": null,
                   "type": "datetime"
               },
+              "inserted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "inserted_at",
+                  "id": null,
+                  "name": "inserted_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "$session_id": {
                   "chain": null,
                   "fields": null,
@@ -10975,6 +10985,16 @@
                   "hogql_value": "created_at",
                   "id": null,
                   "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "inserted_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "inserted_at",
+                  "id": null,
+                  "name": "inserted_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"

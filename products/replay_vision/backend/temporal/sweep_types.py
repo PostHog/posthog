@@ -46,6 +46,11 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     deep_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
     # Horizon the deep pass covered; None when it didn't run or its batch saturated.
     deep_swept_through: dt.datetime | None = None
+    # Keyset position of the fetched batch's last row BEFORE blocked-session filtering, so dropping
+    # candidates can't regress or stall the watermark. None on pre-deploy histories and empty batches,
+    # where the workflow falls back to deriving the position from `candidates`/`swept_through`.
+    keyset_end: dt.datetime | None = None
+    keyset_session_id: str = ""
 
 
 class RefreshPromptSuggestionInputs(BaseModel, frozen=True):

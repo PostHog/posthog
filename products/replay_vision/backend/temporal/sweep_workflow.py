@@ -145,7 +145,13 @@ class SweepScannerWorkflow(PostHogWorkflow):
             *(self._start_child(inputs, c) for c in (*find_result.candidates, *find_result.deep_candidates))
         )
 
-        if find_result.candidates:
+        if find_result.keyset_end is not None:
+            # The fetched batch's last row. It sits ahead of the dispatched candidates whenever
+            # blocked-session filtering dropped some, so dropping rows cannot stall the walk.
+            swept_at = find_result.keyset_end
+            last_seen_session_id = find_result.keyset_session_id if find_result.saturated else ""
+        elif find_result.candidates:
+            # Activity results recorded before this deploy carry no keyset.
             last = find_result.candidates[-1]
             swept_at, last_seen_session_id = last.session_end, (last.session_id if find_result.saturated else "")
         elif find_result.swept_through is not None:

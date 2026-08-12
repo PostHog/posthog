@@ -414,6 +414,64 @@ class TestFindScannerCandidatesActivity:
             assert result.swept_through is None
             assert result.candidates == []
 
+    _NEGATIVE_QUERY = {
+        "kind": "RecordingsQuery",
+        "properties": [{"type": "event", "key": "$host", "operator": "is_not", "value": ["internal.example.com"]}],
+    }
+
+    def test_blocked_store_filters_candidates_but_keyset_covers_full_batch(self) -> None:
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY)
+        fetched = [
+            CandidateSession(session_id="sess-clean", session_end=dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC)),
+            CandidateSession(session_id="sess-blocked", session_end=dt.datetime(2026, 5, 1, 10, 5, 0, tzinfo=dt.UTC)),
+        ]
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.blocked_sessions"
+            ) as mock_store,
+        ):
+            MockQuery.return_value.run.return_value = fetched
+            mock_store.blocklist_fingerprint.return_value = "fp"
+            mock_store.refresh_blocked_sessions.return_value = True
+            mock_store.blocked_subset.return_value = {"sess-blocked"}
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=2)
+            )
+
+        _, query_kwargs = MockQuery.call_args
+        assert query_kwargs["skip_negative_blocklists"] is True
+        assert [c.session_id for c in result.candidates] == ["sess-clean"]
+        # Keyset and saturation reflect the pre-filter batch so dropped candidates can't stall the walk.
+        assert result.keyset_end == fetched[-1].session_end
+        assert result.keyset_session_id == "sess-blocked"
+        assert result.saturated is True
+
+    def test_blocked_store_refusal_keeps_inquery_blocklists(self) -> None:
+        scanner = _make_scanner(query=self._NEGATIVE_QUERY)
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.blocked_sessions"
+            ) as mock_store,
+        ):
+            MockQuery.return_value.run.return_value = []
+            mock_store.blocklist_fingerprint.return_value = "fp"
+            mock_store.refresh_blocked_sessions.return_value = False
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        _, query_kwargs = MockQuery.call_args
+        assert query_kwargs["skip_negative_blocklists"] is False
+        mock_store.blocked_subset.assert_not_called()
+
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
         scanner.query = {"kind": "TrendsQuery"}
@@ -705,6 +763,30 @@ async def test_deep_candidates_dispatch_even_when_fast_batch_is_empty() -> None:
     advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
     assert advance_call.new_last_swept_at == horizon
     assert advance_call.new_last_deep_swept_at == deep_horizon
+
+
+@pytest.mark.asyncio
+async def test_fully_blocked_batch_advances_keyset_without_dispatch() -> None:
+    keyset_end = dt.datetime(2026, 5, 1, 10, 5, 0, tzinfo=dt.UTC)
+    mocks = _SweepMocks(
+        activity_results={
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+                candidates=[],
+                saturated=True,
+                swept_through=dt.datetime(2026, 5, 1, 11, 0, 0, tzinfo=dt.UTC),
+                keyset_end=keyset_end,
+                keyset_session_id="sess-blocked",
+            ),
+        }
+    )
+
+    await _run_sweep(mocks)
+
+    assert mocks.child_calls == []
+    advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
+    # The batch keyset, not the settle horizon: a saturated batch may have more sessions behind it.
+    assert advance_call.new_last_swept_at == keyset_end
+    assert advance_call.new_last_seen_session_id == "sess-blocked"
 
 
 @pytest.mark.asyncio

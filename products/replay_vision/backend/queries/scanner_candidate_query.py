@@ -145,6 +145,9 @@ class ScannerCandidateQuery:
         events_lookback: dt.timedelta | None = None,
         # Tags the ClickHouse query for per-scanner read metering; sweep callers should always pass it.
         scanner_id: str | None = None,
+        # Only when the caller enforces negative filters itself against the incrementally-maintained
+        # blocked set (see blocked_sessions.py); otherwise the in-query blocklists stay.
+        skip_negative_blocklists: bool = False,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -193,6 +196,7 @@ class ScannerCandidateQuery:
             query=inner_query,
             extra_having_predicates=extra_having,
             events_timestamp_floor=events_timestamp_floor,
+            skip_negative_blocklists=skip_negative_blocklists,
         )
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")

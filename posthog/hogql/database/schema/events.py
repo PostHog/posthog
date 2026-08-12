@@ -118,6 +118,11 @@ class EventsTable(Table):
             nullable=False,
             description="When the event was ingested by PostHog (server timestamp); differs from `timestamp`.",
         ),
+        "inserted_at": DateTimeDatabaseField(
+            name="inserted_at",
+            nullable=True,
+            description="When the event row was written to the database; unlike `created_at` it is monotone with arrival, so it suits incremental scans. Null on very old rows.",
+        ),
         "$session_id": StringDatabaseField(
             name="$session_id", nullable=False, description="Session this event belongs to; join to `sessions`."
         ),

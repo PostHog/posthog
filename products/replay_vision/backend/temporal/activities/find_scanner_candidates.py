@@ -10,6 +10,7 @@ from posthog.schema import RecordingsQuery
 
 from posthog.rbac.user_access_control import UserAccessControl
 
+from products.replay_vision.backend import blocked_sessions
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
 from products.replay_vision.backend.queries.scanner_candidate_query import (
@@ -64,6 +65,13 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         # No watermark advance, so the next executed sweep covers the skipped range in one query.
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
+    # With negative filters, prefer the incrementally-maintained blocked set over the in-query
+    # blocklists; any store problem falls back to the legacy (always-correct) in-query path.
+    fingerprint = blocked_sessions.blocklist_fingerprint(scanner.team, query)
+    use_blocked_store = fingerprint is not None and blocked_sessions.refresh_blocked_sessions(
+        scanner_id=str(scanner.id), team=scanner.team, query=query, fingerprint=fingerprint
+    )
+
     limit = inputs.candidate_limit if inputs.candidate_limit is not None else DEFAULT_CANDIDATE_LIMIT
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
@@ -76,14 +84,19 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         candidate_limit=limit,
         events_lookback=SWEEP_EVENTS_LOOKBACK,
         scanner_id=str(scanner.id),
+        skip_negative_blocklists=use_blocked_store,
     )
-    candidates = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
-    saturated = len(candidates) == limit
+    fetched = candidate_query.run()
+    candidates = fetched
+    if use_blocked_store and fetched:
+        blocked = blocked_sessions.blocked_subset(str(scanner.id), [c.session_id for c in fetched])
+        candidates = [c for c in fetched if c.session_id not in blocked]
+    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
+    saturated = len(fetched) == limit
 
     # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep
-    # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
-    # also covers the case where the fast batch used the budget on its own.
+    # pass gets whatever headroom the fast pass left. Blocked rows were dropped rather than dispatched,
+    # so they leave their share behind. At zero there is nothing left to dispatch.
     deep_candidates: list[CandidateSession] = []
     deep_swept_through: dt.datetime | None = None
     deep_limit = limit - len(candidates)
@@ -107,6 +120,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],
         deep_swept_through=deep_swept_through,
+        keyset_end=fetched[-1].session_end if fetched else None,
+        keyset_session_id=fetched[-1].session_id if fetched else "",
     )
 
 

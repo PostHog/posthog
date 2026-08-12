@@ -716,6 +716,17 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         results = self._run(team=team, query=query, last_swept_at=last_swept_at, events_lookback=SWEEP_EVENTS_LOOKBACK)
         assert [r.session_id for r in results] == ["kept"]
 
+        # With the blocklists skipped (caller enforces them against the blocked-session store),
+        # the query itself no longer excludes — proving the app-side filter is load-bearing.
+        unfiltered = self._run(
+            team=team,
+            query=query,
+            last_swept_at=last_swept_at,
+            events_lookback=SWEEP_EVENTS_LOOKBACK,
+            skip_negative_blocklists=True,
+        )
+        assert sorted(r.session_id for r in unfiltered) == ["blocked", "kept"]
+
     @staticmethod
     def _run(
         *,
@@ -727,6 +738,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
         events_lookback: dt.timedelta | None = None,
+        skip_negative_blocklists: bool = False,
     ):
         return ScannerCandidateQuery(
             team=team,
@@ -737,6 +749,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
             events_lookback=events_lookback,
+            skip_negative_blocklists=skip_negative_blocklists,
         ).run()
 
 

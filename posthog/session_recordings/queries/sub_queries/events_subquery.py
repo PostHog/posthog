@@ -9,6 +9,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EventPropertyFilter,
     EventsNode,
+    FilterLogicalOperator,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingsQuery,
@@ -50,6 +51,22 @@ HYBRID_QUERY_ELIGIBLE_PROPERTIES = {
 
 def _event_session_id_field() -> ast.Field:
     return ast.Field(chain=["properties", "$session_id"])
+
+
+def test_accounts_only_query(query: RecordingsQuery, test_account_filters: list[AnyPropertyFilter]) -> RecordingsQuery:
+    """A copy of `query` carrying only the team's test-account filters, always AND'd.
+
+    Test-account filters need the same sub-query routing as user filters but are AND'd regardless
+    of the user's operand; both the recordings list and the replay-vision sweep blocklist build
+    their test-account sub-queries from this shape.
+    """
+    scoped = query.model_copy(deep=True)
+    scoped.properties = list(test_account_filters)
+    scoped.operand = FilterLogicalOperator.AND_
+    scoped.events = None
+    scoped.actions = None
+    scoped.console_log_filters = None
+    return scoped
 
 
 def get_negative_entity_properties(
@@ -531,8 +548,20 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             group_by=[_event_session_id_field()],
         )
 
-    def get_negative_blocklist_query(self) -> ast.SelectQuery | None:
-        return self._negative_blocklist_query()
+    def get_negative_blocklist_query(self, ingested_after: Optional[datetime] = None) -> ast.SelectQuery | None:
+        """Sessions to exclude because some event matches a negative filter's inverted form.
+
+        With `ingested_after`, the scan is bounded by `inserted_at` (arrival time) instead of the
+        query's date range — arrival is monotone, so repeated scans with an advancing watermark
+        cover every event exactly, including late arrivals whose own timestamp is old.
+        """
+        return self._negative_blocklist_query(ingested_after=ingested_after)
+
+    def negative_properties(self) -> list[AnyPropertyFilter]:
+        """The query's negative filters, i.e. what the blocklist is built from; empty means no blocklist."""
+        if self._query.operand == "OR":
+            return []
+        return self._collect_negative_properties()
 
     def get_query_for_event_id_matching(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
@@ -729,7 +758,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             negative_props += [p for p in self.cohort_properties if is_negative_prop(p)]
         return negative_props
 
-    def _negative_blocklist_query(self) -> ast.SelectQuery | None:
+    def _negative_blocklist_query(self, ingested_after: Optional[datetime] = None) -> ast.SelectQuery | None:
         """Returns session IDs that should be EXCLUDED because they contain events
         matching at least one inverted negative condition.
 
@@ -758,10 +787,21 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # Any event matching any positive condition → session goes in blocklist
         where_expr = ast.Or(exprs=inverted_exprs) if len(inverted_exprs) > 1 else inverted_exprs[0]
 
+        where = self._where_predicates(where_expr, apply_timestamp_floor=False)
+        if ingested_after is not None:
+            assert isinstance(where, ast.And)
+            where.exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["inserted_at"]),
+                    right=ast.Constant(value=ingested_after),
+                )
+            )
+
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
             select_from=self._events_join(sample=False),
-            where=self._where_predicates(where_expr, apply_timestamp_floor=False),
+            where=where,
             group_by=[_event_session_id_field()],
             limit=ast.Constant(value=1000000),
         )
