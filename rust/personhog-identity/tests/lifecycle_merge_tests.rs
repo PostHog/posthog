@@ -1932,6 +1932,98 @@ async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
 }
 
 #[tokio::test]
+async fn an_identified_source_is_not_an_eligible_survivor_for_an_unresolved_target() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("elig-ident-source")
+        .await;
+    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+
+    let response = service
+        .merge_persons(Request::new(rpc_request(
+            h.ctx.team_id,
+            "elig-target",
+            &["elig-ident-source"],
+            Uuid::now_v7(),
+        )))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    // The identified person must not absorb the unresolved target: that
+    // attach would settle the pair as a same-person no-op and bypass the
+    // saga's refusal. The target is born fresh instead and the pair gets
+    // the same policy answer the both-exist shape gives.
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_ne!(survivor.id, source);
+    assert_eq!(
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "elig-target").to_string()
+    );
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(
+            "elig-ident-source".to_string(),
+            MergeSourceOutcome::SkippedAlreadyIdentified
+        )]
+    );
+    assert_eq!(h.pdi_state("elig-target").await, (survivor.id, false, 0));
+    assert_eq!(h.pdi_state("elig-ident-source").await.0, source);
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(!source_deleted);
+    // The refused pair aborts the saga, so the abort delivery flips the
+    // newborn through the leader.
+    assert_eq!(
+        h.leader.calls(),
+        vec![LeaderCall::PropertyPush {
+            person_id: survivor.id,
+            is_identified: Some(true),
+        }]
+    );
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
+async fn allow_identified_sources_lets_an_identified_source_survive_an_unresolved_target() {
+    let h = MergeHarness::new().await;
+    let service = h.service();
+    let source = h
+        .ctx
+        .insert_person_with_distinct_id("elig-allowed-source")
+        .await;
+    h.set_person(source, r#"{"plan": "pro"}"#, 3, true).await;
+
+    let mut request = rpc_request(
+        h.ctx.team_id,
+        "elig-allowed-target",
+        &["elig-allowed-source"],
+        Uuid::now_v7(),
+    );
+    request.allow_identified_sources = true;
+    let response = service
+        .merge_persons(Request::new(request))
+        .await
+        .expect("call succeeds")
+        .into_inner();
+
+    let survivor = response.survivor.as_ref().expect("survivor present");
+    assert_eq!(survivor.id, source);
+    assert_eq!(
+        rpc_outcomes(&response),
+        vec![(
+            "elig-allowed-source".to_string(),
+            MergeSourceOutcome::NoopSamePerson
+        )]
+    );
+    assert_eq!(h.pdi_state("elig-allowed-target").await, (source, false, 1));
+
+    h.ctx.cleanup().await.expect("cleanup");
+}
+
+#[tokio::test]
 async fn a_fully_unresolved_call_births_the_target_person() {
     let h = MergeHarness::new().await;
     let service = h.service();

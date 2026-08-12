@@ -311,8 +311,8 @@ impl MergeEntrance {
     /// The unresolved-target half of the merge contract: the target
     /// distinct id resolves to no person, so the call must establish the
     /// survivor before anything can classify against it. The first
-    /// resolved legal source's person survives and the target distinct id
-    /// attaches to it; when nothing in the call resolves, the target
+    /// eligible resolved source's person survives and the target distinct
+    /// id attaches to it; when no eligible source resolves, the target
     /// person is born fresh, its uuid derived from the target distinct id
     /// so the id's implied-person events already point at it. Both writes
     /// are idempotent, so a crash between establishment and settlement
@@ -325,11 +325,19 @@ impl MergeEntrance {
     ) -> Result<Person, Status> {
         let target_did = &request.target_distinct_id;
 
+        // Eligibility applies the identified-source policy here, not just
+        // in the saga: surviving would attach the target to the source's
+        // person and settle the pair as a same-person no-op, so the saga's
+        // refusal would never run and any identify request could alias its
+        // unresolved target onto a known identified person. An ineligible
+        // source instead classifies against the birthed target, where the
+        // saga refuses it as skipped_already_identified.
         let first_resolved = request
             .sources
             .iter()
             .filter(|s| !is_distinct_id_illegal(&s.source_distinct_id))
-            .find_map(|s| resolved.get(&(request.team_id, s.source_distinct_id.clone())));
+            .filter_map(|s| resolved.get(&(request.team_id, s.source_distinct_id.clone())))
+            .find(|person| request.allow_identified_sources || !person.is_identified);
         if let Some(survivor) = first_resolved {
             let attached = self
                 .storage
@@ -357,7 +365,7 @@ impl MergeEntrance {
             };
         }
 
-        // Nothing in the call resolves: birth the target person. Born
+        // No eligible source resolves: birth the target person. Born
         // unidentified even when a legal source will settle: the leader's
         // changelog is the downstream person feed and the leader only
         // records changes, so the settlement flip is what writes the
