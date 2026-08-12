@@ -787,7 +787,7 @@ export interface workflowMetricsSummaryLogicMeta {
         conversionRate: (conversionStats: WorkflowConversionStats) => number
         conversionDataPending: (conversionStats: WorkflowConversionStats) => boolean
         convertedTrends: (conversionStats: WorkflowConversionStats) => AppMetricsTimeSeriesResponse | null
-        hasConversionGoal: (workflow: HogFlow) => boolean
+        hasConversionGoal: (workflow: HogFlow, arg: string) => boolean
         convertedUsersUrl: (
             getDateRangeAbsolute: () => {
                 dateFrom: Dayjs
