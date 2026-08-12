@@ -73,6 +73,23 @@ export function RepoOverviewScene(): JSX.Element {
     // during the initial fetch would misread as a broken setup — hold it back while loading.
     const overviewPending = overviewLoading && !overview
 
+    // Cycle time is ready→merge wherever the backend can observe the draft/ready transitions. Without
+    // them it falls back to the coarse created→merged span and says so, rather than labelling one
+    // measure with the other's name.
+    const cycleTime = readyToMergeSeries
+        ? {
+              title: 'Median PR ready→merge',
+              series: readyToMergeSeries,
+              caption:
+                  'Median ready-for-review to merged time, bots and drafts excluded. Time as a draft is not counted.',
+          }
+        : {
+              title: 'Median PR open→merge',
+              series: openToMergeSeries,
+              caption:
+                  'Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused.',
+          }
+
     if (notConnected) {
         return <ConnectGitHubSource />
     }
@@ -144,7 +161,6 @@ export function RepoOverviewScene(): JSX.Element {
                         caption="Share of completed CI runs that passed, all branches."
                     />
 
-                    {/* Round-based: per push, wall time until every workflow is green (PR scope traces to #67398). */}
                     <TrendCard
                         title="PR time to green"
                         series={timeToGreenSeries}
@@ -157,18 +173,14 @@ export function RepoOverviewScene(): JSX.Element {
                     />
 
                     <TrendCard
-                        title={readyToMergeSeries ? 'Median PR ready→merge' : 'Median PR open→merge'}
-                        series={readyToMergeSeries ?? openToMergeSeries}
+                        title={cycleTime.title}
+                        series={cycleTime.series}
                         formatValue={compactHoursLabel}
                         renderTooltipValue={compactHoursLabel}
                         goodWhenDown
                         loading={overviewPending}
                         emptyText="No PRs merged in the window yet."
-                        caption={
-                            readyToMergeSeries
-                                ? 'Median ready-for-review to merged time, bots and drafts excluded. Time as a draft is not counted.'
-                                : 'Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused.'
-                        }
+                        caption={cycleTime.caption}
                     />
 
                     <TrendCard

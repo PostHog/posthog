@@ -8,12 +8,8 @@ import { LemonCard, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 
+import type { TrendSeries } from '../lib/trends'
 import { DeltaBadge, percentChange } from './MetricTile'
-
-export interface TrendSeries {
-    values: number[]
-    labels: string[]
-}
 
 export function TrendCard({
     title,
@@ -37,10 +33,10 @@ export function TrendCard({
 }): JSX.Element {
     const values = series?.values ?? []
     const latest = values.length ? values[values.length - 1] : null
-    // Baseline is the first point — the series builders already trim leading empty buckets and carry the
-    // last value forward, so values[0] is real data, not zero-fill. A genuine leading 0 (e.g. a 0% pass
-    // rate at the window's start) is a valid baseline: percentChange returns null off a zero baseline, so
-    // the card shows no delta rather than mis-baselining against a later bucket.
+    // Baseline is the first point — `trendSeries` guarantees values[0] is real data, not zero-fill. A
+    // genuine leading 0 (e.g. a 0% pass rate at the window's start) is a valid baseline: percentChange
+    // returns null off a zero baseline, so the card shows no delta rather than mis-baselining against
+    // a later bucket.
     const first = values.length ? values[0] : null
     const deltaPct = percentChange(latest, first)
     // Line color follows the delta's sentiment so the card reads at a glance: green the good way, red the

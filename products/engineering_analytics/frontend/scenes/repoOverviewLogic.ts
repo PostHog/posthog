@@ -6,14 +6,10 @@ import { dayjs } from 'lib/dayjs'
 
 import type { ActivityRun } from '../components/RunActivityChart'
 import { engineeringAnalyticsRepoOverview, engineeringAnalyticsRepoRunActivity } from '../generated/api'
-import type {
-    OpenToMergeBucketApi,
-    ReadyToMergeBucketApi,
-    RepoOverviewApi,
-    WorkflowRunActivityApi,
-} from '../generated/api.schemas'
+import type { RepoOverviewApi, WorkflowRunActivityApi } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
+import { type TrendSeries, trendSeries } from '../lib/trends'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
 import type { WorkflowHealthRow } from './engineeringAnalyticsLogic'
@@ -21,28 +17,6 @@ import type { WorkflowHealthRow } from './engineeringAnalyticsLogic'
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 const TOP_COST_WORKFLOWS = 5
-
-// Carry-forward + trim shared by the p50-seconds trends: a gap means "nothing merged", not instant
-// merges, so zero-filling would draw a false dip; the line starts at the first bucket with data.
-const p50Trend = (
-    series: (OpenToMergeBucketApi | ReadyToMergeBucketApi)[],
-    granularity: string | undefined
-): { values: number[]; labels: string[] } | null => {
-    const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
-    if (firstData === -1) {
-        return null
-    }
-    const fmt = granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-    const trimmed = series.slice(firstData)
-    let last = 0
-    const values = trimmed.map((bucket) => {
-        if (bucket.p50_seconds != null) {
-            last = bucket.p50_seconds
-        }
-        return last
-    })
-    return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-}
 
 export interface CostShareRow {
     workflowName: string | null
@@ -65,37 +39,22 @@ export interface repoOverviewLogicValues {
     activityTruncated: boolean
     attentionPrs: PullRequestRow[]
     costByWorkflow: CostShareRow[]
-    costPerMergeSeries: {
-        labels: string[]
-        values: number[]
-    } | null
+    costPerMergeSeries: TrendSeries | null
     draftCount: number
     jobsAvailable: boolean
-    openToMergeSeries: {
-        labels: string[]
-        values: number[]
-    } | null
+    openToMergeSeries: TrendSeries | null
     otherCostWorkflowCount: number
     overview: RepoOverviewApi | null
     overviewDefaultBranch: string
     overviewFailed: boolean
     overviewLoading: boolean
-    passRateSeries: {
-        labels: string[]
-        values: number[]
-    } | null
+    passRateSeries: TrendSeries | null
     prPreviewCount: number
-    readyToMergeSeries: {
-        labels: string[]
-        values: number[]
-    } | null
+    readyToMergeSeries: TrendSeries | null
     repoActivity: WorkflowRunActivityApi
     repoActivityFailed: boolean
     repoActivityLoading: boolean
-    timeToGreenSeries: {
-        labels: string[]
-        values: number[]
-    } | null
+    timeToGreenSeries: TrendSeries | null
     workflowPreviewCount: number
 }
 
@@ -150,26 +109,11 @@ export interface repoOverviewLogicMeta {
         draftCount: (pullRequests: PullRequestRow[]) => number
         costByWorkflow: (workflowHealth: WorkflowHealthRow[]) => CostShareRow[]
         otherCostWorkflowCount: (workflowHealth: WorkflowHealthRow[]) => number
-        costPerMergeSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
-        timeToGreenSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
-        passRateSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
-        openToMergeSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
-        readyToMergeSeries: (overview: RepoOverviewApi | null) => {
-            labels: string[]
-            values: number[]
-        } | null
+        costPerMergeSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
+        timeToGreenSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
+        passRateSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
+        openToMergeSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
+        readyToMergeSeries: (overview: RepoOverviewApi | null) => TrendSeries | null
     }
 }
 
@@ -344,79 +288,57 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0).length - TOP_COST_WORKFLOWS
                 ),
         ],
-        // Cost-per-merged-PR trend. The backend delivers a trailing rolling ratio, so a null bucket only
-        // means the whole trailing window shipped nothing; plotted as 0 to keep the axis anchored.
+        // The Trends strip, one selector per card. Each hands `trendSeries` the bucket list and the
+        // measure to read off a bucket; gap and baseline handling is the same for all of them and
+        // lives there.
+        // Cost per merged PR is a trailing rolling ratio, so a gap means the whole trailing window
+        // shipped nothing; carried forward like the rest, never drawn as $0 of CI.
         costPerMergeSeries: [
             (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
-                const series = overview?.cost_series ?? []
-                if (!series.some((bucket) => bucket.cost_per_merge_usd != null)) {
-                    return null
-                }
-                const fmt = overview?.cost_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                return {
-                    values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
-                    labels: series.map((bucket) => dayjs(bucket.bucket_start).format(fmt)),
-                }
-            },
+            (overview: RepoOverviewApi | null): TrendSeries | null =>
+                trendSeries(
+                    overview?.cost_series ?? [],
+                    (bucket) => bucket.cost_per_merge_usd,
+                    overview?.cost_series_granularity
+                ),
         ],
-        // Median wall time for a push round to settle fully green, in minutes. Carry-forward + trim as in
-        // p50Trend; kept separate for the minutes conversion.
+        // In minutes, the unit the card's formatter labels.
         timeToGreenSeries: [
             (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
-                const series = overview?.time_to_green_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const fmt = overview?.time_to_green_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                const trimmed = series.slice(firstData)
-                let last = 0
-                const values = trimmed.map((bucket) => {
-                    if (bucket.p50_seconds != null) {
-                        last = Math.round((bucket.p50_seconds / 60) * 10) / 10
-                    }
-                    return last
-                })
-                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-            },
+            (overview: RepoOverviewApi | null): TrendSeries | null =>
+                trendSeries(
+                    overview?.time_to_green_series ?? [],
+                    (bucket) => (bucket.p50_seconds == null ? null : bucket.p50_seconds / 60),
+                    overview?.time_to_green_series_granularity
+                ),
         ],
-        // Pass-rate trend (0-1). Empty buckets carry the last known value forward so a gap (no completed
-        // run) draws no false dip to zero; trimmed to start at the first bucket with data. Null when no
-        // bucket has a completed run, so the card shows its own empty state.
         passRateSeries: [
             (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null => {
-                const series = overview?.success_rate_series ?? []
-                const firstData = series.findIndex((bucket) => bucket.success_rate != null)
-                if (firstData === -1) {
-                    return null
-                }
-                const fmt = overview?.success_rate_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
-                const trimmed = series.slice(firstData)
-                let last = 0
-                const values = trimmed.map((bucket) => {
-                    if (bucket.success_rate != null) {
-                        last = bucket.success_rate
-                    }
-                    return last
-                })
-                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
-            },
+            (overview: RepoOverviewApi | null): TrendSeries | null =>
+                trendSeries(
+                    overview?.success_rate_series ?? [],
+                    (bucket) => bucket.success_rate,
+                    overview?.success_rate_series_granularity
+                ),
         ],
-        // Time-to-merge trend in seconds (median open→merge, bots/drafts excluded).
         openToMergeSeries: [
             (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null =>
-                p50Trend(overview?.open_to_merge_series ?? [], overview?.open_to_merge_series_granularity),
+            (overview: RepoOverviewApi | null): TrendSeries | null =>
+                trendSeries(
+                    overview?.open_to_merge_series ?? [],
+                    (bucket) => bucket.p50_seconds,
+                    overview?.open_to_merge_series_granularity
+                ),
         ],
-        // Median ready→merge seconds; null when the issue-events table isn't synced, and the scene
-        // then falls back to openToMergeSeries.
+        // Null when the backend can't observe ready→merge, and the scene falls back to openToMergeSeries.
         readyToMergeSeries: [
             (s) => [s.overview],
-            (overview: RepoOverviewApi | null): { values: number[]; labels: string[] } | null =>
-                p50Trend(overview?.ready_to_merge_series ?? [], overview?.ready_to_merge_series_granularity),
+            (overview: RepoOverviewApi | null): TrendSeries | null =>
+                trendSeries(
+                    overview?.ready_to_merge_series ?? [],
+                    (bucket) => bucket.p50_seconds,
+                    overview?.ready_to_merge_series_granularity
+                ),
         ],
     }),
 
