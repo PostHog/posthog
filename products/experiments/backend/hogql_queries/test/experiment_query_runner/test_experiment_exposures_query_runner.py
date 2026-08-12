@@ -10,7 +10,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureQuery
+from posthog.schema import (
+    ActionsNode,
+    CachedExperimentExposureQueryResponse,
+    ExperimentEventExposureConfig,
+    ExperimentExposureQuery,
+)
 
 from posthog.test.test_journeys import journeys_for
 
@@ -693,7 +698,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ]
         self.team.save()
 
-        def run_with_filter(filter_test_accounts: bool) -> ExperimentExposureQuery:
+        def run_with_filter(filter_test_accounts: bool) -> CachedExperimentExposureQueryResponse:
             self.experiment.exposure_criteria = {"filterTestAccounts": filter_test_accounts}
             self.experiment.save()
             query = ExperimentExposureQuery(
