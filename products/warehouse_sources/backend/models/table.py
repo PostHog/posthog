@@ -332,6 +332,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             self._reject_client_supplied_url_pattern_change(kwargs.get("update_fields"))
         super().save(*args, **kwargs)
 
+    def clean(self) -> None:
+        # Django admin's changeform validates via full_clean() (form.is_valid() -> clean()) before
+        # ModelAdmin.save_model() ever calls save() - and unlike DRF's perform_update, save_model
+        # doesn't translate a save()-raised ValidationError into a form error, so it would surface
+        # as an unhandled 500. Running the same check here lets admin catch it as a normal field
+        # error. save()'s check stays the enforcement of record for every other caller (DRF, a
+        # management command, a future endpoint), since nothing but ModelForm calls full_clean().
+        super().clean()
+        self._reject_client_supplied_url_pattern_change(update_fields=None)
+
     def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
         """Block a url_pattern change on a table with no credential, unless the caller declares the
         new value was computed by PostHog's own code rather than taken from request input.

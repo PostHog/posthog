@@ -310,6 +310,44 @@ class TestUrlPatternChangeGuard(BaseTest):
         assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
         assert table.columns == {"id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True}}
 
+    def test_attaching_a_credential_in_the_same_call_still_requires_the_flag(self) -> None:
+        # The guard reads the row's prior DB state, not the value being assigned in this call, so
+        # attaching a real credential here doesn't retroactively make the prior state trusted -
+        # writers computing url_pattern from something other than request input (like the demo and
+        # seed-data table registration) still have to declare that explicitly.
+        table = self._credential_less_table()
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="access_key", access_secret="access_secret"
+        )
+
+        table.credential = credential
+        table.url_pattern = "https://posthog-owned.example/team_1/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.save()
+
+        table.refresh_from_db()
+        assert table.url_pattern == "https://posthog-owned.example/team_1/x.csv"
+
+    def test_full_clean_rejects_the_same_way_save_does(self) -> None:
+        # Django admin validates via full_clean() (form.is_valid() -> clean()) before ever calling
+        # save(), and ModelAdmin.save_model() doesn't translate a save()-raised ValidationError into
+        # a form error - so the same check has to be reachable from clean() too, for admin to show a
+        # normal field error instead of an unhandled 500.
+        table = self._credential_less_table()
+
+        table.url_pattern = "https://posthog-owned.example/team_2/y.csv"
+        with pytest.raises(ValidationError, match="no credential"):
+            table.full_clean()
+
+    def test_clean_allows_a_credentialed_table_to_change_url_pattern(self) -> None:
+        # Calls clean() directly rather than full_clean(): other required fields (row_count,
+        # size_in_s3_mib) are legitimately blank on a freshly built table and full_clean() would
+        # reject those regardless, which isn't what this test is checking.
+        table = self._credentialed_table()
+
+        table.url_pattern = "https://customer-bucket.example/renamed.csv"
+        table.clean()  # must not raise
+
     def test_soft_delete_on_a_credential_less_table_does_not_trip_the_guard(self) -> None:
         table = self._credential_less_table()
 
