@@ -1,15 +1,19 @@
 """Expose a managed Duckgres warehouse in the SQL editor as a Postgres connection.
 
-Each member team gets a Postgres ``ExternalDataSource`` pointed at the organization's
-``DuckgresServer``, authenticated with the server's org root credential. Duckgres root
-sees every schema in the warehouse, so the connection discovers and exposes the whole
-org catalog without per-team namespace configuration — no control-plane handshake is
-involved in setting it up. Setup happens in two steps:
+Each member team gets a Postgres ``ExternalDataSource`` fed by the duckgres control
+plane: a per-team credential is minted at provision time
+(``mint_service_credential`` — the canonical ``posthog_team_<id>_rw`` project_user
+login) and snapshotted into the source's ``job_inputs`` together with the mint's
+``connect`` block (host, port, database). Nothing on this path reads the
+``DuckgresServer`` row or its org root credential. The stored credential is
+long-lived state (``ExternalDataSource``'s model — the CP can be asked to rotate
+it), so minting uses ``force_rotate=True``: the source holds no prior credential
+when it is (re)written. Setup happens in two steps:
 
 1. ``ensure_managed_warehouse_direct_source`` creates the source row when a team
    joins, so the connection appears immediately.
 2. ``reconcile_managed_warehouse_tables`` runs once the warehouse is ready and records
-   every non-internal schema/table the root credential can see.
+   every non-internal schema/table the credential can see.
 
 This bypasses the user-facing create endpoint because the managed host is internal
 infrastructure and is not reachable for live schema validation during provisioning.
@@ -29,11 +33,14 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
+from rest_framework import status
 
 from posthog.models.team.team import Team
 
 from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
+from products.managed_warehouse.backend.facade.contracts import ServiceCredential
 from products.managed_warehouse.backend.models import DuckgresServer
+from products.managed_warehouse.backend.service_credentials import mint_service_credential
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
@@ -47,9 +54,14 @@ logger = structlog.get_logger(__name__)
 
 MANAGED_WAREHOUSE_SOURCE_DESCRIPTION = "Managed warehouse (auto-provisioned)"
 
+# Principal stamped on the provision-time mint, so CP audit logs and credential listings
+# attribute these stored grants to the SQL-editor direct-source setup flow.
+MANAGED_WAREHOUSE_DIRECT_SOURCE_PRINCIPAL = "managed-warehouse:direct-source-setup"
+
 # Database engine internals — never warehouse data. Sidebar hygiene, not permissioning:
-# root bypasses Duckgres AllowedSchemas, so this denylist is the only filter on what the
-# discover sweep registers. The later per-schema visibility control plugs in here.
+# the minted project_user login's schema grants already bound the catalog, and this
+# denylist is the only filter on what the discover sweep registers. The later per-schema
+# visibility control plugs in here.
 INTERNAL_SCHEMAS = frozenset({"pg_catalog", "information_schema", "pg_toast", "system"})
 
 
@@ -67,26 +79,43 @@ def _managed_source_queryset(team_id: int) -> QuerySet[ExternalDataSource]:
     )
 
 
-def _source_config(server: DuckgresServer) -> dict[str, object]:
-    """Snapshot the server's org root credential into the source's job_inputs."""
+def _mint_direct_source_credential(*, organization_id: str | UUID, team_id: int) -> ServiceCredential:
+    """Mint the team's stored provision-time credential for its SQL-editor source.
+
+    The source snapshots the credential into ``job_inputs`` long-term
+    (``ExternalDataSource``'s model), so ``force_rotate=True`` is right: the source
+    holds no prior credential when (re)written, and the CP's rotation IS the expiry
+    mechanism. Raises ``ServiceCredentialUnavailable`` on any CP failure — callers
+    stay best-effort.
+    """
+    return mint_service_credential(
+        str(organization_id),
+        team_id,
+        principal=MANAGED_WAREHOUSE_DIRECT_SOURCE_PRINCIPAL,
+        force_rotate=True,
+    )
+
+
+def _source_config(credential: ServiceCredential) -> dict[str, object]:
+    """Snapshot the minted credential and its CP-issued connect block into job_inputs."""
     source_impl = SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
     return source_impl.parse_config(
         {
-            "host": server.host,
-            "port": server.port,
-            "database": server.database,
-            "user": server.username,
-            "password": server.password,
+            "host": credential.connect.host,
+            "port": credential.connect.port,
+            "database": credential.connect.database,
+            "user": credential.username,
+            "password": credential.password,
         }
     ).to_dict()
 
 
-def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> ExternalDataSource:
+def _ensure_managed_source_locked(*, team_id: int, credential: ServiceCredential) -> ExternalDataSource:
     # Deliberately includes soft-deleted rows: a re-enabled membership revives its
     # tombstoned source.
     existing = _managed_source_queryset(team_id).select_for_update().order_by("-created_at").first()
 
-    config = _source_config(server)
+    config = _source_config(credential)
     if existing is not None:
         update_fields: list[str] = []
         connection_metadata = dict(existing.connection_metadata or {})
@@ -151,31 +180,100 @@ def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> Ex
 
 
 def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> ExternalDataSource:
-    """Create or refresh the team's managed-warehouse query source on the org root credential."""
+    """Create or refresh the team's managed-warehouse query source from a CP-minted credential.
+
+    Raises ``Team.DoesNotExist`` when the team is not (or no longer) in this organization
+    and ``ServiceCredentialUnavailable`` when the control plane cannot issue the
+    credential — both stay best-effort for the caller, which logs and moves on. There is
+    deliberately no fallback to Django state: the CP is the only authority for the
+    credential and its dial target.
+    """
+    # Mint FIRST — before any write: a CP failure must abort the setup before a row is
+    # created or refreshed (no half-written source), and no credential string ever sits
+    # inside an open Postgres transaction (the mint fans out over HTTP).
+    credential = _mint_direct_source_credential(organization_id=organization_id, team_id=team_id)
     with transaction.atomic():
-        server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
-        return _ensure_managed_source_locked(team_id=team_id, server=server)
+        return _ensure_managed_source_locked(team_id=team_id, credential=credential)
+
+
+def _cp_warehouse_exists(organization_id: str | UUID) -> bool:
+    """Whether the control plane still holds a live warehouse for this organization.
+
+    Replaces the ``DuckgresServer`` row-existence oracle on the reconcile path with a
+    probe of the same ``GET /warehouse/status`` accessor the deprovision and status
+    views use. Fail-CLOSED on ambiguity:
+
+    - 404, 409, or a 2xx body whose ``state`` is not a known live one (absent/"deleted"/
+      unparseable) ⇒ the warehouse is gone (or going) ⇒ ``False``.
+    - Any other non-2xx, an unreachable CP, or an unconfigured provisioning API ⇒ the CP
+      cannot confirm either way ⇒ ``False`` here too (don't revive); the miss is logged
+      and the next status read reconciles.
+    """
+    from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
+
+    org_id = str(organization_id)
+    try:
+        resp = _request("GET", organization_id, "/warehouse/status", require_enabled=False)
+    except Exception:
+        # Fail-closed: an unreachable CP must never revive a tombstoned source; a later
+        # sweep re-probes when the control plane is back.
+        logger.exception(
+            "Managed warehouse status probe failed; treating as deprovisioned for this sweep",
+            organization_id=org_id,
+        )
+        return False
+    if status.is_success(resp.status_code):
+        state = resp.data.get("state") if isinstance(resp.data, dict) else None
+        exists = state in ("provisioning", "ready")
+        if not exists:
+            logger.info(
+                "Managed warehouse reports no live state; treating as deprovisioned",
+                organization_id=org_id,
+                state=state,
+            )
+        return exists
+    if resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT):
+        # Unknown to the CP, or teardown already underway/finished — the same two codes
+        # the deprovision path treats as converged.
+        logger.info(
+            "Managed warehouse unknown to the control plane; treating as deprovisioned",
+            organization_id=org_id,
+            status_code=resp.status_code,
+        )
+        return False
+    # 5xx / unconfigured / anything else: the CP cannot confirm liveness — fail closed.
+    logger.warning(
+        "Managed warehouse status probe inconclusive; treating as deprovisioned for this sweep",
+        organization_id=org_id,
+        status_code=resp.status_code,
+    )
+    return False
 
 
 def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
     """Discover and register the org-wide managed-warehouse catalog for this team's source."""
     with transaction.atomic():
-        # Check before ensure: a tombstoned source means the warehouse was deprovisioned
-        # (its DuckgresServer row is deleted synchronously), and nothing may revive it —
-        # otherwise this sweep would resurrect sources right after deprovision.
+        # Check before ensure: a tombstoned source means the warehouse was deprovisioned,
+        # and nothing may revive it — otherwise this sweep would resurrect sources right
+        # after deprovision.
         if _managed_source_queryset(team_id).filter(deleted=True).exists():
             return
 
-    try:
-        ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
-    except (DuckgresServer.DoesNotExist, Team.DoesNotExist):
-        return
+        # The control plane, not the DuckgresServer row, is the existence oracle: only a
+        # CP-confirmed live warehouse gets its source (re)created or introspected.
+        if not _cp_warehouse_exists(organization_id):
+            return
+
+        team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
+        if team is None:
+            return
+
+    ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
 
     with transaction.atomic():
-        server = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
         team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
-        if server is None or team is None:
+        if team is None:
             return
 
         source = _managed_source_queryset(team_id).select_for_update().filter(deleted=False).first()
@@ -204,9 +302,8 @@ def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | U
 
     with transaction.atomic():
         # Revalidate after live introspection so deprovision wins the race.
-        server = DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()
         team = Team.objects.select_for_update().only("id").filter(id=team_id, organization_id=organization_id).first()
-        if server is None or team is None:
+        if team is None:
             return
         source = (
             _managed_source_queryset(team_id)
@@ -259,7 +356,19 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
         server.password = password
         server.save(update_fields=["password", "updated_at"])
 
-        config = _source_config(server)
+        config = (
+            SourceRegistry.get_source(ExternalDataSourceType.POSTGRES)
+            .parse_config(
+                {
+                    "host": server.host,
+                    "port": server.port,
+                    "database": server.database,
+                    "user": server.username,
+                    "password": server.password,
+                }
+            )
+            .to_dict()
+        )
         for source in _managed_sources_for_org(organization_id).select_for_update().order_by("team_id"):
             if source.job_inputs != config:
                 source.job_inputs = config
