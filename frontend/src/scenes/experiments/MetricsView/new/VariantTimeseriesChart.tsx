@@ -91,6 +91,7 @@ export function VariantTimeseriesChart({
                             significant={point.significant}
                             hasRealData={point.hasRealData}
                             computedAt={computedAt}
+                            color={variantColor}
                         />
                     )
                 }}
