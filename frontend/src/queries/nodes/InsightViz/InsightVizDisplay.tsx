@@ -5,7 +5,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
@@ -182,7 +181,6 @@ export function InsightVizDisplay({
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
-            // Stale results stay visible during reloads; the top bar and "Refreshing" note signal it
             if (hasRenderableResults) {
                 return null
             }
@@ -510,7 +508,6 @@ export function InsightVizDisplay({
             <div
                 className={clsx(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
-                    'relative',
                     !embedded && 'border rounded bg-surface-primary'
                 )}
                 data-attr="insights-graph"
@@ -519,13 +516,6 @@ export function InsightVizDisplay({
                 {!embedded && <HideWeekendsDeprecationNotice insightProps={insightProps} />}
                 {showingResults && (
                     <>
-                        {insightDataLoading && hasRenderableResults && (
-                            <LoadingBar
-                                loadId={queryId}
-                                wrapperClassName="absolute top-0 inset-x-0 z-10 my-0 max-w-none"
-                                className="!h-1"
-                            />
-                        )}
                         {!embedded &&
                             ((isFunnels && hasFunnelResults) ||
                                 isPaths ||
