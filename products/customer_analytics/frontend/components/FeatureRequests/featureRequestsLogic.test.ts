@@ -71,6 +71,33 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.submittingRequest).toBe(false)
     })
 
+    it('reloads request rows after a linked product area changes', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const productArea = createdRequest.product_areas[0]
+        const renamedRequest: FeatureRequestApi = {
+            ...createdRequest,
+            product_areas: [{ ...productArea, name: 'Data platform' }],
+        }
+        jest.spyOn(generatedApi, 'featureRequestProductAreasPartialUpdate').mockResolvedValue({
+            ...productArea,
+            name: 'Data platform',
+        })
+        jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [renamedRequest],
+        })
+        logic.actions.startEditingProductArea(productArea)
+        logic.actions.setProductAreaName('Data platform')
+
+        await expectLogic(logic, () => logic.actions.saveProductArea())
+            .toDispatchActions(['loadFeatureRequests', 'loadFeatureRequestsSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.featureRequests).toEqual([renamedRequest])
+    })
+
     it('ignores a second submit while the first request is in flight', async () => {
         let resolveCreate: (request: FeatureRequestApi) => void = () => undefined
         const createPromise = new Promise<FeatureRequestApi>((resolve) => {

@@ -489,6 +489,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 }
                 actions.startNewProductArea()
                 actions.loadProductAreas()
+                actions.loadFeatureRequests()
             } catch {
                 lemonToast.error("Couldn't save the product area. Check the name and try again.")
             } finally {
