@@ -4345,19 +4345,28 @@ describe("AgentServer HTTP Mode", () => {
     // resolved from run state when the first message arrives.
     type WarmTestable = {
       prewarmedRun: boolean;
-      session: { payload: { task_id: string; run_id: string } } | null;
+      session: {
+        payload: { task_id: string; run_id: string };
+        acpSessionId: string;
+        clientConnection: {
+          setSessionConfigOption: ReturnType<typeof vi.fn>;
+        };
+      } | null;
       posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-      resolveWarmAutoPublishUpgrade(): Promise<string | null>;
+      resolveWarmActivationSettings(): Promise<string | null>;
       buildCloudSystemPrompt(): string;
     };
     const makeWarmServer = (
       state: Record<string, unknown> | Error,
       overrides: Partial<ConstructorParameters<typeof AgentServer>[0]> = {},
+      setSessionConfigOption = vi.fn(async () => ({ configOptions: [] })),
     ): WarmTestable => {
       const t = createServer(overrides) as unknown as WarmTestable;
       t.prewarmedRun = true;
       t.session = {
         payload: { task_id: "test-task-id", run_id: "test-run-id" },
+        acpSessionId: "test-session-id",
+        clientConnection: { setSessionConfigOption },
       };
       t.posthogAPI = {
         getTaskRun:
@@ -4370,27 +4379,65 @@ describe("AgentServer HTTP Mode", () => {
       return t;
     };
 
+    it("applies activation-time reasoning before a prewarmed run's first turn", async () => {
+      const setSessionConfigOption = vi.fn(async () => ({ configOptions: [] }));
+      const t = createServer({ reasoningEffort: "high" }) as unknown as {
+        prewarmedRun: boolean;
+        session: {
+          payload: { task_id: string; run_id: string };
+          acpSessionId: string;
+          clientConnection: {
+            setSessionConfigOption: typeof setSessionConfigOption;
+          };
+        };
+        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        resolveWarmActivationSettings(): Promise<string | null>;
+      };
+      t.prewarmedRun = true;
+      t.session = {
+        payload: { task_id: "test-task-id", run_id: "test-run-id" },
+        acpSessionId: "test-session-id",
+        clientConnection: { setSessionConfigOption },
+      };
+      t.posthogAPI = {
+        getTaskRun: vi.fn(async () => ({
+          state: { prewarmed: true, reasoning_effort: "xhigh" },
+        })),
+      };
+
+      await t.resolveWarmActivationSettings();
+      await t.resolveWarmActivationSettings();
+
+      expect(setSessionConfigOption).toHaveBeenCalledOnce();
+      expect(setSessionConfigOption).toHaveBeenCalledWith({
+        sessionId: "test-session-id",
+        configId: "effort",
+        value: "xhigh",
+      });
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
+    });
+
     it("upgrades a prewarmed run to auto-publish from run state on the first message", async () => {
       const t = makeWarmServer({ prewarmed: true, auto_publish: true });
 
-      const override = await t.resolveWarmAutoPublishUpgrade();
+      const override = await t.resolveWarmActivationSettings();
       expect(override).toContain("OVERRIDE PREVIOUS INSTRUCTIONS");
       expect(override).toContain("gh pr create --draft");
       // The flip persists for the rest of the session...
       expect(t.buildCloudSystemPrompt()).toContain("gh pr create --draft");
       // ...and the override is injected only once.
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
     it("keeps a prewarmed run review-first when run state has no auto_publish", async () => {
       const t = makeWarmServer({ prewarmed: true });
 
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
       expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(1);
     });
 
@@ -4402,8 +4449,8 @@ describe("AgentServer HTTP Mode", () => {
         { createPr: false },
       );
 
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
-      expect(t.posthogAPI.getTaskRun).not.toHaveBeenCalled();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledOnce();
       expect(t.buildCloudSystemPrompt()).toContain(
         "stop with local changes ready for review",
       );
@@ -4411,14 +4458,32 @@ describe("AgentServer HTTP Mode", () => {
 
     it("retries the state fetch on a later message when it fails", async () => {
       const t = makeWarmServer(new Error("fetch failed"));
-      expect(await t.resolveWarmAutoPublishUpgrade()).toBeNull();
+      expect(await t.resolveWarmActivationSettings()).toBeNull();
 
       t.posthogAPI.getTaskRun = vi.fn(async () => ({
         state: { prewarmed: true, auto_publish: true },
       }));
-      expect(await t.resolveWarmAutoPublishUpgrade()).toContain(
+      expect(await t.resolveWarmActivationSettings()).toContain(
         "gh pr create --draft",
       );
+    });
+
+    it("retries reasoning configuration without blocking the first prompt", async () => {
+      const setSessionConfigOption = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("adapter unavailable"))
+        .mockResolvedValueOnce({ configOptions: [] });
+      const t = makeWarmServer(
+        { prewarmed: true, reasoning_effort: "xhigh" },
+        { reasoningEffort: "high" },
+        setSessionConfigOption,
+      );
+
+      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
+      await expect(t.resolveWarmActivationSettings()).resolves.toBeNull();
+
+      expect(setSessionConfigOption).toHaveBeenCalledTimes(2);
+      expect(t.posthogAPI.getTaskRun).toHaveBeenCalledTimes(2);
     });
 
     it.each([
