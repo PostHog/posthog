@@ -1946,7 +1946,8 @@ async fn a_fully_unresolved_call_births_the_target_person() {
         .into_inner();
 
     // The person is born on the target distinct id's deterministic uuid,
-    // stamped with the event's timestamp, already identified.
+    // stamped with the event's timestamp, and identified by the settlement
+    // flip through the leader.
     let survivor = response.survivor.as_ref().expect("survivor present");
     assert_eq!(
         survivor.uuid,
@@ -1962,8 +1963,17 @@ async fn a_fully_unresolved_call_births_the_target_person() {
     // events already point at this person); the attached one gets 1.
     assert_eq!(h.pdi_state("birth-target").await, (survivor.id, false, 0));
     assert_eq!(h.pdi_state("birth-anon").await, (survivor.id, false, 1));
-    // Born identified with no event properties: no leader push needed.
-    assert!(h.leader.calls().is_empty());
+    // Born unidentified, then flipped through the leader: the flip is a
+    // change the leader records, so it doubles as the newborn's first
+    // changelog document — the downstream person feed's copy. A stub born
+    // identified would make the flip a no-op and never reach the feed.
+    assert_eq!(
+        h.leader.calls(),
+        vec![LeaderCall::PropertyPush {
+            person_id: survivor.id,
+            is_identified: Some(true),
+        }]
+    );
     let op_count: i64 = sqlx::query_scalar("SELECT count(*) FROM lifecycle_op WHERE op_id = $1")
         .bind(op_id)
         .fetch_one(&h.ctx.pool)
