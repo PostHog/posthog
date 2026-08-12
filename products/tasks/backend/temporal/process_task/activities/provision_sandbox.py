@@ -36,6 +36,7 @@ from products.tasks.backend.logic.services.connection_token import (
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     Sandbox,
+    SandboxBase,
     SandboxConfig,
     SandboxTemplate,
     get_sandbox_class,
@@ -153,7 +154,7 @@ class CheckoutBranchInSandboxInput:
     used_snapshot: bool
 
 
-def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: Sandbox, repository: str) -> None:
+def _prepare_posthog_desktop_cloud_task(ctx: TaskProcessingContext, sandbox: SandboxBase, repository: str) -> None:
     """Build Desktop workspace exports from the task's checked-out source.
 
     The dev-stack image warms pnpm's content-addressed store but deliberately does
