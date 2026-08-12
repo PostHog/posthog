@@ -22,7 +22,7 @@ from products.conversations.backend.mailgun import (
     MailgunPermanentError,
     MailgunTransientError,
 )
-from products.conversations.backend.models import EmailChannel, EmailOutboxMessage
+from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Status
 from products.conversations.backend.models.ticket import Ticket
 
 
@@ -1696,6 +1696,77 @@ class TestEmailInboundCcParticipants(BaseTest):
 
         ticket.refresh_from_db()
         assert ticket.cc_participants == ["dev@company.com", "new@company.com"]
+
+
+class TestEmailInboundReopen(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ab12cd34ef56",
+            from_email="support@example.com",
+            from_name="Support",
+            domain="example.com",
+            domain_verified=True,
+        )
+
+    def _base_data(self, msg_id: str, sender: str = "sender@test.com") -> dict[str, str]:
+        return {
+            "recipient": "team-ab12cd34ef56@mg.posthog.com",
+            "from": sender,
+            "Message-Id": msg_id,
+            "subject": "Help",
+            "stripped-text": "Still stuck",
+        }
+
+    def _seed_ticket(self, status: str) -> Ticket:
+        self.client.post("/api/conversations/v1/email/inbound", self._base_data("<init@test.com>"))
+        ticket = Ticket.objects.get(team=self.team)
+        Ticket.objects.filter(id=ticket.id).update(status=status)
+        return ticket
+
+    @parameterized.expand(
+        [
+            (Status.RESOLVED.value, Status.OPEN.value),
+            (Status.PENDING.value, Status.OPEN.value),
+            (Status.ON_HOLD.value, Status.OPEN.value),
+            (Status.OPEN.value, Status.OPEN.value),
+            (Status.NEW.value, Status.NEW.value),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_customer_reply_reactivates_ticket(self, start_status, expected_status, _mock_sig: MagicMock):
+        ticket = self._seed_ticket(start_status)
+
+        reply = self._base_data("<reply@test.com>")
+        reply["In-Reply-To"] = "<init@test.com>"
+        response = self.client.post("/api/conversations/v1/email/inbound", reply)
+        assert response.status_code == 200
+
+        ticket.refresh_from_db()
+        assert ticket.status == expected_status
+
+    @patch("products.conversations.backend.api.email_events._resolve_team_member")
+    @patch("products.conversations.backend.api.email_events._sender_authenticated", return_value=True)
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_team_member_reply_does_not_reactivate(
+        self, _mock_sig: MagicMock, _mock_auth: MagicMock, mock_resolve: MagicMock
+    ):
+        # A staff member emailing into a resolved thread is not the customer waiting on us,
+        # so it must not reopen the ticket.
+        mock_resolve.return_value = self.user
+        ticket = self._seed_ticket(Status.RESOLVED.value)
+
+        reply = self._base_data("<agent-reply@test.com>", sender=self.user.email)
+        reply["In-Reply-To"] = "<init@test.com>"
+        response = self.client.post("/api/conversations/v1/email/inbound", reply)
+        assert response.status_code == 200
+
+        ticket.refresh_from_db()
+        assert ticket.status == Status.RESOLVED.value
 
 
 class TestEmailInboundAttachments(BaseTest):

@@ -17,6 +17,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.mailgun import validate_webhook_signature
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping, Status
 from products.conversations.backend.models.ticket import Ticket
@@ -396,6 +397,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     # 8. Create ticket/comment/mapping in a transaction
     # Attachments are extracted inside the transaction so UploadedMedia rows roll back
     # on duplicate-race IntegrityError. Orphaned S3 blobs are acceptable.
+    reopened_from_status: str | None = None
     try:
         with transaction.atomic():
             attachments = _extract_attachments(request, team)
@@ -465,16 +467,19 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
                 # be folded into cc_participants or replies would deliver to them twice.
                 ticket_from = (ticket.email_from or "").lower()
                 cc_list = [addr for addr in cc_list if addr != ticket_from]
-                qs = Ticket.objects.filter(id=ticket.id, team=team)
-                if not is_team_member and cc_list:
-                    qs.update(
-                        unread_team_count=F("unread_team_count") + 1,
-                        cc_participants=list(dict.fromkeys(ticket.cc_participants + cc_list)),
-                    )
-                elif not is_team_member:
-                    qs.update(unread_team_count=F("unread_team_count") + 1)
-                elif cc_list:
-                    qs.update(cc_participants=list(dict.fromkeys(ticket.cc_participants + cc_list)))
+                update_fields: dict[str, Any] = {}
+                if not is_team_member:
+                    update_fields["unread_team_count"] = F("unread_team_count") + 1
+                    # A customer reply reactivates the thread. A resolved, pending, or on-hold
+                    # ticket that keeps its status drops out of the default inbox list, so the
+                    # team never sees the reply and the customer waits unanswered.
+                    if ticket.status not in (Status.OPEN, Status.NEW):
+                        reopened_from_status = ticket.status
+                        update_fields["status"] = Status.OPEN
+                if cc_list:
+                    update_fields["cc_participants"] = list(dict.fromkeys(ticket.cc_participants + cc_list))
+                if update_fields:
+                    Ticket.objects.filter(id=ticket.id, team=team).update(**update_fields)
 
             EmailMessageMapping.objects.create(
                 message_id=email_message_id,
@@ -485,6 +490,15 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     except IntegrityError:
         logger.info("email_inbound_duplicate_race", message_id=email_message_id)
         return HttpResponse(status=200)
+
+    # Emit the reopen event after commit. capture_ticket_status_changed makes a blocking
+    # HTTP call, so it must not run while the row lock is held.
+    if reopened_from_status is not None:
+        ticket.status = Status.OPEN
+        try:
+            capture_ticket_status_changed(ticket, reopened_from_status, Status.OPEN, actor_type="customer")
+        except Exception:
+            logger.exception("email_reply_reopen_event_failed", ticket_id=str(ticket.id))
 
     logger.info(
         "email_inbound_processed",

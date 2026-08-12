@@ -2008,6 +2008,18 @@ def send_new_ticket_notification(ticket_id: str, team_id: int, first_message_con
         ):
             memberships_to_email.append(membership)
 
+    # Surface recipients the access filter drops. A configured recipient with no effective
+    # access to the project silently receives nothing, which reads as "notifications are off".
+    emailed_user_ids = {membership.user_id for membership in memberships_to_email}
+    dropped_recipient_ids = [user_id for user_id in recipient_ids if user_id not in emailed_user_ids]
+    if dropped_recipient_ids:
+        logger.warning(
+            "Skipping new ticket notification recipients without project access",
+            ticket_id=ticket_id,
+            team_id=team_id,
+            dropped_recipient_ids=dropped_recipient_ids,
+        )
+
     if not memberships_to_email:
         return
 
