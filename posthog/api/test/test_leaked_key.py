@@ -273,6 +273,50 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         other_refresh_token.refresh_from_db()
         self.assertIsNone(other_refresh_token.revoked)
 
+    def test_leaked_non_rotating_refresh_token_revokes_every_derived_access_token(self) -> None:
+        # DCR/CIMD clients get non-rotating refreshes: every refresh inserts a new access
+        # token row with no link back to the refresh token that minted it, instead of
+        # updating one row in place. Reporting the refresh token must still catch every
+        # access token it could have produced, not just whichever one (if any) happens to
+        # still be linked.
+        dcr_app = OAuthApplication.objects.create(
+            name="Test DCR App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            skip_authorization=False,
+            organization=self.organization,
+            user=self.user,
+            is_dcr_client=True,
+        )
+        leaked_refresh_token = OAuthRefreshToken.objects.create(
+            user=self.user, application=dcr_app, token="phr_dcr_refresh_token"
+        )
+        first_access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=dcr_app,
+            token="pha_dcr_access_token_1",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+        )
+        second_access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=dcr_app,
+            token="pha_dcr_access_token_2",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="openid profile",
+        )
+
+        response = self._post("phr_dcr_refresh_token")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"found": True, "type": CANONICAL_OAUTH_REFRESH_TOKEN})
+        leaked_refresh_token.refresh_from_db()
+        self.assertIsNotNone(leaked_refresh_token.revoked)
+        self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
+        self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
+
     def test_blank_token_returns_400(self) -> None:
         response = self._post("")
 

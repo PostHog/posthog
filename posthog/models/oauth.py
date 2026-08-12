@@ -697,6 +697,21 @@ def revoke_oauth_session(
         OAuthGrant.objects.filter(user=user, application=application).delete()
 
 
+def _refresh_token_may_have_untracked_access_tokens(refresh_token: OAuthRefreshToken) -> bool:
+    """True for a non-rotating refresh token (DCR/CIMD clients - see
+    OAuthTokenView._save_bearer_token in posthog/api/oauth/views.py), which inserts a new,
+    unlinked OAuthAccessToken row on every refresh instead of updating one access token in
+    place. Those rows carry no queryable link back to the refresh token that minted them
+    (source_refresh_token is left None specifically so sibling rows stay addressable), so
+    there's no way to enumerate every access token a given non-rotating refresh token could
+    have produced.
+    """
+    application = refresh_token.application
+    if application.is_dcr_client or application.is_cimd_client:
+        return True
+    return not oauth2_settings.ROTATE_REFRESH_TOKEN
+
+
 def revoke_oauth_token_session(
     access_token: OAuthAccessToken | None = None, refresh_token: OAuthRefreshToken | None = None
 ) -> None:
@@ -727,6 +742,14 @@ def revoke_oauth_token_session(
         ).update(revoked=now)
         access_token.delete()
     elif refresh_token:
+        if _refresh_token_may_have_untracked_access_tokens(refresh_token):
+            # A leaked non-rotating refresh token can have minted any number of access
+            # tokens with no durable link back to it (see
+            # _refresh_token_may_have_untracked_access_tokens), so a per-token revoke can't
+            # guarantee all of them are caught. Fall back to the same (user, application)
+            # sweep revoke_token already uses for this exact case via RFC 7009.
+            revoke_oauth_session(refresh_token=refresh_token)
+            return
         OAuthAccessToken.objects.filter(
             Q(pk=refresh_token.access_token_id) | Q(source_refresh_token=refresh_token)
         ).delete()
