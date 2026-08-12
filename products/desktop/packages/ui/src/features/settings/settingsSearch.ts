@@ -5,7 +5,6 @@ import {
 
 export interface SettingsSearchEntry {
   category: SettingsCategory;
-  /** The setting's visible label, shown as the result row. */
   label: string;
   keywords?: string[];
 }
@@ -14,7 +13,6 @@ export interface SettingsSearchEntry {
 // loses a setting, update its entries here so search keeps finding it. Page
 // display names come from SETTINGS_PAGE_LABELS, not repeated per entry.
 export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
-  // General
   {
     category: "general",
     label: "Theme",
@@ -77,7 +75,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     ],
   },
 
-  // Notifications
   {
     category: "notifications",
     label: "System notifications",
@@ -119,7 +116,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["test notification"],
   },
 
-  // Personalization
   {
     category: "personalization",
     label: "Custom instructions",
@@ -141,7 +137,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["video", "fun"],
   },
 
-  // Pages without per-row entries
   {
     category: "plan-usage",
     label: "Plan & usage",
@@ -228,7 +223,6 @@ export const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["nav", "customize", "reorder"],
   },
 
-  // Advanced
   {
     category: "advanced",
     label: "Always create pull requests for cloud runs",

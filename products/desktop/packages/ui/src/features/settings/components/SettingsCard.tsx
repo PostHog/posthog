@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 interface SettingsSectionProps {
   label?: string;
   description?: ReactNode;
-  /** Optional trailing control, aligned with the section label. */
   action?: ReactNode;
   children: ReactNode;
 }
@@ -66,14 +65,9 @@ interface SettingsCardRowProps {
   label: ReactNode;
   description?: ReactNode;
   children?: ReactNode;
-  /** Render the control on its own line under the label. */
   stacked?: boolean;
 }
 
-/**
- * One setting inside a SettingsCard: compact label (plus optional one-line
- * description) on the left, control on the right.
- */
 export function SettingsCardRow({
   label,
   description,

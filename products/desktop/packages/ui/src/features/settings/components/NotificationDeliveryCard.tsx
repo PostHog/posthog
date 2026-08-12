@@ -110,10 +110,6 @@ interface NotificationDeliveryCardProps {
   disabled?: boolean;
 }
 
-/**
- * One notification channel as a clickable preview card: an illustration of
- * where the alert appears, with the whole card acting as the toggle.
- */
 export function NotificationDeliveryCard({
   title,
   caption,

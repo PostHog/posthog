@@ -27,7 +27,6 @@ const meta: Meta = {
 export default meta;
 type Story = StoryObj;
 
-/** The General page's card grammar: theme previews, segmented defaults. */
 export const GeneralPage: Story = {
   render: function GeneralPageStory() {
     const [theme, setTheme] = useState<ThemePreference>("dark");
@@ -147,7 +146,6 @@ export const GeneralPage: Story = {
   },
 };
 
-/** The Notifications page's delivery cards, each a clickable preview. */
 export const NotificationDeliveryCards: Story = {
   render: function NotificationDeliveryCardsStory() {
     const [push, setPush] = useState(true);
