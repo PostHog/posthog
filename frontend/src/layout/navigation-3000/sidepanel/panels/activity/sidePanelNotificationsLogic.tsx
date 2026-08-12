@@ -31,7 +31,10 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
+import {
+    connectToNotificationsSSE,
+    isSSEAuthError,
+} from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { InAppNotification, InsightShortId, ResourceEditedEvent } from '~/types'
 
@@ -208,6 +211,7 @@ export interface sidePanelNotificationsLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    loadCurrentTeam: () => any // teamLogic
     loadCurrentTeamSuccess: (
         currentTeam: TeamPublicType | null,
         payload?: any
@@ -434,7 +438,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [teamLogic, ['loadCurrentTeamSuccess'], resourceEditedLogic, ['resourceEdited']],
+        actions: [teamLogic, ['loadCurrentTeam', 'loadCurrentTeamSuccess'], resourceEditedLogic, ['resourceEdited']],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -805,15 +809,6 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     () => {
                         const reason = cache.nextStartReason ?? 'visibility_resume'
                         cache.nextStartReason = null
-                        // TEMPORARY: lifecycle tracking for /notifications SSE connection.
-                        // Remove together with livestream_401_debug once root cause is known.
-                        posthog.capture('livestream_sse_startsse_called', {
-                            reason,
-                            flag_enabled: values.realTimeNotificationsEnabled,
-                            has_token: !!values.currentTeam?.live_events_token,
-                            has_host: !!liveEventsHostOrigin(),
-                            had_prior_connection: !!cache.sseConnection,
-                        })
 
                         if (!values.realTimeNotificationsEnabled) {
                             posthog.capture('livestream_sse_startsse_skipped', { reason: 'flag_disabled' })
@@ -863,6 +858,11 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                         }
                                     },
                                     {
+                                        // A healthy open means the token worked, so clear the guard
+                                        // that bounds token-refresh reconnects (see the .catch below).
+                                        onOpen: () => {
+                                            cache.tokenRefreshInFlight = false
+                                        },
                                         // TEMPORARY: livestream SSE lifecycle tracking.
                                         onFirstMessage: () => {
                                             if (!cache.firstMessageLogged) {
@@ -884,12 +884,29 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                 initialDelayMs: SSE_RETRY_INITIAL_DELAY_MS,
                                 backoffMultiplier: SSE_RETRY_BACKOFF_MULTIPLIER,
                                 signal: abortController.signal,
+                                // Retrying an auth failure reuses the same expired token, so give up
+                                // immediately and let the .catch re-mint it via a team reload.
+                                shouldRetry: (error) => !isSSEAuthError(error),
                             }
                         ).catch((error) => {
                             // retryWithBackoff rejects with AbortError on clean shutdown
                             // (including when the disposable is paused for visibilitychange);
                             // only re-arm when it actually gave up.
                             if (error instanceof DOMException && error.name === 'AbortError') {
+                                return
+                            }
+                            // A 401/403 means the embedded live_events_token has expired. It never
+                            // refreshes on its own, so every reconnect reuses the same dead token and
+                            // notifications stop arriving live. Reload the team to mint a fresh token
+                            // (the serializer re-mints one at most 24h old), then reconnect with it.
+                            // Guarded so a token the server still rejects can't spin — the guard clears
+                            // on the next healthy open.
+                            if (isSSEAuthError(error) && !cache.tokenRefreshInFlight) {
+                                cache.tokenRefreshInFlight = true
+                                cache.nextStopReason = 'token_refresh'
+                                cache.disposables.dispose('sseConnection')
+                                cache.nextStopReason = null
+                                actions.loadCurrentTeam()
                                 return
                             }
                             // TEMPORARY: livestream SSE lifecycle tracking.

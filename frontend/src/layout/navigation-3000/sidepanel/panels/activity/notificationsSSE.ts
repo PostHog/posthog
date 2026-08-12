@@ -4,7 +4,27 @@ import { InAppNotification } from '~/types'
 
 export interface NotificationsSSEHooks {
     onFirstMessage?: () => void
+    onOpen?: () => void
     onError?: (error: unknown) => void
+}
+
+/**
+ * Thrown out of the `onError` hook so `retryWithBackoff` in the caller drives reconnects. It
+ * carries the HTTP `status` (when the stream failed on open) so the caller can tell an expired
+ * `live_events_token` (401/403) apart from a transient drop and re-mint it instead of retrying
+ * the same dead credential.
+ */
+export class SSEDisconnectedError extends Error {
+    constructor(readonly status?: number) {
+        super('SSE disconnected')
+        this.name = 'SSEDisconnectedError'
+    }
+}
+
+/** True when the error means the live-events token was rejected, so a reconnect needs a fresh one. */
+export function isSSEAuthError(error: unknown): boolean {
+    const status = (error as { status?: number } | undefined)?.status
+    return status === 401 || status === 403
 }
 
 /**
@@ -26,6 +46,7 @@ export function connectToNotificationsSSE(
             Authorization: `Bearer ${token}`,
         },
         signal,
+        onOpen: hooks.onOpen,
         onMessage: (event) => {
             if (!firstMessageSeen) {
                 firstMessageSeen = true
@@ -50,7 +71,7 @@ export function connectToNotificationsSSE(
                 throw new DOMException('Aborted', 'AbortError')
             }
             hooks.onError?.(error)
-            throw new Error('SSE disconnected')
+            throw new SSEDisconnectedError((error as { status?: number } | undefined)?.status)
         },
     })
 }

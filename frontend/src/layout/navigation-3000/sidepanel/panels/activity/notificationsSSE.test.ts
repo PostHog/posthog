@@ -1,8 +1,9 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { InAppNotification } from '~/types'
 
-import { connectToNotificationsSSE } from './notificationsSSE'
+import { connectToNotificationsSSE, isSSEAuthError, SSEDisconnectedError } from './notificationsSSE'
 
 jest.mock('lib/api')
 
@@ -83,5 +84,30 @@ describe('connectToNotificationsSSE', () => {
         })
 
         await connectToNotificationsSSE(url, token, abortController.signal, jest.fn())
+    })
+
+    it('surfaces a 401 as an auth error so the caller can re-mint the token', async () => {
+        let thrown: unknown
+        mockStream.mockImplementation(async (_url, opts) => {
+            try {
+                opts.onError(new ApiError('unauthorized', 401))
+            } catch (e) {
+                thrown = e
+            }
+        })
+
+        await connectToNotificationsSSE(url, token, abortController.signal, jest.fn())
+
+        expect(thrown).toBeInstanceOf(SSEDisconnectedError)
+        expect(isSSEAuthError(thrown)).toBe(true)
+    })
+
+    it.each([
+        [401, true],
+        [403, true],
+        [500, false],
+        [undefined, false],
+    ])('isSSEAuthError treats status %s as auth=%s', (status, expected) => {
+        expect(isSSEAuthError(new SSEDisconnectedError(status as number | undefined))).toBe(expected)
     })
 })
