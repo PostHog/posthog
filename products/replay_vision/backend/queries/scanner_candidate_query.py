@@ -35,6 +35,11 @@ tracer = trace.get_tracer(__name__)
 # Partition prune anchored to the SDK's 24h session_id rotation + 2h headroom for skew and lag.
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
+# How far behind the watermark the frequent sweep's events subqueries scan. Covers the events of any
+# session up to ~3h long plus skew; sessions whose matching events are older surface via the periodic
+# deep sweep instead (see `find_scanner_candidates_activity`), which scans the full lookback.
+SWEEP_EVENTS_LOOKBACK = dt.timedelta(hours=4)
+
 SAMPLE_RATE_PRECISION = 10_000
 # Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
 MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
@@ -137,6 +142,7 @@ class ScannerCandidateQuery:
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
+        events_lookback: dt.timedelta | None = None,
     ) -> None:
         if not isinstance(last_swept_at, dt.datetime):
             raise TypeError(f"last_swept_at must be a datetime, got {type(last_swept_at).__name__}")
@@ -173,7 +179,18 @@ class ScannerCandidateQuery:
         if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
             extra_having.append(surfacing)
 
-        self._inner = SessionRecordingListFromQuery(team=team, query=inner_query, extra_having_predicates=extra_having)
+        # Bounding positive events subqueries to a few hours keeps the every-few-minutes sweep from
+        # re-scanning the full events lookback each tick. Exclusion blocklists ignore the floor (see
+        # ReplayFiltersEventsSubQuery), so negative filters stay exact; a session whose only matching
+        # event is older than the floor is missed here and caught by the deep sweep.
+        events_timestamp_floor = (last_swept_at - events_lookback) if events_lookback is not None else None
+
+        self._inner = SessionRecordingListFromQuery(
+            team=team,
+            query=inner_query,
+            extra_having_predicates=extra_having,
+            events_timestamp_floor=events_timestamp_floor,
+        )
 
     @tracer.start_as_current_span("ScannerCandidateQuery.run")
     def run(self) -> list[CandidateSession]:

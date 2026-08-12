@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional, cast
 
 import posthoganalytics
@@ -85,11 +85,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         allow_event_property_expansion: bool = False,
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
         sample_factor: Optional[float] = None,
+        events_timestamp_floor: Optional[datetime] = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
         self._sample_factor = sample_factor
+        # Extra lower bound on positive events scans, ANDed with the date-range bound so it can only
+        # narrow. Exclusion blocklists never apply it — a truncated blocklist would under-exclude.
+        self._events_timestamp_floor = events_timestamp_floor
         self.emitted_sampled_subquery = False
 
     def _events_join(self, sample: bool = True) -> ast.JoinExpr:
@@ -276,6 +280,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # Events can arrive before session starts or after it ends
         date_from_buffered = self.query_date_range.date_from() - timedelta(days=1)
         date_to_buffered = self.query_date_range.date_to() + timedelta(days=1)
+        if self._events_timestamp_floor is not None:
+            date_from_buffered = max(date_from_buffered, self._events_timestamp_floor)
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
@@ -583,7 +589,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             timings=hogql_query_response.timings,
         )
 
-    def _where_predicates(self, where_expr: ast.Expr | list[ast.Expr] | None) -> ast.Expr:
+    def _where_predicates(
+        self, where_expr: ast.Expr | list[ast.Expr] | None, apply_timestamp_floor: bool = True
+    ) -> ast.Expr:
         exprs: list[ast.Expr] = [
             ast.Call(
                 name="notEmpty",
@@ -632,6 +640,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     op=ast.CompareOperationOp.In,
                     left=_event_session_id_field(),
                     right=ast.Constant(value=self._query.session_ids),
+                )
+            )
+
+        if apply_timestamp_floor and self._events_timestamp_floor is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.Constant(value=self._events_timestamp_floor),
                 )
             )
 
@@ -740,7 +757,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
             select_from=self._events_join(sample=False),
-            where=self._where_predicates(where_expr),
+            where=self._where_predicates(where_expr, apply_timestamp_floor=False),
             group_by=[_event_session_id_field()],
             limit=ast.Constant(value=1000000),
         )

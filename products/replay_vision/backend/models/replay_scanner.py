@@ -151,6 +151,11 @@ class ReplayScanner(UUIDModel):
         db_default="",
         help_text="Keyset tiebreaker; set when the last batch saturated so the next sweep resumes past session_end ties.",
     )
+    last_deep_swept_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Watermark for the periodic full-events-lookback catch-up sweep; null until the first regular sweep initializes it.",
+    )
 
     # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
     # keys, so the experiment association isn't recoverable from it. Not version-tracked; scanning

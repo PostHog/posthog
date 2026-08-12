@@ -41,6 +41,11 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     # Settle horizon the query covered; None on short-circuit paths and pre-deploy histories,
     # which keeps replays deterministic since the empty-sweep advance is gated on it.
     swept_through: dt.datetime | None = None
+    # Stragglers from the periodic full-events-lookback catch-up pass; dispatch-only, never drive
+    # the fast watermark. Defaults keep pre-deploy histories replaying deterministically.
+    deep_candidates: list[CandidateSessionPayload] = Field(default_factory=list)
+    # Horizon the deep pass covered; None when it didn't run or its batch saturated.
+    deep_swept_through: dt.datetime | None = None
 
 
 class RefreshPromptSuggestionInputs(BaseModel, frozen=True):
@@ -53,3 +58,5 @@ class AdvanceScannerWatermarkInputs(BaseModel, frozen=True):
     new_last_swept_at: dt.datetime
     # Empty clears the keyset tiebreaker.
     new_last_seen_session_id: str = Field(max_length=MAX_SESSION_ID_LENGTH)
+    # None leaves the deep-sweep watermark untouched.
+    new_last_deep_swept_at: dt.datetime | None = None

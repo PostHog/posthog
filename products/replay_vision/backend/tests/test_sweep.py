@@ -5,12 +5,17 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.queries.scanner_candidate_query import DEFAULT_CANDIDATE_LIMIT, CandidateSession
+from products.replay_vision.backend.queries.scanner_candidate_query import (
+    DEFAULT_CANDIDATE_LIMIT,
+    SWEEP_EVENTS_LOOKBACK,
+    CandidateSession,
+)
 from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
@@ -130,6 +135,7 @@ class TestFindScannerCandidatesActivity:
         assert query_kwargs["last_swept_at"] == watermark_arg
         assert query_kwargs["last_seen_session_id"] is None
         assert query_kwargs["sampling_rate"] == scanner.sampling_rate
+        assert query_kwargs["events_lookback"] == SWEEP_EVENTS_LOOKBACK
 
     def test_threads_last_seen_session_id_when_set(self) -> None:
         scanner = _make_scanner(last_seen_session_id="prev-id")
@@ -165,6 +171,92 @@ class TestFindScannerCandidatesActivity:
 
         assert result.saturated is True
         assert len(result.candidates) == DEFAULT_CANDIDATE_LIMIT
+
+    def test_first_sweep_initializes_deep_watermark_without_catchup_query(self) -> None:
+        scanner = _make_scanner()
+        assert scanner.last_deep_swept_at is None
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = []
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        MockDeep.assert_not_called()
+        assert result.deep_candidates == []
+        assert result.deep_swept_through == scanner.last_swept_at
+
+    def test_stale_deep_watermark_runs_full_width_catchup(self) -> None:
+        deep_watermark = dt.datetime.now(dt.UTC) - dt.timedelta(hours=7)
+        scanner = _make_scanner(last_deep_swept_at=deep_watermark)
+        straggler = CandidateSession(
+            session_id="deep-sess", session_end=dt.datetime(2026, 5, 1, 6, 0, 0, tzinfo=dt.UTC)
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = []
+            MockDeep.return_value.run.return_value = [straggler]
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        _, deep_kwargs = MockDeep.call_args
+        assert deep_kwargs["window_start"] == deep_watermark
+        assert deep_kwargs["window_end"] == scanner.last_swept_at
+        assert deep_kwargs["exclude_observed_by_scanner"] == str(scanner.id)
+        assert [c.session_id for c in result.deep_candidates] == ["deep-sess"]
+        assert result.deep_swept_through == scanner.last_swept_at
+
+    @parameterized.expand(
+        [
+            ("fresh_watermark", dt.timedelta(hours=1), 1, None),
+            ("saturated_batch", dt.timedelta(hours=7), 2, None),
+        ]
+    )
+    def test_deep_watermark_held_when_pass_skipped_or_saturated(
+        self, _name: str, watermark_age: dt.timedelta, candidate_limit: int, expected_deep_swept_through
+    ) -> None:
+        scanner = _make_scanner(last_deep_swept_at=dt.datetime.now(dt.UTC) - watermark_age)
+        stragglers = [
+            CandidateSession(session_id=f"deep-{i}", session_end=dt.datetime(2026, 5, 1, 6, 0, i, tzinfo=dt.UTC))
+            for i in range(candidate_limit)
+        ]
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = []
+            MockDeep.return_value.run.return_value = stragglers
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(
+                    scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=candidate_limit
+                )
+            )
+
+        assert result.deep_swept_through == expected_deep_swept_through
+        if watermark_age < dt.timedelta(hours=6):
+            MockDeep.assert_not_called()
+        else:
+            assert [c.session_id for c in result.deep_candidates] == [s.session_id for s in stragglers]
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()
@@ -213,6 +305,32 @@ class TestAdvanceScannerWatermarkActivity:
 
         scanner.refresh_from_db()
         assert scanner.last_seen_session_id == ""
+
+    def test_advances_deep_watermark_only_when_provided(self) -> None:
+        existing_deep = dt.datetime(2026, 5, 1, 6, 0, 0, tzinfo=dt.UTC)
+        scanner = _make_scanner(last_deep_swept_at=existing_deep)
+        new_deep = dt.datetime(2026, 5, 1, 11, 0, 0, tzinfo=dt.UTC)
+
+        advance_scanner_watermark_activity(
+            AdvanceScannerWatermarkInputs(
+                scanner_id=scanner.id,
+                new_last_swept_at=dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC),
+                new_last_seen_session_id="",
+            )
+        )
+        scanner.refresh_from_db()
+        assert scanner.last_deep_swept_at == existing_deep
+
+        advance_scanner_watermark_activity(
+            AdvanceScannerWatermarkInputs(
+                scanner_id=scanner.id,
+                new_last_swept_at=dt.datetime(2026, 5, 1, 12, 5, 0, tzinfo=dt.UTC),
+                new_last_seen_session_id="",
+                new_last_deep_swept_at=new_deep,
+            )
+        )
+        scanner.refresh_from_db()
+        assert scanner.last_deep_swept_at == new_deep
 
     def test_no_op_when_scanner_deleted(self) -> None:
         advance_scanner_watermark_activity(
@@ -378,6 +496,59 @@ async def test_saturated_batch_carries_session_id_as_tiebreaker() -> None:
     advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
     assert advance_call.new_last_swept_at == candidates[-1].session_end
     assert advance_call.new_last_seen_session_id == "sess-02"
+
+
+@pytest.mark.asyncio
+async def test_deep_candidates_dispatch_alongside_fast_and_forward_deep_watermark() -> None:
+    deep_horizon = dt.datetime(2026, 5, 1, 9, 0, 0, tzinfo=dt.UTC)
+    fast = [_build_payload("sess-a", dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC))]
+    deep = [_build_payload("deep-a", dt.datetime(2026, 5, 1, 4, 0, 0, tzinfo=dt.UTC))]
+    mocks = _SweepMocks(
+        activity_results={
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+                candidates=fast, saturated=False, deep_candidates=deep, deep_swept_through=deep_horizon
+            ),
+        }
+    )
+    inputs = _sweep_inputs()
+
+    await _run_sweep(mocks, inputs)
+
+    dispatched = {c["id"] for c in mocks.child_calls}
+    assert dispatched == {
+        f"replay-vision-apply-scanner-{inputs.scanner_id}-sess-a",
+        f"replay-vision-apply-scanner-{inputs.scanner_id}-deep-a",
+    }
+    advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
+    # Deep candidates never drive the fast watermark — their session_end predates it.
+    assert advance_call.new_last_swept_at == fast[-1].session_end
+    assert advance_call.new_last_deep_swept_at == deep_horizon
+
+
+@pytest.mark.asyncio
+async def test_deep_candidates_dispatch_even_when_fast_batch_is_empty() -> None:
+    horizon = dt.datetime(2026, 5, 1, 11, 0, 0, tzinfo=dt.UTC)
+    deep_horizon = dt.datetime(2026, 5, 1, 9, 0, 0, tzinfo=dt.UTC)
+    deep = [_build_payload("deep-a", dt.datetime(2026, 5, 1, 4, 0, 0, tzinfo=dt.UTC))]
+    mocks = _SweepMocks(
+        activity_results={
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(
+                candidates=[],
+                saturated=False,
+                swept_through=horizon,
+                deep_candidates=deep,
+                deep_swept_through=deep_horizon,
+            ),
+        }
+    )
+    inputs = _sweep_inputs()
+
+    await _run_sweep(mocks, inputs)
+
+    assert [c["id"] for c in mocks.child_calls] == [f"replay-vision-apply-scanner-{inputs.scanner_id}-deep-a"]
+    advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
+    assert advance_call.new_last_swept_at == horizon
+    assert advance_call.new_last_deep_swept_at == deep_horizon
 
 
 @pytest.mark.asyncio
