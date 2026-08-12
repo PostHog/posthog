@@ -29,19 +29,19 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.facade.api import (
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
     AlertDestinationValidationError,
+    AlertScheduleRestriction,
     DestinationType,
     build_alert_destination_config,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
+    validate_and_normalize_schedule_restriction,
     validate_destination_data,
 )
-from products.alerts.backend.scheduling import validate_and_normalize_schedule_restriction
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
@@ -66,7 +66,7 @@ from products.logs.backend.alert_state_machine import (
     apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.alert_utils import next_allowed_check_at
+from products.logs.backend.facade.api import next_allowed_check_at
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
