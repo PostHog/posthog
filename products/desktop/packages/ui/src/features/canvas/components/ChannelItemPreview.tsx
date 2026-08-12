@@ -24,6 +24,8 @@ import { useLatestTurnMessage } from "@posthog/ui/features/canvas/hooks/useLates
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { TaskDotMark } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
 import {
+  type TaskBadge,
+  type TaskDot,
   TONE_ICON_VAR,
   taskBadges,
   taskDot,
@@ -37,19 +39,23 @@ export interface ChannelItemPreviewPayload {
 }
 
 /**
- * What the card leads with. A canvas gets its template glyph in canvas violet; a
- * task gets the chat glyph the sidebar uses for a task with nothing going on —
- * before this, a task was shown wearing a canvas's icon.
+ * What the card leads with — the same mark the row it came from leads with.
+ *
+ * A session's mark is its state dot, so the card wears that rather than a
+ * generic chat glyph which said nothing the title didn't. A canvas has no run
+ * behind it and keeps its template glyph in canvas violet; a session with no
+ * run to read falls back to the chat glyph rather than inventing a state.
  */
-function previewGlyph(item: ChannelItemModel): ReactNode {
-  if (item.kind !== "canvas") {
-    return <ChatCircleIcon size={15} className="text-gray-10" />;
+function previewGlyph(item: ChannelItemModel, dot: TaskDot | null): ReactNode {
+  if (item.kind === "canvas") {
+    // Matches the schema's own default for boards saved before templating.
+    return iconForTemplate(item.templateId ?? "freeform", {
+      size: 15,
+      className: "text-violet-9",
+    });
   }
-  // Matches the schema's own default for boards saved before templating.
-  return iconForTemplate(item.templateId ?? "freeform", {
-    size: 15,
-    className: "text-violet-9",
-  });
+  if (!dot) return <ChatCircleIcon size={15} className="text-gray-10" />;
+  return <TaskDotMark dot={dot} />;
 }
 
 function authorLabel(item: ChannelItemModel): string | null {
@@ -91,27 +97,25 @@ function AuthorAvatar({ item }: { item: ChannelItemModel }) {
  * when the dot took over, so a quiet row could sit under a green "Ready" badge
  * and a working one under nothing at all.
  *
- * Laid out as an `Item` like the header above it, which is what puts the dot in
- * the same gutter as the card's glyph and starts every line of this section in
- * the same column as the title.
+ * Laid out as the same `Item` as the header above it, so every line here starts
+ * in the title's column. Its gutter is empty on purpose: the dot that belongs
+ * there is already leading the card, and drawing it twice would make one state
+ * look like two.
  */
-function ItemSignals({ item }: { item: ChannelItemModel }) {
-  // The PR lookup runs here even where the row skipped it (the space tree does,
-  // to stay off the host): a hover is one row at a time and a deliberate ask,
-  // and the card is the surface that should be able to say "merged".
-  const status = useChannelTaskStatus(item);
-  const message = useLatestTurnMessage(item.task);
-  if (!status) return null;
-  const dot = taskDot(status);
-  const badges = taskBadges(status);
-
+function ItemSignals({
+  dot,
+  badges,
+  message,
+}: {
+  dot: TaskDot;
+  badges: TaskBadge[];
+  message: string | null;
+}) {
   return (
     <>
       <ItemSeparator className="my-0" />
       <Item size="xs" className="items-start p-2">
-        <ItemMedia variant="icon" className="size-5">
-          <TaskDotMark dot={dot} />
-        </ItemMedia>
+        <ItemMedia aria-hidden variant="icon" className="size-5" />
         <ItemContent className="gap-1.5">
           <span className="text-xs">{dot.label}</span>
           {message && (
@@ -165,12 +169,18 @@ export function ChannelItemPreview({
   onSubmenuOpenChange: (open: boolean) => void;
 }) {
   const { item, menu } = payload;
+  // The PR lookup runs here even where the row skipped it (the space tree does,
+  // to stay off the host): a hover is one row at a time and a deliberate ask,
+  // and the card is the surface that should be able to say "merged".
+  const status = useChannelTaskStatus(item);
+  const message = useLatestTurnMessage(item.task);
+  const dot = status ? taskDot(status) : null;
 
   return (
     <ItemGroup className="gap-0!">
       <Item size="xs" className="p-2">
         <ItemMedia variant="icon" className="size-5">
-          {previewGlyph(item)}
+          {previewGlyph(item, dot)}
         </ItemMedia>
         <ItemContent>
           <ItemTitle>{item.title}</ItemTitle>
@@ -181,12 +191,15 @@ export function ChannelItemPreview({
         </ItemContent>
         {/* Who made it rides on the identity row rather than taking a row of
             its own — the card is a glance, and a line of chrome for a name is
-            a line the agent's own words could have had. */}
-        <ItemActions>
+            a line the agent's own words could have had. Top-aligned: it belongs
+            to the title, not to the block of text under it. */}
+        <ItemActions className="self-start">
           <AuthorAvatar item={item} />
         </ItemActions>
       </Item>
-      <ItemSignals item={item} />
+      {dot && status && (
+        <ItemSignals dot={dot} badges={taskBadges(status)} message={message} />
+      )}
       {/* The row's actions live here now: a row at rest shows its status, and
           the card is already the surface you're pointing at when you want to do
           something to it. */}
