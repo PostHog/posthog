@@ -50,6 +50,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToCommandCenter,
   navigateToInbox,
   navigateToLoops: vi.fn(),
+  navigateToSupport: vi.fn(),
   navigateToMcpServers,
   navigateToSkills,
   navigateToWebsiteCommandCenter: vi.fn(),
@@ -65,6 +66,9 @@ vi.mock("@posthog/ui/features/command-center/commandCenterStore", () => ({
   useCommandCenterStore: (
     selector: (s: { cells: (string | null)[] }) => unknown,
   ) => selector({ cells: [] }),
+}));
+vi.mock("@posthog/ui/features/support/hooks/useSupportUnreadCount", () => ({
+  useSupportUnreadCount: () => ({ data: 0 }),
 }));
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 0 } }),
@@ -116,6 +120,7 @@ describe("SidebarNavSection", () => {
     ["activity", "Activity"],
     ["configure", "Configure"],
     ["loops", "Loops"],
+    ["support", "Support"],
   ] as const)("removes %s from the sidebar when hidden", (id, label) => {
     useSidebarStore.setState({ navItemOverrides: { [id]: false } });
     renderNav();

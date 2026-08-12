@@ -19,11 +19,14 @@ export type AppViewType =
   | "command-center"
   | "skills"
   | "mcp-servers"
-  | "settings";
+  | "settings"
+  | "support";
 
 export interface AppView {
   type: AppViewType;
   taskId?: string;
+  /** The open ticket on the support surface: a ticket number or a UUID. */
+  ticketId?: string;
   folderId?: string;
   folderRepository?: string;
   pendingTaskKey?: string;
@@ -72,6 +75,11 @@ function deriveFromMatches(matches: Match[]): AppView {
       return { type: "loops" };
     case "/code/archived":
       return { type: "archived" };
+    case "/support":
+    case "/support/":
+      return { type: "support" };
+    case "/support/$ticketId":
+      return { type: "support", ticketId: last.params.ticketId };
     case "/command-center":
     case "/website/command-center":
       return { type: "command-center" };
@@ -98,6 +106,11 @@ function deriveFromMatches(matches: Match[]): AppView {
       // edit subtree ($loopId is an Outlet layout), so match the prefix.
       if (last.routeId.startsWith("/code/loops")) {
         return { type: "loops" };
+      }
+      // /support covers the queue and the open-ticket subtree, so match the
+      // prefix rather than only the routes enumerated above.
+      if (last.routeId.startsWith("/support")) {
+        return { type: "support", ticketId: last.params.ticketId };
       }
       return { type: "task-input" };
   }
@@ -132,12 +145,13 @@ export function useAppView(): AppView {
   const taskId = last?.params.taskId;
   const pendingKey = last?.params.key;
   const folderId = last?.params.folderId;
+  const ticketId = last?.params.ticketId;
 
   return useMemo(() => {
     // Rebuild the match from primitives so the memo depends only on stable
     // values — the `last` selector returns a fresh object every render.
     const match = routeId
-      ? { routeId, params: { taskId, key: pendingKey, folderId } }
+      ? { routeId, params: { taskId, key: pendingKey, folderId, ticketId } }
       : null;
     const view = deriveFromMatches(match ? [match] : []);
 
@@ -157,7 +171,7 @@ export function useAppView(): AppView {
       };
     }
     return view;
-  }, [routeId, taskId, pendingKey, folderId, prefill]);
+  }, [routeId, taskId, pendingKey, folderId, ticketId, prefill]);
 }
 
 /**

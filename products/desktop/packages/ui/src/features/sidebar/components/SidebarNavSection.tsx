@@ -5,6 +5,7 @@ import {
 } from "@posthog/shared/analytics-events";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
@@ -14,11 +15,13 @@ import {
   orderedNavItems,
 } from "@posthog/ui/features/sidebar/constants";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { useSupportUnreadCount } from "@posthog/ui/features/support/hooks/useSupportUnreadCount";
 import {
   navigateToActivity,
   navigateToCommandCenter,
   navigateToInbox,
   navigateToLoops,
+  navigateToSupport,
   navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
@@ -35,6 +38,7 @@ import { InboxItem } from "./items/InboxItem";
 import { LoopsItem } from "./items/LoopsItem";
 import { NewTaskItem } from "./items/NewTaskItem";
 import { SearchItem } from "./items/SearchItem";
+import { SupportItem } from "./items/SupportItem";
 
 const SIDEBAR_INBOX_REFETCH_INTERVAL_MS = 60_000;
 
@@ -68,6 +72,7 @@ export function SidebarNavSection({
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
   );
+  const supportEnabled = useSupportFlag();
   // When this section renders inside the Channels space, the destinations that
   // have a /website mirror stay in that space; everything else (and the whole
   // section in the Code space) uses the canonical routes. Inbox and New task
@@ -89,6 +94,7 @@ export function SidebarNavSection({
   const isInboxActive = view.type === "inbox";
   const isLoopsActive = view.type === "loops";
   const isCommandCenterActive = view.type === "command-center";
+  const isSupportActive = view.type === "support";
 
   // Open pull requests in the inbox — the main CTA, and the same count the inbox
   // Pull requests tab shows, so the badge and the tab always agree.
@@ -101,6 +107,11 @@ export function SidebarNavSection({
     refetchIntervalMs: SIDEBAR_INBOX_REFETCH_INTERVAL_MS,
   });
   const inboxPullRequestCount = inboxCounts.pulls;
+
+  // Only ask for the ticket count when the destination is actually shown.
+  const { data: supportUnreadCount } = useSupportUnreadCount({
+    enabled: supportEnabled,
+  });
 
   // Only subscribe to the task list when a parent hasn't already supplied the
   // count — keeps the standalone (Channels) render self-contained without
@@ -139,6 +150,7 @@ export function SidebarNavSection({
     activity: bluebirdEnabled,
     configure: true,
     loops: loopsEnabled,
+    support: supportEnabled,
   };
 
   // One renderer per customizable item, used for both the top level (depth 0)
@@ -181,6 +193,14 @@ export function SidebarNavSection({
         depth={depth}
         isActive={isLoopsActive}
         onClick={withNavTrack("loops", navigateToLoops, depth)}
+      />
+    ),
+    support: (depth) => (
+      <SupportItem
+        depth={depth}
+        isActive={isSupportActive}
+        onClick={withNavTrack("support", navigateToSupport, depth)}
+        unreadCount={supportUnreadCount}
       />
     ),
   };

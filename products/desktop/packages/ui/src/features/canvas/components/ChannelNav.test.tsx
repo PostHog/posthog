@@ -19,12 +19,16 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 0 } }),
 }));
+vi.mock("@posthog/ui/features/support/hooks/useSupportUnreadCount", () => ({
+  useSupportUnreadCount: () => ({ data: 0 }),
+}));
 vi.mock("@posthog/ui/router/useAppView", () => ({
   useAppView: () => mocks.view,
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   navigateToActivity: vi.fn(),
   navigateToInbox: vi.fn(),
+  navigateToSupport: vi.fn(),
   navigateToWebsiteCommandCenter: vi.fn(),
 }));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));

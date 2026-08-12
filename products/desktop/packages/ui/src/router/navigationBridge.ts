@@ -196,6 +196,18 @@ export function navigateToArchived(): void {
   void getRouterOrNull()?.navigate({ to: "/code/archived" });
 }
 
+export function navigateToSupport(): void {
+  void getRouterOrNull()?.navigate({ to: "/support" });
+}
+
+/** `ticketId` may be a ticket number or a UUID; both resolve server-side. */
+export function navigateToSupportTicket(ticketId: string): void {
+  void getRouterOrNull()?.navigate({
+    to: "/support/$ticketId",
+    params: { ticketId },
+  });
+}
+
 export function navigateToCommandCenter(): void {
   void getRouterOrNull()?.navigate({ to: "/command-center" });
   // Parity with the pre-router navigationStore.navigateToCommandCenter action,

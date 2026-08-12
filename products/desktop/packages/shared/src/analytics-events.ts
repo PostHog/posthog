@@ -60,6 +60,13 @@ export type CommandMenuAction =
   | "open-inbox"
   | "open-archived"
   | "open-loops"
+  | "open-support"
+  | "support-set-status"
+  | "support-set-priority"
+  | "support-snooze-ticket"
+  | "support-assign-ticket"
+  | "support-open-in-posthog"
+  | "support-ask-agent"
   | "open-usage"
   | "search-files"
   | "open-file"
@@ -254,6 +261,7 @@ export type SidebarNavItem =
   | "activity"
   | "configure"
   | "loops"
+  | "support"
   | "more"
   | "customize_sidebar";
 

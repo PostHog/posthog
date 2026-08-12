@@ -1,6 +1,7 @@
 import {
   BellIcon,
   EnvelopeSimple,
+  LifebuoyIcon,
   Lightning,
   SlidersHorizontal,
 } from "@phosphor-icons/react";
@@ -27,14 +28,17 @@ import {
 } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSupportFlag } from "@posthog/ui/features/feature-flags/useSupportFlag";
 import { useInboxAllReports } from "@posthog/ui/features/inbox/hooks/useInboxAllReports";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { useSupportUnreadCount } from "@posthog/ui/features/support/hooks/useSupportUnreadCount";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
   navigateToActivity,
   navigateToInbox,
   navigateToLoops,
+  navigateToSupport,
   navigateToWebsiteCommandCenter,
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
@@ -183,12 +187,16 @@ function ActivityNavItem({
 export function ChannelNav() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const supportEnabled = useSupportFlag();
 
   const { counts } = useInboxAllReports({
     ignoreFilters: true,
     refetchIntervalMs: INBOX_REFETCH_INTERVAL_MS,
   });
   const { unreadCount: unseenActivity } = useTaskActivity();
+  const { data: supportUnread } = useSupportUnreadCount({
+    enabled: supportEnabled,
+  });
   const commandCenterCount = useCommandCenterActiveCount();
 
   const withTrack = (item: SidebarNavItem, action: () => void) => () => {
@@ -203,6 +211,7 @@ export function ChannelNav() {
   const isInbox = view.type === "inbox";
   const isActivity = view.type === "activity";
   const isCommandCenter = view.type === "command-center";
+  const isSupport = view.type === "support";
 
   return (
     // One provider for the row: once any tooltip is up, moving to its
@@ -258,6 +267,22 @@ export function ChannelNav() {
             label="Loops"
             isActive={view.type === "loops"}
             onClick={withTrack("loops", navigateToLoops)}
+          />
+        ) : null}
+        {supportEnabled ? (
+          <NavIcon
+            icon={
+              <LifebuoyIcon size={16} weight={isSupport ? "fill" : "regular"} />
+            }
+            label="Support"
+            isActive={isSupport}
+            onClick={withTrack("support", navigateToSupport)}
+            badge={
+              <CountBadge
+                count={supportUnread ?? 0}
+                className={ICON_BADGE_CLASS}
+              />
+            }
           />
         ) : null}
         <NavIcon

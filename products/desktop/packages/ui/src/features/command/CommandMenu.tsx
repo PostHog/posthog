@@ -63,6 +63,7 @@ import {
 import { TaskIcon } from "@posthog/ui/features/sidebar/components/items/TaskIcon";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
+import { useSupportCommands } from "@posthog/ui/features/support/useSupportCommands";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { useWorkspaces } from "@posthog/ui/features/workspace/useWorkspace";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
@@ -140,6 +141,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     import.meta.env.DEV,
   );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
+  const supportCommands = useSupportCommands(closeSettingsDialog);
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const taskChannelMap = useTaskChannelMap(channels, {
     enabled: open && bluebirdEnabled,
@@ -458,6 +460,10 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
       { label: "Developer", items: developer },
     ];
 
+    if (supportCommands.length > 0) {
+      out.unshift({ label: "Support", items: supportCommands });
+    }
+
     if (folders.length > 0) {
       out.push({
         label: "New task in folder",
@@ -487,6 +493,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
+    supportCommands,
   ]);
 
   const taskSections = useMemo<CommandSection[]>(() => {

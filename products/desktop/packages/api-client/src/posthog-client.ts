@@ -198,6 +198,154 @@ export interface TaskRunSessionLogsResult {
   complete: boolean;
 }
 
+/** Server default for a ticket thread page; its own cap is 200. */
+export const SUPPORT_THREAD_PAGE_SIZE = 50;
+
+/**
+ * How long the backend replays an identical reply instead of posting a second
+ * one. A send whose outcome is unknown can be resolved by looking for the
+ * message in the thread within this window; past it, matching could adopt an
+ * older send.
+ */
+export const SUPPORT_REPLY_REPLAY_WINDOW_MS = 120_000;
+
+/**
+ * The ticket serializer returns fields the generated schema hasn't caught up
+ * with, so widen it here rather than editing generated.ts. `tags` is really a
+ * string list, and `assignee` is nullable in practice despite its generated
+ * type.
+ */
+export type SupportTicket = Omit<Schemas.Ticket, "tags" | "assignee"> & {
+  tags?: string[];
+  assignee: Schemas.TicketAssignment | null;
+  identity_verified?: boolean | null;
+  ai_triage?: Record<string, unknown> | null;
+  github_repo?: string | null;
+  github_issue_number?: number | null;
+  organization_id?: string | null;
+  user_access_level?: string | null;
+};
+
+export interface SupportTicketMessage {
+  id: string;
+  content: string;
+  rich_content: unknown | null;
+  /** Absent on older rows, which the backend treats as `customer`. */
+  author_type?: "customer" | "support" | "AI";
+  author_name: string;
+  is_private: boolean;
+  /** Edit count; anything above zero means the message was edited. */
+  version: number;
+  created_at: string;
+}
+
+export interface SupportTicketPage {
+  results: SupportTicket[];
+  count: number;
+}
+
+export interface SupportTicketMessagePage {
+  results: SupportTicketMessage[];
+  count: number;
+}
+
+export type SupportTicketView = Schemas.TicketView & {
+  is_favorited?: boolean;
+};
+
+export type SupportTicketAssigneeInput =
+  | { type: "user"; id: number }
+  | { type: "role"; id: string }
+  | null;
+
+export interface SupportTicketUpdate {
+  status?: Schemas.TicketStatusEnum;
+  priority?: Schemas.PriorityEnum | null;
+  snoozed_until?: string | null;
+  tags?: string[];
+  assignee?: SupportTicketAssigneeInput;
+}
+
+/** `me` and `unassigned` are server-side shorthands. */
+export type SupportAssigneeFilter =
+  | "me"
+  | "unassigned"
+  | { type: "user"; id: number }
+  | { type: "role"; id: string };
+
+export interface SupportTicketListOptions {
+  status?: Schemas.TicketStatusEnum[];
+  priority?: Schemas.PriorityEnum[];
+  channelSource?: Schemas.ChannelSourceEnum;
+  sla?: "breached" | "at-risk" | "on-track";
+  assignee?: SupportAssigneeFilter[];
+  tags?: string[];
+  search?: string;
+  orderBy?: SupportTicketOrderBy;
+  /** A saved view's short_id. Explicit options override that view per field. */
+  view?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type SupportTicketOrderBy =
+  | "-updated_at"
+  | "updated_at"
+  | "-created_at"
+  | "created_at"
+  | "-sla_due_at"
+  | "sla_due_at"
+  | "-ticket_number"
+  | "ticket_number";
+
+function encodeSupportAssignee(entry: SupportAssigneeFilter): string {
+  return typeof entry === "string" ? entry : `${entry.type}:${entry.id}`;
+}
+
+/**
+ * The list endpoint takes flat params with shapes that vary by field: statuses
+ * and assignees are comma-separated, tags are a JSON array, and the channel
+ * param is `channel_source` (`channel` is the saved-view spelling and is
+ * ignored here).
+ */
+function buildSupportTicketQuery(
+  options?: SupportTicketListOptions,
+): Record<string, string> {
+  const query: Record<string, string> = {};
+  if (options?.status?.length) {
+    query.status = options.status.join(",");
+  }
+  if (options?.priority?.length) {
+    query.priority = options.priority.join(",");
+  }
+  if (options?.channelSource) {
+    query.channel_source = options.channelSource;
+  }
+  if (options?.sla) {
+    query.sla = options.sla;
+  }
+  if (options?.assignee?.length) {
+    query.assignee = options.assignee.map(encodeSupportAssignee).join(",");
+  }
+  if (options?.tags?.length) {
+    query.tags = JSON.stringify(options.tags);
+  }
+  if (options?.search) {
+    query.search = options.search;
+  }
+  if (options?.view) {
+    query.view = options.view;
+  }
+  query.order_by = options?.orderBy ?? "-updated_at";
+  query.limit = String(options?.limit ?? SUPPORT_TICKETS_PAGE_SIZE);
+  if (options?.offset) {
+    query.offset = String(options.offset);
+  }
+  return query;
+}
+
+export const SUPPORT_TICKETS_PAGE_SIZE = 50;
+
 export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
@@ -7053,5 +7201,162 @@ export class PostHogAPIClient {
       { kpi, daily, perAgent, byModel, toolErrors },
       nameById,
     );
+  }
+
+  // Conversations support tickets. Only list / retrieve / partial_update reached
+  // the generated client, so the thread, reply and unread-count endpoints go
+  // through the raw fetcher with hand-written types mirroring
+  // products/conversations/backend/api/tickets.py.
+
+  async listSupportTickets(
+    options?: SupportTicketListOptions,
+  ): Promise<SupportTicketPage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+
+    for (const [key, value] of Object.entries(
+      buildSupportTicketQuery(options),
+    )) {
+      url.searchParams.set(key, value);
+    }
+
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    const data = (await response.json()) as {
+      results?: SupportTicket[];
+      count?: number;
+    };
+    return {
+      results: data.results ?? [],
+      count: data.count ?? data.results?.length ?? 0,
+    };
+  }
+
+  /**
+   * Fetch one ticket. Not idempotent: for a caller with editor access the
+   * backend clears the ticket's `unread_team_count` and invalidates the team's
+   * unread-count cache (tickets.py `retrieve`), so this marks the ticket read
+   * for the whole team. Call it when a person opens a ticket, never on a timer
+   * or a prefetch — poll the list instead, which reports unread without
+   * clearing it.
+   */
+  async getSupportTicket(idOrNumber: string): Promise<SupportTicket> {
+    const teamId = await this.getTeamId();
+    const data = await this.api.get(
+      `/api/projects/{project_id}/conversations/tickets/{id}/`,
+      { path: { project_id: teamId.toString(), id: idOrNumber } },
+    );
+    return data as SupportTicket;
+  }
+
+  /** Thread messages, oldest first. Keyed on the ticket UUID, not its number. */
+  async listSupportTicketMessages(
+    ticketId: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<SupportTicketMessagePage> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/${ticketId}/messages/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set(
+      "limit",
+      String(options?.limit ?? SUPPORT_THREAD_PAGE_SIZE),
+    );
+    if (options?.offset) {
+      url.searchParams.set("offset", String(options.offset));
+    }
+
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    const data = (await response.json()) as {
+      results?: SupportTicketMessage[];
+      count?: number;
+    };
+    return {
+      results: data.results ?? [],
+      count: data.count ?? data.results?.length ?? 0,
+    };
+  }
+
+  /**
+   * Post a customer-facing reply (`isPrivate: false`) or an internal note.
+   * `created` is false when the backend replayed an identical reply from the
+   * same author inside its 120s window instead of posting a second one.
+   *
+   * Markdown only, deliberately: `rich_content` is part of the server's dedupe
+   * fingerprint, so a client that sometimes omits it and sometimes sends an
+   * empty value defeats replay matching on retry.
+   */
+  async replyToSupportTicket(
+    ticketId: string,
+    input: { message: string; isPrivate: boolean },
+  ): Promise<{ message: SupportTicketMessage; created: boolean }> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/${ticketId}/reply/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify({
+          message: input.message,
+          is_private: input.isPrivate,
+        }),
+      },
+    });
+
+    return {
+      message: (await response.json()) as SupportTicketMessage,
+      created: response.status === 201,
+    };
+  }
+
+  /**
+   * Triage write. The response is authoritative: omitting `status` lets the
+   * backend apply its own snooze transitions (setting `snoozed_until` moves the
+   * ticket to `on_hold`, clearing it moves it back to `open`), so seed local
+   * state from what comes back rather than from what was sent.
+   *
+   * `assignee` rides this endpoint even though the serializer marks it
+   * read-only — the viewset pulls it out of the payload and routes it through
+   * its own assignment path. A user id is an integer, a role id a UUID.
+   */
+  async updateSupportTicket(
+    idOrNumber: string,
+    updates: SupportTicketUpdate,
+  ): Promise<SupportTicket> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/${idOrNumber}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify(updates) },
+    });
+    return (await response.json()) as SupportTicket;
+  }
+
+  /** Team-wide unread total over unresolved tickets. Cached 30s server-side. */
+  async getSupportTicketUnreadCount(): Promise<number> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/tickets/unread_count/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    const data = (await response.json()) as { count?: number };
+    return data.count ?? 0;
+  }
+
+  /** Saved ticket views, favourites first (the backend orders them). */
+  async listSupportTicketViews(): Promise<SupportTicketView[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/conversations/views/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    const data = (await response.json()) as { results?: SupportTicketView[] };
+    return data.results ?? [];
   }
 }

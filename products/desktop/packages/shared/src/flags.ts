@@ -53,3 +53,10 @@ export const STAGED_UPDATES_FLAG = "posthog-desktop-staged-updates";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
+/**
+ * Gates the Support surface: the nav destination in both shells, the /support
+ * routes, and the ticket commands in the command menu. Reads Conversations
+ * tickets from the PostHog API, so it is distinct from the server-side
+ * `product-support-*` family that gates the Conversations product itself.
+ */
+export const DESKTOP_SUPPORT_FLAG = "desktop-support";

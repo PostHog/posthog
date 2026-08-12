@@ -11,11 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WebsiteRouteImport } from './routes/website'
 import { Route as UsageRouteImport } from './routes/usage'
+import { Route as SupportRouteImport } from './routes/support'
 import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as McpServersRouteImport } from './routes/mcp-servers'
 import { Route as CommandCenterRouteImport } from './routes/command-center'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WebsiteIndexRouteImport } from './routes/website/index'
+import { Route as SupportIndexRouteImport } from './routes/support/index'
 import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as CodeIndexRouteImport } from './routes/code/index'
 import { Route as WebsiteSkillsRouteImport } from './routes/website/skills'
@@ -23,6 +25,7 @@ import { Route as WebsiteNewRouteImport } from './routes/website/new'
 import { Route as WebsiteMcpServersRouteImport } from './routes/website/mcp-servers'
 import { Route as WebsiteCommandCenterRouteImport } from './routes/website/command-center'
 import { Route as WebsiteActivityRouteImport } from './routes/website/activity'
+import { Route as SupportTicketIdRouteImport } from './routes/support/$ticketId'
 import { Route as SettingsCategoryRouteImport } from './routes/settings/$category'
 import { Route as FoldersFolderIdRouteImport } from './routes/folders/$folderId'
 import { Route as CodePrRouteImport } from './routes/code/pr'
@@ -90,6 +93,11 @@ const UsageRoute = UsageRouteImport.update({
   path: '/usage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SupportRoute = SupportRouteImport.update({
+  id: '/support',
+  path: '/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SkillsRoute = SkillsRouteImport.update({
   id: '/skills',
   path: '/skills',
@@ -114,6 +122,11 @@ const WebsiteIndexRoute = WebsiteIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => WebsiteRoute,
+} as any)
+const SupportIndexRoute = SupportIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => SupportRoute,
 } as any)
 const SettingsIndexRoute = SettingsIndexRouteImport.update({
   id: '/settings/',
@@ -149,6 +162,11 @@ const WebsiteActivityRoute = WebsiteActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
   getParentRoute: () => WebsiteRoute,
+} as any)
+const SupportTicketIdRoute = SupportTicketIdRouteImport.update({
+  id: '/$ticketId',
+  path: '/$ticketId',
+  getParentRoute: () => SupportRoute,
 } as any)
 const SettingsCategoryRoute = SettingsCategoryRouteImport.update({
   id: '/settings/$category',
@@ -458,6 +476,7 @@ export interface FileRoutesByFullPath {
   '/command-center': typeof CommandCenterRoute
   '/mcp-servers': typeof McpServersRoute
   '/skills': typeof SkillsRoute
+  '/support': typeof SupportRouteWithChildren
   '/usage': typeof UsageRoute
   '/website': typeof WebsiteRouteWithChildren
   '/code/agents': typeof CodeAgentsRouteWithChildren
@@ -466,6 +485,7 @@ export interface FileRoutesByFullPath {
   '/code/pr': typeof CodePrRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/settings/$category': typeof SettingsCategoryRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
@@ -473,6 +493,7 @@ export interface FileRoutesByFullPath {
   '/website/skills': typeof WebsiteSkillsRoute
   '/code/': typeof CodeIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/support/': typeof SupportIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/code/agents/applications': typeof CodeAgentsApplicationsRouteWithChildren
   '/code/agents/scouts': typeof CodeAgentsScoutsRouteWithChildren
@@ -535,6 +556,7 @@ export interface FileRoutesByTo {
   '/code/pr': typeof CodePrRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/settings/$category': typeof SettingsCategoryRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
@@ -542,6 +564,7 @@ export interface FileRoutesByTo {
   '/website/skills': typeof WebsiteSkillsRoute
   '/code': typeof CodeIndexRoute
   '/settings': typeof SettingsIndexRoute
+  '/support': typeof SupportIndexRoute
   '/website': typeof WebsiteIndexRoute
   '/code/inbox/agents': typeof CodeInboxAgentsRoute
   '/code/loops/new': typeof CodeLoopsNewRoute
@@ -591,6 +614,7 @@ export interface FileRoutesById {
   '/command-center': typeof CommandCenterRoute
   '/mcp-servers': typeof McpServersRoute
   '/skills': typeof SkillsRoute
+  '/support': typeof SupportRouteWithChildren
   '/usage': typeof UsageRoute
   '/website': typeof WebsiteRouteWithChildren
   '/code/agents': typeof CodeAgentsRouteWithChildren
@@ -599,6 +623,7 @@ export interface FileRoutesById {
   '/code/pr': typeof CodePrRoute
   '/folders/$folderId': typeof FoldersFolderIdRoute
   '/settings/$category': typeof SettingsCategoryRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
   '/website/activity': typeof WebsiteActivityRoute
   '/website/command-center': typeof WebsiteCommandCenterRoute
   '/website/mcp-servers': typeof WebsiteMcpServersRoute
@@ -606,6 +631,7 @@ export interface FileRoutesById {
   '/website/skills': typeof WebsiteSkillsRoute
   '/code/': typeof CodeIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/support/': typeof SupportIndexRoute
   '/website/': typeof WebsiteIndexRoute
   '/code/agents/applications': typeof CodeAgentsApplicationsRouteWithChildren
   '/code/agents/scouts': typeof CodeAgentsScoutsRouteWithChildren
@@ -665,6 +691,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/mcp-servers'
     | '/skills'
+    | '/support'
     | '/usage'
     | '/website'
     | '/code/agents'
@@ -673,6 +700,7 @@ export interface FileRouteTypes {
     | '/code/pr'
     | '/folders/$folderId'
     | '/settings/$category'
+    | '/support/$ticketId'
     | '/website/activity'
     | '/website/command-center'
     | '/website/mcp-servers'
@@ -680,6 +708,7 @@ export interface FileRouteTypes {
     | '/website/skills'
     | '/code/'
     | '/settings/'
+    | '/support/'
     | '/website/'
     | '/code/agents/applications'
     | '/code/agents/scouts'
@@ -742,6 +771,7 @@ export interface FileRouteTypes {
     | '/code/pr'
     | '/folders/$folderId'
     | '/settings/$category'
+    | '/support/$ticketId'
     | '/website/activity'
     | '/website/command-center'
     | '/website/mcp-servers'
@@ -749,6 +779,7 @@ export interface FileRouteTypes {
     | '/website/skills'
     | '/code'
     | '/settings'
+    | '/support'
     | '/website'
     | '/code/inbox/agents'
     | '/code/loops/new'
@@ -797,6 +828,7 @@ export interface FileRouteTypes {
     | '/command-center'
     | '/mcp-servers'
     | '/skills'
+    | '/support'
     | '/usage'
     | '/website'
     | '/code/agents'
@@ -805,6 +837,7 @@ export interface FileRouteTypes {
     | '/code/pr'
     | '/folders/$folderId'
     | '/settings/$category'
+    | '/support/$ticketId'
     | '/website/activity'
     | '/website/command-center'
     | '/website/mcp-servers'
@@ -812,6 +845,7 @@ export interface FileRouteTypes {
     | '/website/skills'
     | '/code/'
     | '/settings/'
+    | '/support/'
     | '/website/'
     | '/code/agents/applications'
     | '/code/agents/scouts'
@@ -870,6 +904,7 @@ export interface RootRouteChildren {
   CommandCenterRoute: typeof CommandCenterRoute
   McpServersRoute: typeof McpServersRoute
   SkillsRoute: typeof SkillsRoute
+  SupportRoute: typeof SupportRouteWithChildren
   UsageRoute: typeof UsageRoute
   WebsiteRoute: typeof WebsiteRouteWithChildren
   CodeAgentsRoute: typeof CodeAgentsRouteWithChildren
@@ -901,6 +936,13 @@ declare module '@tanstack/react-router' {
       path: '/usage'
       fullPath: '/usage'
       preLoaderRoute: typeof UsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support': {
+      id: '/support'
+      path: '/support'
+      fullPath: '/support'
+      preLoaderRoute: typeof SupportRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/skills': {
@@ -937,6 +979,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/website/'
       preLoaderRoute: typeof WebsiteIndexRouteImport
       parentRoute: typeof WebsiteRoute
+    }
+    '/support/': {
+      id: '/support/'
+      path: '/'
+      fullPath: '/support/'
+      preLoaderRoute: typeof SupportIndexRouteImport
+      parentRoute: typeof SupportRoute
     }
     '/settings/': {
       id: '/settings/'
@@ -986,6 +1035,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/website/activity'
       preLoaderRoute: typeof WebsiteActivityRouteImport
       parentRoute: typeof WebsiteRoute
+    }
+    '/support/$ticketId': {
+      id: '/support/$ticketId'
+      path: '/$ticketId'
+      fullPath: '/support/$ticketId'
+      preLoaderRoute: typeof SupportTicketIdRouteImport
+      parentRoute: typeof SupportRoute
     }
     '/settings/$category': {
       id: '/settings/$category'
@@ -1382,6 +1438,19 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SupportRouteChildren {
+  SupportTicketIdRoute: typeof SupportTicketIdRoute
+  SupportIndexRoute: typeof SupportIndexRoute
+}
+
+const SupportRouteChildren: SupportRouteChildren = {
+  SupportTicketIdRoute: SupportTicketIdRoute,
+  SupportIndexRoute: SupportIndexRoute,
+}
+
+const SupportRouteWithChildren =
+  SupportRoute._addFileChildren(SupportRouteChildren)
+
 interface WebsiteRouteChildren {
   WebsiteActivityRoute: typeof WebsiteActivityRoute
   WebsiteCommandCenterRoute: typeof WebsiteCommandCenterRoute
@@ -1622,6 +1691,7 @@ const rootRouteChildren: RootRouteChildren = {
   CommandCenterRoute: CommandCenterRoute,
   McpServersRoute: McpServersRoute,
   SkillsRoute: SkillsRoute,
+  SupportRoute: SupportRouteWithChildren,
   UsageRoute: UsageRoute,
   WebsiteRoute: WebsiteRouteWithChildren,
   CodeAgentsRoute: CodeAgentsRouteWithChildren,
