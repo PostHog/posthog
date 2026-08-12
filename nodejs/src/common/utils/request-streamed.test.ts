@@ -1,0 +1,81 @@
+import { Readable } from 'node:stream'
+// eslint-disable-next-line no-restricted-imports
+import { request } from 'undici'
+
+import { InvalidRequestError, fetchStreamed } from './request'
+
+jest.mock('undici', () => ({
+    ...jest.requireActual('undici'),
+    request: jest.fn(),
+}))
+
+const requestMock = request as jest.MockedFunction<typeof request>
+
+function respond(chunks: Buffer[], headers: Record<string, string> = {}): void {
+    requestMock.mockResolvedValue({
+        statusCode: 200,
+        headers,
+        body: Readable.from(chunks),
+    } as unknown as Awaited<ReturnType<typeof request>>)
+}
+
+describe('fetchStreamed', () => {
+    beforeEach(() => {
+        requestMock.mockReset()
+    })
+
+    it('returns a body that fits the limit', async () => {
+        respond([Buffer.from('abc'), Buffer.from('de')])
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        const { bytes, overLimit } = await response.read(10)
+
+        expect(overLimit).toBe(false)
+        expect(bytes.toString()).toBe('abcde')
+    })
+
+    it.each([
+        ['one chunk already past it', [Buffer.alloc(20)]],
+        ['several chunks that cross it together', [Buffer.alloc(4), Buffer.alloc(4), Buffer.alloc(4)]],
+    ])('abandons a body that passes the limit as %s', async (_name, chunks) => {
+        // The limit has to bind on what has arrived rather than on a declared size, because an
+        // origin can declare nothing and send gigabytes.
+        respond(chunks)
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        const { bytes, overLimit } = await response.read(10)
+
+        expect(overLimit).toBe(true)
+        // Empty, because a truncated image is not an image and must not look like one to a caller.
+        expect(bytes).toHaveLength(0)
+    })
+
+    it('reads no body after the response was discarded', async () => {
+        respond([Buffer.from('abc')])
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        response.discard()
+        const { bytes } = await response.read(10)
+
+        expect(bytes).toHaveLength(0)
+    })
+
+    it('does not let a header named __proto__ reach the prototype', async () => {
+        // Every key here is chosen by the remote server. The key is computed, because a plain
+        // `__proto__:` in a literal is the setter this test is about rather than an own property.
+        respond([], { ['__proto__']: 'polluted', 'content-type': 'image/png' })
+
+        const response = await fetchStreamed('https://example.com/a.png', { timeoutMs: 1000 })
+        response.discard()
+
+        expect(response.headers['__proto__']).toBe('polluted')
+        expect(({} as Record<string, unknown>)['polluted']).toBeUndefined()
+        expect(Object.getPrototypeOf(response.headers)).toBeNull()
+    })
+
+    it.each([['ftp://example.com/a.png'], ['not a url']])('refuses %s before opening a socket', async (url) => {
+        await expect(fetchStreamed(url, { timeoutMs: 1000 })).rejects.toThrow(InvalidRequestError)
+
+        expect(requestMock).not.toHaveBeenCalled()
+    })
+})

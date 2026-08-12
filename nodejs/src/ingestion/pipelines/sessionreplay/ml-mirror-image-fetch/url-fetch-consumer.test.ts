@@ -1,7 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { FetchCandidate } from './collected-urls-record'
+import { AttemptOutcome, FetchPass } from './fetch-runner'
 import { UrlFetchConsumer } from './url-fetch-consumer'
-import { SightingStore, sightingKey } from './url-sightings'
+import { SightingReadResult, SightingStore, sightingKey } from './url-sightings'
 
 const TEAM = '0123456789abcdef0123456789abcdef'
 const OTHER_TEAM = 'fedcba9876543210fedcba9876543210'
@@ -20,20 +22,25 @@ class FakeSightings implements SightingStore {
     public writeFailure: Error | null = null
     /** Keys whose individual write reports a per-command failure, as ioredis does inside a pipeline. */
     public partialWriteFailures = new Set<string>()
+    /** Keys whose read did not complete, so the store can say nothing about them. */
+    public partialReadFailures = new Set<string>()
     public reads = 0
 
-    read(keys: string[]): Promise<{ known: Set<number>; failed: number }> {
+    read(keys: string[]): Promise<SightingReadResult> {
         this.reads++
         if (this.readFailure) {
             return Promise.reject(this.readFailure)
         }
         const known = new Set<number>()
+        const failed = new Set<number>()
         keys.forEach((key, index) => {
-            if (this.stored.has(key)) {
+            if (this.partialReadFailures.has(key)) {
+                failed.add(index)
+            } else if (this.stored.has(key)) {
                 known.add(index)
             }
         })
-        return Promise.resolve({ known, failed: 0 })
+        return Promise.resolve({ known, failed })
     }
 
     record(keys: string[], nowMs: number): Promise<{ failed: Set<number> }> {
@@ -208,15 +215,56 @@ describe('UrlFetchConsumer', () => {
         expect(sightings.stored.size).toBe(0)
     })
 
-    it('treats a URL as unseen when the store read fails, rather than stalling the partition', async () => {
+    it('holds back a URL whose dedup read failed, rather than treating it as new', async () => {
+        // Treating it as new would fetch it. A store outage would then make every batch send the
+        // full un-deduped volume at customer sites, because our own store is down.
+        sightings.partialReadFailures.add(sightingKey(TEAM, hash('a')))
+
+        await consumer.handleBatch([record([url('a'), url('b')])], NOW)
+
+        expect([...sightings.stored.keys()].map(hashOf)).toEqual([hash('b')])
+    })
+
+    it('survives a store read failure without stalling the partition', async () => {
         sightings.readFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
+        expect(sightings.stored.size).toBe(0)
     })
 
     it('survives a store write failure', async () => {
         sightings.writeFailure = new Error('redis down')
 
         await expect(consumer.handleBatch([record([url('a')])], NOW)).resolves.toBeUndefined()
+    })
+
+    it('refuses to leave dry run without a way to send the requests', () => {
+        expect(() => new UrlFetchConsumer(sightings, { maxAgeMs: 1000, dedupMaxRefs: 10, dryRun: false })).toThrow(
+            'fetch runner'
+        )
+    })
+
+    it('records only the URLs the fetch pass finished with', async () => {
+        const outcomes: Record<string, AttemptOutcome> = {
+            [hash('done')]: 'ok',
+            [hash('gone')]: 'not_found',
+            [hash('later')]: 'deadline',
+            [hash('slow')]: 'timeout',
+        }
+        const runner: FetchPass = {
+            run: (candidates: FetchCandidate[]) =>
+                Promise.resolve(candidates.map((candidate) => ({ candidate, outcome: outcomes[candidate.urlHash] }))),
+        }
+        const fetching = new UrlFetchConsumer(
+            sightings,
+            { maxAgeMs: 6 * 60 * 60 * 1000, dedupMaxRefs: 1000, dryRun: false },
+            runner
+        )
+
+        await fetching.handleBatch([record([url('done'), url('gone'), url('later'), url('slow')])], NOW)
+
+        // A sighting is what stops this lane from ever looking at a URL again, so one is written for
+        // a URL that was answered and withheld from a URL that only ran out of time.
+        expect([...sightings.stored.keys()].map(hashOf).sort()).toEqual([hash('done'), hash('gone')])
     })
 })

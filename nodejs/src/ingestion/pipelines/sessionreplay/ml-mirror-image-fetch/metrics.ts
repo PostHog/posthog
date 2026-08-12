@@ -112,3 +112,93 @@ export class ImageFetchConsumerMetrics {
         this.ageSeconds.observe(ageSeconds)
     }
 }
+
+/**
+ * The request path.
+ *
+ * No metric here carries a host or a URL. The host set is unbounded, so it lives in the structured
+ * logs of the runner; a URL is page content and belongs in no metric, log, or trace.
+ */
+export class ImageFetchRequestMetrics {
+    /**
+     * Every URL that left the dedup stage, by what happened to it.
+     *
+     * `ok` against the sum is the yield of the lane. The site answers `not_found`, `forbidden`,
+     * `rate_limited`, and `server_error`. This lane refuses `too_large`, `not_image`, `blocked`,
+     * `bad_redirect`, and `too_many_redirects`. The budget never sends `breaker_open` or `deadline`,
+     * and those are the only ones a later batch offers again.
+     */
+    private static readonly outcomes = new Counter({
+        name: 'ml_image_fetch_requests_total',
+        help: 'URLs that reached the request stage, by outcome. "deadline" and "breaker_open" were never sent, so they are the lane asking for more pods or a slower site, not a failure of the fetch itself',
+        labelNames: ['outcome'],
+    })
+    private static readonly duration = new Histogram({
+        name: 'ml_image_fetch_request_duration_seconds',
+        help: 'Time from the first request of a URL to its outcome, redirects included. It excludes the wait for a rate-limit token, which ml_image_fetch_budget_wait_seconds holds',
+        labelNames: ['outcome'],
+        buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
+    })
+    /**
+     * What politeness costs in latency.
+     *
+     * A rising tail means one domain is offering more URLs than its rate carries. Past the batch
+     * budget the wait becomes a `deadline` shed, so read this against that outcome. A growing wait
+     * with no sheds is headroom. A growing wait with sheds is a domain the lane cannot keep up with.
+     */
+    private static readonly budgetWait = new Histogram({
+        name: 'ml_image_fetch_budget_wait_seconds',
+        help: 'Time a URL waited for its domain rate limit before its request went out',
+        buckets: [0, 0.1, 0.5, 1, 2, 5, 10, 20],
+    })
+    private static readonly responseBytes = new Histogram({
+        name: 'ml_image_fetch_response_bytes',
+        help: 'Size of a downloaded image. The tail against the configured byte limit says how much of the catalog the limit refuses',
+        buckets: [1024, 8 * 1024, 32 * 1024, 128 * 1024, 512 * 1024, 1024 * 1024, 2 * 1024 * 1024],
+    })
+    private static readonly redirects = new Histogram({
+        name: 'ml_image_fetch_redirects',
+        help: 'Redirects followed for one URL. Each hop is a separate request against the budget of whichever domain it lands on',
+        buckets: [0, 1, 2, 3],
+    })
+    /**
+     * Domains this pod holds a budget for, and how many of those it may not send to.
+     *
+     * The tracked count against the configured maximum says whether the map is evicting, and an
+     * eviction forgets that a domain is blocked. The blocked count is how many sites this lane is
+     * currently leaving alone.
+     */
+    private static readonly trackedDomains = new Gauge({
+        name: 'ml_image_fetch_tracked_domains',
+        help: 'Registrable domains this pod holds rate-limit state for',
+    })
+    private static readonly blockedDomains = new Gauge({
+        name: 'ml_image_fetch_blocked_domains',
+        help: 'Domains this pod is currently sending nothing to, because a breaker opened or a Retry-After header is still in force',
+    })
+
+    public static incOutcome(outcome: string): void {
+        this.outcomes.labels(outcome).inc()
+    }
+    public static observeRequest(outcome: string, durationSeconds: number, redirects: number): void {
+        this.outcomes.labels(outcome).inc()
+        this.duration.labels(outcome).observe(durationSeconds)
+        this.redirects.observe(redirects)
+    }
+    public static observeBudgetWait(waitSeconds: number): void {
+        this.budgetWait.observe(waitSeconds)
+    }
+    public static observeBytes(bytes: number): void {
+        this.responseBytes.observe(bytes)
+    }
+    private static readonly evictedWhileBlocked = new Gauge({
+        name: 'ml_image_fetch_domains_evicted_while_blocked',
+        help: 'Domains dropped from the rate-limit map while they were still blocked. Each one resumes traffic to a site that asked us to wait, so a rising value means the tracked-domain limit is too low',
+    })
+
+    public static observeBudget(tracked: number, blocked: number, evictedWhileBlocked: number): void {
+        this.trackedDomains.set(tracked)
+        this.blockedDomains.set(blocked)
+        this.evictedWhileBlocked.set(evictedWhileBlocked)
+    }
+}

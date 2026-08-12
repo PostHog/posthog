@@ -3,6 +3,9 @@ import { KAFKA_SESSION_REPLAY_IMAGE_FETCH } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
+import { FetchRunner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-runner'
+import { HostBudget } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/host-budget'
+import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { UrlSightings } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-sightings'
 import { resolveMlMirrorRedisConnection } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
@@ -27,6 +30,26 @@ const BATCH_HEARTBEAT_INTERVAL_MS = 10_000
  * rest of a batch instead.
  */
 const STORE_BATCH_BUDGET_MS = 50_000
+
+export function buildFetchRunner(config: IngestionSessionReplayMlMirrorServerConfig): FetchRunner {
+    const budget = new HostBudget({
+        requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
+        burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_BURST,
+        breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES,
+        breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS,
+        breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS,
+        maxTrackedDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_DOMAINS,
+    })
+    return new FetchRunner(new HttpImageFetcher(), budget, {
+        maxConcurrentPerDomain: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
+        maxConcurrentDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_DOMAINS,
+        batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
+        maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
+        requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
+        maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
+        defaultRetryAfterMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_DEFAULT_RETRY_AFTER_MS,
+    })
+}
 
 export function buildImageFetchConsumerConfig(config: IngestionSessionReplayMlMirrorServerConfig): KafkaConsumerConfig {
     return {
@@ -71,11 +94,14 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private async startServices(): Promise<void> {
         initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
 
-        // Before anything connects: a cleared flag is a configuration mistake, and this lane has no
-        // request path yet, so it would report itself as fetching while downloading nothing.
+        // Before anything connects. The request path exists, but two pieces of the plan do not: this
+        // lane reads no robots.txt, and it produces nothing to the scrub topic. Sending requests
+        // without the first would be rude, and without the second would download images and drop them.
         const dryRun = this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN
         if (!dryRun) {
-            throw new Error('SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN cannot be cleared yet: this lane cannot fetch')
+            throw new Error(
+                'SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN cannot be cleared yet: this lane obeys no robots.txt and produces no images'
+            )
         }
 
         // The ml-mirror's instance, which is deliberately not the cluster that serves the primary
@@ -96,11 +122,15 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         })
         const sightings = new UrlSightings(this.sightingPool, redisTimeoutMs, STORE_BATCH_BUDGET_MS)
 
-        const fetchConsumer = new UrlFetchConsumer(sightings, {
-            maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
-            dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
-            dryRun,
-        })
+        const fetchConsumer = new UrlFetchConsumer(
+            sightings,
+            {
+                maxAgeMs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_AGE_MS,
+                dedupMaxRefs: this.config.SESSION_RECORDING_ML_IMAGE_FETCH_DEDUP_MAX_REFS,
+                dryRun,
+            },
+            dryRun ? undefined : buildFetchRunner(this.config)
+        )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
         const consumer = new KafkaConsumer(buildImageFetchConsumerConfig(this.config))

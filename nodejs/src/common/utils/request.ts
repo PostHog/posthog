@@ -422,6 +422,130 @@ export async function fetch(url: string, options: FetchOptions = {}): Promise<Fe
     }
 }
 
+export type StreamedFetchOptions = {
+    headers?: HeadersInit
+    timeoutMs: number
+}
+
+export type StreamedResponse = {
+    status: number
+    headers: Record<string, string>
+    /**
+     * Read at most `maxBytes`, then abandon the rest. `overLimit` says the response had more, and
+     * `bytes` then holds only what arrived before the limit, which is not a usable payload.
+     */
+    read: (maxBytes: number) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    discard: () => void
+}
+
+async function readCappedBody(
+    body: Dispatcher.ResponseData['body'],
+    maxBytes: number
+): Promise<{ bytes: Buffer; overLimit: boolean }> {
+    const chunks: Buffer[] = []
+    let total = 0
+    let overLimit = false
+    try {
+        for await (const chunk of body) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+            total += buffer.length
+            if (total > maxBytes) {
+                overLimit = true
+                break
+            }
+            chunks.push(buffer)
+        }
+    } finally {
+        destroyBody(body)
+    }
+    return { bytes: overLimit ? Buffer.alloc(0) : Buffer.concat(chunks), overLimit }
+}
+
+function destroyBody(body: Dispatcher.ResponseData['body']): void {
+    try {
+        body.on('error', () => {})
+        body.destroy()
+    } catch {
+        // Already ended or destroyed
+    }
+}
+
+/**
+ * A third-party request whose body is read under a byte limit rather than buffered whole.
+ *
+ * `fetch` above reads the whole body before its caller sees the status. A response of unknown size
+ * cannot be read that way, because an origin can answer a request for a small image with gigabytes.
+ * Here the status and the headers arrive first, and the caller then sets a limit or abandons the body.
+ *
+ * Redirects are not followed, as in `fetch`, so a response cannot bounce to a host that no check
+ * has seen. A caller that follows one must call this again for the new URL.
+ *
+ * Exactly one of `read` and `discard` must be called. Until one is, the socket stays held.
+ */
+export async function fetchStreamed(url: string, options: StreamedFetchOptions): Promise<StreamedResponse> {
+    const parsed = validateUrl(url)
+    validateHostnameIPLiteral(parsed.hostname, !isProdEnv())
+
+    inflightExternalRequests.inc()
+    let result: Dispatcher.ResponseData
+    try {
+        result = await request(parsed.toString(), {
+            method: 'GET',
+            headers: options.headers,
+            dispatcher: sharedSecureAgent,
+            signal: AbortSignal.timeout(options.timeoutMs),
+        })
+    } catch (error) {
+        inflightExternalRequests.dec()
+        throw error
+    }
+
+    // A null prototype, because every key here comes from the remote server. `__proto__` on a plain
+    // object literal is a setter rather than a key.
+    const headers: Record<string, string> = Object.create(null)
+    for (const [key, value] of Object.entries(result.headers)) {
+        const singleValue = Array.isArray(value) ? value[0] : value
+        if (singleValue) {
+            headers[key] = singleValue
+        }
+    }
+
+    // The gauge is held until the body is done, not until the caller takes the response. The body
+    // is where nearly all the time of an image request goes, so releasing it at the headers would
+    // report a fraction of what is really in flight.
+    let started = false
+    let released = false
+    const release = (): void => {
+        if (!released) {
+            released = true
+            inflightExternalRequests.dec()
+        }
+    }
+
+    return {
+        status: result.statusCode,
+        headers,
+        read: async (maxBytes: number) => {
+            if (started) {
+                return { bytes: Buffer.alloc(0), overLimit: false }
+            }
+            started = true
+            try {
+                return await readCappedBody(result.body, maxBytes)
+            } finally {
+                release()
+            }
+        },
+        discard: () => {
+            if (!started) {
+                started = true
+                destroyBody(result.body)
+                release()
+            }
+        },
+    }
+}
+
 // Legacy fetch implementation that exposes the entire fetch implementation
 export function legacyFetch(input: RequestInfo, options?: RequestInit): Promise<Response> {
     let parsed: URL

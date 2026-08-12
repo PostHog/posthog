@@ -54,10 +54,10 @@ describe('UrlSightings', () => {
         const result = await build(client).read(KEYS)
 
         expect([...result.known].sort((a, b) => a - b)).toEqual([0, 255, 256, 599])
-        expect(result.failed).toBe(0)
+        expect(result.failed.size).toBe(0)
     })
 
-    it('counts a chunk that throws as failed rather than as absent', async () => {
+    it('reports the index of every key in a chunk that threw, rather than calling them absent', async () => {
         const client = new FakeClient({
             mget: (keys) => {
                 if (keys.includes('k256')) {
@@ -69,7 +69,10 @@ describe('UrlSightings', () => {
 
         const result = await build(client).read(KEYS)
 
-        expect(result.failed).toBe(256)
+        // The caller drops these rather than fetching them, so it needs which keys, not how many.
+        expect(result.failed.size).toBe(256)
+        expect(result.failed.has(256)).toBe(true)
+        expect(result.failed.has(255)).toBe(false)
         expect(result.known.size).toBe(0)
     })
 
@@ -103,7 +106,7 @@ describe('UrlSightings', () => {
 
         const result = await build(client, 30).read(KEYS)
 
-        expect(result.failed).toBeGreaterThan(0)
+        expect(result.failed.size).toBeGreaterThan(0)
     })
 
     it('writes every key exactly once', async () => {

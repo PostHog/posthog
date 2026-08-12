@@ -1,8 +1,7 @@
 import { Pool } from 'generic-pool'
 
 /**
- * The dry run records sightings under their own prefix, separate from the fetch results a later
- * lane will write.
+ * Sightings live under their own prefix, separate from the fetch results a later lane will write.
  *
  * Two stores rather than one outcome value, because they answer different questions and only one of
  * them may suppress a request. A sighting says this lane has handled a URL, which is what the phase
@@ -36,8 +35,8 @@ function chunk<T>(items: T[], size: number): T[][] {
 export interface SightingReadResult {
     /** Indexes of the keys that were already recorded. */
     known: Set<number>
-    /** Keys whose read did not complete, which the caller must treat as unknown rather than as absent. */
-    failed: number
+    /** Indexes whose read did not complete. The caller knows nothing about these, which is not the same as knowing they are absent. */
+    failed: Set<number>
 }
 
 /**
@@ -81,7 +80,7 @@ export class UrlSightings implements SightingStore {
 
     public async read(keys: string[]): Promise<SightingReadResult> {
         const known = new Set<number>()
-        let failed = 0
+        const failed = new Set<number>()
         await this.forEachChunk(keys, {
             onChunk: async (client, batch, base) => {
                 const values = await client.mget(...batch)
@@ -91,8 +90,8 @@ export class UrlSightings implements SightingStore {
                     }
                 })
             },
-            onChunkFailed: (batch) => {
-                failed += batch.length
+            onChunkFailed: (batch, base) => {
+                batch.forEach((_key, index) => failed.add(base + index))
             },
         })
         return { known, failed }
