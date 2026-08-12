@@ -78,6 +78,7 @@ def mock_db_pool() -> MagicMock:
     conn = AsyncMock()
     conn.fetchrow = AsyncMock(return_value=None)
     conn.fetchval = AsyncMock(return_value=1)
+    conn.fetch = AsyncMock(return_value=[])
     pool.acquire = AsyncMock(return_value=conn)
     pool.release = AsyncMock()
     return pool

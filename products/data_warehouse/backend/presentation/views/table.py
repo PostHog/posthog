@@ -803,7 +803,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
                 # Try to determine columns from the file
                 table.columns = table.get_columns()
-                table.save()
+                # team_id comes from routing and safe_filename is sanitized (no path separators), so
+                # the URL above is always scoped to this team's own managed/ prefix, never taken
+                # verbatim from request input the way the PATCH endpoint's url_pattern field is.
+                table.save(internally_computed_url_pattern=True)
 
                 # Validate columns in background
                 from posthog.tasks.warehouse import validate_data_warehouse_table_columns
