@@ -12,7 +12,6 @@ import {
   UPDATES_CLIENT,
   type UpdatesClient,
 } from "@posthog/ui/features/updates/updatesClient";
-import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
 import { posthogFeatureFlags } from "@posthog/ui/shell/posthogAnalyticsImpl";
@@ -150,48 +149,11 @@ function syncStagedUpdates(): void {
 }
 posthogFeatureFlags.onFlagsLoaded(syncStagedUpdates);
 
-// Auto-show "What's New" once on the first launch after the version changes.
-function maybeShowWhatsNew(): void {
-  void hostTrpcClient.os.getAppVersion
-    .query()
-    .then((currentVersion) => {
-      const settings = useSettingsStore.getState();
-      const lastSeen = settings.lastSeenChangelogVersion;
-      if (lastSeen && lastSeen !== currentVersion) {
-        useWhatsNewStore.getState().open();
-      }
-      if (lastSeen !== currentVersion) {
-        settings.setLastSeenChangelogVersion(currentVersion);
-      }
-    })
-    .catch((error: unknown) =>
-      log.error("Failed to evaluate What's New", { error }),
-    );
-}
-
-// The changelog defers to flag-driven surfaces (billing announcement, remote
-// announcements), so wait for flags before auto-opening — otherwise it can
-// open and immediately vanish behind an announcement that arrives with the
-// flag payload. The timeout keeps offline and keyless dev builds working.
-const FLAGS_SETTLE_TIMEOUT_MS = 3_000;
-
-function maybeShowWhatsNewOnceFlagsSettle(): void {
-  let evaluated = false;
-  const evaluate = () => {
-    if (evaluated) return;
-    evaluated = true;
-    maybeShowWhatsNew();
-  };
-  posthogFeatureFlags.onFlagsLoaded(evaluate);
-  setTimeout(evaluate, FLAGS_SETTLE_TIMEOUT_MS);
-}
-
 function onSettingsReady(): void {
   syncAutoDownload(useSettingsStore.getState().downloadUpdatesAutomatically);
   useSettingsStore.subscribe((state) =>
     syncAutoDownload(state.downloadUpdatesAutomatically),
   );
-  maybeShowWhatsNewOnceFlagsSettle();
 }
 
 if (useSettingsStore.persist.hasHydrated()) {

@@ -199,6 +199,10 @@ pub struct FlagsCanonicalLogLine {
     pub flags_experience_continuity: usize,
     pub flags_disabled: bool,
     pub quota_limited: bool,
+    /// Set when the request supplied a `$geoip_*` value disagreeing with the MaxMind lookup.
+    /// Attributable counterpart to `flags_geoip_properties_differ_from_lookup_total`, which has
+    /// no labels.
+    pub geoip_properties_differ_from_lookup: bool,
     /// Flag keys that were overridden with custom definitions (for testing/historical evaluation)
     pub flags_overridden: Option<Vec<String>>,
     /// Source of the flags data: "Redis", "S3", or "Fallback" (PostgreSQL).
@@ -329,6 +333,7 @@ impl Default for FlagsCanonicalLogLine {
             flags_experience_continuity: 0,
             flags_disabled: false,
             quota_limited: false,
+            geoip_properties_differ_from_lookup: false,
             flags_overridden: None,
             flags_cache_source: None,
             eval: EvalCounters::default(),
@@ -398,6 +403,7 @@ impl FlagsCanonicalLogLine {
             flags_device_id_bucketing = self.eval.flags_device_id_bucketing,
             flags_disabled = self.flags_disabled,
             quota_limited = self.quota_limited,
+            geoip_properties_differ_from_lookup = self.geoip_properties_differ_from_lookup,
             flags_overridden = ?self.flags_overridden,
             flags_cache_source = self.flags_cache_source,
             db_property_fetches = self.db_property_fetches,

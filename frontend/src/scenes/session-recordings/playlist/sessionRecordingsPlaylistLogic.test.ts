@@ -1197,6 +1197,33 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('rehydrating persisted filters', () => {
+        const props = { logicKey: 'persist_regression', personUUID: 'persist_regression', updateSearchParams: false }
+
+        it('resets a malformed persisted filters value to defaults on mount', async () => {
+            // A first mount writes the persist key. Discover its exact name rather than hardcoding
+            // kea-localstorage's prefix/path format.
+            const seed = sessionRecordingsPlaylistLogic(props)
+            seed.mount()
+            const filtersKey = Object.keys(localStorage).find(
+                (k) => k.includes('persist_regression') && k.endsWith('.filters')
+            )
+            expect(typeof filtersKey).toBe('string')
+            seed.unmount()
+
+            // Poison the persisted entry, then reset the kea context so the reducer rehydrates from
+            // storage on the next build - exactly what a stale localStorage entry does in production.
+            localStorage.setItem(filtersKey!, JSON.stringify({ filter_group: 'not-a-group', duration: 'nope' }))
+            initKeaTests()
+            featureFlagLogic.mount()
+
+            logic = sessionRecordingsPlaylistLogic(props)
+            logic.mount()
+
+            expect(logic.values.filters).toEqual(getDefaultFilters('persist_regression'))
+        })
+    })
+
     describe('set filters', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({

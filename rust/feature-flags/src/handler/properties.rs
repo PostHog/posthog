@@ -1,8 +1,13 @@
-use crate::{api::errors::FlagError, flags::flag_request::FlagRequest};
+use crate::{
+    api::errors::FlagError, flags::flag_request::FlagRequest,
+    metrics::consts::GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER,
+};
 use common_geoip::GeoIpClient;
+use common_metrics::inc;
 use serde_json::Value;
 use std::{collections::HashMap, net::IpAddr};
 
+use super::canonical_log::with_canonical_log;
 use super::types::{RequestContext, RequestPropertyOverrides};
 
 pub fn prepare_overrides(
@@ -41,6 +46,27 @@ pub fn prepare_overrides(
     })
 }
 
+/// Flags requests whose own `$geoip_*` values disagree with the lookup, without changing what
+/// wins. The lookup still overwrites them.
+///
+/// Sizes the population that letting request values win would affect, so that change can be
+/// measured before it ships rather than after. A JSON null counts as absent: it carries no
+/// value to compare against the lookup, so it can't be a divergence.
+fn record_geoip_divergence(
+    person_properties: &HashMap<String, Value>,
+    geoip_props: &HashMap<String, String>,
+) {
+    let diverged = geoip_props.iter().any(|(key, resolved)| {
+        person_properties.get(key).is_some_and(|supplied| {
+            !supplied.is_null() && supplied.as_str() != Some(resolved.as_str())
+        })
+    });
+    if diverged {
+        inc(GEOIP_PROPERTIES_DIFFER_FROM_LOOKUP_COUNTER, &[], 1);
+        with_canonical_log(|log| log.geoip_properties_differ_from_lookup = true);
+    }
+}
+
 pub fn get_person_property_overrides(
     geoip_disabled: bool,
     person_properties: Option<HashMap<String, Value>>,
@@ -50,6 +76,7 @@ pub fn get_person_property_overrides(
     match (!geoip_disabled, person_properties) {
         (true, Some(mut props)) => {
             if let Some(geoip_props) = geoip_service.get_geoip_properties(&ip.to_string()) {
+                record_geoip_divergence(&props, &geoip_props);
                 props.extend(geoip_props.into_iter().map(|(k, v)| (k, Value::String(v))));
             }
             Some(props)
