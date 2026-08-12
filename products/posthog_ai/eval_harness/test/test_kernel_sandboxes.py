@@ -64,10 +64,16 @@ class TestReleaseKernels(APIBaseTest):
         runtime.refresh_from_db()
         assert runtime.status == status
 
-    def test_marks_stopped_even_when_the_sandbox_cannot_be_destroyed(self) -> None:
-        # Otherwise every later sweep retries a sandbox nobody can reach.
-        self.sandbox.destroy.side_effect = RuntimeError("container is gone")
+    def test_retries_a_sandbox_that_could_not_be_destroyed(self) -> None:
+        self.sandbox.destroy.side_effect = RuntimeError("provider unreachable")
         runtime = self._runtime(status=KernelRuntime.Status.RUNNING)
+
+        assert release_kernels(self.team.id) == 0
+
+        runtime.refresh_from_db()
+        assert runtime.status == KernelRuntime.Status.RUNNING
+
+        self.sandbox.destroy.side_effect = None
 
         assert release_kernels(self.team.id) == 1
 

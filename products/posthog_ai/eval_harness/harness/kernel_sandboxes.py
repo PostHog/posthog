@@ -37,9 +37,10 @@ or discarded had its sandbox destroyed by whoever set that status."""
 def release_kernels(team_id: int | None = None) -> int:
     """Destroy the kernel sandboxes recorded for ``team_id``, or for every team when ``None``.
 
-    Returns the number of runtimes released. Best effort per row: a sandbox that is
-    already gone, or a provider call that fails, still marks its row stopped, so a
-    later sweep does not keep retrying a kernel nobody can reach.
+    Returns the number of runtimes actually released. A row whose sandbox could not be
+    destroyed keeps its status, so the end-of-run sweep gets a second attempt at it —
+    a container that survived a transient provider failure would otherwise hold its
+    memory for the rest of the run with nothing left to reclaim it.
     """
     runtimes = KernelRuntime.objects.filter(status__in=_RELEASABLE_STATUSES).exclude(sandbox_id__isnull=True)
     if team_id is not None:
@@ -59,6 +60,7 @@ def release_kernels(team_id: int | None = None) -> int:
                 runtime.team_id,
                 exc_info=True,
             )
+            continue
         runtime.status = KernelRuntime.Status.STOPPED
         runtime.save(update_fields=["status"])
         released += 1
