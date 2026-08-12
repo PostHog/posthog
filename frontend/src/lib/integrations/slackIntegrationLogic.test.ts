@@ -157,7 +157,6 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
 
 describe('slackIntegrationLogic — getChannelRefreshButtonDisabledReason', () => {
     let logic: ReturnType<typeof slackIntegrationLogic.build>
-    let lastRefreshedAt: string
 
     beforeEach(() => {
         // Only fake `Date` so dayjs() reads a fixed wall clock; keep timers real so kea-test-utils async helpers run.
@@ -180,10 +179,12 @@ describe('slackIntegrationLogic — getChannelRefreshButtonDisabledReason', () =
                 'clearTimeout',
             ],
         })
-        lastRefreshedAt = ''
         useMocks({
             get: {
-                '/api/environments/:team_id/integrations/:id/channels': () => [200, { channels: [], lastRefreshedAt }],
+                '/api/environments/:team_id/integrations/:id/channels': () => [
+                    200,
+                    { channels: [], lastRefreshedAt: '' },
+                ],
             },
         })
         initKeaTests()
@@ -196,25 +197,41 @@ describe('slackIntegrationLogic — getChannelRefreshButtonDisabledReason', () =
         jest.useRealTimers()
     })
 
-    const refreshAt = async (timestamp: string): Promise<void> => {
-        lastRefreshedAt = timestamp
+    const forceRefresh = async (): Promise<void> => {
         await expectLogic(logic, () => {
-            logic.actions.loadAllSlackChannels()
+            logic.actions.loadAllSlackChannels(true)
         }).toFinishAllListeners()
     }
 
+    it('leaves the button enabled after an automatic (non-forced) load', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.getChannelRefreshButtonDisabledReason()).toBe('')
+    })
+
     it.each<[string, number, boolean]>([
-        ['stays disabled immediately after a refresh', 0, false],
+        ['stays disabled immediately after a forced refresh', 0, false],
         ['stays disabled just before the cooldown elapses', SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS - 1, false],
         ['enables once the cooldown has elapsed', SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS + 1, true],
-    ])('refresh button %s', async (_label, secondsAgo, expectEnabled) => {
-        await refreshAt(dayjs(FIXED_NOW).subtract(secondsAgo, 'seconds').toISOString())
+    ])('refresh button %s', async (_label, secondsElapsed, expectEnabled) => {
+        await forceRefresh()
+        jest.setSystemTime(dayjs(FIXED_NOW).add(secondsElapsed, 'seconds').toDate())
         const reason = logic.values.getChannelRefreshButtonDisabledReason()
         if (expectEnabled) {
             expect(reason).toBe('')
         } else {
             expect(reason).not.toBe('')
         }
+    })
+
+    it('clamps the countdown to the interval when the clock jumps backward', async () => {
+        await forceRefresh()
+        // A backward clock correction after the click would otherwise stretch the block past the interval.
+        jest.setSystemTime(dayjs(FIXED_NOW).subtract(60, 'seconds').toDate())
+        expect(logic.values.getChannelRefreshButtonDisabledReason()).toBe(
+            `You can refresh the channels again in ${SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS} seconds`
+        )
     })
 })
 

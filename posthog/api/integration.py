@@ -1312,7 +1312,11 @@ class IntegrationViewSet(
                 "channels": [self._serialize_slack_channel(channel) for channel in channels],
                 "lastRefreshedAt": timezone.now().isoformat(),
             }
-            cache.set(key, data, 60 * 60)  # one hour
+            # Don't cache an empty result. An empty list usually means the app was just added to a
+            # channel (or private channels aren't served to this caller yet), so caching it for an
+            # hour would keep the picker empty long after the real channels became available.
+            if data["channels"]:
+                cache.set(key, data, 60 * 60)  # one hour
 
         filtered_channels = self._filter_slack_channels_for_search(data["channels"], search)
         page = filtered_channels[offset : offset + limit]

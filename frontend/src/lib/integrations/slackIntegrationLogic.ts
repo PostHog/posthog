@@ -34,6 +34,7 @@ export interface slackIntegrationLogicValues {
     getChannelRefreshButtonDisabledReason: () => string
     isMemberOfSlackChannel: (channel: string) => boolean | null
     isPrivateChannelWithoutAccess: (channel: string) => boolean
+    lastForcedRefreshAt: number | null
     recentlySubscribedChannelIds: string[]
     slackChannelById: SlackChannelType | null
     slackChannelByIdLoading: boolean
@@ -127,13 +128,7 @@ export interface slackIntegrationLogicMeta {
         ) => SlackChannelType[]
         isMemberOfSlackChannel: (slackChannels: SlackChannelType[]) => (channel: string) => boolean | null
         isPrivateChannelWithoutAccess: (slackChannels: SlackChannelType[]) => (channel: string) => boolean
-        getChannelRefreshButtonDisabledReason: (
-            allSlackChannels: {
-                channels: SlackChannelType[]
-                has_more?: boolean
-                lastRefreshedAt: string
-            } | null
-        ) => () => string
+        getChannelRefreshButtonDisabledReason: (lastForcedRefreshAt: number | null) => () => string
     }
 }
 
@@ -221,6 +216,15 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 setRecentlySubscribedChannelIds: (_, { channelIds }) => channelIds,
             },
         ],
+        lastForcedRefreshAt: [
+            null as number | null,
+            {
+                // Arm the cooldown only when the user forces a refresh, and stamp it from this
+                // client's clock. Automatic loads (mount, focus, search) leave it untouched, so they
+                // never block the user's own refresh click.
+                loadAllSlackChannels: (state, { forceRefresh }) => (forceRefresh ? dayjs().valueOf() : state),
+            },
+        ],
         slackIntegrationInactiveMessage: [
             null as string | null,
             {
@@ -286,22 +290,22 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
             },
         ],
         getChannelRefreshButtonDisabledReason: [
-            (s) => [s.allSlackChannels],
-            (allSlackChannels: { channels: SlackChannelType[]; lastRefreshedAt: string } | null) => (): string => {
-                const now = dayjs()
-                if (allSlackChannels) {
-                    const earliestRefresh = dayjs(allSlackChannels.lastRefreshedAt).add(
-                        SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS,
-                        'seconds'
-                    )
-                    if (now.isBefore(earliestRefresh)) {
-                        const secondsLeft = Math.ceil(earliestRefresh.diff(now) / 1000)
-                        return `You can refresh the channels again in ${secondsLeft} second${
-                            secondsLeft === 1 ? '' : 's'
-                        }`
-                    }
+            (s) => [s.lastForcedRefreshAt],
+            (lastForcedRefreshAt: number | null) => (): string => {
+                if (lastForcedRefreshAt === null) {
+                    return ''
                 }
-                return ''
+                // Measure elapsed time against the same client clock that stamped the click, and clamp
+                // the remaining time to the interval so a backward clock jump can't stretch the block.
+                const elapsedSeconds = (dayjs().valueOf() - lastForcedRefreshAt) / 1000
+                const secondsLeft = Math.min(
+                    SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS,
+                    Math.ceil(SLACK_CHANNELS_MIN_REFRESH_INTERVAL_SECONDS - elapsedSeconds)
+                )
+                if (secondsLeft <= 0) {
+                    return ''
+                }
+                return `You can refresh the channels again in ${secondsLeft} second${secondsLeft === 1 ? '' : 's'}`
             },
         ],
     }),

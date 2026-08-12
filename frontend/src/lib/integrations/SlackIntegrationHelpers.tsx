@@ -241,7 +241,8 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     // not max-width — without a cap the popover can grow to fit a long single line
                     // and spill past the modal edge.
                     <p className="text-secondary italic p-1 max-w-sm">
-                        No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
+                        No channels found. Add the PostHog Slack app to the channel you want. Private channels only show
+                        for the person who connected this Slack account.{' '}
                         <Link to="https://posthog.com/docs/cdp/destinations/slack" target="_blank">
                             See the docs for more information.
                         </Link>

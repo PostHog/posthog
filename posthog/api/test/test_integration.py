@@ -1756,6 +1756,51 @@ class TestIntegrationAPIKeyAccess:
 
         mock_slack_instance.list_channels.assert_called_once()
 
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_channels_action_does_not_cache_empty_result(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_EMPTY",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        populated = [
+            {
+                "id": "C1",
+                "name": "general",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            }
+        ]
+        mock_slack_instance = MagicMock()
+        # First load sees no channels (the app was just added), the second sees the real list.
+        mock_slack_instance.list_channels.side_effect = [[], populated]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_empty"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+        url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/channels/"
+
+        first = client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert first.status_code == status.HTTP_200_OK
+        assert first.json()["channels"] == []
+
+        # The empty result must not be cached, so the reload hits Slack again and picks up the channel.
+        second = client.get(url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert second.status_code == status.HTTP_200_OK
+        assert [channel["id"] for channel in second.json()["channels"]] == ["C1"]
+
+        assert mock_slack_instance.list_channels.call_count == 2
+
     @pytest.mark.parametrize(
         "query_string,expected_ids,expected_has_more",
         [
