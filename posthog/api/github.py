@@ -18,19 +18,17 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.personal_api_key import PersonalAPIKeySerializer
-from posthog.api.project_secret_api_key import roll_project_secret_api_key_and_notify
+from posthog.api.secret_revocation import (
+    CANONICAL_OAUTH_ACCESS_TOKEN,
+    CANONICAL_OAUTH_REFRESH_TOKEN,
+    CANONICAL_PERSONAL_API_KEY,
+    CANONICAL_PROJECT_SECRET_API_KEY,
+    revoke_leaked_secret,
+)
 from posthog.models import Team
-from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token, revoke_oauth_session
-from posthog.models.personal_api_key import find_personal_api_key
-from posthog.models.project_secret_api_key import find_project_secret_api_key
 from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
-from posthog.tasks.email import (
-    send_feature_flags_secure_api_key_exposed,
-    send_oauth_token_exposed,
-    send_personal_api_key_exposed,
-)
+from posthog.tasks.email import send_feature_flags_secure_api_key_exposed
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -238,8 +236,9 @@ class SecretAlert(APIView):
             local_found = False
 
             if item["type"] == GITHUB_TYPE_FOR_PERSONAL_API_KEY:
-                key_lookup = find_personal_api_key(token)
-                local_found = key_lookup is not None
+                more_info = f"This key was detected by GitHub at {item['url']}."
+                revocation = revoke_leaked_secret(token, CANONICAL_PERSONAL_API_KEY, more_info)
+                local_found = revocation.found
 
                 pending_events.append(
                     {
@@ -252,36 +251,20 @@ class SecretAlert(APIView):
                     }
                 )
 
-                if key_lookup is not None:
+                if revocation.found:
                     result["label"] = "true_positive"
-                    more_info = f"This key was detected by GitHub at {item['url']}."
-
-                    key, _ = key_lookup
-                    old_mask_value = key.mask_value
-
-                    serializer = PersonalAPIKeySerializer(instance=key)
-                    serializer.roll(key)
-                    send_personal_api_key_exposed(key.user.id, key.id, old_mask_value, more_info)
 
             elif item["type"] == GITHUB_TYPE_FOR_SECURE_API_KEY:
-                key_kind = None
+                more_info = f"This key was detected by GitHub at {item['url']}."
+                revocation = revoke_leaked_secret(token, CANONICAL_PROJECT_SECRET_API_KEY, more_info)
+                local_found = revocation.found
+                key_kind = "project_secret_api_key" if revocation.found else None
 
-                project_secret_api_key = find_project_secret_api_key(token)
-                if project_secret_api_key is not None:
-                    local_found = True
-                    key_kind = "project_secret_api_key"
-                    result["label"] = "true_positive"
-
-                    more_info = f"This key was detected by GitHub at {item['url']}."
-                    roll_project_secret_api_key_and_notify(project_secret_api_key, more_info)
-                else:
+                if not revocation.found:
                     try:
                         team = Team.objects.get(Q(secret_api_token=token) | Q(secret_api_token_backup=token))
                         local_found = True
                         key_kind = "team_secret_token"
-                        result["label"] = "true_positive"
-
-                        more_info = f"This key was detected by GitHub at {item['url']}."
                         send_feature_flags_secure_api_key_exposed(team.id, mask_key_value(token), more_info)
 
                     except Team.DoesNotExist:
@@ -299,9 +282,13 @@ class SecretAlert(APIView):
                     }
                 )
 
+                if local_found:
+                    result["label"] = "true_positive"
+
             elif item["type"] == GITHUB_TYPE_FOR_OAUTH_ACCESS_TOKEN:
-                access_token = find_oauth_access_token(token)
-                local_found = access_token is not None
+                more_info = f"This token was detected by GitHub at {item['url']}."
+                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_ACCESS_TOKEN, more_info)
+                local_found = revocation.found
 
                 pending_events.append(
                     {
@@ -314,19 +301,13 @@ class SecretAlert(APIView):
                     }
                 )
 
-                if access_token is not None:
+                if revocation.found:
                     result["label"] = "true_positive"
-                    more_info = f"This token was detected by GitHub at {item['url']}."
-
-                    user = access_token.user
-                    revoke_oauth_session(access_token=access_token)
-
-                    if user:
-                        send_oauth_token_exposed(user.id, "access", mask_key_value(token), more_info)
 
             elif item["type"] == GITHUB_TYPE_FOR_OAUTH_REFRESH_TOKEN:
-                refresh_token = find_oauth_refresh_token(token)
-                local_found = refresh_token is not None
+                more_info = f"This token was detected by GitHub at {item['url']}."
+                revocation = revoke_leaked_secret(token, CANONICAL_OAUTH_REFRESH_TOKEN, more_info)
+                local_found = revocation.found
 
                 pending_events.append(
                     {
@@ -339,15 +320,8 @@ class SecretAlert(APIView):
                     }
                 )
 
-                if refresh_token is not None:
+                if revocation.found:
                     result["label"] = "true_positive"
-                    more_info = f"This token was detected by GitHub at {item['url']}."
-
-                    user = refresh_token.user
-                    revoke_oauth_session(refresh_token=refresh_token)
-
-                    if user:
-                        send_oauth_token_exposed(user.id, "refresh", mask_key_value(token), more_info)
 
             else:
                 raise ValidationError(detail="Unexpected alert type")

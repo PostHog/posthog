@@ -464,6 +464,20 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def webhook_creation_blocked_reason(self, config: ConfigType, team_id: int) -> str | None:
+        """Why this connection can never create the provider-side webhook, or ``None``.
+
+        Some connections are known ahead of time to lack the grant `create_webhook` needs — an
+        OAuth app installation can only hold permissions the app itself requests, so no amount of
+        reconnecting will earn it. Returning a reason lets the UI offer the manual setup steps
+        instead of a button whose only outcome is a permission error.
+
+        ``None`` means "not known to be blocked", not "will succeed": it is the answer for every
+        credential whose grants can't be introspected (API keys, tokens), so a real denial still
+        surfaces from `create_webhook`.
+        """
+        return None
+
     def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
         """Events the webhook should subscribe to. ``None`` when the source has no
         provider-side subscription to drift (e.g. Slack); such sources skip reconciliation."""

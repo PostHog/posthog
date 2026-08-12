@@ -201,7 +201,9 @@ def _upsert_community_skill(entry: dict[str, Any]) -> bool:
         # .get return None, which these non-nullable JSON columns reject at insert time.
         "allowed_tools": entry.get("allowed_tools") or [],
         "metadata": entry.get("metadata") or {},
-        "tags": entry.get("tags") or [],
+        # Store tags lowercased so the tag/search filters match regardless of how a contributor
+        # capitalized them in frontmatter (_validate_entry_shape guarantees a list of strings).
+        "tags": [t.lower() for t in (entry.get("tags") or [])],
         "trust_tier": trust_tier,
         "author_handle": _text(entry, "author_handle", "'author_handle'"),
         "github_url": _text(entry, "github_url", "'github_url'"),
