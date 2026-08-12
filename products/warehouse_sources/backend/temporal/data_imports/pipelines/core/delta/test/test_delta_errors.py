@@ -99,8 +99,21 @@ class TestIsTransientDeltaMaintenanceError:
                 ),
                 True,
             ),
-            # "File not found" outside the log directory must not match, because a data file missing for
-            # some other reason is a real failure to capture, not this specific log-commit race.
+            # The same race can take a checkpoint instead of a commit JSON, surfaced through delta-rs's
+            # Arrow/object_store kernel message shape (a plain 404/NoSuchKey GET failure) rather than the
+            # older "File not found: ..." shape above — both mean the same thing when scoped to `_delta_log/`.
+            (
+                "missing_delta_log_checkpoint_object_store_kernel_message",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Arrow error: External: Object at location "
+                    "dlt/team_1_source_2/table/_delta_log/00000000000000000099.checkpoint.parquet not found: "
+                    "Error performing GET https://s3.example.com/bucket/.../00000000000000000099.checkpoint.parquet "
+                    "in 10.9ms - Server returned non-2xx status code: 404 Not Found: NoSuchKey"
+                ),
+                True,
+            ),
+            # "not found" outside the log directory must not match, because a data file missing for some
+            # other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),

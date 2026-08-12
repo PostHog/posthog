@@ -12,6 +12,8 @@ import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
+    BackfillEstimateResponseApi,
+    BackfillWindowApi,
     BulkObserveRequestApi,
     BulkObserveResponseApi,
     CreateTaskFromObservationResponseApi,
@@ -26,6 +28,7 @@ import type {
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
+    PaginatedReplayScannerBackfillListApi,
     PaginatedReplayScannerListApi,
     PaginatedReplayScannerPromptSuggestionListApi,
     PaginatedVisionActionListApi,
@@ -35,6 +38,7 @@ import type {
     ReplayObservationApi,
     ReplayObservationLabelApi,
     ReplayScannerApi,
+    ReplayScannerBackfillApi,
     ReplayScannerPromptSuggestionApi,
     RetryResponseApi,
     RunActionResponseApi,
@@ -50,6 +54,7 @@ import type {
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
     VisionQuotaApi,
+    VisionScannersBackfillsListParams,
     VisionScannersImpactRetrieveParams,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
@@ -608,6 +613,153 @@ export const visionScannersObserveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(observeRequestApi),
+    })
+}
+
+export const getVisionScannersBackfillsListUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersBackfillsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/`
+}
+
+/**
+ * Historical backfills of a scanner over a closed time window (nested under a scanner).
+ */
+export const visionScannersBackfillsList = async (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersBackfillsListParams,
+    options?: RequestInit
+): Promise<PaginatedReplayScannerBackfillListApi> => {
+    return apiMutator<PaginatedReplayScannerBackfillListApi>(
+        getVisionScannersBackfillsListUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersBackfillsCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/`
+}
+
+/**
+ * Create a backfill: freeze the scanner config, enumerate the exact candidate set, start the tick schedule.
+ *
+ * The enumeration reruns here rather than trusting the client-confirmed estimate: the count is
+ * billing-relevant, so the authoritative value is computed server-side at creation time. New
+ * settled sessions between estimate and confirm can nudge total_count slightly.
+ */
+export const visionScannersBackfillsCreate = async (
+    projectId: string,
+    scannerId: string,
+    backfillWindowApi: BackfillWindowApi,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(backfillWindowApi),
+    })
+}
+
+export const getVisionScannersBackfillsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/${id}/`
+}
+
+/**
+ * Historical backfills of a scanner over a closed time window (nested under a scanner).
+ */
+export const visionScannersBackfillsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionScannersBackfillsCancelCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/${id}/cancel/`
+}
+
+/**
+ * Stop an active backfill; already-dispatched observations finish, nothing new dispatches.
+ */
+export const visionScannersBackfillsCancelCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    replayScannerBackfillApi?: NonReadonly<ReplayScannerBackfillApi>,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsCancelCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(replayScannerBackfillApi),
+    })
+}
+
+export const getVisionScannersBackfillsResumeCreateUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/${id}/resume/`
+}
+
+/**
+ * Restart a backfill that paused when the monthly quota ran out.
+ */
+export const visionScannersBackfillsResumeCreate = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    replayScannerBackfillApi?: NonReadonly<ReplayScannerBackfillApi>,
+    options?: RequestInit
+): Promise<ReplayScannerBackfillApi> => {
+    return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsResumeCreateUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(replayScannerBackfillApi),
+    })
+}
+
+export const getVisionScannersBackfillsEstimateCreateUrl = (projectId: string, scannerId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/backfills/estimate/`
+}
+
+/**
+ * Exactly enumerate what a backfill over the given window would dispatch and cost.
+ */
+export const visionScannersBackfillsEstimateCreate = async (
+    projectId: string,
+    scannerId: string,
+    backfillWindowApi: BackfillWindowApi,
+    options?: RequestInit
+): Promise<BackfillEstimateResponseApi> => {
+    return apiMutator<BackfillEstimateResponseApi>(getVisionScannersBackfillsEstimateCreateUrl(projectId, scannerId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(backfillWindowApi),
     })
 }
 

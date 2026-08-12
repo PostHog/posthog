@@ -12,9 +12,9 @@ use tonic::{Request, Status};
 
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
-    ConsistencyLevel, FencePersonRequest, FencePersonResponse, GetPersonRequest, Person,
-    ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, UpdatePersonPropertiesRequest,
-    UpdatePersonPropertiesResponse,
+    ConsistencyLevel, FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest,
+    FoldPersonDocumentResponse, GetPersonRequest, Person, ReadOptions, ReleaseFenceRequest,
+    ReleaseFenceResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Routing headers for leader-bound calls through the router.
@@ -108,6 +108,23 @@ impl RouterClient {
         self.inner
             .clone()
             .release_fence(request)
+            .await
+            .map(|response| response.into_inner())
+    }
+
+    /// Leader-routed merge fold (saga runner only): fold sealed source
+    /// snapshots into the target's document and return the folded result.
+    pub async fn fold_person_document(
+        &self,
+        request: FoldPersonDocumentRequest,
+    ) -> Result<FoldPersonDocumentResponse, Status> {
+        let (team_id, person_id) = (request.team_id, request.person_id);
+        let mut request = Request::new(request);
+        request.set_timeout(self.request_timeout);
+        stamp_person_routing_headers(&mut request, team_id, person_id);
+        self.inner
+            .clone()
+            .fold_person_document(request)
             .await
             .map(|response| response.into_inner())
     }

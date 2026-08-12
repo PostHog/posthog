@@ -108,6 +108,23 @@ class TestNonRetryableErrors:
 
     @parameterized.expand(
         [
+            (
+                "page_zero",
+                "410 Client Error: Gone for url: https://api.mistral.ai/v1/fine_tuning/jobs?page=0&page_size=100",
+            ),
+            (
+                "later_page",
+                "410 Client Error: Gone for url: https://api.mistral.ai/v1/fine_tuning/jobs?page=3&page_size=100",
+            ),
+        ]
+    )
+    def test_fine_tuning_gone_is_non_retryable(self, _name: str, observed: str) -> None:
+        # Mistral's 410 means fine-tuning is unavailable for the workspace, not a page-specific fluke,
+        # so the match must hold regardless of which page the pagination loop was on.
+        assert any(key in observed for key in MistralAISource().get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
             ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.mistral.ai/v1/files"),
             ("server_error", "500 Server Error: Internal Server Error for url: https://api.mistral.ai/v1/files"),
         ]

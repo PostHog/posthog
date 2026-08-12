@@ -312,7 +312,7 @@ export function TaskIcon({
 
   if (needsPermission) {
     return (
-      <Tooltip content="Needs permission" side="right">
+      <Tooltip content="Needs your input" side="right">
         <span className="flex items-center justify-center">
           <HandPalm size={size} color="var(--blue-11)" />
         </span>
