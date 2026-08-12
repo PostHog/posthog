@@ -35,11 +35,9 @@ class ClearbitInputs:
     company_type: Optional[str] = None
 
 
-def _nested_dict(value: Any, key: str) -> Optional[dict[str, Any]]:
-    if not isinstance(value, dict):
-        return None
-    nested = value.get(key)
-    return nested if isinstance(nested, dict) else None
+def _get_dict(mapping: Any, key: str) -> dict[str, Any]:
+    value = mapping.get(key) if isinstance(mapping, dict) else None
+    return value if isinstance(value, dict) else {}
 
 
 def clearbit_inputs_from_person_properties(properties: dict[str, Any]) -> ClearbitInputs:
@@ -51,15 +49,10 @@ def clearbit_inputs_from_person_properties(properties: dict[str, Any]) -> Clearb
     effect: the Clearbit hog function writes only to the US internal project, so elsewhere the
     `clearbit` block is simply absent and extraction degrades to empty the same way.
     """
-    company = _nested_dict(_nested_dict(properties, "clearbit"), "company")
-    if company is None:
-        return ClearbitInputs()
-
-    metrics = _nested_dict(company, "metrics")
-    band = metrics.get("estimatedAnnualRevenue") if metrics else None
-    est_revenue = _REVENUE_BAND_MIDPOINTS.get(band) if isinstance(band, str) else None
-
+    company = _get_dict(_get_dict(properties, "clearbit"), "company")
+    band = _get_dict(company, "metrics").get("estimatedAnnualRevenue")
     company_type = company.get("type")
-    company_type = company_type if isinstance(company_type, str) else None
-
-    return ClearbitInputs(est_revenue=est_revenue, company_type=company_type)
+    return ClearbitInputs(
+        est_revenue=_REVENUE_BAND_MIDPOINTS.get(band) if isinstance(band, str) else None,
+        company_type=company_type if isinstance(company_type, str) else None,
+    )
