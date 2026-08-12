@@ -999,8 +999,10 @@ class TimeToGreenBucket:
     """One time bucket of the repo's median time-to-green: p50 wall clock from a PR push round's
     first run start until every workflow on that head SHA first completed benign (merge-queue gates
     and partially-attributed fork rounds excluded). A flake re-run stretches the wall to its
-    recovery; a re-fire after green does not. ``p50_seconds`` is None for a bucket with no fully
-    green round (a gap, not instant CI); the UI carries the last known value forward.
+    recovery; a re-fire after green does not, though a workflow first firing late on the SHA (as
+    marking a draft ready does) stretches it by the wait that preceded it. ``p50_seconds`` is None
+    for a bucket with no fully green round (a gap, not instant CI); the UI carries the last known
+    value forward.
     """
 
     # Bucket start, aligned to the granularity (top of hour / midnight / Monday). Keyed on round start.

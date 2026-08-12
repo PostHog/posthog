@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
+from itertools import count
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
@@ -277,8 +279,34 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert len(with_series.success_rate_series) > 0
 
     def test_time_to_green_measures_push_rounds_not_runs(self) -> None:
-        # A per-run median would read this fixture as ~5 min; the round definition must read 900s.
-        # Each SHA below pins one exclusion rule.
+        # A per-run median would read this fixture as ~5 min. The round definition asks a different
+        # question, how long until a push is green, so every rule below has to hold for the
+        # per-bucket medians to land where the assertions say.
+        run_ids = count(9600)
+
+        def _round(
+            head_sha: str,
+            *runs: tuple[str, str, str | None, int, int],
+            days_ago: int = 1,
+            pr_number: int | None = 90,
+            branch: str | None = None,
+        ) -> list[dict[str, Any]]:
+            """One push round's runs, each ``(workflow, status, conclusion, start offset, duration)``
+            in seconds from the round's anchor."""
+            return [
+                _run_row(
+                    next(run_ids),
+                    workflow,
+                    head_sha,
+                    status,
+                    conclusion,
+                    *_ago_offset_with_duration(days_ago, offset, duration),
+                    pr_number=pr_number,
+                    head_branch=branch or f"feat/{head_sha}",
+                )
+                for workflow, status, conclusion, offset, duration in runs
+            ]
+
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -288,163 +316,47 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
             [
-                # green1: Lint flaked, re-ran green 30 min later; wall = first start to the
-                # recovery's completion = 2400s, not any single run's duration.
-                _run_row(
-                    9600,
-                    "CI",
+                # Lint flaked and re-ran green half an hour later, so the wall reaches the recovery
+                # (2400s) rather than any one run's duration.
+                *_round(
                     "green1",
-                    "completed",
-                    "success",
-                    *_ago_with_duration(1, 600),
-                    pr_number=90,
-                    head_branch="feat/a",
+                    ("CI", "completed", "success", 0, 600),
+                    ("Lint", "completed", "failure", 0, 300),
+                    ("Lint", "completed", "success", 1800, 600),
                 ),
-                _run_row(
-                    9601,
-                    "Lint",
-                    "green1",
-                    "completed",
-                    "failure",
-                    *_ago_with_duration(1, 300),
-                    pr_number=90,
-                    head_branch="feat/a",
-                ),
-                _run_row(
-                    9602,
-                    "Lint",
-                    "green1",
-                    "completed",
-                    "success",
-                    *_ago_offset_with_duration(1, 1800, 600),
-                    pr_number=90,
-                    head_branch="feat/a",
-                ),
-                # green2: short green round (300s) with a benign skipped workflow.
-                _run_row(
-                    9610,
-                    "CI",
-                    "green2",
-                    "completed",
-                    "success",
-                    *_ago_with_duration(1, 300),
-                    pr_number=91,
-                    head_branch="feat/b",
-                ),
-                _run_row(
-                    9611,
-                    "Docs",
-                    "green2",
-                    "completed",
-                    "skipped",
-                    *_ago_with_duration(1, 60),
-                    pr_number=91,
-                    head_branch="feat/b",
-                ),
-                # flip1: green at 900s, then a re-fire failed an hour later; the round still went
-                # green at 900s, so the late failure cannot stretch or void it.
-                _run_row(
-                    9615,
-                    "CI",
-                    "flip1",
-                    "completed",
-                    "success",
-                    *_ago_with_duration(1, 900),
-                    pr_number=97,
-                    head_branch="feat/g",
-                ),
-                _run_row(
-                    9616,
-                    "CI",
-                    "flip1",
-                    "completed",
-                    "failure",
-                    *_ago_offset_with_duration(1, 3600, 300),
-                    pr_number=97,
-                    head_branch="feat/g",
-                ),
-                # red1: Lint never passed, round never went green.
-                _run_row(
-                    9620,
-                    "CI",
-                    "red1",
-                    "completed",
-                    "success",
-                    *_ago_with_duration(1, 300),
-                    pr_number=92,
-                    head_branch="feat/c",
-                ),
-                _run_row(
-                    9621,
-                    "Lint",
-                    "red1",
-                    "completed",
-                    "failure",
-                    *_ago_with_duration(1, 300),
-                    pr_number=92,
-                    head_branch="feat/c",
-                ),
-                # pend1: still running.
-                _run_row(
-                    9630,
-                    "CI",
-                    "pend1",
-                    "in_progress",
-                    None,
-                    *_ago_with_duration(1, 0),
-                    pr_number=93,
-                    head_branch="feat/d",
-                ),
-                # canc1: Deploy only ever cancelled, not a green verdict.
-                _run_row(
-                    9640,
-                    "CI",
-                    "canc1",
-                    "completed",
-                    "success",
-                    *_ago_with_duration(1, 300),
-                    pr_number=94,
-                    head_branch="feat/e",
-                ),
-                _run_row(
-                    9641,
-                    "Deploy",
-                    "canc1",
-                    "completed",
-                    "cancelled",
-                    *_ago_with_duration(1, 60),
-                    pr_number=94,
-                    head_branch="feat/e",
-                ),
-                # fork1: the unattributed sibling marks the round partially visible; without the
+                # A skipped workflow holds nothing back, so this round is green at 300s.
+                *_round("green2", ("CI", "completed", "success", 0, 300), ("Docs", "completed", "skipped", 0, 60)),
+                # Green at 900s, then a re-fire failed an hour later: a later failure can neither
+                # stretch nor void a round that already went green.
+                *_round("flip1", ("CI", "completed", "success", 0, 900), ("CI", "completed", "failure", 3600, 300)),
+                # Never green: Lint never passed.
+                *_round("red1", ("CI", "completed", "success", 0, 300), ("Lint", "completed", "failure", 0, 300)),
+                # Still running.
+                *_round("pend1", ("CI", "in_progress", None, 0, 0)),
+                # Cancelled reaches no verdict, so this round never went green.
+                *_round("canc1", ("CI", "completed", "success", 0, 300), ("Deploy", "completed", "cancelled", 0, 60)),
+                # A fork push: one sibling lands unassociated, so the whole round drops. Without that
                 # guard the attributed 60s run alone would read as a green round.
-                _run_row(
-                    9650,
-                    "Housekeeping",
-                    "fork1",
-                    "completed",
-                    "success",
-                    *_ago_with_duration(1, 60),
-                    pr_number=95,
-                    head_branch="feat/f",
-                ),
-                _run_row(9651, "CI", "fork1", "completed", "success", *_ago_with_duration(1, 60), head_branch="feat/f"),
-                # mq1: a green merge-queue gate round is CI spend, not a push round.
-                _run_row(
-                    9660,
-                    "CI",
-                    "mq1",
-                    "completed",
-                    "success",
-                    *_ago_with_duration(1, 60),
-                    head_branch="trunk-merge/pr-96/abc",
+                *_round("fork1", ("Housekeeping", "completed", "success", 0, 60)),
+                *_round("fork1", ("CI", "completed", "success", 0, 60), pr_number=None),
+                # A green merge-queue gate round is CI the PR paid for, but not a push round.
+                *_round("mq1", ("CI", "completed", "success", 0, 60), branch="trunk-merge/pr-96/abc", pr_number=None),
+                # The known overstatement, pinned: a workflow first firing two hours in (what marking
+                # a draft ready does) carries the wait into the wall, because the push really wasn't
+                # green until it passed. Its own bucket, so the day above stays readable.
+                *_round(
+                    "late1",
+                    ("CI", "completed", "success", 0, 300),
+                    ("Ready only", "completed", "success", 7200, 300),
+                    days_ago=2,
                 ),
             ],
         )
 
         overview = api.get_repo_overview(team=self.team)
         observed = [b.p50_seconds for b in overview.time_to_green_series if b.p50_seconds is not None]
-        assert observed == [pytest.approx(900.0)]  # median of round walls {2400, 300, 900}
+        # Oldest first: late1's own wall, then the median of the round walls {2400, 300, 900}.
+        assert observed == [pytest.approx(7500.0), pytest.approx(900.0)]
 
     def test_repo_overview_ready_to_merge_median_and_series(self) -> None:
         # Guards the overview's ready_by_pr join: the headline must anchor on the last ready

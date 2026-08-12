@@ -42,6 +42,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     RUN_DURATION_PERCENTILE_CONDITION,
     branch_filter_clause,
     date_to_filter_clause,
+    non_default_branch_predicate,
     run_duration_percentile_expr,
     run_scope_filter_clause,
     run_started_floor_constant,
@@ -109,47 +110,59 @@ _BUCKET_SELECT = f"""
 """
 
 
-# One row per (repo, head_sha) push round. Each workflow anchors on its FIRST benign completion,
-# never its latest run: a flake re-run honestly stretches the wall to its recovery, while a label
-# re-firing workflows after the round already went green cannot stretch it retroactively. A round
-# that never fully passed is a non-sample, not a shorter one. Attribution is per round, not per
-# run: fork-PR runs land unassociated, so a per-run pr_number filter would read a fork push as
-# green in seconds; a round with any unattributed sibling is dropped instead of measured short.
+# A push round is one (repo, head_sha): every workflow GitHub fired for that push. The measure is the
+# wall from the round's first run start to the moment its last workflow first completed benign: the
+# question a PR author asks ("how long until this push is green"), which no single run answers.
+#
+# Each workflow anchors on its FIRST benign completion, never its latest run: a flake re-run stretches
+# the wall to its recovery, while a re-fire after the round already went green cannot stretch it
+# retroactively. Benign is wider than success (a path-filtered workflow reports 'skipped' and holds
+# nothing back) and narrower than "not a decisive failure": a cancelled run reached no verdict.
+#
+# A round that can't be measured honestly is a non-sample, never a shorter one:
+#   - a workflow with no benign completion (still running, or it never passed)
+#   - no workflow that actually succeeded, so the round only ever skipped
+#   - partial attribution: fork-PR runs land unassociated, so a per-run ``pr_number`` filter would
+#     read a fork push as green in seconds. A round with any unattributed sibling drops out whole.
+#
+# Known overstatement: a workflow whose first run on the SHA lands late (marking a draft ready fires
+# workflows a draft never ran) stretches the wall, because the round really wasn't green until it
+# passed, so the wall then also covers the hours the PR sat in draft. Distinguishing that from a
+# slow queue would need a re-fire gap threshold, which is a number nobody can defend.
 _TIME_TO_GREEN_SELECT = f"""
-    SELECT
-        __BUCKET_FN__ AS bucket_start,
-        quantile(0.5)(wall_seconds) AS p50_seconds
-    FROM (
+    WITH workflows_on_push AS (
         SELECT
             repo_owner,
             repo_name,
             head_sha,
+            workflow_name,
+            min(pr_number > 0) AS attributed,
+            min(run_started_at) AS first_start,
+            min(if(
+                status = 'completed' AND coalesce(conclusion, '') IN ('success', 'skipped', 'neutral'),
+                updated_at, NULL
+            )) AS first_green_end,
+            countIf(status = 'completed' AND conclusion = 'success') > 0 AS has_success
+        FROM __RUNS_SOURCE__ AS r
+        WHERE run_started_at >= {{date_from}} __DATE_TO__
+          AND NOT r.is_merge_queue
+          AND {non_default_branch_predicate()}
+        GROUP BY repo_owner, repo_name, head_sha, workflow_name
+    ),
+    green_rounds AS (
+        SELECT
             min(first_start) AS round_start,
             dateDiff('second', min(first_start), max(first_green_end)) AS wall_seconds
-        FROM (
-            SELECT
-                repo_owner,
-                repo_name,
-                head_sha,
-                workflow_name,
-                min(pr_number > 0) AS attributed,
-                min(run_started_at) AS first_start,
-                min(if(
-                    status = 'completed' AND coalesce(conclusion, '') IN ('success', 'skipped', 'neutral'),
-                    updated_at, NULL
-                )) AS first_green_end,
-                countIf(status = 'completed' AND conclusion = 'success') > 0 AS has_success
-            FROM __RUNS_SOURCE__ AS r
-            WHERE run_started_at >= {{date_from}} __DATE_TO__
-              AND NOT r.is_merge_queue
-              AND r.head_branch NOT IN ('master', 'main')
-            GROUP BY repo_owner, repo_name, head_sha, workflow_name
-        )
+        FROM workflows_on_push
         GROUP BY repo_owner, repo_name, head_sha
         HAVING min(attributed) = 1
            AND countIf(first_green_end IS NULL) = 0
            AND countIf(has_success) > 0
     )
+    SELECT
+        __BUCKET_FN__ AS bucket_start,
+        quantile(0.5)(wall_seconds) AS p50_seconds
+    FROM green_rounds
     GROUP BY bucket_start
     LIMIT {_BUCKET_LIMIT}
 """
@@ -162,9 +175,10 @@ def query_time_to_green_series(
     date_to: datetime | None,
     granularity: Granularity,
 ) -> list[TimeToGreenBucket]:
-    """Median wall clock from a push round's first run start to all workflows first green, per
-    bucket, oldest first. Only fully green, fully attributed rounds count (see the template
-    comment); an empty bucket carries ``p50_seconds`` None (a gap, not instant CI)."""
+    """Median wall clock from a push round's first run start to all its workflows first green, per
+    bucket, oldest first, keyed on the bucket the round started in. Only fully green, fully attributed
+    rounds are samples (``_TIME_TO_GREEN_SELECT`` has the exclusions and the one known overstatement);
+    an empty bucket carries ``p50_seconds`` None (a gap, not instant CI)."""
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "run_started_floor": run_started_floor_constant(date_from),
