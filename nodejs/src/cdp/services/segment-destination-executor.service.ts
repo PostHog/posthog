@@ -8,7 +8,13 @@ import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
 import { destinationE2eLagMsSummary } from '../utils'
-import { CDP_TEST_ID, createAddLogFunction, isSegmentPluginHogFunction } from '../utils'
+import {
+    CDP_TEST_ID,
+    createAddLogFunction,
+    getSensitiveValues,
+    isSegmentPluginHogFunction,
+    redactSensitiveValues,
+} from '../utils'
 import { CdpFetchConfig, cdpTrackedFetch, getNextRetryTime, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 
@@ -130,6 +136,7 @@ export class SegmentDestinationExecutorService {
 
             // All segment options are done as inputs
             const config = invocation.state.globals.inputs
+            const sensitiveValues = getSensitiveValues(invocation.hogFunction, config)
 
             if (config.debug_mode) {
                 addLog('debug', 'config', config)
@@ -267,11 +274,18 @@ export class SegmentDestinationExecutorService {
                         ) {
                             retriesPossible = false
                         }
+                        // Only the copies that get surfaced are masked. The destination's own code
+                        // still receives the raw body below, so it can branch on what came back.
+                        const reportableResponseText = redactSensitiveValues(
+                            fetchResponseText ?? 'unknown',
+                            sensitiveValues
+                        )
+
                         addLog(
                             'warn',
-                            `HTTP request failed with status ${fetchResponse?.status} (${
-                                fetchResponseText ?? 'unknown'
-                            }). ${retriesPossible ? 'Scheduling retry...' : ''}`
+                            `HTTP request failed with status ${
+                                fetchResponse?.status
+                            } (${reportableResponseText}). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
                         // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
@@ -279,9 +293,7 @@ export class SegmentDestinationExecutorService {
                             throw new SegmentFetchError(
                                 `Error executing function on event ${
                                     invocation.state.globals.event.uuid
-                                }: Request failed with status ${fetchResponse?.status} (${
-                                    fetchResponseText ?? 'unknown'
-                                })`
+                                }: Request failed with status ${fetchResponse?.status} (${reportableResponseText})`
                             )
                         }
                     }
