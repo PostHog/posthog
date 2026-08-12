@@ -31,6 +31,7 @@ from posthog.api.github_callback.types import (
 )
 from posthog.auth import SessionAuthentication
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.event_usage import report_user_action
 from posthog.models import Team
 from posthog.models.integration import (
     GitHubInstallationAccess,
@@ -664,6 +665,29 @@ def list_org_github_installations(
     return list(installations.values())
 
 
+def _report_install_pending(user: User, team_id: int | None, setup_action: str) -> None:
+    """GitHub sends the user back with no ``installation_id`` when the install did not complete.
+
+    Either they asked an organization owner to approve it (``setup_action=request``), or they left
+    the install screen. Neither case writes a row anywhere, so this event is the only trace the
+    attempt leaves. The approval-requested case is the one that matters, because owner approval can
+    take days and nothing else records that the wait started.
+    """
+    team = Team.objects.filter(id=team_id).first() if team_id is not None else None
+    report_user_action(
+        user,
+        "integration install pending",
+        {
+            "integration_kind": "github",
+            # Kept raw as well as derived so an unfamiliar setup_action shows up rather than
+            # silently folding into the "abandoned" side of the boolean.
+            "setup_action": setup_action or None,
+            "requested_approval": setup_action == "request",
+        },
+        team=team,
+    )
+
+
 def finish_team_setup(http_request) -> FinishResult:
     state_raw = http_request.GET.get("state")
     user = cast(User, http_request.user)
@@ -687,6 +711,7 @@ def finish_team_setup(http_request) -> FinishResult:
         )
 
     if not installation_id:
+        _report_install_pending(user, team_id, setup_action)
         return FinishResult(
             redirect_kind="team_setup",
             next_url=next_url,

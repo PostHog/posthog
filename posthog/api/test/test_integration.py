@@ -2632,6 +2632,46 @@ class TestGitHubTeamIntegrationComplete:
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_install_pending=1" in response["Location"]
 
+    @parameterized.expand(
+        [
+            # GitHub sends setup_action=request when the user asked an org owner to approve the install.
+            ("owner_approval_requested", "request", "request", True),
+            ("left_without_installing", "", None, False),
+        ]
+    )
+    @patch("posthog.api.github_callback.team_services.report_user_action")
+    def test_missing_installation_id_reports_pending(
+        self, _name, setup_action, expected_setup_action, expected_requested_approval, mock_report
+    ):
+        client = HttpClient()
+        client.force_login(self.user)
+        state_token = "pending-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=f"/project/{self.team.pk}/integrations/github",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"setup_action": setup_action, "state": urlencode({"token": state_token})},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert mock_report.call_count == 1
+        args, kwargs = mock_report.call_args
+        assert args[1] == "integration install pending"
+        assert args[2] == {
+            "integration_kind": "github",
+            "setup_action": expected_setup_action,
+            "requested_approval": expected_requested_approval,
+        }
+        assert kwargs["team"] == self.team
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
