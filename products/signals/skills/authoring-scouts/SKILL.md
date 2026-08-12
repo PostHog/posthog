@@ -33,10 +33,6 @@ A scout is just an `LLMSkill` whose name starts with `signals-scout-`.
 The harness discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body **verbatim** as the agent's system prompt, and progressively reads any bundled reference files on demand.
 **The `signals-scout-` name prefix is load-bearing: a skill named anything else will never run as a scout.**
 
-> **Not everything phrased as a scout is a scout.**
-> If the ask is to deliver the key numbers from an **existing dashboard or insight** to a channel on a fixed schedule ("set up a scout to post the top-line from this dashboard in #launch once a day"), a **dashboard (or insight) subscription with the AI summary enabled** is usually the better fit — scouts are for open-ended watching that decides what's worth surfacing, not scheduled delivery of a fixed, user-specified metric set.
-> Respect a user who's certain they want a scout; when it's ambiguous, suggest the subscription and confirm first ("A dashboard subscription is a better fit for a recurring message — want me to set that up?"), and route to `managing-subscriptions`.
-
 ## The job before the writing
 
 Don't write a scout in the abstract.
@@ -99,7 +95,7 @@ For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's reac
 Your new scout needs its own.
 Name it explicitly near the top of the body so every run anchors on it.
 
-A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a business measure (MRR, churn risk, usage revenue, activation).
+A second design rule binds any **metric-shaped scout** — one that scores, ranks, or reports a named, reusable measure, whether a business measure (MRR, churn risk, usage revenue, activation) or operational telemetry it computes every run to monitor or report (cost per run, failure or error rates, latency, throughput).
 When the project's metrics catalog is enabled, it may hold a governed definition of that measure in `system.information_schema.metrics`, and the harness tells every run to prefer it — so write the body to cooperate rather than compete: have the run check the catalog for an approved, non-drifted metric before its own derivation, and run a match through `data-catalog-metric-run`.
 Where a governed metric exists, reference it by name in any `references/queries.md` you ship, and label every hand-written derivation there a noncanonical fallback — an unlabeled "validated query" outranks the harness's catalog-first rule at run time, which is exactly how a scout ends up re-deriving a number the team already governs.
 Freshness, availability, and schema checks are exempt: they stay schema-first, with no catalog detour.

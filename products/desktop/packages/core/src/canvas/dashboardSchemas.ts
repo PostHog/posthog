@@ -1,4 +1,7 @@
-import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
+import {
+  CANVAS_PLATFORM_MANIFEST,
+  canvasBuildStatusSchema,
+} from "@posthog/shared";
 import { z } from "zod";
 
 // A canvas record from the PostHog canvases API, normalized to camelCase and
@@ -41,6 +44,19 @@ export const canvasVersionSchema = z.object({
   createdAt: z.number(),
 });
 export type CanvasVersion = z.infer<typeof canvasVersionSchema>;
+
+// A staged draft version and the status of its latest build. Drafts are kept
+// out of the published version history (canvasVersionSchema); they are surfaced
+// separately so the head/live timeline stays clean.
+export const canvasDraftSchema = z.object({
+  versionId: z.string(),
+  prompt: z.string().nullish(),
+  createdBy: z.string().optional(),
+  createdAt: z.number(),
+  buildStatus: canvasBuildStatusSchema.nullish(),
+  buildId: z.string().nullish(),
+});
+export type CanvasDraft = z.infer<typeof canvasDraftSchema>;
 
 // A canvas source project — the multi-file write format the agent publishes.
 export const canvasSourceProjectSchema = z.object({
@@ -86,6 +102,13 @@ export const canvasSourceInput = z.object({
 
 // Move the canvas's head back to an existing version (and rebuild it).
 export const revertCanvasInput = z.object({
+  id: z.string().min(1),
+  versionId: z.string().min(1),
+  expectedCurrentVersionId: z.string().nullable(),
+});
+
+// Promote a draft version to the canvas's live head (and build it if needed).
+export const promoteCanvasInput = z.object({
   id: z.string().min(1),
   versionId: z.string().min(1),
   expectedCurrentVersionId: z.string().nullable(),

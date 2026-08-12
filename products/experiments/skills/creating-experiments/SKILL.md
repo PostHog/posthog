@@ -100,3 +100,9 @@ Key details:
 3. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
 
 4. **Launch** when ready — use the `experiment-launch` tool.
+
+## Related skills
+
+- **`configuring-experiment-rollout`** — variant splits, rollout percentage, and who sees the test
+- **`configuring-experiment-analytics`** — exposure criteria and primary/secondary metrics
+- **`managing-experiment-lifecycle`** — launch, pause, ship, and end once the experiment exists

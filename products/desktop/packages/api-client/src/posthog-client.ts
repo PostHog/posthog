@@ -110,6 +110,7 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   buildAgentAnalyticsQueries,
   type HogQLGrid,
@@ -205,6 +206,17 @@ export interface TaskListOptions {
   channel?: string;
   /** Caller-side cap for surfaces that only show the newest few. */
   limit?: number;
+}
+
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface TaskSessionStorageAccess {
@@ -1592,11 +1604,15 @@ export class PostHogAPIClient {
   async getCloudTaskConfigOptions(
     adapter: Adapter = "claude",
   ): Promise<CloudTaskConfigOption[]> {
+    const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
       method: "get",
       url,
       path: url.pathname,
+      parameters: {
+        header: buildPosthogProjectHeaderRecord(teamId),
+      },
     });
     return buildCloudTaskConfigOptions(
       normalizeGatewayModelsResponse(await response.json()),
@@ -1732,6 +1748,76 @@ export class PostHogAPIClient {
         `Failed to disconnect GitHub integration: ${response.statusText}`,
       );
     }
+  }
+
+  /** The user's linked Slack identities. Empty until they run the Sign-in-with-Slack flow. */
+  async listSlackUserIntegrations(): Promise<
+    {
+      slack_user_id: string;
+      slack_team_id: string;
+      slack_team_name: string | null;
+    }[]
+  > {
+    const urlPath = `/api/users/@me/integrations/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    url.searchParams.set("kind", "slack");
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url,
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to list Slack integrations: ${response.statusText}`,
+      );
+    }
+    const data = (await response.json()) as {
+      results?: {
+        slack_user_id: string;
+        slack_team_id: string;
+        slack_team_name: string | null;
+      }[];
+    };
+    return data.results ?? [];
+  }
+
+  /**
+   * `POST .../integrations/slack/start`. Returns the Sign-in-with-Slack URL; Slack tells the
+   * callback which user authorized, so nobody types a Slack ID.
+   */
+  async startSlackUserIntegrationConnect(
+    teamId?: number,
+  ): Promise<{ install_url: string }> {
+    const id = teamId ?? (await this.getTeamId());
+    const urlPath = `/api/users/@me/integrations/slack/start/`;
+    const url = new URL(`${this.api.baseUrl}${urlPath}`);
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url,
+      path: urlPath,
+      overrides: { body: JSON.stringify({ team_id: id }) },
+    });
+    if (!response.ok) {
+      const err = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof err.detail === "string"
+          ? err.detail
+          : `Failed to start Slack connect: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as { install_url: string };
+  }
+
+  /** Patch the user's server-side notification settings. Merged server-side, so pass only the keys you change. */
+  async updateNotificationSettings(
+    settings: Record<string, unknown>,
+  ): Promise<void> {
+    await this.api.patch("/api/users/{uuid}/", {
+      path: { uuid: "@me" },
+      body: { notification_settings: settings } as Record<string, unknown>,
+    });
   }
 
   async switchOrganization(orgId: string): Promise<void> {
@@ -2179,6 +2265,19 @@ export class PostHogAPIClient {
 
   async getTasks(options?: TaskListOptions): Promise<Task[]> {
     return (await this.getTasksPage(options)).tasks;
+  }
+
+  async searchTasks(query: string, limit = 20): Promise<TaskSearchResult[]> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/search/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", String(limit));
+    const response = await this.api.fetcher.fetch({ method: "get", url, path });
+    if (!response.ok) {
+      throw new Error(`Failed to search tasks: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskSearchResult[];
   }
 
   /**
