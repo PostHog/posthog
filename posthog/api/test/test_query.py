@@ -1344,6 +1344,20 @@ class TestQueryNonObjectBody(APIBaseTest):
             ("upgrade", "/query/upgrade/"),
         ]
     )
+    def test_object_body_without_a_query_key_is_rejected(self, _name, path):
+        for body in ({}, {"kind": "HogQLQuery"}):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}{path}", body, content_type="application/json"
+            )
+
+            self.assertEqual(response.status_code, 400, f"{body!r} returned {response.status_code}")
+
+    @parameterized.expand(
+        [
+            ("query", "/query/"),
+            ("upgrade", "/query/upgrade/"),
+        ]
+    )
     def test_form_encoded_body_is_rejected(self, _name, path):
         response = self.client.post(
             f"/api/environments/{self.team.id}{path}",

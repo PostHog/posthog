@@ -452,7 +452,12 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
     )
     @action(methods=["POST"], detail=False, url_path="upgrade")
     def upgrade(self, request: Request, *args, **kwargs) -> Response:
-        upgraded_query = upgrade(_mutable_object_body(request))
+        body = _mutable_object_body(request)
+        # `upgrade` returns the body unchanged when no node carries a `kind`, so a body without this
+        # key would reach the lookup below and raise a KeyError, which renders as a 500 not a 400.
+        if "query" not in body:
+            raise ValidationError({"query": ["This field is required."]}, code="required")
+        upgraded_query = upgrade(body)
         return Response({"query": upgraded_query["query"]}, status=200)
 
     @extend_schema(
