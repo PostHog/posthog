@@ -110,7 +110,7 @@ class TestIntegrationSecretsClient(SimpleTestCase):
     def test_a_service_error_status_propagates_rather_than_reading_as_missing(self) -> None:
         class ErrorResponse:
             def raise_for_status(self) -> None:
-                raise requests.HTTPError("503 Server Error")
+                raise requests.HTTPError("503 Server Error", response=requests.Response())
 
             def json(self) -> dict[str, Any]:
                 return {"error": "Secret store unavailable"}
