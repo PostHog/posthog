@@ -15,11 +15,14 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import { type Adapter, KIMI_MODEL_FLAG } from "@posthog/shared";
+import { type Adapter, GLM_MODEL_FLAG, KIMI_MODEL_FLAG } from "@posthog/shared";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
-import { stripKimiModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
+import {
+  stripGlmModelOption,
+  stripKimiModelOption,
+} from "@posthog/ui/features/sessions/modelOptionFilters";
 import {
   flattenSelectOptions,
   useModelConfigOptionForTask,
@@ -46,9 +49,10 @@ export function ModelSelector({
   const sessionStatus = useSessionSelector(taskId, (s) => s?.status);
   const sessionIsCloud = useSessionIsCloud(taskId);
   const rawModelOption = useModelConfigOptionForTask(taskId);
+  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const modelOption = rawModelOption
-    ? stripDisabledPreviewModels(rawModelOption, kimiEnabled)
+    ? stripDisabledPreviewModels(rawModelOption, glmEnabled, kimiEnabled)
     : rawModelOption;
 
   const selectOption = modelOption?.type === "select" ? modelOption : undefined;
@@ -138,7 +142,9 @@ export function ModelSelector({
 
 function stripDisabledPreviewModels(
   option: SessionConfigOption,
+  glmEnabled: boolean,
   kimiEnabled: boolean,
 ): SessionConfigOption {
-  return kimiEnabled ? option : stripKimiModelOption(option);
+  const withoutGlm = glmEnabled ? option : stripGlmModelOption(option);
+  return kimiEnabled ? withoutGlm : stripKimiModelOption(withoutGlm);
 }
