@@ -109,8 +109,8 @@
     }
 
     .quill-questionnaire__choice[data-checked] {
-        background-color: var(--muted);
-        border-color: color-mix(in oklab, var(--primary) 40%, transparent);
+        background-color: color-mix(in oklab, var(--success) 30%, transparent);
+        border-color: color-mix(in oklab, var(--success-foreground) 40%, transparent);
     }
 
     .quill-questionnaire__choice[data-invalid] {
@@ -229,6 +229,96 @@
         position: relative;
         width: 100%;
         min-width: 0;
+    }
+
+    /* Matches a choice row at rest — the group's own fill would read as a heavier row than the others. */
+    .quill-questionnaire__input-wrapper > .quill-questionnaire__input-group {
+        background-color: transparent;
+    }
+
+    :is(.dark, [theme='dark']) .quill-questionnaire__input-wrapper > .quill-questionnaire__input-group {
+        background-color: color-mix(in oklab, var(--input) 20%, transparent);
+    }
+
+    /* Lines the field up with the choices: same indicator offset, same gap before the text. */
+    .quill-questionnaire__input-wrapper
+        .quill-questionnaire__input-group
+        > [data-slot='input-group-addon'][data-align='inline-start'] {
+        padding-inline: 0.5rem 0;
+    }
+
+    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(> [data-align='inline-start']) > input {
+        padding-inline-start: 0.5rem;
+    }
+
+    /*
+     * The engine's input keeps its own `data-slot`, so the group's control-scoped focus rule can't see
+     * it — the row wears the ring itself, the way a choice row does for its overlaid control.
+     */
+    .quill-questionnaire__input-wrapper .quill-questionnaire__input-group:has(> input:focus-visible) {
+        border-color: color-mix(in oklab, var(--ring) 50%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    /* Outranks the dark rule above it, which would otherwise hold the neutral fill under the tint. */
+    .quill-questionnaire__input-wrapper > .quill-questionnaire__input-group[data-filled] {
+        background-color: color-mix(in oklab, var(--success) 20%, transparent);
+        border-color: color-mix(in oklab, var(--success-foreground) 40%, transparent);
+    }
+
+    .quill-questionnaire__input-indicator {
+        position: relative;
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 0.875rem;
+        height: 0.875rem;
+        pointer-events: none;
+        border: 1px solid var(--input);
+        border-radius: 9999px;
+    }
+
+    :is(.dark, [theme='dark']) .quill-questionnaire__input-indicator {
+        background-color: color-mix(in oklab, var(--input) 30%, transparent);
+    }
+
+    /* The field has no control of its own, so the shape comes from the answers it sits with. */
+    .quill-questionnaire__choices:has([data-type='checkbox']) .quill-questionnaire__input-indicator {
+        border-radius: 3px;
+    }
+
+    .quill-questionnaire__input-group[data-filled] .quill-questionnaire__input-indicator {
+        color: var(--primary-foreground);
+        background-color: var(--primary);
+        border-color: var(--primary);
+    }
+
+    .quill-questionnaire__input-indicator-dot,
+    .quill-questionnaire__input-indicator-check {
+        display: none;
+    }
+
+    .quill-questionnaire__input-group[data-filled] .quill-questionnaire__input-indicator-dot {
+        display: block;
+        width: 0.375rem;
+        height: 0.375rem;
+        background-color: var(--primary-foreground);
+        border-radius: 9999px;
+    }
+
+    .quill-questionnaire__choices:has([data-type='checkbox'])
+        .quill-questionnaire__input-group[data-filled]
+        .quill-questionnaire__input-indicator-dot {
+        display: none;
+    }
+
+    .quill-questionnaire__choices:has([data-type='checkbox'])
+        .quill-questionnaire__input-group[data-filled]
+        .quill-questionnaire__input-indicator-check {
+        display: block;
+        width: 0.625rem;
+        height: 0.625rem;
     }
 
     .quill-questionnaire__error {

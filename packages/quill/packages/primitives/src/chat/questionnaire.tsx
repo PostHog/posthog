@@ -12,7 +12,7 @@ import { CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button, buttonVariants } from '../button'
-import { Input } from '../input'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '../input-group'
 import { cn } from '../lib/utils'
 
 /**
@@ -181,6 +181,10 @@ function QuestionnaireChoiceDescription({ className, ...props }: React.Component
  * A freeform answer alongside the fixed ones. It takes its `name` from the item, so it competes with
  * the choices rather than adding to them. It always needs an accessible name — a placeholder is not
  * a label, so pass `aria-label` or point `aria-labelledby` at a visible one.
+ *
+ * It wears a choice's indicator and fills it once there's text, so the row reads as the answer it is
+ * rather than a field that happens to sit under the answers. The indicator takes its shape from the
+ * choices beside it — round for radios, square for checkboxes.
  */
 function QuestionnaireInput({
     className,
@@ -192,7 +196,34 @@ function QuestionnaireInput({
             <QuestionnairePrimitive.Input
                 data-slot="questionnaire-input"
                 className={className}
-                render={render ?? <Input />}
+                render={
+                    render ??
+                    ((inputProps) => (
+                        <InputGroup
+                            data-slot="questionnaire-input-group"
+                            /* Otherwise only the text dims and the indicator stays at full strength. */
+                            aria-disabled={inputProps.disabled ? true : undefined}
+                            /*
+                             * The engine gives the field a `name` only while it is the answer — `filled`
+                             * would keep the indicator on after a choice took the answer back off it.
+                             */
+                            data-filled={inputProps.name !== undefined || undefined}
+                            className="quill-questionnaire__input-group"
+                        >
+                            <InputGroupAddon align="inline-start">
+                                <span
+                                    aria-hidden="true"
+                                    data-slot="questionnaire-input-indicator"
+                                    className="quill-questionnaire__input-indicator"
+                                >
+                                    <span className="quill-questionnaire__input-indicator-dot" />
+                                    <CheckIcon className="quill-questionnaire__input-indicator-check" />
+                                </span>
+                            </InputGroupAddon>
+                            <InputGroupInput {...inputProps} />
+                        </InputGroup>
+                    ))
+                }
                 {...props}
             />
         </div>

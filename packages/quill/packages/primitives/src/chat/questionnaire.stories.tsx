@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { CheckIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from '../button'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '../card'
+import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '../card'
 import {
     Dialog,
     DialogBody,
@@ -13,7 +14,9 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '../dialog'
+import { cn } from '../lib/utils'
 import { Progress } from '../progress'
+import { Tabs, TabsList, TabsTrigger } from '../tabs'
 import { Text } from '../text'
 import {
     Questionnaire,
@@ -31,6 +34,7 @@ import {
     QuestionnaireSkip,
     QuestionnaireSubmit,
     QuestionnaireTitle,
+    type QuestionnaireItemStatus,
 } from './questionnaire'
 
 const meta: Meta<typeof Questionnaire> = {
@@ -82,7 +86,13 @@ const QUESTIONS: readonly Question[] = [
  * active item, the progress, the actions, and the shortcut keys on the first paint rather than after
  * a client-side pass.
  */
-function Questions({ questions }: { questions: readonly Question[] }): React.ReactElement {
+function Questions({
+    questions,
+    onStatusChange,
+}: {
+    questions: readonly Question[]
+    onStatusChange?: (name: string, status: QuestionnaireItemStatus) => void
+}): React.ReactElement {
     return (
         <>
             {questions.map((question) => (
@@ -92,6 +102,7 @@ function Questions({ questions }: { questions: readonly Question[] }): React.Rea
                     required={question.required}
                     disabled={question.disabled}
                     multiple={question.multiple}
+                    onStatusChange={onStatusChange ? (status) => onStatusChange(question.name, status) : undefined}
                 >
                     <QuestionnaireTitle>{question.prompt}</QuestionnaireTitle>
                     {question.description ? (
@@ -533,9 +544,131 @@ export const CustomProgress: Story = {
     ),
 }
 
+/** Each question carries a short label for its tab, which the prompt is too long to be. */
+type TabbedQuestion = Question & { tab: string }
+
+const TABBED: readonly TabbedQuestion[] = [
+    {
+        name: 'source',
+        tab: 'Source',
+        required: true,
+        prompt: 'Where should the data come from?',
+        choices: [
+            { value: 'warehouse', label: 'Data warehouse' },
+            { value: 'events', label: 'Product events' },
+        ],
+    },
+    {
+        name: 'schedule',
+        tab: 'Schedule',
+        required: true,
+        prompt: 'How often should it sync?',
+        choices: [
+            { value: 'hourly', label: 'Every hour' },
+            { value: 'daily', label: 'Once a day' },
+            { value: 'weekly', label: 'Once a week' },
+        ],
+    },
+    {
+        name: 'owner',
+        tab: 'Owner',
+        prompt: 'Who should own it?',
+        description: 'Skip this and it stays unassigned.',
+        choices: [
+            { value: 'me', label: 'Me' },
+            { value: 'team', label: 'The whole team' },
+        ],
+        input: { label: 'Someone else', placeholder: 'Name someone else…' },
+    },
+]
+
 /**
- * In a card, the card's header carries the framing and the item's title stays the question — both are
- * still semantic, so the fieldset's legend is the thing the reader is answering.
+ * Tabs as the way through the run: the whole set of questions is visible up front and any of them can
+ * be answered in any order, which suits a short run the user is meant to survey before committing.
+ *
+ * The tabs and the questionnaire stay in step because both read the same `item` state — the engine's
+ * own navigation moves it, and so does a tab. Each tab's check comes from the item's
+ * `onStatusChange`, so it appears on `answered` and stays hidden for a question that was skipped.
+ *
+ * The tabs sit outside the form, which is why the card wraps the questionnaire rather than the other
+ * way round. Inside the form they would be one more thing to tab through between the question and its
+ * answers, and their buttons would take part in the form.
+ */
+export const TabbedNavigation: Story = {
+    render: () => {
+        function Demo(): React.ReactElement {
+            const [item, setItem] = React.useState(TABBED[0].name)
+            const [statuses, setStatuses] = React.useState<Record<string, QuestionnaireItemStatus>>({})
+
+            return (
+                <div className="w-full max-w-sm">
+                    <Card className="pt-2" size="sm">
+                        <CardHeader className="border-b px-2">
+                            <Tabs value={item} onValueChange={(value) => setItem(String(value))}>
+                                <TabsList variant="line">
+                                    {TABBED.map((question) => {
+                                        const answered = statuses[question.name] === 'answered'
+                                        return (
+                                            <TabsTrigger
+                                                key={question.name}
+                                                value={question.name}
+                                                className={cn(answered ? 'bg-success/20' : '')}
+                                            >
+                                                {/* `invisible` rather than absent, so the label doesn't shift when it lands. */}
+                                                <CheckIcon
+                                                    aria-hidden="true"
+                                                    className={
+                                                        answered ? 'text-success-foreground' : 'text-foreground/20'
+                                                    }
+                                                />
+                                                <span className={cn(answered ? 'text-success-foreground' : '')}>
+                                                    {question.tab}
+                                                </span>
+                                                <span className="sr-only">
+                                                    {answered ? ', answered' : ', unanswered'}
+                                                </span>
+                                            </TabsTrigger>
+                                        )
+                                    })}
+                                </TabsList>
+                            </Tabs>
+                        </CardHeader>
+                        {/* `contents` hands the card's content and footer back to the card's own layout. */}
+                        <Questionnaire
+                            className="contents"
+                            items={TABBED}
+                            item={item}
+                            onItemChange={setItem}
+                            onSubmit={(event) => event.preventDefault()}
+                        >
+                            <CardContent className="flex flex-col gap-4">
+                                <Questions
+                                    questions={TABBED}
+                                    onStatusChange={(name, status) =>
+                                        setStatuses((current) => ({ ...current, [name]: status }))
+                                    }
+                                />
+                            </CardContent>
+                            <CardFooter>
+                                <QuestionnaireActions>
+                                    <QuestionnairePrevious />
+                                    <QuestionnaireSkip />
+                                    <QuestionnaireNext />
+                                    <QuestionnaireSubmit />
+                                </QuestionnaireActions>
+                            </CardFooter>
+                        </Questionnaire>
+                    </Card>
+                </div>
+            )
+        }
+        return <Demo />
+    },
+}
+
+/**
+ * In a card, the card's header carries the framing and the item's title stays the question — the
+ * fieldset's legend is still the thing the reader is answering.
  */
 export const InCard: Story = {
     render: () => (
@@ -543,7 +676,6 @@ export const InCard: Story = {
             <Questionnaire items={QUESTIONS}>
                 <Card>
                     <CardHeader>
-                        <CardTitle>Set up your first agent</CardTitle>
                         <CardDescription>Two questions, then it starts working.</CardDescription>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-4">
