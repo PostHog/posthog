@@ -63,6 +63,23 @@ describe('ErrorTrackingIssueListRow', () => {
             /\/error_tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
         )
     })
+
+    it('carries the dateRange and filterTestAccounts filters into the issue link', () => {
+        render(
+            <Provider>
+                <ErrorTrackingIssueListRow
+                    issue={ISSUE}
+                    dateRange={{ date_from: '-30d', date_to: null }}
+                    filterTestAccounts={true}
+                />
+            </Provider>
+        )
+
+        const link = screen.getByText(/TypeError: undefined is not a function/i).closest('a')
+        const url = new URL(link?.getAttribute('href') ?? '', 'http://localhost')
+        expect(url.searchParams.get('dateRange')).toBe(JSON.stringify({ date_from: '-30d', date_to: null }))
+        expect(url.searchParams.get('filterTestAccounts')).toBe('true')
+    })
 })
 
 describe('ErrorTrackingIssueListSkeleton', () => {

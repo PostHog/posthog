@@ -8,9 +8,10 @@ import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
+import { DateRange, ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { useSparklineData } from '../../hooks/use-sparkline-data'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
@@ -19,6 +20,7 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { StatusIndicator } from '../Indicators'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
+import { DEFAULT_DATE_RANGE, DEFAULT_FILTER_GROUP, updateFilterSearchParams } from '../IssueFilters/issueFiltersLogic'
 import { IssueStatusSelect } from '../IssueStatusSelect'
 import { RuntimeIcon } from '../RuntimeIcon'
 import { CustomSeparator } from '../TableColumns'
@@ -55,10 +57,14 @@ export function ErrorTrackingIssueListRow({
     issue,
     orderBy = 'last_seen',
     canMutateIssues = true,
+    dateRange,
+    filterTestAccounts,
 }: {
     issue: ErrorTrackingIssue
     orderBy?: string
     canMutateIssues?: boolean
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
 }): JSX.Element {
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
     const runtime = getRuntimeFromLib(issue.library)
@@ -66,13 +72,19 @@ export function ErrorTrackingIssueListRow({
     const sparklineData = useSparklineData(issue.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     const occurrences = issue.aggregations?.occurrences ?? 0
 
-    const issueUrl = useMemo(
-        () =>
-            urls.errorTrackingIssue(issue.id, {
-                timestamp: issue.last_seen,
-            }),
-        [issue.id, issue.last_seen]
-    )
+    const issueUrl = useMemo(() => {
+        const params: Params = {}
+        updateFilterSearchParams(params, {
+            dateRange: dateRange ?? DEFAULT_DATE_RANGE,
+            filterGroup: DEFAULT_FILTER_GROUP,
+            filterTestAccounts: filterTestAccounts ?? false,
+            searchQuery: '',
+        })
+        return urls.errorTrackingIssue(issue.id, {
+            timestamp: issue.last_seen,
+            ...params,
+        })
+    }, [issue.id, issue.last_seen, dateRange, filterTestAccounts])
 
     return (
         <div
@@ -188,6 +200,8 @@ type ErrorTrackingIssueListProps = {
     canMutateIssues?: boolean
     className?: string
     listClassName?: string
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
 }
 
 export function ErrorTrackingIssueList({
@@ -196,6 +210,8 @@ export function ErrorTrackingIssueList({
     canMutateIssues = true,
     className,
     listClassName,
+    dateRange,
+    filterTestAccounts,
 }: ErrorTrackingIssueListProps): JSX.Element {
     return (
         <div className={cn('min-w-0 w-full max-w-full overflow-x-auto rounded border bg-surface-primary', className)}>
@@ -208,6 +224,8 @@ export function ErrorTrackingIssueList({
                             issue={issue}
                             orderBy={orderBy}
                             canMutateIssues={canMutateIssues}
+                            dateRange={dateRange}
+                            filterTestAccounts={filterTestAccounts}
                         />
                     ))}
                 </div>

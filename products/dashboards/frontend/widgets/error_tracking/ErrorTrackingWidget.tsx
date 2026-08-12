@@ -120,7 +120,8 @@ function ErrorTrackingWidgetBody({
 }): JSX.Element {
     const payload = result as ErrorTrackingWidgetResult | null | undefined
     const rows = payload?.results ?? []
-    const orderBy = parseErrorTrackingWidgetConfig(config).orderBy
+    const parsedConfig = parseErrorTrackingWidgetConfig(config)
+    const { orderBy, dateRange, filterTestAccounts } = parsedConfig
 
     if (rows.length === 0) {
         return (
@@ -144,7 +145,13 @@ function ErrorTrackingWidgetBody({
     return (
         <>
             <WidgetCardContent>
-                <ErrorTrackingIssueList issues={rows} orderBy={orderBy} canMutateIssues={canMutateIssues} />
+                <ErrorTrackingIssueList
+                    issues={rows}
+                    orderBy={orderBy}
+                    canMutateIssues={canMutateIssues}
+                    dateRange={dateRange ?? undefined}
+                    filterTestAccounts={filterTestAccounts ?? undefined}
+                />
             </WidgetCardContent>
             <WidgetContentFooter>
                 <WidgetListCount
