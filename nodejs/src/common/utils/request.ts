@@ -319,16 +319,38 @@ const sharedInsecureAgent = new InsecureAgent()
  * undici holds onto these buffers until GC, and V8 never returns the ~64MB
  * ArrayBuffer arenas they live in to the OS.
  */
+function destroyBody(body: Dispatcher.ResponseData['body']): void {
+    try {
+        body.on('error', () => {})
+        body.destroy()
+    } catch {
+        // Already ended or destroyed
+    }
+}
+
+/**
+ * One value per header name, on a null prototype.
+ *
+ * Every key comes from the remote server, and `__proto__` on a plain object literal is a setter
+ * rather than a key.
+ */
+function flattenHeaders(raw: Dispatcher.ResponseData['headers']): Record<string, string> {
+    const headers: Record<string, string> = Object.create(null)
+    for (const [key, value] of Object.entries(raw)) {
+        const singleValue = Array.isArray(value) ? value[0] : value
+        if (singleValue) {
+            headers[key] = singleValue
+        }
+    }
+    return headers
+}
+
 async function readAndDestroyBody(body: Dispatcher.ResponseData['body']): Promise<string> {
     const text = await body.text()
     // After text() fully consumes the stream, destroy to release socket buffers.
     // At this point the stream is already ended so destroy is a cleanup no-op,
     // but it signals undici to release the underlying socket immediately.
-    try {
-        body.destroy()
-    } catch {
-        // Ignore destroy errors — the body is already fully consumed
-    }
+    destroyBody(body)
     return text
 }
 
@@ -360,13 +382,7 @@ export async function _fetch(
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
 
-    const headers: Record<string, string> = {}
-    for (const [key, value] of Object.entries(result.headers)) {
-        const singleValue = Array.isArray(value) ? value[0] : value
-        if (singleValue) {
-            headers[key] = singleValue
-        }
-    }
+    const headers = flattenHeaders(result.headers)
 
     // On first .text()/.json() call, read the full body and destroy the
     // stream immediately after. This releases undici's socket buffers
@@ -388,12 +404,7 @@ export async function _fetch(
         dump: () => {
             if (!bodyPromise) {
                 bodyPromise = Promise.resolve('')
-                try {
-                    result.body.on('error', () => {})
-                    result.body.destroy()
-                } catch {
-                    // Ignore destroy errors
-                }
+                destroyBody(result.body)
             }
             return Promise.resolve()
         },
@@ -461,15 +472,6 @@ async function readCappedBody(
     return { bytes: overLimit ? Buffer.alloc(0) : Buffer.concat(chunks), overLimit }
 }
 
-function destroyBody(body: Dispatcher.ResponseData['body']): void {
-    try {
-        body.on('error', () => {})
-        body.destroy()
-    } catch {
-        // Already ended or destroyed
-    }
-}
-
 /**
  * A third-party request whose body is read under a byte limit rather than buffered whole.
  *
@@ -500,47 +502,34 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         throw error
     }
 
-    // A null prototype, because every key here comes from the remote server. `__proto__` on a plain
-    // object literal is a setter rather than a key.
-    const headers: Record<string, string> = Object.create(null)
-    for (const [key, value] of Object.entries(result.headers)) {
-        const singleValue = Array.isArray(value) ? value[0] : value
-        if (singleValue) {
-            headers[key] = singleValue
+    // The gauge is held until the body is done rather than until the headers arrive. The body is
+    // where nearly all the time of an image request goes.
+    let settled = false
+    const settle = (): boolean => {
+        if (settled) {
+            return false
         }
-    }
-
-    // The gauge is held until the body is done, not until the caller takes the response. The body
-    // is where nearly all the time of an image request goes, so releasing it at the headers would
-    // report a fraction of what is really in flight.
-    let started = false
-    let released = false
-    const release = (): void => {
-        if (!released) {
-            released = true
-            inflightExternalRequests.dec()
-        }
+        settled = true
+        inflightExternalRequests.dec()
+        return true
     }
 
     return {
         status: result.statusCode,
-        headers,
+        headers: flattenHeaders(result.headers),
         read: async (maxBytes: number) => {
-            if (started) {
+            if (settled) {
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
-            started = true
             try {
                 return await readCappedBody(result.body, maxBytes)
             } finally {
-                release()
+                settle()
             }
         },
         discard: () => {
-            if (!started) {
-                started = true
+            if (settle()) {
                 destroyBody(result.body)
-                release()
             }
         },
     }
