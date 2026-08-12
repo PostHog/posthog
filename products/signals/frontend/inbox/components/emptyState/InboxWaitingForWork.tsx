@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
 import { IconCheckCircle, IconPullRequest } from '@posthog/icons'
 
@@ -29,6 +29,9 @@ function uniqueEnabledSources(sourceConfigs: SignalSourceConfig[] | null): Signa
 }
 
 export function InboxWaitingForWork(): JSX.Element {
+    useMountedLogic(signalSourcesLogic)
+    useMountedLogic(scoutFleetLogic)
+
     const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
     const { isWizardRunning } = useValues(inboxOnboardingLogic)
@@ -36,7 +39,8 @@ export function InboxWaitingForWork(): JSX.Element {
     const enabledScouts = (scoutConfigs ?? []).filter((scout) => scout.enabled && scout.emit)
     const visibleSources = enabledSources.slice(0, MAX_VISIBLE_ITEMS)
     const visibleScouts = enabledScouts.slice(0, MAX_VISIBLE_ITEMS)
-    const loading = sourceConfigsLoading || scoutConfigsLoading
+    const sourcesLoading = sourceConfigs === null || sourceConfigsLoading
+    const scoutsLoading = scoutConfigs === null || scoutConfigsLoading
 
     return (
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 py-6">
@@ -60,6 +64,8 @@ export function InboxWaitingForWork(): JSX.Element {
                         >
                             {isWizardRunning ? (
                                 'Installing'
+                            ) : sourcesLoading ? (
+                                'Loading'
                             ) : (
                                 <>
                                     <IconCheckCircle className="size-3.5" />
@@ -73,7 +79,7 @@ export function InboxWaitingForWork(): JSX.Element {
                             <SignalSourceFlowRow key={source.id} source={source} />
                         ))}
                         {isWizardRunning ? <InstallingFlowRow type="source" /> : null}
-                        {!loading && !isWizardRunning && visibleSources.length === 0 ? (
+                        {!sourcesLoading && !isWizardRunning && visibleSources.length === 0 ? (
                             <p className="m-0 p-3 text-xs text-tertiary">No signal sources are active.</p>
                         ) : null}
                     </div>
@@ -95,6 +101,8 @@ export function InboxWaitingForWork(): JSX.Element {
                         >
                             {isWizardRunning ? (
                                 'Installing'
+                            ) : scoutsLoading ? (
+                                'Loading'
                             ) : (
                                 <>
                                     <IconCheckCircle className="size-3.5" />
@@ -108,7 +116,7 @@ export function InboxWaitingForWork(): JSX.Element {
                             <ScoutFlowRow key={scout.id} scout={scout} />
                         ))}
                         {isWizardRunning ? <InstallingFlowRow type="scout" /> : null}
-                        {!loading && !isWizardRunning && visibleScouts.length === 0 ? (
+                        {!scoutsLoading && !isWizardRunning && visibleScouts.length === 0 ? (
                             <p className="m-0 p-3 text-xs text-tertiary">No scouts are active.</p>
                         ) : null}
                     </div>

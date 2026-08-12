@@ -35,6 +35,17 @@ describe('scoutNextRun', () => {
             currentDate: new Date('2026-06-11T00:00:00Z'),
             expected: null,
         },
+        {
+            name: 'overdue cron schedule',
+            scout: {
+                last_run_at: '2026-06-10T13:00:00Z',
+                run_cron_schedule: '0 9 * * *',
+                run_interval_minutes: 1440,
+            },
+            timezone: 'America/New_York',
+            currentDate: new Date('2026-06-11T14:00:00Z'),
+            expected: null,
+        },
     ])('$name', ({ scout, timezone, currentDate, expected }) => {
         expect(scoutNextRun(scout, timezone, currentDate)?.toISOString() ?? null).toBe(expected)
     })

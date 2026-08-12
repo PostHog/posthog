@@ -11,8 +11,9 @@ export function scoutNextRun(
     currentDate: Date = new Date()
 ): dayjs.Dayjs | null {
     if (scout.run_cron_schedule) {
-        const nextRun = nextCronDate(scout.run_cron_schedule, currentDate, timezone)
-        return nextRun ? dayjs(nextRun) : null
+        const scheduleAnchor = scout.last_run_at ? new Date(scout.last_run_at) : currentDate
+        const nextRun = nextCronDate(scout.run_cron_schedule, scheduleAnchor, timezone)
+        return nextRun && dayjs(nextRun).isAfter(currentDate) ? dayjs(nextRun) : null
     }
     if (!scout.last_run_at) {
         return null
