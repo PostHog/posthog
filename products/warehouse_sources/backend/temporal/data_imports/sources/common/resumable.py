@@ -75,6 +75,11 @@ class ResumableSourceManager(Generic[ResumableData]):
         return self._data_class(**parsed_data)
 
     def save_state(self, data: ResumableData) -> None:
+        # Never checkpoint a reset run (see can_resume): a stored cursor could otherwise resume a
+        # later attempt of the same reset and stitch it onto a partial table.
+        if self._inputs.reset_pipeline:
+            return
+
         with self._get_redis() as redis:
             json_data = self._dump_json(data)
             self._logger.debug(f"Saving resumable source state. key={self._key}, data={json_data}")
@@ -92,6 +97,13 @@ class ResumableSourceManager(Generic[ResumableData]):
             redis.delete(self._key)
 
     def can_resume(self) -> bool:
+        # A reset (resync) deliberately wipes the table and re-pulls the full dataset. Resuming from
+        # a mid-stream cursor would stitch a partial pre-interruption attempt onto the resumed
+        # remainder and finalize as Completed with fewer rows than the source holds, so every reset
+        # attempt must restart cleanly from the beginning instead.
+        if self._inputs.reset_pipeline:
+            return False
+
         with self._get_redis() as redis:
             exists = redis.exists(self._key) == 1
             self._logger.debug(f"Checking resumable source state. key={self._key}, exists={exists}")
@@ -99,6 +111,9 @@ class ResumableSourceManager(Generic[ResumableData]):
             return exists
 
     def load_state(self) -> ResumableData | None:
+        if self._inputs.reset_pipeline:
+            return None
+
         with self._get_redis() as redis:
             data = redis.get(self._key)
             if not data:
