@@ -57,8 +57,9 @@ function CalculatedAtRow({
 }
 
 /**
- * Standalone, fully formattable tooltip for the variant timeseries chart.
- * Rendered into the shared insight-tooltip DOM via the chart's `external` callback.
+ * Tooltip body for the variant timeseries chart, returned from the chart's `tooltip` render prop.
+ * Everything below the date is per-point metadata rather than per-series values, so quill's
+ * `DefaultTooltip` — one row per series — cannot express it.
  */
 export function VariantTimeseriesTooltip({
     date,
