@@ -269,15 +269,17 @@ class TaskItem:
     """One row on the Tasks card."""
 
     title: str
+    # Both task links are `None` for a viewer without PostHog Code access, matching the
+    # reply footer: a task page they can't open is as much a dead end as the desktop app.
+    # Stated at every construction rather than defaulted, so a row can't lose its links
+    # by omission and render as plain text.
+    posthog_url: str | None
+    desktop_url: str | None
     status: str | None  # TaskRun.Status value or None when there's no run yet
     repository: str | None
     pr_url: str | None
     thread_url: str | None
     updated_at_label: str
-    # Both task links are omitted for a viewer without PostHog Code access, matching the
-    # reply footer: a task page they can't open is as much a dead end as the desktop app.
-    posthog_url: str | None = None
-    desktop_url: str | None = None
     error_message: str | None = None  # surfaced on row 2 in place of the normal meta line
 
 
@@ -1932,17 +1934,21 @@ def _resolve_tasks_state(
             continue
         run = runs_by_task.get(str(t.id))
         mapping: Mapping[str, Any] = mapping_by_task.get(str(t.id), {})
+        posthog_url = desktop_url = None
+        if can_open_code_links:
+            posthog_url = f"{site_url}/project/{t.team_id}/tasks/{t.id}"
+            desktop_url = f"{DESKTOP_URL_SCHEME}://task/{t.id}"
         all_items.append(
             TaskItem(
                 title=t.title,
-                posthog_url=f"{site_url}/project/{t.team_id}/tasks/{t.id}" if can_open_code_links else None,
+                posthog_url=posthog_url,
+                desktop_url=desktop_url,
                 status=run.status if run else None,
                 repository=t.repository,
                 pr_url=pr_urls_by_task.get(str(t.id)),
                 thread_url=_slack_thread_permalink(mapping.get("channel", ""), mapping.get("thread_ts", "")),
                 updated_at_label=_format_relative(mapping.get("updated_at"), now=now),
                 error_message=run.error_message if run else None,
-                desktop_url=f"{DESKTOP_URL_SCHEME}://task/{t.id}" if can_open_code_links else None,
             )
         )
         if t.repository and t.repository not in seen_repo_set:

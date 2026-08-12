@@ -343,7 +343,7 @@ class TestReplyFooterGate(SimpleTestCase):
     @patch("products.slack_app.backend.slack_thread.is_slack_app_model_classifier_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_a_run_on_the_default_model_drops_the_footer_with_its_links(
+    def test_a_default_model_run_posts_a_footer_only_when_its_links_are_open(
         self,
         _name: str,
         code_access: bool,
