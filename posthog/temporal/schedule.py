@@ -55,6 +55,7 @@ from posthog.temporal.experiments.schedule import (
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
+from posthog.temporal.logs_volume.schedule import create_logs_volume_tick_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
@@ -868,6 +869,7 @@ schedules = [
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_logs_alert_check_schedule,
+    create_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,

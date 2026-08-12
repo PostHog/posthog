@@ -208,6 +208,8 @@ from products.exports.backend.temporal.subscriptions import (
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
+    VOLUME_TICK_WORKFLOWS as LOGS_VOLUME_TICK_WORKFLOWS,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
 from products.logs.backend.temporal.retention_entitlements import (
@@ -496,8 +498,8 @@ _task_queue_specs = [
     ),
     (
         settings.LOGS_ALERTING_TASK_QUEUE,
-        LOGS_ALERTING_WORKFLOWS,
-        LOGS_ALERTING_ACTIVITIES,
+        LOGS_ALERTING_WORKFLOWS + LOGS_VOLUME_TICK_WORKFLOWS,
+        LOGS_ALERTING_ACTIVITIES + LOGS_VOLUME_TICK_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,
