@@ -190,6 +190,7 @@ function createMockDependencies() {
     agentAuthAdapter: {
       getCurrentCredentials: vi.fn().mockResolvedValue(null),
       gatewayAuthToken: vi.fn().mockResolvedValue("gateway-token"),
+      gatewayProjectId: vi.fn().mockReturnValue(1),
       ensureGatewayProxy: vi.fn().mockResolvedValue("http://127.0.0.1:9999"),
       configureProcessEnv: vi.fn().mockResolvedValue(undefined),
       createPosthogConfig: vi.fn((credentials) => ({
@@ -324,6 +325,9 @@ describe("AgentService", () => {
       "claude",
     );
 
+    expect(fetchGatewayModels).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 1 }),
+    );
     const modelOption = options.find((option) => option.id === "model");
     expect(modelOption).toMatchObject({
       type: "select",

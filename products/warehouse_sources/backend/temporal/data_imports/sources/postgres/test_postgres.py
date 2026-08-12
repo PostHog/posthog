@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     TemporaryFileSizeExceedsLimitException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -423,6 +424,21 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Permanent error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: server closed the connection unexpectedly',
+            'OperationalError: connection failed: connection to server at "db.example.com", port 5432 failed: SSL connection has been closed unexpectedly',
+        ],
+    )
+    def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
+        # These transient drops are retried in-process, then re-raised once that budget is exhausted.
+        # If they drop out of get_retryable_errors, _handle_import_error logs the self-recovering
+        # failure as a tracked exception again instead of a warning. They must also stay out of
+        # get_non_retryable_errors so the sync keeps retrying rather than being disabled.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+        assert not error_message_matches(error_msg, source.get_non_retryable_errors().keys())
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1314,6 +1330,32 @@ class TestPostgresSourceRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Connection-limit error should not be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # psycopg's own message when libpq finds the socket already gone (e.g. the setup
+            # commit at the end of `get_connection`). `_connect_with_dropped_retry` already
+            # retries this in-process on the read/sync connect path; this is the
+            # whole-activity-retry fallback for when a sustained outage (e.g. a saturated pooler)
+            # outlasts that bounded budget.
+            "the connection is lost",
+            "OperationalError: the connection is lost",
+            # Supavisor's transaction-mode pooler checkout timeout, surfaced as a generic XX000
+            # InternalError_ rather than the libpq/PgBouncer wordings above.
+            "(ECHECKOUTTIMEOUT) unable to check out connection from the pool after 60000ms in Transaction mode",
+        ],
+    )
+    def test_connection_dropped_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern.lower() in error_msg.lower() for pattern in retryable)
+        assert is_retryable, f"Connection-dropped error should be classified retryable: {error_msg}"
+
+    def test_connection_dropped_is_not_also_non_retryable(self, source):
+        error_msg = "the connection is lost"
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Connection-dropped error should not be non-retryable: {error_msg}"
 
 
 def _raise_eof() -> None:

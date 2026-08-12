@@ -32,6 +32,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
@@ -50,18 +51,12 @@ from products.signals.backend.models import SignalSourceConfig
 class _VisionAPITestCase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.flag_patcher = patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.flag_patcher.start()
         # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
         self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
         self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
 
     def tearDown(self) -> None:
         self.refresh_estimate_patcher.stop()
-        self.flag_patcher.stop()
         super().tearDown()
 
     @property
@@ -886,16 +881,6 @@ class TestScannerDigestProvisioning(_VisionAPITestCase):
         self.assertEqual(digest.created_by_id, self.user.id)
         self.assertTrue(digest.enabled)
 
-    def test_no_digest_when_actions_flag_off(self) -> None:
-        # Teams without the actions feature must not accrue billable synthesis runs they can't see.
-        with patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: key != "replay-vision-actions",
-        ):
-            resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
-        self.assertEqual(resp.status_code, 201, resp.json())
-        self.assertFalse(VisionAction.objects.for_team(self.team.id).filter(scanner_id=resp.json()["id"]).exists())
-
     def test_scanner_creation_survives_digest_failure(self) -> None:
         with patch("products.replay_vision.backend.digest.digest_name_for_scanner", side_effect=RuntimeError("boom")):
             resp = self.client.post(self.scanners_url, data=self._CREATE_BODY, format="json")
@@ -1012,27 +997,6 @@ class TestScannerSignalSourceEnablement(_VisionAPITestCase):
         resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
         self.assertEqual(resp.status_code, 200, resp.json())
         assert not self._has_source_config()
-
-
-class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
-    @property
-    def scanners_url(self) -> str:
-        return f"/api/environments/{self.team.id}/vision/scanners/"
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_list(self, _flag_mock) -> None:
-        resp = self.client.get(self.scanners_url)
-        self.assertEqual(resp.status_code, 404)
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_create(self, _flag_mock) -> None:
-        resp = self.client.post(self.scanners_url, data={"name": "x"}, format="json")
-        self.assertEqual(resp.status_code, 404)
-
-    @patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False)
-    def test_flag_off_returns_404_on_estimate(self, _flag_mock) -> None:
-        resp = self.client.post(f"{self.scanners_url}estimate/", data={}, format="json")
-        self.assertEqual(resp.status_code, 404)
 
 
 class TestReplayObservationViewSet(_VisionAPITestCase):
@@ -1525,6 +1489,8 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             ("status=bogus", "status"),
             ("triggered_by=hack", "triggered_by"),
             ("verdict=maybe", "verdict"),
+            ("min_score=low", "min_score"),
+            ("max_score=high", "max_score"),
             ("order_by=garbage", "order_by"),
             ("order_by=-result_score_typo", "order_by"),
         ]
@@ -1586,6 +1552,62 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=-result_score")
         sessions = [r["session_id"] for r in resp.json()["results"]]
         self.assertEqual(sessions, ["sess-1", "sess-0", "sess-2"])
+
+    def _create_scorer_with_scores(self, scores: list[Any]) -> ReplayScanner:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
+        )
+        for idx, score in enumerate(scores):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+        return scorer
+
+    @parameterized.expand(
+        [
+            ("at_least", "min_score=7", ["sess-1", "sess-3"]),
+            ("at_most", "max_score=3", ["sess-0", "sess-2"]),
+            ("range", "min_score=3&max_score=7", ["sess-0", "sess-3"]),
+            # Bounds are inclusive, and 10 must not lose to a lexicographic comparison against 7.
+            ("boundary", "min_score=10", ["sess-1"]),
+        ]
+    )
+    def test_filterset_score_bounds(self, _name: str, query: str, expected: list[str]) -> None:
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?{query}")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(sorted(r["session_id"] for r in resp.json()["results"]), expected)
+
+    def test_filterset_score_bounds_exclude_rows_without_a_numeric_score(self) -> None:
+        # A pending run has no result at all, and schema drift can leave `score` a string; neither may 500 or match.
+        scorer = self._create_scorer_with_scores([5.0, "not-a-number"])
+        ReplayObservation.objects.create(
+            scanner=scorer,
+            session_id="sess-pending",
+            scanner_snapshot=_snapshot_for(scorer),
+            triggered_by=ObservationTrigger.SCHEDULE,
+        )
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?min_score=0&max_score=10")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-0"])
+
+    def test_filterset_score_bounds_combine_with_ordering(self) -> None:
+        # Both annotate the score off the same JSONB path; applying them together must not collide.
+        scorer = self._create_scorer_with_scores([3.0, 10.0, 0.5, 7.0])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?min_score=3&order_by=-result_score")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["sess-1", "sess-3", "sess-0"])
 
     def test_order_by_scanner_version_numeric(self) -> None:
         snap_v1 = {**_snapshot_for(self.scanner), "scanner_version": 1}
@@ -1977,7 +1999,7 @@ class TestObserveAction(_VisionAPITestCase):
         mock_async_to_sync.return_value = MagicMock()
 
         exhausted = MagicMock(credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
                 resp = self.client.post(
                     self.observe_url(str(self.scanner.id)), data={"session_id": "sess-quota"}, format="json"
@@ -2156,29 +2178,6 @@ class TestBulkObserveAction(_VisionAPITestCase):
 
 @patch("products.replay_vision.backend.api.trigger.async_to_sync")
 @patch("products.replay_vision.backend.api.trigger.sync_connect")
-class TestObserveActionFeatureFlag(APIBaseTest):
-    def test_flag_off_returns_404(self, _mock_sync_connect: MagicMock, _mock_async_to_sync: MagicMock) -> None:
-        with patch(
-            "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
-            return_value=False,
-        ):
-            scanner = ReplayScanner.objects.create(
-                team=self.team,
-                name="off",
-                scanner_type=ScannerType.MONITOR,
-                scanner_config={"prompt": "p"},
-                model=ScannerModel.GEMINI_3_6_FLASH,
-            )
-            resp = self.client.post(
-                f"/api/environments/{self.team.id}/vision/scanners/{scanner.id}/observe/",
-                data={"session_id": "s"},
-                format="json",
-            )
-            self.assertEqual(resp.status_code, 404)
-
-
-@patch("products.replay_vision.backend.api.trigger.async_to_sync")
-@patch("products.replay_vision.backend.api.trigger.sync_connect")
 class TestRetryActions(_VisionAPITestCase):
     def setUp(self) -> None:
         super().setUp()
@@ -2313,7 +2312,7 @@ class TestRetryActions(_VisionAPITestCase):
         observation = self._create_failed("sess-quota")
 
         exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
-        with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
+        with patch("products.replay_vision.backend.api.trigger.quota_state", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
@@ -2712,6 +2711,35 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
         self.assertEqual(edit_body["other_enabled_scanners_monthly_credits"], 250 * 15)
+
+    def test_estimate_reports_active_backfill_commitment(self) -> None:
+        # The editor replaces the fleet total with `others + this scanner`, which drops the backfill credits the
+        # quota snapshot carries. Without this field the forecast understates period-end spend while one runs.
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="backfilled",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        ReplayScannerBackfill.objects.for_team(self.team.id).create(
+            scanner=scanner,
+            team=self.team,
+            window_start=timezone.now() - timedelta(days=5),
+            window_end=timezone.now(),
+            scanner_snapshot={},
+            credits_per_observation=5,
+            total_count=100,
+            dispatched_count=40,
+        )
+
+        body = self.client.post(self.estimate_url, data={}, format="json").json()
+
+        assert body["active_backfill_credits"] == 60 * 5
+
+    def test_estimate_reports_no_backfill_commitment_when_none_are_active(self) -> None:
+        body = self.client.post(self.estimate_url, data={}, format="json").json()
+        assert body["active_backfill_credits"] == 0
 
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.

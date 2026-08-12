@@ -1,5 +1,7 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +11,7 @@ import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKey
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -720,6 +723,26 @@ return result`,
                     },
                 })
             })
+        })
+    })
+
+    describe('routing', () => {
+        it('opens a direct configuration link and keeps tab changes in the URL', async () => {
+            router.actions.push(
+                combineUrl(urls.aiObservabilityEvaluation('eval-123'), {
+                    evaluation_tab: 'configuration',
+                }).url
+            )
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess']).toMatchValues({
+                activeTab: 'configuration',
+            })
+
+            logic.actions.setActiveTab('runs')
+
+            expect(router.values.searchParams.evaluation_tab).toBeUndefined()
         })
     })
 
@@ -1490,6 +1513,46 @@ return result`,
             await expectLogic(logic)
                 .toDispatchActions(['testHogOnSampleSuccess'])
                 .toMatchValues({ hogTestResults: null })
+        })
+    })
+
+    describe('saveEvaluation list refresh', () => {
+        it('reloads the evaluations list so it shows the eval just created', async () => {
+            const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+            let evaluationListCount = 0
+
+            useMocks({
+                get: {
+                    '/api/projects/:teamId/evaluations/': () => {
+                        evaluationListCount += 1
+                        return { results: evaluationListCount === 1 ? [] : [mockSentimentEvaluation] }
+                    },
+                    '/api/projects/:teamId/evaluation_directories/': [],
+                },
+                post: {
+                    '/api/projects/:teamId/evaluations/': () => mockSentimentEvaluation,
+                },
+            })
+
+            const evaluationsLogic = llmEvaluationsLogic()
+            evaluationsLogic.mount()
+
+            try {
+                await expectLogic(evaluationsLogic).toDispatchActions(['loadEvaluationsSuccess'])
+                expect(evaluationsLogic.values.evaluations).toEqual([])
+
+                logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationName('Sentiment evaluation')
+                logic.actions.saveEvaluation()
+
+                await expectLogic(evaluationsLogic).toDispatchActions(['loadEvaluations', 'loadEvaluationsSuccess'])
+                expect(evaluationsLogic.values.evaluations).toHaveLength(1)
+            } finally {
+                pushSpy.mockRestore()
+                evaluationsLogic.unmount()
+            }
         })
     })
 

@@ -220,7 +220,11 @@ class GithubSource(
 6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs**, **Workflow runs**, **Pull request reviews**, **Deployments**, and **Deployment statuses**
 7. Click **Add webhook**
 
-If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
+If automatic creation failed with a permissions error, the fix depends on how you connected:
+
+- **Classic personal access token**: add the **admin:repo_hook** scope, then reconnect the source.
+- **Fine-grained personal access token**: add **Repository webhooks: read and write**, then reconnect the source.
+- **GitHub app**: an installation only holds what the app itself requests, so you cannot add this permission yourself. Use the manual steps above, or reconnect the source with a personal access token.""",
             webhookFields=cast(
                 list[FieldType],
                 [
@@ -289,7 +293,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "This installation has been suspended": "Your GitHub App installation has been suspended. Re-enable it from your GitHub organization's installed GitHub Apps settings, then reconnect your GitHub account.",
             # Deterministic credential/config errors from _get_access_token and OAuthMixin.
             # These never resolve on retry — the source needs reconfiguring or reconnecting.
-            "Missing GitHub integration ID": "No GitHub account is connected. Please reconnect your GitHub account.",
+            "Missing GitHub integration ID": "No GitHub account is connected. Connect a GitHub account and try again.",
             "Missing personal access token": "GitHub personal access token is not configured. Please update the source configuration.",
             "No repositories configured": "No repositories are selected for this source. Please update the source configuration.",
             "resolve to the same warehouse table": "Two selected repositories resolve to the same warehouse table. Please remove or rename one.",
@@ -298,6 +302,16 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             "Integration not found": "The linked GitHub integration no longer exists. Please reconnect your GitHub account.",
             "Missing integration ID": "Integration ID is not configured. Please reconnect your GitHub account.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # A GitHubRateLimitError that survives _fetch_page's own rate-limit-aware tenacity retry
+        # still gets picked up by Temporal's activity retry; classify it as retryable so it's
+        # logged as a warning rather than tracked as an exception. Mirrors Stripe's equivalent case.
+        #
+        # A GithubRetryableError (any transient upstream 5xx) that survives the same tenacity retry
+        # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
+        # the source can fix.
+        return {"GitHub API rate limit exceeded", "Github API error (retryable)"}
 
     def get_oauth_accounts(
         self, integration_id: int, team_id: int, search: str | None = None
@@ -470,6 +484,20 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             return held if isinstance(held, dict) else None
         except Exception:
             return None
+
+    def webhook_creation_blocked_reason(self, config: GithubSourceConfig, team_id: int) -> str | None:
+        # Creating a repo hook needs write on repository_hooks. An installation only ever holds what
+        # the GitHub app requests, so when the persisted permission set says otherwise the button
+        # can only 403 — send the user straight to the manual steps instead. Unknown permissions
+        # (token connections, rows predating persistence) fail open, as everywhere else.
+        held = self._installation_permissions(config, team_id)
+        if held is None or held.get("repository_hooks") == "write":
+            return None
+        return (
+            "This GitHub app installation cannot manage repository webhooks, so PostHog cannot "
+            "create the webhook for you. Set it up manually using the steps below, or reconnect "
+            "the source with a personal access token that has the admin:repo_hook scope."
+        )
 
     @staticmethod
     def _missing_permission_reason(required_permission: str) -> str:

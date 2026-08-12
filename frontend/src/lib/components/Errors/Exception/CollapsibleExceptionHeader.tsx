@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { Skeleton } from 'lib/ui/quill'
 import { cn } from 'lib/utils/css-classes'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
@@ -52,7 +53,9 @@ export function CollapsibleExceptionHeader({
             <div className="flex gap-2 items-center justify-between min-w-0">
                 <div className="flex gap-2 items-center min-w-0">
                     {loading ? (
-                        <LemonSkeleton className="w-[25%] h-2" />
+                        <Skeleton className="h-2 w-[25%]">
+                            <span>Loading…</span>
+                        </Skeleton>
                     ) : (
                         <>
                             {runtime && <RuntimeIcon runtime={runtime} className="ml-1 shrink-0" />}
@@ -101,7 +104,13 @@ export function CollapsibleExceptionHeader({
                             'cursor-pointer': !truncate && isClamped,
                         })}
                     >
-                        {loading ? <LemonSkeleton className="w-[50%] h-2" /> : value}
+                        {loading ? (
+                            <Skeleton className="h-2 w-[50%]">
+                                <span>Loading…</span>
+                            </Skeleton>
+                        ) : (
+                            value
+                        )}
                     </div>
                     {!truncate && isClamped && (
                         <LemonButton
