@@ -168,6 +168,33 @@ DASHBOARD_TILE_ERROR_TYPE = "DashboardTileError"
 DASHBOARD_TILE_ERROR_MESSAGE = "There is a problem loading this dashboard tile."
 DASHBOARD_STREAM_ERROR_MESSAGE = "Dashboard tiles couldn't be loaded. Refresh the dashboard to try again."
 
+
+def dashboard_file_system_entries(team_id: Any, ref: Any) -> QuerySet[FileSystem]:
+    """
+    The project-tree entries a dashboard is filed under, oldest first. Taking `OuterRef`s as well as concrete
+    values lets the list annotation and the post-save read share one definition, which they have to: a
+    dashboard can hold several non-shortcut entries, and if the two picked different ones a move would target
+    one and report the other. The arguments are `Any` because Django's lookup stubs do not admit an `OuterRef`.
+    The default surface matches both NULL and "web" rows.
+    """
+    return (
+        FileSystem.objects.filter(surface_q(DEFAULT_SURFACE), team_id=team_id, type="dashboard", ref=ref)
+        .exclude(shortcut=True)
+        .order_by("id")
+    )
+
+
+def set_file_system_entry(dashboard: Dashboard) -> None:
+    """
+    Mutation responses have to read the entry back, because the list annotation is evaluated before
+    `FileSystemSyncMixin`'s post-save signal runs: a create carries no annotation at all, and a rename leaves
+    the pre-rename path, which a later move would re-file the entry under.
+    """
+    entry = dashboard_file_system_entries(dashboard.team_id, str(dashboard.id)).values("id", "path").first()
+    dashboard._folder_id = entry["id"] if entry else None  # type: ignore[attr-defined]
+    dashboard._folder_path = entry["path"] if entry else None  # type: ignore[attr-defined]
+
+
 DASHBOARD_SHARED_FIELDS = [
     "id",
     "name",
@@ -1513,6 +1540,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             request=request,
         )
 
+        set_file_system_entry(dashboard)
         return dashboard
 
     def _deep_duplicate_tiles(
@@ -1747,6 +1775,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 )
 
         self.user_permissions.reset_insights_dashboard_cached_results()
+        set_file_system_entry(instance)
         return instance
 
     # Display-only tile fields that may appear in PATCH payloads. Safe to pass to
@@ -2387,18 +2416,7 @@ class DashboardsViewSet(
         # without an extra round-trip. A single-valued correlated subquery against the file system —
         # backed by the posthog_fs_team_s_typeref index on (team_id, surface, type, ref) — keeps this cheap
         # and avoids the row multiplication a join could cause when shortcuts/multiple surfaces exist.
-        # The default surface matches both NULL and "web" rows, so order by id to keep the picked path
-        # stable when more than one non-shortcut entry exists for the same dashboard.
-        entry_for_dashboard = (
-            FileSystem.objects.filter(
-                surface_q(DEFAULT_SURFACE),
-                team_id=OuterRef("team_id"),
-                type="dashboard",
-                ref=OuterRef("_ref_id"),
-            )
-            .exclude(shortcut=True)
-            .order_by("id")
-        )
+        entry_for_dashboard = dashboard_file_system_entries(OuterRef("team_id"), OuterRef("_ref_id"))
         queryset = queryset.annotate(_ref_id=Cast(F("id"), output_field=CharField())).annotate(
             _folder_path=Subquery(
                 entry_for_dashboard.values("path")[:1],

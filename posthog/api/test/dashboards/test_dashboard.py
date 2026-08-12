@@ -513,6 +513,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert updated["file_system_id"] == str(entry.id)
         assert updated["file_system_path"] == entry.path
 
+    def test_creating_a_dashboard_returns_its_file_system_entry(self):
+        dashboard_id, created = self.dashboard_api.create_dashboard(
+            {"name": "Fresh dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+
+        # The save signal files the dashboard, so a response saying otherwise disables its move action
+        # until the list is reloaded.
+        assert created["file_system_id"] == str(entry.id)
+        assert created["file_system_path"] == entry.path
+
+    def test_renaming_a_dashboard_returns_the_new_file_system_path(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Old name", "_create_in_folder": "Marketing/Website"}
+        )
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"name": "New name"})
+
+        # The path's last segment is the dashboard's own name, and a move re-files the row under whatever
+        # that segment says, so a stale path would rename the entry back.
+        assert updated["file_system_path"] == "Marketing/Website/New name"
+
     def test_list_reports_no_file_system_entry_when_the_dashboard_has_none(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Entryless dashboard"})
         FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard_id)).delete()
