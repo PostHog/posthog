@@ -141,8 +141,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._user = user
         # Storage-level SAMPLE on any events subqueries; opt-in for estimates.
         self._events_sample_factor = events_sample_factor
-        # Extra lower bound on positive events subqueries; opt-in for the replay-vision sweep,
-        # which re-runs every few minutes and doesn't need each run to re-scan a full day of events.
+        # Extra lower bound on positive events subqueries, for callers that re-run often over a wide
+        # session window and do not need each run to re-scan the whole range.
         self._events_timestamp_floor = events_timestamp_floor
         self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids

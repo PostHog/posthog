@@ -139,32 +139,25 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 maximum_attempts=4,
             ),
         )
-        if not find_result.candidates and not find_result.deep_candidates:
-            # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
-            # instead of freezing on low-yield scanners; skipped when swept_through is None.
-            if find_result.swept_through is not None:
-                await self._advance_watermark(
-                    inputs.scanner_id, find_result.swept_through, deep_swept_through=find_result.deep_swept_through
-                )
-            return
-
-        # First failure aborts the gather and skips the advance; UNIQUE(scanner_id, session_id) dedups retries.
+        # A no-op when both lists are empty. First failure aborts the gather and skips the advance;
+        # UNIQUE(scanner_id, session_id) dedups retries.
         await asyncio.gather(
             *(self._start_child(inputs, c) for c in (*find_result.candidates, *find_result.deep_candidates))
         )
 
         if find_result.candidates:
             last = find_result.candidates[-1]
-            await self._advance_watermark(
-                inputs.scanner_id,
-                last.session_end,
-                last.session_id if find_result.saturated else "",
-                deep_swept_through=find_result.deep_swept_through,
-            )
+            swept_at, last_seen_session_id = last.session_end, (last.session_id if find_result.saturated else "")
         elif find_result.swept_through is not None:
-            await self._advance_watermark(
-                inputs.scanner_id, find_result.swept_through, deep_swept_through=find_result.deep_swept_through
-            )
+            # Advance through the covered settle horizon so `last_swept_at` reflects sweep liveness
+            # instead of freezing on low-yield scanners.
+            swept_at, last_seen_session_id = find_result.swept_through, ""
+        else:
+            return
+
+        await self._advance_watermark(
+            inputs.scanner_id, swept_at, last_seen_session_id, deep_swept_through=find_result.deep_swept_through
+        )
 
     async def _advance_watermark(
         self,

@@ -223,17 +223,76 @@ class TestFindScannerCandidatesActivity:
 
     @parameterized.expand(
         [
-            ("fresh_watermark", dt.timedelta(hours=1), 1, None),
-            ("saturated_batch", dt.timedelta(hours=7), 2, None),
+            ("fresh_watermark_skips", dt.timedelta(hours=1), False),
+            ("stale_watermark_runs", dt.timedelta(hours=7), True),
         ]
     )
-    def test_deep_watermark_held_when_pass_skipped_or_saturated(
-        self, _name: str, watermark_age: dt.timedelta, candidate_limit: int, expected_deep_swept_through
-    ) -> None:
+    def test_deep_pass_gated_on_watermark_age(self, _name: str, watermark_age: dt.timedelta, expect_run: bool) -> None:
         scanner = _make_scanner(last_deep_swept_at=dt.datetime.now(dt.UTC) - watermark_age)
+        straggler = CandidateSession(session_id="deep-a", session_end=dt.datetime(2026, 5, 1, 6, 0, tzinfo=dt.UTC))
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = []
+            MockDeep.return_value.run.return_value = [straggler]
+            result = find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=5)
+            )
+
+        assert MockDeep.called is expect_run
+        if not expect_run:
+            assert result.deep_candidates == []
+            assert result.deep_swept_through is None
+            return
+        assert [c.session_id for c in result.deep_candidates] == ["deep-a"]
+        assert result.deep_swept_through == scanner.last_swept_at
+
+    @parameterized.expand(
+        [
+            ("headroom_left_over", 3, 5, 2),
+            ("fast_batch_took_it_all", 5, 5, None),
+        ]
+    )
+    def test_deep_pass_limited_to_headroom_left_by_fast_pass(
+        self, _name: str, fast_count: int, limit: int, expected_deep_limit: int | None
+    ) -> None:
+        scanner = _make_scanner(last_deep_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=7))
+        fast = [
+            CandidateSession(session_id=f"sess-{i}", session_end=dt.datetime(2026, 5, 1, 10, 0, i, tzinfo=dt.UTC))
+            for i in range(fast_count)
+        ]
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.ScannerCandidateQuery"
+            ) as MockQuery,
+            patch(
+                "products.replay_vision.backend.temporal.activities.find_scanner_candidates.BackfillCandidateQuery"
+            ) as MockDeep,
+        ):
+            MockQuery.return_value.run.return_value = fast
+            MockDeep.return_value.run.return_value = []
+            find_scanner_candidates_activity(
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=limit)
+            )
+
+        if expected_deep_limit is None:
+            MockDeep.assert_not_called()
+            return
+        # Both lists dispatch together, so exceeding this would put the tick over the in-flight caps.
+        assert MockDeep.call_args.kwargs["candidate_limit"] == expected_deep_limit
+
+    def test_truncated_deep_batch_holds_watermark(self) -> None:
+        scanner = _make_scanner(last_deep_swept_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=7))
         stragglers = [
             CandidateSession(session_id=f"deep-{i}", session_end=dt.datetime(2026, 5, 1, 6, 0, i, tzinfo=dt.UTC))
-            for i in range(candidate_limit)
+            for i in range(3)
         ]
 
         with (
@@ -247,16 +306,12 @@ class TestFindScannerCandidatesActivity:
             MockQuery.return_value.run.return_value = []
             MockDeep.return_value.run.return_value = stragglers
             result = find_scanner_candidates_activity(
-                FindScannerCandidatesInputs(
-                    scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=candidate_limit
-                )
+                FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id, candidate_limit=3)
             )
 
-        assert result.deep_swept_through == expected_deep_swept_through
-        if watermark_age < dt.timedelta(hours=6):
-            MockDeep.assert_not_called()
-        else:
-            assert [c.session_id for c in result.deep_candidates] == [s.session_id for s in stragglers]
+        assert [c.session_id for c in result.deep_candidates] == ["deep-0", "deep-1", "deep-2"]
+        # The walk is newest-first, so advancing on a truncated batch would drop the oldest for good.
+        assert result.deep_swept_through is None
 
     def test_raises_non_retryable_on_malformed_query(self) -> None:
         scanner = _make_scanner()

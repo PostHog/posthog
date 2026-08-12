@@ -91,8 +91,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._hogql_query_modifiers = hogql_query_modifiers
         self._allow_event_property_expansion = allow_event_property_expansion
         self._sample_factor = sample_factor
-        # Extra lower bound on positive events scans, ANDed with the date-range bound so it can only
-        # narrow. Exclusion blocklists never apply it — a truncated blocklist would under-exclude.
+        # Extra lower bound on positive events scans; only ever narrows the date-range bound. For
+        # callers that re-run often over a wide session window. Exclusion blocklists never apply it,
+        # since a truncated blocklist would under-exclude.
         self._events_timestamp_floor = events_timestamp_floor
         self.emitted_sampled_subquery = False
 
@@ -278,10 +279,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         """
         # Calculate date range with ±1 day buffer to match events_subquery behavior
         # Events can arrive before session starts or after it ends
-        date_from_buffered = self.query_date_range.date_from() - timedelta(days=1)
+        date_from_buffered = self._events_date_from() or self.query_date_range.date_from() - timedelta(days=1)
         date_to_buffered = self.query_date_range.date_to() + timedelta(days=1)
-        if self._events_timestamp_floor is not None:
-            date_from_buffered = max(date_from_buffered, self._events_timestamp_floor)
 
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
@@ -589,6 +588,19 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             timings=hogql_query_response.timings,
         )
 
+    def _events_date_from(self, apply_floor: bool = True) -> Optional[datetime]:
+        """Lower bound for an events scan, or None when nothing bounds it.
+
+        The recording date range is pushed a day earlier because events can arrive before the
+        recording starts. A floor tightens that bound, and can only ever narrow it.
+        """
+        bounds: list[datetime] = []
+        if self._query.date_from:
+            bounds.append(self.query_date_range.date_from() - timedelta(days=1))
+        if apply_floor and self._events_timestamp_floor is not None:
+            bounds.append(self._events_timestamp_floor)
+        return max(bounds) if bounds else None
+
     def _where_predicates(
         self, where_expr: ast.Expr | list[ast.Expr] | None, apply_timestamp_floor: bool = True
     ) -> ast.Expr:
@@ -611,7 +623,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         # TRICKY: we're adding a buffer to the date range to ensure we get all the events
         # you can start sending us events before the session starts
-        if self._query.date_from:
+        events_date_from = self._events_date_from(apply_floor=apply_timestamp_floor)
+        if events_date_from is not None:
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
@@ -619,7 +632,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     # TRICKY: technically you could start sending us events
                     # almost 24 hours before the session recording starts
                     # so we push the events date range a day earlier
-                    right=ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                    right=ast.Constant(value=events_date_from),
                 )
             )
 
@@ -640,15 +653,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     op=ast.CompareOperationOp.In,
                     left=_event_session_id_field(),
                     right=ast.Constant(value=self._query.session_ids),
-                )
-            )
-
-        if apply_timestamp_floor and self._events_timestamp_floor is not None:
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.Constant(value=self._events_timestamp_floor),
                 )
             )
 

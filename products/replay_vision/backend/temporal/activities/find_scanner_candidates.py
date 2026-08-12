@@ -1,5 +1,7 @@
 import datetime as dt
 
+from django.utils import timezone
+
 from pydantic import ValidationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -16,7 +18,7 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     CandidateSession,
     ScannerCandidateQuery,
 )
-from products.replay_vision.backend.temporal.constants import DEEP_SWEEP_INTERVAL
+from products.replay_vision.backend.temporal.constants import DEEP_SWEEP_INTERVAL, DEEP_SWEEP_MAX_EXECUTION_SECONDS
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
 from products.replay_vision.backend.temporal.sweep_types import (
@@ -64,8 +66,17 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         events_lookback=SWEEP_EVENTS_LOOKBACK,
     )
     candidates = candidate_query.run()
+    # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
+    saturated = len(candidates) == limit
 
-    deep_candidates, deep_swept_through = _deep_sweep(scanner, query, limit)
+    # Deep candidates dispatch alongside fast ones, so the two share one in-flight budget: the deep
+    # pass gets whatever headroom the fast pass left. At zero there is nothing left to dispatch, which
+    # also covers the case where the fast batch used the budget on its own.
+    deep_candidates: list[CandidateSession] = []
+    deep_swept_through: dt.datetime | None = None
+    deep_limit = limit - len(candidates)
+    if deep_limit > 0:
+        deep_candidates, deep_swept_through = _deep_sweep(scanner, query, deep_limit)
 
     record_sweep_outcome(
         "candidates_found" if candidates or deep_candidates else "no_candidates",
@@ -73,8 +84,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     )
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        # A full batch means there may be more past the keyset; the next sweep resumes from the last candidate.
-        saturated=len(candidates) == limit,
+        saturated=saturated,
         swept_through=candidate_query.settle_cutoff,
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
@@ -97,7 +107,7 @@ def _deep_sweep(
         # Start the deep clock at the fast watermark; everything before this deploy was swept full-width.
         return [], scanner.last_swept_at
 
-    now = dt.datetime.now(dt.UTC)
+    now = timezone.now()
     if now - scanner.last_deep_swept_at < DEEP_SWEEP_INTERVAL or scanner.last_deep_swept_at >= scanner.last_swept_at:
         return [], None
 
@@ -111,10 +121,14 @@ def _deep_sweep(
         sampling_mode=scanner.sampling_mode,
         exclude_observed_by_scanner=str(scanner.id),
         candidate_limit=limit,
+        max_execution_time_seconds=DEEP_SWEEP_MAX_EXECUTION_SECONDS,
     )
     deep_candidates = deep_query.run()
-    # A saturated batch may have more stragglers; keep the watermark so the next eligible tick retries
-    # (the observed-exclusion shrinks each retry, so this converges).
     if len(deep_candidates) == limit:
+        # Truncated by the dispatch headroom rather than by the window running out, so hold the
+        # watermark and cover the rest next time. The walk is newest-first, so advancing here would
+        # drop the oldest stragglers, which are exactly the ones this pass exists to catch. Re-running
+        # is self-limiting: a truncated batch means the headroom is spent, and the next tick
+        # short-circuits on the in-flight cap before it queries anything.
         return deep_candidates, None
     return deep_candidates, scanner.last_swept_at
