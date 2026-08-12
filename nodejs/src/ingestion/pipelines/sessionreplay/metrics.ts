@@ -171,6 +171,36 @@ export class SessionRecordingIngesterMetrics {
         this.mlImagesCollected.labels(outcome).inc(count)
     }
 
+    /**
+     * Bytes in one collected URL, and what one produced record ends up carrying.
+     *
+     * The record is packed to a byte budget rather than to a count, so these two size that budget.
+     * A URL distribution with a long tail near the 2048-byte cap packs far fewer entries per record
+     * than a typical one, and nothing else reports which of those we have.
+     */
+    private static readonly mlUrlBytes = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_bytes',
+        help: 'Bytes in one collected remote image URL. The tail sizes the per-record packing budget, because a record is filled by bytes rather than by a fixed number of URLs',
+        buckets: [64, 128, 256, 512, 1024, 2048],
+    })
+    private static readonly mlUrlsPerRecord = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_urls_per_record',
+        help: 'URLs packed into one record on the fetch topic. Bounded in practice by the collector cap per message, since a record holds one domain from one message',
+        buckets: [1, 8, 32, 64, 128, 256, 512],
+    })
+    private static readonly mlUrlRecordBytes = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_url_record_bytes',
+        help: 'Serialized bytes of one record on the fetch topic. Read against the producer message.max.bytes of 1 MB: the packing budget is what keeps this under it',
+        buckets: [1024, 8192, 65536, 262144, 524288, 1048576],
+    })
+
+    public static observeMlUrlBytes(bytes: number): void {
+        this.mlUrlBytes.observe(bytes)
+    }
+    public static observeMlUrlRecord(urls: number, bytes: number): void {
+        this.mlUrlsPerRecord.observe(urls)
+        this.mlUrlRecordBytes.observe(bytes)
+    }
     public static incrementMlUrlsCollected(outcome: MlUrlLaneStage, count: number): void {
         this.mlUrlsCollected.labels(outcome).inc(count)
     }

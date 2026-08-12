@@ -17,17 +17,25 @@ import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-de
 const PRODUCED_REF_CACHE_MAX = 500_000
 
 /**
- * Records for one host per Kafka message.
+ * Bytes of URL payload one record may carry, against librdkafka's 1 MB default for
+ * `message.max.bytes`. The rest of the budget absorbs the envelope and the JSON punctuation.
  *
- * The Rust collector caps one replay message at 512 URLs of up to 2048 bytes each, so one host's
- * share of a message can exceed librdkafka's 1 MB default. This cap is what holds a record under
- * it, and it lives in this file, where the produce happens, rather than in another crate.
+ * A record is packed to this size rather than to a fixed number of URLs. A URL may be anything up
+ * to `MAX_URL_LEN`, so a count that is safe for the longest URLs wastes most of a record on the
+ * ordinary ones, and a count sized for ordinary ones is unsafe.
  */
-const MAX_URLS_PER_RECORD = 64
+const MAX_RECORD_URL_BYTES = 512 * 1024
 
 /** One record on the fetch topic. The Kafka key is the registrable domain, so every URL here
  *  belongs to one operator. Hosts can differ within it: a CDN sharding over img1..img8 keeps one
  *  budget but still needs its own robots.txt and connection limit per host. */
+/** One URL as it rides on the fetch topic. */
+export interface RecordUrl {
+    ref: string
+    url: string
+    host: string
+}
+
 export interface CollectedUrlsMessage {
     /**
      * The wire format version. The fetcher reads this topic from another deployment, so the two
@@ -43,7 +51,7 @@ export interface CollectedUrlsMessage {
      * age check exists for.
      */
     capturedAtMs: number
-    urls: { ref: string; url: string; host: string }[]
+    urls: RecordUrl[]
 }
 
 /**
@@ -121,11 +129,12 @@ export function createProduceCollectedUrlsStep<
             return Promise.resolve(ok({ ...input, collectedUrls: undefined }))
         }
 
-        const byDomain = new Map<string, { ref: string; url: string; host: string }[]>()
+        const byDomain = new Map<string, RecordUrl[]>()
         for (const entry of usable) {
             producedRefs.add(entry.ref)
             const group = byDomain.get(entry.domain)
-            const record = { ref: entry.ref, url: entry.url, host: entry.host }
+            const record: RecordUrl = { ref: entry.ref, url: entry.url, host: entry.host }
+            SessionRecordingIngesterMetrics.observeMlUrlBytes(Buffer.byteLength(entry.url))
             if (group) {
                 group.push(record)
             } else {
@@ -140,17 +149,18 @@ export function createProduceCollectedUrlsStep<
         const messageTimestamp = input.message.timestamp
         const capturedAtMs = messageTimestamp !== undefined && messageTimestamp > 0 ? messageTimestamp : Date.now()
         const messages = [...byDomain].flatMap(([domain, urls]) =>
-            chunk(urls, MAX_URLS_PER_RECORD).map((slice) => ({
-                key: domain,
-                value: Buffer.from(
+            packByBytes(urls, MAX_RECORD_URL_BYTES).map((slice) => {
+                const value = Buffer.from(
                     JSON.stringify({
                         v: 1,
                         pseudoTeam,
                         capturedAtMs,
                         urls: slice,
                     } satisfies CollectedUrlsMessage)
-                ),
-            }))
+                )
+                SessionRecordingIngesterMetrics.observeMlUrlRecord(slice.length, value.length)
+                return { key: domain, value }
+            })
         )
 
         // The failure handler captures only the refs, so that a produce which is not yet delivered
@@ -181,13 +191,41 @@ export function createProduceCollectedUrlsStep<
     }
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-    if (items.length <= size) {
-        return [items]
+/**
+ * Greedy packing: fill a record until the next entry would cross the budget, then start another.
+ *
+ * An entry always goes somewhere, even alone in an oversized record, because dropping it here would
+ * lose an image that every earlier check accepted. `MAX_URL_LEN` bounds that case well under the
+ * broker limit.
+ */
+function packByBytes(entries: RecordUrl[], maxBytes: number): RecordUrl[][] {
+    const out: RecordUrl[][] = []
+    let current: RecordUrl[] = []
+    let bytes = 0
+    for (const entry of entries) {
+        const size = entryBytes(entry)
+        if (current.length > 0 && bytes + size > maxBytes) {
+            out.push(current)
+            current = []
+            bytes = 0
+        }
+        current.push(entry)
+        bytes += size
     }
-    const out: T[][] = []
-    for (let i = 0; i < items.length; i += size) {
-        out.push(items.slice(i, i + size))
+    if (current.length > 0) {
+        out.push(current)
     }
     return out
+}
+
+/** The JSON punctuation around the three fields, so packing measures what the record will hold. */
+const ENTRY_OVERHEAD_BYTES = '{"ref":"","url":"","host":""},'.length
+
+function entryBytes(entry: RecordUrl): number {
+    return (
+        Buffer.byteLength(entry.ref) +
+        Buffer.byteLength(entry.url) +
+        Buffer.byteLength(entry.host) +
+        ENTRY_OVERHEAD_BYTES
+    )
 }

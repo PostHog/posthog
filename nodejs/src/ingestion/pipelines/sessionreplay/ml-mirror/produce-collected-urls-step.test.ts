@@ -182,6 +182,34 @@ describe('produceCollectedUrlsStep', () => {
         ])
     })
 
+    it('packs many short urls into one record', async () => {
+        // A fixed count would have cut this into several records and used a fraction of each. The
+        // budget is bytes, so ordinary URLs pack until the bytes run out.
+        const step = createProduceCollectedUrlsStep(outputs, 100_000)
+        const many = Array.from({ length: 400 }, (_v, i) =>
+            collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${i}.png`)
+        )
+
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: many })
+
+        expect(decode(queued[0])).toHaveLength(1)
+    })
+
+    it('splits when the urls are long enough to fill a record', async () => {
+        const step = createProduceCollectedUrlsStep(outputs, 100_000)
+        const long = 'x'.repeat(2000)
+        const many = Array.from({ length: 400 }, (_v, i) =>
+            collected(`h${i}`.padEnd(22, 'x'), 'img.example.com', `https://img.example.com/${long}${i}.png`)
+        )
+
+        await run(step, { message: { timestamp: CAPTURED_AT }, collectedUrls: many })
+
+        expect(queued[0].length).toBeGreaterThan(1)
+        for (const record of queued[0]) {
+            expect(record.value.length).toBeLessThan(1024 * 1024)
+        }
+    })
+
     it('drops an entry whose ref names another team', async () => {
         const step = createProduceCollectedUrlsStep(outputs, 100)
         const otherTeam = 'b'.repeat(32)
