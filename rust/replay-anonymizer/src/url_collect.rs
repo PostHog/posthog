@@ -38,11 +38,18 @@ use crate::url_policy::{try_canonicalize, MAX_URL_LEN};
 /// collector declined, and a decline is exactly what a repeat should not pay for twice. Past this
 /// the memo stops growing and repeats fall back to the full check, which is slower and bounded
 /// rather than unbounded.
-const MAX_MEMO_ENTRIES: usize = 1024;
+const MAX_MEMO_ENTRIES: usize = 2048;
 
-/// Distinct URLs collected from one message. A page with more media than this is already past the
-/// point where the extra images teach a model anything, and the cap bounds the Kafka fan-out.
-pub const MAX_URLS_PER_MESSAGE: usize = 256;
+/// Distinct URLs collected from one message.
+///
+/// One message holds a batch of rrweb events for one session, so this budget covers a full snapshot
+/// and every mutation after it, including those describing a different page after a navigation. A
+/// message at the cap loses its later images rather than its least useful ones.
+///
+/// What bounds it is the payload: the whole set crosses the FFI boundary in one call, and each URL
+/// can be [`MAX_URL_LEN`] bytes. Read ml_urls_declined{reason="over_cap"} against ml_urls_collected
+/// before changing it, and keep [`MAX_MEMO_ENTRIES`] above it.
+pub const MAX_URLS_PER_MESSAGE: usize = 512;
 
 /// Enables URL collection for one anonymize call.
 #[derive(Debug, Clone)]

@@ -412,9 +412,10 @@ export class AgentServer {
   private oversizedResumeRetried = false;
   // Prewarmed runs boot before the user's first message exists, so the boot-time
   // --autoPublish flag can't carry the user's choice; it is resolved from run
-  // state when the first message arrives (see resolveWarmAutoPublishUpgrade).
+  // state when the first message arrives (see resolveWarmActivationSettings).
   private prewarmedRun = false;
   private warmAutoPublishResolved = false;
+  private warmReasoningEffortResolved = false;
   private installedSkillBundles = new Set<string>();
   private installedSkillBundleInfo = new Map<string, InstalledSkillBundle>();
   private installingSkillBundles = new Map<string, Promise<void>>();
@@ -1167,9 +1168,12 @@ export class AgentServer {
             `Processing user message (detectedPrUrl=${this.detectedPrUrl ?? "none"}): ${promptPreview.substring(0, 100)}...`,
           );
 
+          // Apply activation-time settings before the warmed agent sees its
+          // first prompt. The sandbox and session can be prepared with one
+          // effort while the final composer selection uses another.
           // Resolve before buildDetectedPrContext so a warm auto-publish upgrade
           // also flips the detected-PR context to its push variant.
-          const autoPublishUpgrade = await this.resolveWarmAutoPublishUpgrade();
+          const autoPublishUpgrade = await this.resolveWarmActivationSettings();
           const hostContext = [
             ...(autoPublishUpgrade ? [autoPublishUpgrade] : []),
             ...(this.detectedPrUrl
@@ -1566,6 +1570,7 @@ export class AgentServer {
     this.preSessionEvents = [];
     this.prewarmedRun = false;
     this.warmAutoPublishResolved = false;
+    this.warmReasoningEffortResolved = false;
 
     this.logger.debug("Initializing session", {
       runId: payload.run_id,
@@ -2112,6 +2117,8 @@ export class AgentServer {
       isUpstreamFailure &&
       phase === "followup" &&
       this.getEffectiveMode(payload) === "interactive";
+    const expectedIdleTransportClosure =
+      recoverable && /^ACP connection closed$/i.test(message.trim());
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2119,7 +2126,9 @@ export class AgentServer {
       recoverable,
     });
 
-    this.broadcastTurnFailure(classification, displayMessage);
+    if (!expectedIdleTransportClosure) {
+      this.broadcastTurnFailure(classification, displayMessage);
+    }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
@@ -2291,6 +2300,7 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session || !this.resumeState) return;
     const resumeState = this.resumeState;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
       const conversationSummary = formatConversationForResume(
@@ -2354,6 +2364,7 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(
       payload,
@@ -2389,6 +2400,22 @@ export class AgentServer {
       },
       { retryOnOversizedPrompt: true },
     );
+  }
+
+  private async refreshTaskRunForResume(
+    payload: JwtPayload,
+    fallback: TaskRun | null,
+  ): Promise<TaskRun | null> {
+    try {
+      return await this.posthogAPI.getTaskRun(payload.task_id, payload.run_id);
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before resume", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
+      return fallback;
+    }
   }
 
   /**
@@ -3450,6 +3477,66 @@ export class AgentServer {
     );
   }
 
+  /** Apply activation-time settings before a prewarmed session's first turn. */
+  private async resolveWarmActivationSettings(): Promise<string | null> {
+    if (!this.prewarmedRun || !this.session) {
+      return null;
+    }
+    if (this.warmReasoningEffortResolved && this.warmAutoPublishResolved) {
+      return null;
+    }
+
+    let state: Record<string, unknown> | undefined;
+    try {
+      const run = await this.posthogAPI.getTaskRun(
+        this.session.payload.task_id,
+        this.session.payload.run_id,
+      );
+      state = run?.state as Record<string, unknown> | undefined;
+    } catch (error) {
+      // Keep both settings unresolved so a later message retries. A transient
+      // control-plane failure must not prevent the first prompt from running.
+      this.logger.debug("Failed to fetch warm activation settings", { error });
+      return null;
+    }
+
+    await this.resolveWarmReasoningEffort(state);
+    return this.resolveWarmAutoPublishUpgrade(state);
+  }
+
+  private async resolveWarmReasoningEffort(
+    state: Record<string, unknown> | undefined,
+  ): Promise<void> {
+    if (this.warmReasoningEffortResolved || !this.session) {
+      return;
+    }
+
+    const reasoningEffort = state?.reasoning_effort;
+    if (typeof reasoningEffort === "string" && reasoningEffort.length > 0) {
+      try {
+        await this.session.clientConnection.setSessionConfigOption({
+          sessionId: this.session.acpSessionId,
+          configId: "effort",
+          value: reasoningEffort,
+        });
+      } catch (error) {
+        // Keep this unresolved so a later message retries, but continue with
+        // the effort used to start the warm session for the current prompt.
+        this.logger.warn("Failed to apply warm activation reasoning effort", {
+          error,
+          reasoningEffort,
+        });
+        return;
+      }
+      this.config.reasoningEffort =
+        reasoningEffort as AgentServerConfig["reasoningEffort"];
+      this.logger.debug("Applied warm activation reasoning effort", {
+        reasoningEffort,
+      });
+    }
+    this.warmReasoningEffortResolved = true;
+  }
+
   /**
    * A prewarmed run boots before the user's first message exists, so the
    * --autoPublish flag can't carry the user's choice; the backend persists it
@@ -3459,8 +3546,10 @@ export class AgentServer {
    * buildDetectedPrContext see it) and return the auto-publish cloud
    * instructions to inject into the first prompt as an override.
    */
-  private async resolveWarmAutoPublishUpgrade(): Promise<string | null> {
-    if (!this.prewarmedRun || this.warmAutoPublishResolved || !this.session) {
+  private resolveWarmAutoPublishUpgrade(
+    state: Record<string, unknown> | undefined,
+  ): string | null {
+    if (this.warmAutoPublishResolved) {
       return null;
     }
     if (
@@ -3470,20 +3559,6 @@ export class AgentServer {
     ) {
       // The boot decision already publishes (or never may) — nothing to upgrade.
       this.warmAutoPublishResolved = true;
-      return null;
-    }
-    let state: Record<string, unknown> | undefined;
-    try {
-      const run = await this.posthogAPI.getTaskRun(
-        this.session.payload.task_id,
-        this.session.payload.run_id,
-      );
-      state = run?.state as Record<string, unknown> | undefined;
-    } catch (error) {
-      // Leave unresolved so the next message retries; stay review-first for now.
-      this.logger.debug("Failed to fetch run state for auto-publish upgrade", {
-        error,
-      });
       return null;
     }
     this.warmAutoPublishResolved = true;

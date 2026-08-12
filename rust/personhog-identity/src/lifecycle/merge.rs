@@ -15,9 +15,9 @@
 //!   CAS, so every leader call is convergent under repetition: a re-run
 //!   step re-issues the call and lands in the same state.
 //!
-//! The driver receives the classified case-3 set of a MergePersons call:
-//! source distinct ids that resolved to persons distinct from the
-//! target. That classification is advisory. The claim step re-resolves
+//! The driver receives a MergePersons call's classified two-person set:
+//! source distinct ids that resolved to a live person distinct from the
+//! target's. That classification is advisory. The claim step re-resolves
 //! everything authoritatively inside its own transaction, because the
 //! world can change between the handler and the saga.
 //!
@@ -50,7 +50,7 @@ use personhog_proto::personhog::types::v1::{
 use crate::config::IdentityTables;
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
+    advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
 
@@ -91,8 +91,9 @@ impl MergeStep {
     }
 }
 
-/// The frozen `lifecycle_op.request` payload for a merge op: the case-3
-/// set the handler classified, plus the merge event's property payloads.
+/// The frozen `lifecycle_op.request` payload for a merge op: the
+/// two-person set the handler classified, plus the merge event's
+/// property payloads.
 /// `sources` order is property precedence (earlier beats later).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeRequest {
@@ -245,6 +246,64 @@ impl MergeDriver {
     pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
         tables.validate().expect("invalid identity table set");
         Self { leader, tables }
+    }
+}
+
+/// Everything the merge entrance may do with merge op rows: probe for an
+/// existing op (the attach-first path) and drive a frozen request to its
+/// terminal row. Identity work — resolution, classification, inline
+/// settlement — lives in [`crate::service::merge`]; this seam keeps the
+/// lifecycle side blind to it, and is where a future service split would
+/// put the wire.
+pub struct MergeOpExecutor {
+    engine: Arc<Engine>,
+    driver: MergeDriver,
+}
+
+impl MergeOpExecutor {
+    pub fn new(engine: Arc<Engine>, driver: MergeDriver) -> Self {
+        Self { engine, driver }
+    }
+
+    /// The op row for this id, if one exists.
+    // tonic Status is a large Err variant; boxing would diverge from the
+    // handler signatures this feeds into.
+    #[allow(clippy::result_large_err)]
+    pub async fn find(&self, op_id: Uuid) -> Result<Option<OpRow>, Status> {
+        sqlx::query_as!(
+            OpRow,
+            r#"
+            SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
+                   request as "request: Value", outcome as "outcome: Value", completed_at
+            FROM lifecycle_op
+            WHERE op_id = $1
+            "#,
+            op_id
+        )
+        .fetch_optional(self.engine.pool())
+        .await
+        .map_err(|e| Status::internal(format!("database error: {e}")))
+    }
+
+    /// Drive the op to terminal with the given frozen request (a resumed
+    /// row's own request, or a freshly frozen one) and return the row.
+    // See `find` for why result_large_err is allowed.
+    #[allow(clippy::result_large_err)]
+    pub async fn execute(
+        &self,
+        op_id: Uuid,
+        team_id: i64,
+        frozen: &Value,
+    ) -> Result<OpRow, Status> {
+        self.engine
+            .execute(&self.driver, op_id, team_id, frozen)
+            .await
+            .map_err(|err| {
+                if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
+                    tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
+                }
+                Status::from(err)
+            })
     }
 }
 
