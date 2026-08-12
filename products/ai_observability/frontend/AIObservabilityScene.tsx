@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import React from 'react'
 
-import { LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -424,7 +424,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     users: 'Understand how users are interacting with your AI features.',
     errors: 'Monitor and debug errors in your AI pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
-    sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction.',
+    sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction. Works best in English.',
     sessions: 'Analyze user sessions containing AI interactions.',
 }
 
@@ -479,26 +479,20 @@ function AIObservabilitySceneContent(): JSX.Element {
     useShortcut({
         name: 'AIObservabilityTab2',
         keybind: [keyBinds.tab2],
-        intent: selfDrivingEnabled ? 'Go to Self-driving' : 'Go to Traces',
+        intent: 'Go to Traces',
         interaction: 'function',
-        callback: () =>
-            push(
-                combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilitySelfDriving() : urls.aiObservabilityTraces(),
-                    searchParams
-                ).url
-            ),
+        callback: () => push(combineUrl(urls.aiObservabilityTraces(), searchParams).url),
         scope: Scene.AIObservability,
     })
     useShortcut({
         name: 'AIObservabilityTab3',
         keybind: [keyBinds.tab3],
-        intent: selfDrivingEnabled ? 'Go to Traces' : 'Go to Generations',
+        intent: selfDrivingEnabled ? 'Go to Self-driving' : 'Go to Generations',
         interaction: 'function',
         callback: () =>
             push(
                 combineUrl(
-                    selfDrivingEnabled ? urls.aiObservabilityTraces() : urls.aiObservabilityGenerations(),
+                    selfDrivingEnabled ? urls.aiObservabilitySelfDriving() : urls.aiObservabilityGenerations(),
                     searchParams
                 ).url
             ),
@@ -569,9 +563,16 @@ function AIObservabilitySceneContent(): JSX.Element {
     ]
 
     if (selfDrivingEnabled) {
-        tabs.splice(1, 0, {
+        tabs.splice(2, 0, {
             key: 'self-driving',
-            label: 'Self-driving',
+            label: (
+                <>
+                    Self-driving{' '}
+                    <LemonTag type="completion" size="small" className="ml-1">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: <AIObservabilitySelfDriving />,
             link: combineUrl(urls.aiObservabilitySelfDriving(), searchParams).url,
             'data-attr': 'self-driving-tab',
