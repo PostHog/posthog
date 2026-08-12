@@ -18,7 +18,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr, property_to_expr
 
-from posthog.constants import UNIQUE_GROUPS
+from posthog.constants import FIRST_MATCHING_EVENT_FOR_GROUP, FIRST_TIME_FOR_GROUP, UNIQUE_GROUPS
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -60,7 +60,15 @@ def get_properties_chain(
 
 def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode | GroupNode]) -> bool:
     return (
-        series.math in {BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE}
+        series.math
+        in {
+            BaseMathType.DAU,
+            UNIQUE_GROUPS,
+            BaseMathType.WEEKLY_ACTIVE,
+            BaseMathType.MONTHLY_ACTIVE,
+            FIRST_TIME_FOR_GROUP,
+            FIRST_MATCHING_EVENT_FOR_GROUP,
+        }
         and series.math_group_type_index is not None
     )
 

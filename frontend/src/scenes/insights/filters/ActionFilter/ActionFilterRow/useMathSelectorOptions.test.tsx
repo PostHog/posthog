@@ -56,6 +56,29 @@ describe('useMathSelectorOptions – active actor select', () => {
     })
 
     it.each([
+        [BaseMathType.FirstTimeForUser, 'first_time_for_group'],
+        [BaseMathType.FirstMatchingEventForUser, 'first_matching_event_for_group'],
+    ])('scoping %s to a group emits the group-indexed math type', async (mathType, groupMath) => {
+        const onMathSelect = jest.fn()
+
+        render(
+            <Provider>
+                <ActiveActorLabel mathType={mathType} onMathSelect={onMathSelect} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.getByTestId('actor-label').querySelector('button')).toBeInTheDocument()
+        })
+
+        const selectButton = screen.getByTestId('actor-label').querySelector('button')!
+
+        await userEvent.click(selectButton)
+        await userEvent.click(await screen.findByText('organizations'))
+        expect(onMathSelect).toHaveBeenCalledWith(0, `${groupMath}::0`)
+    })
+
+    it.each([
         [BaseMathType.WeeklyActiveUsers, 'weekly_active'],
         [BaseMathType.MonthlyActiveUsers, 'monthly_active'],
     ])('switching %s actor select back to "users" preserves the correct math type', async (mathType, expectedMath) => {

@@ -41,6 +41,7 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsNode,
     FilterLogicalOperator,
+    GroupMathType,
     GroupNode,
     HogQLQueryModifiers,
     InCohortVia,
@@ -5803,6 +5804,72 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["count"] == 0
         assert response.results[0]["data"] == [0, 0, 0, 0, 0]
+
+    @parameterized.expand(
+        [
+            # Full range: each group counted on the day of its first-ever pageview
+            ("2020-01-09", 4, [1, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0]),
+            # Narrowed start drops groups whose first-ever pageview predates the range
+            ("2020-01-12", 2, [1, 0, 0, 1, 0, 0, 0, 0, 0]),
+        ]
+    )
+    def test_trends_math_first_time_for_group(self, date_from, expected_count, expected_data):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            date_from,
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=GroupMathType.FIRST_TIME_FOR_GROUP,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count
+        assert response.results[0]["data"] == expected_data
+
+    def test_trends_math_first_matching_event_for_group_applies_filter(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        self._create_test_events_for_groups()
+        flush_persons_and_events()
+
+        # Only the group on Chrome (org:5) matches; it is counted on its first matching pageview (2020-01-11)
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                    properties=[EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)],
+                )
+            ],
+            TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+        )
+
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 1
+        assert response.results[0]["data"] == [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_trends_math_first_time_for_user_breakdowns_basic(self):
         self._create_test_events()
