@@ -79,6 +79,7 @@ import { CreatePostHogWidgetNodeOptions, NotebookNodeAttributes, NotebookNodeTyp
 import { KNOWN_NODES } from '../utils'
 import { NotebookDiscussionComment, getNotebookDiscussionCommentTitle } from './MarkdownNotebookDiscussionComment'
 import { MarkdownNotebookNodeAttributeInput } from './MarkdownNotebookNodeAttributeInput'
+import { getSqlV2PropsFromQueryProp } from './markdownNotebookV2'
 import { notebookLogic } from './notebookLogic'
 
 const INTERNAL_MARKDOWN_NODE_ATTRIBUTE_KEYS = new Set([
@@ -935,6 +936,7 @@ export function getNodeAttributes(
     const attributes = {
         ...getDefaultProps(options),
         ...attributeProps,
+        ...(nodeType === NotebookNodeType.SQLV2 ? getSqlV2PropsFromQueryProp(props) : null),
         nodeId: typeof props.nodeId === 'string' ? props.nodeId : fallbackNodeId,
     } as NotebookNodeAttributes<any>
 
