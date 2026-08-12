@@ -17087,8 +17087,8 @@ export namespace Schemas {
     export type ConversionGoalPatch = PartialConversionGoalFilter1 | PartialConversionGoalFilter2 | PartialConversionGoalFilter3;
 
     export interface ConversionGoalSummary {
-      /** Unique id of the goal (event name, action id, or DW goal id) */
-      id: string;
+      /** Id of the goal. Pass this to the explain, update and delete endpoints. */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -36395,8 +36395,8 @@ export namespace Schemas {
     }
 
     export interface GoalExplanation {
-      /** Id of the explained conversion goal */
-      goal_id: string;
+      /** conversion_goal_id of the explained goal */
+      conversion_goal_id: string;
       /** Display name of the conversion goal */
       goal_name: string;
       /** Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)
@@ -87115,6 +87115,11 @@ export namespace Schemas {
 
     export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
     /**
+     * conversion_goal_id of the goal to explain, as returned by the conversion_goals list endpoint.
+     * @minLength 1
+     */
+    conversion_goal_id: string;
+    /**
      * ISO start; defaults to 30 days ago
      * @nullable
      */
@@ -87124,11 +87129,6 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
-    /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
-     * @minLength 1
-     */
-    goal_id: string;
     };
 
     export type MarketingAnalyticsSetupPlanRetrieveParams = {
