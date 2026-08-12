@@ -155,8 +155,6 @@ describe('logsAlertFormLogic', () => {
                 scheduleRestriction: { blocked_windows: [{ start: '10:00', end: '10:00' }] },
             })
 
-            expect(logic.values.alertFormValidationErrors.scheduleRestriction).toBe('Start and end must differ.')
-
             await expectLogic(logic, () => {
                 logic.actions.submitAlertForm()
             }).toFinishAllListeners()

@@ -14,11 +14,12 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { AlertAdvancedOptions } from 'products/alerts/frontend/components/AlertAdvancedOptions'
-import { AlertDefinitionRow } from 'products/alerts/frontend/components/AlertDefinition'
+import { AlertDefinitionRow, AlertTimezoneNotice } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEditor'
 import { QuietHoursFields } from 'products/alerts/frontend/components/QuietHoursFields'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
@@ -180,6 +181,10 @@ export function LogsAlertForm(): JSX.Element {
                 cadenceMinutes={5}
                 teamTimezone={timezone}
                 onChange={(next) => setAlertFormValue('scheduleRestriction', next)}
+            />
+            <AlertTimezoneNotice
+                timezone={timezone}
+                settingsUrl={urls.settings('environment-customization', 'date-and-time')}
             />
             <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
                 <LemonField.Pure

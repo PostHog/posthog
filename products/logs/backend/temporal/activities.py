@@ -9,6 +9,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from itertools import batched
+from uuid import UUID
 
 from django.db import transaction
 from django.db.utils import IntegrityError
@@ -292,6 +293,7 @@ class _DispatchedAlert:
     evaluation: _AlertEvaluation
     notification_failed: bool
     produce_result: ProduceResult | None = None
+    suppressed_by_quiet_hours: bool = False
 
     @property
     def committed_outcome(self) -> AlertCheckOutcome:
@@ -379,8 +381,11 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
             "check_interval_minutes",
             "filters",
             "next_check_at",
+            "schedule_restriction",
         )
     )
+    rescheduled_alert_ids = _reschedule_due_alerts_in_quiet_hours(rows, now)
+    rows = [row for row in rows if row["id"] not in rescheduled_alert_ids]
 
     _safe_record("alerts_active gauge", record_alerts_active, len(rows))
 
@@ -413,6 +418,29 @@ def _discover_cohorts_sync() -> DiscoverCohortsOutput:
     # module-level env reads are non-deterministic on replay because Temporal's
     # sandbox re-imports the workflow module each time.
     return DiscoverCohortsOutput(manifests=manifests, batch_size=MAX_COHORTS_PER_BATCH)
+
+
+def _reschedule_due_alerts_in_quiet_hours(rows: Sequence[dict], now: datetime) -> set[UUID]:
+    alert_ids = [row["id"] for row in rows if row["schedule_restriction"]]
+    if not alert_ids:
+        return set()
+
+    rescheduled_alert_ids: set[UUID] = set()
+    with transaction.atomic():
+        alerts = _due_alerts_qs(now).select_for_update(of=("self",)).select_related("team").filter(id__in=alert_ids)
+        for alert in alerts:
+            next_check_at = next_allowed_check_at(
+                now,
+                team_timezone=alert.team.timezone,
+                schedule_restriction=alert.schedule_restriction,
+            )
+            if next_check_at <= now:
+                continue
+            alert.next_check_at = next_check_at
+            alert.save(update_fields=["next_check_at", "updated_at"])
+            rescheduled_alert_ids.add(alert.id)
+
+    return rescheduled_alert_ids
 
 
 def _detect_broken_filter_config(filters: object) -> str | None:
@@ -691,6 +719,8 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                         if delivery_slo := delivery_slo_handles.get(alert_id):
                             delivery_slo.fail(failure_phase="dispatch")
                         local_stats["errored"] += 1
+                    elif result.suppressed_by_quiet_hours:
+                        continue
                     else:
                         dispatched.append(result)
                         elapsed_ms_per_alert.append(int((phase_2_end - eval_start) * 1000))
@@ -980,19 +1010,35 @@ def _dispatch_notification(
 
 
 def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _DispatchedAlert:
-    """Phase 2: dispatch the Kafka notification for one alert.
+    """Phase 2: defer blocked alerts or dispatch their Kafka notification."""
+    with transaction.atomic():
+        current_alert = (
+            LogsAlertConfiguration.objects.select_for_update(of=("self",))
+            .select_related("team")
+            .get(id=evaluation.alert.id)
+        )
+        next_check_at = next_allowed_check_at(
+            now,
+            team_timezone=current_alert.team.timezone,
+            schedule_restriction=current_alert.schedule_restriction,
+        )
+        if next_check_at > now:
+            current_alert.next_check_at = next_check_at
+            current_alert.save(update_fields=["next_check_at", "updated_at"])
+            return _DispatchedAlert(
+                evaluation=evaluation,
+                notification_failed=False,
+                suppressed_by_quiet_hours=True,
+            )
 
-    Pure-effect (Kafka). The orchestrator updates `stats` serially after the
-    dispatch phase so concurrent gather'd dispatches can't race on the dict.
-    """
-    produce_result = _dispatch_notification(
-        evaluation.outcome,
-        evaluation.alert,
-        evaluation.check_result,
-        now,
-        date_from=evaluation.date_from,
-        date_to=evaluation.date_to,
-    )
+        produce_result = _dispatch_notification(
+            evaluation.outcome,
+            evaluation.alert,
+            evaluation.check_result,
+            now,
+            date_from=evaluation.date_from,
+            date_to=evaluation.date_to,
+        )
     enqueue_failed = evaluation.outcome.notification != NotificationAction.NONE and produce_result is None
     return _DispatchedAlert(evaluation=evaluation, notification_failed=enqueue_failed, produce_result=produce_result)
 

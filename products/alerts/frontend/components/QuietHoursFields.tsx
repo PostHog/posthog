@@ -122,7 +122,7 @@ export function QuietHoursFields({
                     ) : null}
                     <div className="flex flex-wrap gap-2">
                         <LemonButton type="secondary" size="small" onClick={applyOvernightPreset}>
-                            Preset: overnight (10pm–7am)
+                            Preset: overnight (10 PM to 7 AM)
                         </LemonButton>
                     </div>
                     {highFrequencySlotPreview ? (

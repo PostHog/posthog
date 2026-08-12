@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { quietHoursFormError } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
+import { findQuietHoursIssues } from 'products/alerts/frontend/logic/scheduleRestrictionValidation'
 import type { ScheduleRestriction } from 'products/alerts/frontend/types'
 import {
     logsAlertsCreate,
@@ -313,13 +313,19 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
         alertForm: {
             // Provides typed shape for kea-forms; afterMount resets with fresh values on every remount
             defaults: buildFormDefaults(props.alert),
-            errors: ({ name, scheduleRestriction }) => ({
+            errors: ({ name }) => ({
                 name: !name?.trim() ? 'Name is required' : undefined,
-                scheduleRestriction: quietHoursFormError(scheduleRestriction),
             }),
             submit: async (form) => {
                 if (!form.name?.trim()) {
                     form.name = 'Untitled alert'
+                }
+
+                if (form.scheduleRestriction?.blocked_windows) {
+                    const quietHoursIssue = findQuietHoursIssues(form.scheduleRestriction.blocked_windows)
+                    if (quietHoursIssue) {
+                        throw new Error(quietHoursIssue.message)
+                    }
                 }
 
                 if (!hasAnyFilter(form.severityLevels, form.serviceNames, form.filterGroup)) {
