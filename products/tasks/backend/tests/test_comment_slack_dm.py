@@ -53,6 +53,10 @@ class TestCommentSlackDm(CommentActivityTestCase):
         with self.captureOnCommitCallbacks(execute=True):
             super()._record_activity(comment, user_ids)
 
+    def _dm_text(self) -> str:
+        attachment = self.slack_client.chat_postMessage.call_args.kwargs["attachments"][0]
+        return attachment["blocks"][0]["text"]["text"]
+
     def _dm_channels(self) -> list[str]:
         return [call.kwargs["channel"] for call in self.slack_client.chat_postMessage.call_args_list]
 
@@ -62,9 +66,39 @@ class TestCommentSlackDm(CommentActivityTestCase):
         self._record_activity(comment, [self.author.id])
 
         assert self._dm_channels() == ["U-author"]
-        text = self.slack_client.chat_postMessage.call_args.kwargs["blocks"][0]["text"]["text"]
+        text = self._dm_text()
         assert "mentioned you" in text
         assert "this needs a guard" in text
+
+    def test_an_overlong_comment_is_not_cut_inside_a_link(self):
+        filler = "x" * 790
+        comment = self._comment(content=f"{filler} see [the docs](https://posthog.com/docs/reference)")
+
+        self._record_activity(comment, [self.author.id])
+
+        text = self._dm_text()
+        assert text.endswith("…")
+        assert text.rfind("<") < text.rfind(">")
+
+    def test_inline_mention_lookups_are_bounded(self):
+        comment = self._comment(content=" ".join(f"@[Member {index}](member{index}@example.com)" for index in range(3)))
+
+        with (
+            patch("products.tasks.backend.logic.services.comment_slack_dm._MAX_MENTION_LOOKUPS_PER_SLACK_WORKSPACE", 2),
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.lookup_slack_user_id_by_email",
+                side_effect=["U-one", "U-two"],
+            ) as lookup,
+            patch(
+                "products.tasks.backend.logic.services.comment_slack_dm.resolve_slack_user",
+                return_value={"team_id": SLACK_WORKSPACE_ID},
+            ),
+        ):
+            self._record_activity(comment, [self.author.id])
+
+        assert lookup.call_count == 2
+        text = self._dm_text()
+        assert "<@U-one> <@U-two> @Member 2" in text
 
     def test_fallback_text_escapes_user_controlled_slack_markup(self):
         self.peer.first_name = "<@U-ATTACKER>"
