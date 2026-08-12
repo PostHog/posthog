@@ -41,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
+    _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+    _SERVER_STARTING_UP_ERROR_SUBSTRINGS,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -788,40 +791,36 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
 
     def get_retryable_errors(self) -> set[str]:
         # `get_rows` already retries a mid-stream drop in-process (reconnect, or fall back to
-        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only
-        # reaches here once that in-process handling gives up (e.g. a full-table scan can't safely
-        # resume once rows have been yielded, since OFFSET has no stable ORDER BY to resume from).
+        # offset chunking) — see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` /
+        # `_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. It only reaches here once
+        # that in-process handling gives up (e.g. a full-table scan can't safely resume once rows
+        # have been yielded, since OFFSET has no stable ORDER BY to resume from, or the drop
+        # recurs on every reconnect attempt within `_connect_with_dropped_retry`'s bounded budget).
         # Temporal then retries the whole activity and the failure is transient and
         # self-recovering, so classify it here too — otherwise `_handle_import_error` logs it at
         # `exception` on every occurrence, flooding error tracking with a self-recovering failure
-        # (e.g. a cloud provider terminating a backend for maintenance or failover).
-        # "the database system is shutting down" is the connect-time sibling of the same restart: a
-        # smart/fast shutdown refuses new connections while the source is going down, which the
-        # offset-chunking reconnect also retries in-process (`_SERVER_STARTING_UP_ERROR_SUBSTRINGS`
-        # in postgres.py) — this is the same whole-activity-retry fallback for when that budget is
-        # exhausted (e.g. a longer maintenance window).
+        # (e.g. a cloud provider terminating a backend for maintenance/failover, or a pooler whose
+        # connection pool stays saturated longer than the in-process retry budget).
+        #
+        # `_SERVER_STARTING_UP_ERROR_SUBSTRINGS` covers the connect-time siblings of the same class:
+        # a primary/standby booting, replaying WAL after a crash, or a smart/fast shutdown refusing
+        # new connections while the source is going down — all retried in-process by the
+        # offset-chunking reconnect, same exhausted-budget fallback as above.
         #
         # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
         # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
         # sustained shortage that outlasts that budget is still transient — the same
-        # reaches-here-only-after-internal-retries-exhaust case as the two entries above.
+        # reaches-here-only-after-internal-retries-exhaust case as the other entries.
         #
-        # A mid-stream or connect-time connection drop ("server closed the connection unexpectedly",
-        # the SSL-flavoured "SSL connection has been closed unexpectedly") is retried in-process by
-        # `_connect_with_dropped_retry` / the offset-chunking fallback (both keyed on
-        # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py). Once that budget is exhausted the
-        # raw psycopg `OperationalError` reaches `_handle_import_error`, which — without a match here
-        # — logs it at `exception` and reports it to error tracking on every occurrence, even though
-        # Temporal retries the whole activity and the drop is transient and self-recovering (a pooler
-        # idle cull, failover, or network blip). Classify it retryable so it logs as a warning
-        # instead. These stay clear of `get_non_retryable_errors` deliberately (see the note there),
-        # so the sync keeps retrying rather than being disabled.
+        # Reusing the actual substring tuples postgres.py retries on (rather than a hand-picked
+        # subset) keeps this in sync as new transient classes are added there — a substring added
+        # to one of those tuples without a matching update here would otherwise keep reporting a
+        # self-recovering failure to error tracking on every occurrence.
         return {
-            "terminating connection due to",
-            "the database system is shutting down",
-            "server closed the connection unexpectedly",
-            "SSL connection has been closed unexpectedly",
+            *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+            *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
+            *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
         }
 
