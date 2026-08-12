@@ -73,7 +73,7 @@ import {
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
-import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
+import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
@@ -621,7 +621,7 @@ const ConditionContent = ({
                                                                     's',
                                                             icon: <IconPeople />,
                                                             disabledReason: hasEarlyAccessFeatures
-                                                                ? 'This flag is linked to an early access feature, so it can only target users. Remove the early access feature to target groups.'
+                                                                ? EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON
                                                                 : undefined,
                                                         })),
                                                     },

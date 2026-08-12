@@ -85,6 +85,10 @@ describe('release condition group targeting on early access flags', () => {
         const organizations = await openTargetBySelect()
 
         expect(organizations).toHaveAttribute('aria-disabled', 'true')
+
+        // Clicking the disabled option must not change the aggregation
+        await userEvent.click(organizations)
+        expect(document.querySelector('[data-attr="condition-set-0-aggregation"]')).toHaveTextContent('Users')
     })
 
     it('leaves the group type selectable when no early access feature is linked', async () => {
