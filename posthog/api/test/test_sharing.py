@@ -1847,7 +1847,7 @@ class TestSharingResourceEditChecks(APIBaseTest):
 
 
 class TestSharingConfigurationReadAccess(APIBaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
