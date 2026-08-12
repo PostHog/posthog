@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { useEffect, useState } from 'react'
+import { ReactNode, useEffect, useState } from 'react'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
 import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
@@ -729,7 +729,13 @@ function SaveTemplateModal({
     )
 }
 
-function EmailTemplaterModal(): JSX.Element {
+function EmailTemplaterModal({
+    liveChanges,
+    saveIndicator,
+}: {
+    liveChanges?: boolean
+    saveIndicator?: ReactNode
+}): JSX.Element {
     const {
         isModalOpen,
         isEmailEditorReady,
@@ -763,13 +769,14 @@ function EmailTemplaterModal(): JSX.Element {
                 simple
                 title=""
                 onClose={() => closeWithConfirmation()}
-                hasUnsavedInput={emailTemplateChanged}
+                hasUnsavedInput={liveChanges ? false : emailTemplateChanged}
             >
                 {/* simple puts us directly in the modal's flex column, so flex-1 fills the screen;
                     a percentage height would collapse inside the default non-flex content wrapper. */}
                 <div className="flex-1 min-h-0 flex relative p-4">
                     {/* Aligned with the modal's close button (top-3 right-4), sitting just left of it */}
                     <div className="absolute top-3 right-14 z-10 flex items-center gap-2">
+                        {saveIndicator}
                         {/* The toggle label changes width; keeping it left of the right-anchored
                             tabs means the tabs never shift when it flips */}
                         <LemonButton
@@ -800,14 +807,24 @@ function EmailTemplaterModal(): JSX.Element {
                                 Save as new template
                             </LemonButton>
                             <div className="flex-1" />
-                            <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
-                            <LemonButton
-                                type="primary"
-                                onClick={() => submitEmailTemplate()}
-                                disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
-                            >
-                                Save
-                            </LemonButton>
+                            {liveChanges ? (
+                                // Edits propagate live and the host persists them, so the only
+                                // action left is leaving the editor.
+                                <LemonButton type="primary" onClick={() => closeWithConfirmation()}>
+                                    Done
+                                </LemonButton>
+                            ) : (
+                                <>
+                                    <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => submitEmailTemplate()}
+                                        disabledReason={isEmailEditorReady ? undefined : 'Loading email editor...'}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -838,7 +855,15 @@ function EmailTemplaterInline(): JSX.Element {
     )
 }
 
-export function EmailTemplater(props: EmailTemplaterLogicProps): JSX.Element {
+export function EmailTemplater({
+    saveIndicator,
+    ...props
+}: EmailTemplaterLogicProps & {
+    // Presentation-only slot rendered in the modal header: hosts using liveChanges surface their
+    // own save state here (the workflow builder's auto-save indicator). Kept out of the logic
+    // props so a fresh JSX element per render doesn't churn propsChanged.
+    saveIndicator?: ReactNode
+}): JSX.Element {
     return (
         <BindLogic logic={emailTemplaterLogic} props={props}>
             <div className="flex flex-col flex-1">
@@ -847,7 +872,7 @@ export function EmailTemplater(props: EmailTemplaterLogicProps): JSX.Element {
                 ) : (
                     <>
                         <EmailTemplaterForm mode="preview" />
-                        <EmailTemplaterModal />
+                        <EmailTemplaterModal liveChanges={props.liveChanges} saveIndicator={saveIndicator} />
                     </>
                 )}
             </div>

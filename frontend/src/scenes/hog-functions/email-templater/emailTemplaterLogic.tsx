@@ -159,6 +159,13 @@ export interface EmailTemplaterLogicProps {
      * parent form's dirty state and save flow see them without a separate editor-level save.
      */
     layout?: 'modal' | 'inline'
+    /**
+     * Propagate edits live (debounced) in the modal layout too, for hosts that persist changes
+     * themselves (the workflow builder's auto-save). The modal loses its save/discard step, and an
+     * externally changed props.value.design (e.g. an AI assistant editing the same email) reloads
+     * the open Unlayer canvas.
+     */
+    liveChanges?: boolean
     // Validation messages owned by the parent form, shown next to each field. The templater does
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
@@ -575,7 +582,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         onEmailEditorReady: () => {
             // Listeners must attach before loadDesign so the initial design:loaded is heard and
             // rebaselines - otherwise the load echo is indistinguishable from a user edit.
-            if (props.layout === 'inline') {
+            if (props.layout === 'inline' || props.liveChanges) {
                 values.emailEditorRef?.editor?.addEventListener('design:updated', () => actions.designUpdated())
             }
             // Both layouts rebaseline on load: the modal submit compares its export against the
@@ -608,10 +615,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // A programmatic loadDesign fires design:updated too; the debounce lets designLoaded
             // rebaseline first, and the equality check below then filters the echo. A genuine user
             // edit differs from the baseline, so it always propagates - even right after a load.
+            // While this is pending, the canvas may hold an edit the parent hasn't seen yet, so
+            // propsChanged must not load an external design over it (the flag below guards that).
+            cache.pendingDesignEdit = true
             await breakpoint(500)
 
             const editor = values.emailEditorRef?.editor
             if (!editor || !values.isEmailEditorReady) {
+                cache.pendingDesignEdit = false
                 return
             }
 
@@ -620,6 +631,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 new Promise<any>((res) => editor.exportPlainText(res)),
             ])
             breakpoint()
+            cache.pendingDesignEdit = false
 
             // Only real changes propagate - an export identical to the last known editor state is a
             // load echo, and pushing it would only mark the parent form dirty.
@@ -627,6 +639,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             cache.lastEditorDesign = htmlData.design
+            // The user now owns the canvas: if an external editor later reverts to a design we once
+            // pushed in, it must load again rather than be skipped as already applied.
+            cache.lastLoadedExternalDesign = null
             props.onChange({
                 ...values.emailTemplate,
                 html: ['native_email', 'native_email_template'].includes(props.type)
@@ -638,7 +653,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         setEmailTemplateValue: ({ name, value }) => {
-            if (values.isModalOpen) {
+            if (values.isModalOpen && !props.liveChanges) {
                 // When open we only update on save
                 return
             }
@@ -682,7 +697,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         closeWithConfirmation: () => {
-            if (values.emailTemplateChanged) {
+            // With live changes there is nothing unsaved to discard; edits already propagated.
+            if (values.emailTemplateChanged && !props.liveChanges) {
                 LemonDialog.open({
                     title: 'Discard changes',
                     description: 'Are you sure you want to discard your changes?',
@@ -756,10 +772,38 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
-    propsChanged(({ actions, props }, oldProps) => {
+    propsChanged(({ actions, props, values, cache }, oldProps) => {
         if (props.value && !objectsEqual(props.value, oldProps.value)) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
+
+            // resetEmailTemplate refreshes the form fields, but the mounted Unlayer canvas only
+            // loads a design on editor-ready or template-apply, so an externally changed design (an
+            // AI assistant or another tab editing this email) must be pushed in here. Our own edits
+            // round-trip back through the parent equal to the last export (or the last pushed
+            // design) and are skipped. A local canvas edit whose debounce hasn't flushed yet wins
+            // over the incoming design: its onChange is about to overwrite the same fields anyway.
+            if (
+                (props.layout === 'inline' || props.liveChanges) &&
+                values.isEmailEditorReady &&
+                !cache.pendingDesignEdit
+            ) {
+                const design = props.value.design ?? (props.value.html ? buildHtmlWrapDesign(props.value.html) : null)
+                if (
+                    design &&
+                    !objectsEqual(design, cache.lastEditorDesign) &&
+                    !objectsEqual(design, cache.lastLoadedExternalDesign)
+                ) {
+                    // lastEditorDesign is set pre-load so the design:updated echo of this load is
+                    // filtered; design:loaded then rebaselines it to the editor's normalized export.
+                    // lastLoadedExternalDesign keeps the raw incoming form, which the normalized
+                    // baseline no longer matches, so the same external design isn't reloaded when an
+                    // unrelated field changes.
+                    cache.lastLoadedExternalDesign = design
+                    cache.lastEditorDesign = design
+                    values.emailEditorRef?.editor?.loadDesign(design)
+                }
+            }
         }
     }),
 
