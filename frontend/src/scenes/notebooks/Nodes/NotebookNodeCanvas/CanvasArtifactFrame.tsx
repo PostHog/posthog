@@ -63,6 +63,8 @@ export function CanvasArtifactFrame({
             artifactPortRef.current = bridge.port1
             artifactPortRef.current.addEventListener('message', onMessage)
             artifactPortRef.current.start()
+            // The sandbox gives srcDoc an opaque origin, so only "*" can transfer this fresh port to the exact iframe window.
+            // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
             iframe?.contentWindow?.postMessage({ channel: 'posthog-canvas-host', type: 'connect' }, '*', [bridge.port2])
             // Queued on the port until the artifact runtime starts it, so the
             // first themed paint happens before any data renders.
