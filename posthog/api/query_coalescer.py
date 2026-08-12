@@ -270,7 +270,8 @@ _TEAM_ID_RE = re.compile(r"^/api/(?:environments|projects)/(\d+)/")
 
 # Detail routes are deliberately absent: a replayed response never reaches the view handler, so
 # `get_object()` and the object-level permission checks hanging off it never run for the follower.
-# `QueryCoalescingMixin` enforces the same rule per action.
+# `QueryCoalescingMixin` enforces the same rule per action, so a pattern added for a view that does
+# not mix it in gets no enforcement at all.
 _COALESCE_PATH_PATTERNS = [
     re.compile(r"^/api/(?:environments|projects)/\d+/query/$"),
     re.compile(r"^/api/(?:environments|projects)/\d+/insights/trend/$"),  # legacy endpoint

@@ -579,7 +579,11 @@ class TestQueryCoalescingKey(APIBaseTest):
                 del self.client.cookies[name]
 
     def test_key_is_stable_for_the_same_principal(self):
-        self.assertEqual(self._key_for(), self._key_for())
+        # The posthog-js cookie carries a session timestamp that moves between two requests from one
+        # page, so a key built from the whole cookie jar would coalesce nothing.
+        first = self._key_for(cookies={"ph_phc_test_posthog": "sesid_1"})
+        second = self._key_for(cookies={"ph_phc_test_posthog": "sesid_2"})
+        self.assertEqual(first, second)
 
     @parameterized.expand(
         [
