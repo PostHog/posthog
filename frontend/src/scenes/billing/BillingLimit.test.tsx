@@ -56,6 +56,8 @@ describe('BillingLimit', () => {
 
     afterEach(async () => {
         cleanup()
+        // Unmount so billingLogic's async listeners don't resolve after the test and log store errors.
+        billingLogic.unmount()
         await act(async () => {
             await new Promise((r) => setTimeout(r, 0))
         })
