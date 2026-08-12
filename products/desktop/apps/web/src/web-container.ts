@@ -215,7 +215,6 @@ import {
   CONNECTIVITY_CLIENT,
   type ConnectivityClient,
 } from "@posthog/ui/features/connectivity/connectivityClient";
-import { cspReportingUiModule } from "@posthog/ui/features/csp-reporting/cspReporting.module";
 import {
   FEATURE_FLAGS,
   type FeatureFlags,
@@ -525,9 +524,6 @@ container.bind(FEATURE_FLAGS).toConstantValue({
 // until posthog is initialized with a real project key.
 container.bind(ANALYTICS_TRACKER).toConstantValue(posthogAnalyticsTracker);
 container.bind(ANALYTICS_SERVICE).toConstantValue(posthogAnalyticsService);
-// Sandboxed frames (MCP apps, artifact previews) report their CSP violations
-// through the tracker, so this loads after it is bound.
-container.load(cspReportingUiModule);
 container.bind(IMPERATIVE_QUERY_CLIENT).toConstantValue(queryClient);
 
 container.bind(AUTH_SIDE_EFFECTS).to(WebAuthSideEffects);

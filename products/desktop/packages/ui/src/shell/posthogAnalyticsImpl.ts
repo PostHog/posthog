@@ -13,13 +13,16 @@ import {
   type UserIdentifyProperties,
 } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import type { CspViolationReport } from "@posthog/ui/features/csp-reporting/schemas";
 import type { FeatureFlags } from "@posthog/ui/features/feature-flags/identifiers";
 import type { PermissionRequest } from "@posthog/ui/features/sessions/sessionLogTypes";
 import type {
   AnalyticsTracker,
   AnalyticsUserGroups,
 } from "@posthog/ui/shell/analytics";
+import {
+  type CspViolationReport,
+  startCspViolationCollector,
+} from "@posthog/ui/shell/cspViolationCollector";
 import { logger } from "@posthog/ui/shell/logger";
 
 const log = logger.scope("analytics");
@@ -108,6 +111,10 @@ export function initializePostHog(sessionId?: string) {
   posthog.unregister("signal_report_id");
 
   isInitialized = true;
+
+  // Sandboxed frames (MCP apps, artifact previews) post their CSP violations to
+  // the renderer; nothing else picks them up.
+  startCspViolationCollector(reportCspViolation);
 
   // Dev-only: expose the posthog instance so flags can be toggled from the
   // renderer console, e.g. `posthog.featureFlags.override({ "agent-platform": true })`
@@ -375,12 +382,12 @@ export function buildCspReportUrl({
 }
 
 /**
- * Post CSP violations as a Reporting API bundle. The reports are already in the
- * shape a browser would have sent, so the endpoint normalizes them into
- * `$csp_violation` events without any client-side mapping.
+ * Post a CSP violation as a Reporting API bundle. The report is already in the
+ * shape a browser would have sent, so the endpoint normalizes it into a
+ * `$csp_violation` event without any client-side mapping.
  */
-export function reportCspViolations(reports: CspViolationReport[]): void {
-  if (!isInitialized || reports.length === 0) {
+export function reportCspViolation(report: CspViolationReport): void {
+  if (!isInitialized) {
     return;
   }
 
@@ -398,10 +405,10 @@ export function reportCspViolations(reports: CspViolationReport[]): void {
   void fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/reports+json" },
-    body: JSON.stringify(reports),
+    body: JSON.stringify([report]),
     keepalive: true,
   }).catch((error: unknown) => {
-    log.warn("Failed to send CSP violation reports", error);
+    log.warn("Failed to send CSP violation report", error);
   });
 }
 
@@ -478,7 +485,6 @@ export const posthogAnalyticsTracker: AnalyticsTracker = {
   setUserGroups,
   resetUser,
   captureSurveyResponse,
-  reportCspViolations,
 };
 
 /**

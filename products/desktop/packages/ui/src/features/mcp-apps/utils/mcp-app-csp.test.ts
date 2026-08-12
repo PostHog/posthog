@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CSP_VIOLATION_NOTIFICATION } from "../../csp-reporting/identifiers";
+import { CSP_VIOLATION_NOTIFICATION } from "../../../shell/cspViolationCollector";
 import {
   applyCspToHtml,
   buildCspMetaTag,

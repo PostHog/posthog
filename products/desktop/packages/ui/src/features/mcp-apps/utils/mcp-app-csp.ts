@@ -10,7 +10,7 @@
  */
 
 import type { McpUiResourceCsp } from "@modelcontextprotocol/ext-apps/app-bridge";
-import { CSP_VIOLATION_NOTIFICATION } from "../../csp-reporting/identifiers";
+import { CSP_VIOLATION_NOTIFICATION } from "../../../shell/cspViolationCollector";
 
 // Per MCP Apps spec, the default CSP includes 'self' in script/style/img/media-src.
 // 'self' is effectively inert in our sandbox model because the inner iframe runs

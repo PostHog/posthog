@@ -264,22 +264,22 @@ describe("buildCspReportUrl", () => {
   });
 });
 
-describe("reportCspViolations", () => {
+describe("reportCspViolation", () => {
   const report = {
     type: "csp-violation" as const,
     url: "mcp-sandbox://proxy/",
     body: { blockedURL: "https://mcp.us.posthog.com/a.css" },
   };
 
-  it("posts the reports as a Reporting API bundle", async () => {
+  it("posts the report as a Reporting API bundle", async () => {
     const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
       Promise.resolve(new Response(null, { status: 204 })),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const { initializePostHog, reportCspViolations } = await loadAnalytics();
+    const { initializePostHog, reportCspViolation } = await loadAnalytics();
     initializePostHog();
 
-    reportCspViolations([report]);
+    reportCspViolation(report);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
@@ -291,16 +291,12 @@ describe("reportCspViolations", () => {
     expect(JSON.parse(init.body as string)).toEqual([report]);
   });
 
-  it.each([
-    ["posthog has no project to report to yet", false, [report]],
-    ["the batch is empty", true, []],
-  ])("sends no request when %s", async (_name, initialized, reports) => {
+  it("sends no request before posthog has a project to report to", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const { initializePostHog, reportCspViolations } = await loadAnalytics();
-    if (initialized) initializePostHog();
+    const { reportCspViolation } = await loadAnalytics();
 
-    reportCspViolations(reports);
+    reportCspViolation(report);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
