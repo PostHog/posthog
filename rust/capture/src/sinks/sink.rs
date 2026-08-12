@@ -76,16 +76,6 @@ pub trait Sink {
     fn flush(&self) -> Result<(), anyhow::Error>;
 }
 
-/// Batch-uniform failure: every payload in the batch reports the same error.
-/// The per-event surface refines only with the per-event response model —
-/// until then a batch fails or succeeds as one.
-pub(crate) fn batch_failure(uuids: Vec<Uuid>, err: CaptureError) -> Vec<SinkResult> {
-    uuids
-        .into_iter()
-        .map(|uuid| SinkResult::failed(uuid, err.clone()))
-        .collect()
-}
-
 /// Collapse per-event results into the v0 whole-request response:
 /// the first failure in publish order wins.
 pub fn fold_results(results: Vec<SinkResult>) -> Result<(), CaptureError> {
@@ -128,20 +118,6 @@ mod tests {
         match fold_results(results) {
             Err(CaptureError::EventTooBig(msg)) => assert_eq!(msg, "first"),
             other => panic!("expected the first failure, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn batch_failure_reports_every_uuid() {
-        let uuids = vec![Uuid::now_v7(), Uuid::now_v7(), Uuid::now_v7()];
-        let results = batch_failure(uuids.clone(), CaptureError::RetryableSinkError);
-        assert_eq!(results.len(), uuids.len());
-        for (result, uuid) in results.iter().zip(&uuids) {
-            assert_eq!(result.uuid, *uuid);
-            assert!(matches!(
-                result.outcome,
-                Outcome::Failed(CaptureError::RetryableSinkError)
-            ));
         }
     }
 }

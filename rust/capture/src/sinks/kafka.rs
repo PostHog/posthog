@@ -24,7 +24,7 @@ use crate::pipeline::{self, Address, Lane, Pipeline};
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Output, OutputRegistry};
-use crate::sinks::sink::{batch_failure, fold_results, PreparedPayload, Sink, SinkResult};
+use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
@@ -673,14 +673,19 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
     /// acked-before-failure events included. The per-event surface refines
     /// only with the per-event response model.
     async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult> {
-        let uuids: Vec<uuid::Uuid> = payloads.iter().map(|p| p.uuid).collect();
+        // Results are built in payload order as the loop enqueues, so the one
+        // Vec the return type requires is the only allocation on the happy
+        // path. Failure paths rewrite it in place to the batch-uniform error.
+        let mut results: Vec<SinkResult> = Vec::with_capacity(payloads.len());
 
         let enqueue_start = Instant::now();
         let mut ack_set = JoinSet::new();
-        for payload in payloads {
+        let mut payloads = payloads.into_iter();
+        for payload in payloads.by_ref() {
             match self.enqueue_record(payload.record) {
                 Ok(ack_future) => {
                     ack_set.spawn(ack_future);
+                    results.push(SinkResult::published(payload.uuid));
                 }
                 Err(err) => {
                     // Record enqueue duration on the error path too so slow-fail
@@ -690,7 +695,12 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
                     // "dropped" outcome on capture_kafka_produce_ack_duration_ms.
                     histogram!("capture_kafka_batch_enqueue_duration_seconds")
                         .record(enqueue_start.elapsed().as_secs_f64());
-                    return batch_failure(uuids, err);
+                    for result in &mut results {
+                        result.outcome = Outcome::Failed(err.clone());
+                    }
+                    results.push(SinkResult::failed(payload.uuid, err.clone()));
+                    results.extend(payloads.map(|p| SinkResult::failed(p.uuid, err.clone())));
+                    return results;
                 }
             }
         }
@@ -698,8 +708,13 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
             .record(enqueue_start.elapsed().as_secs_f64());
 
         match drain_acks(ack_set).await {
-            Ok(()) => uuids.into_iter().map(SinkResult::published).collect(),
-            Err(err) => batch_failure(uuids, err),
+            Ok(()) => results,
+            Err(err) => {
+                for result in &mut results {
+                    result.outcome = Outcome::Failed(err.clone());
+                }
+                results
+            }
         }
     }
 
