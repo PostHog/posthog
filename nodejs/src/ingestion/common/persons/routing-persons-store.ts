@@ -89,7 +89,6 @@ export class RoutingPersonsStore implements PersonsStore {
      */
     private async route<T>(
         verb: string,
-        teamId: number,
         pg: () => Promise<T>,
         personhog: () => Promise<T>,
         opts?: { tx?: unknown; shadow?: () => Promise<unknown> }
@@ -148,7 +147,6 @@ export class RoutingPersonsStore implements PersonsStore {
     fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         return this.route(
             'fetchForChecking',
-            teamId,
             () => this.pg.fetchForChecking(teamId, distinctId, batchId),
             () => this.personhog.fetchForChecking(teamId, distinctId, batchId)
         )
@@ -157,7 +155,6 @@ export class RoutingPersonsStore implements PersonsStore {
     fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         return this.route(
             'fetchForUpdate',
-            teamId,
             () => this.pg.fetchForUpdate(teamId, distinctId, batchId),
             () => this.personhog.fetchForUpdate(teamId, distinctId, batchId)
         )
@@ -168,8 +165,11 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctIds: string[],
         batchId: number
     ): Promise<InternalPersonWithDistinctId[]> {
-        // Merge-fold pre-lock: merge flows stay whole on Postgres.
-        return this.pg.fetchPersonsForUpdateByDistinctIds(teamId, distinctIds, batchId)
+        return this.route(
+            'fetchPersonsForUpdateByDistinctIds',
+            () => this.pg.fetchPersonsForUpdateByDistinctIds(teamId, distinctIds, batchId),
+            () => this.personhog.fetchPersonsForUpdateByDistinctIds(teamId, distinctIds, batchId)
+        )
     }
 
     createPerson(
@@ -188,7 +188,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<CreatePersonResult> {
         return this.route(
             'createPerson',
-            teamId,
             () =>
                 this.pg.createPerson(
                     createdAt,
@@ -231,7 +230,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<[InternalPerson, PersonMessage[]]> {
         return this.route(
             'applyEventOps',
-            person.team_id,
             () => this.pg.applyEventOps(person, ops, distinctId, batchId),
             () => this.personhog.applyEventOps(person, ops, distinctId, batchId),
             {
@@ -255,7 +253,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return this.route(
             'updatePersonWithPropertiesDiffForUpdate',
-            person.team_id,
             () =>
                 this.pg.updatePersonWithPropertiesDiffForUpdate(
                     person,
@@ -308,7 +305,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<PersonMessage[]> {
         return this.route(
             'deletePerson',
-            person.team_id,
             () => this.pg.deletePerson(person, distinctId, tx),
             () => this.personhog.deletePerson(person, distinctId, tx)
         )
@@ -323,7 +319,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<void> {
         return this.route(
             'claimLifecycleMarks',
-            teamId,
             () => this.pg.claimLifecycleMarks(opId, teamId, persons, distinctId, tx),
             () => this.personhog.claimLifecycleMarks(opId, teamId, persons, distinctId, tx)
         )
@@ -337,7 +332,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<void> {
         return this.route(
             'releaseLifecycleMarks',
-            teamId,
             () => this.pg.releaseLifecycleMarks(opId, teamId, distinctId, tx),
             () => this.personhog.releaseLifecycleMarks(opId, teamId, distinctId, tx)
         )
@@ -346,7 +340,6 @@ export class RoutingPersonsStore implements PersonsStore {
     isPersonLive(person: InternalPerson, distinctId: string, tx?: PersonRepositoryTransaction): Promise<boolean> {
         return this.route(
             'isPersonLive',
-            person.team_id,
             () => this.pg.isPersonLive(person, distinctId, tx),
             () => this.personhog.isPersonLive(person, distinctId, tx)
         )
@@ -361,7 +354,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return this.route(
             'updatePersonForMerge',
-            person.team_id,
             () => this.pg.updatePersonForMerge(person, update, distinctId, batchId, tx),
             () => this.personhog.updatePersonForMerge(person, update, distinctId, batchId, tx)
         )
@@ -376,7 +368,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<PersonMessage[]> {
         return this.route(
             'addDistinctId',
-            person.team_id,
             () => this.pg.addDistinctId(person, distinctId, version, tx, batchId),
             () => this.personhog.addDistinctId(person, distinctId, version, tx, batchId)
         )
@@ -392,7 +383,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<MoveDistinctIdsResult> {
         return this.route(
             'moveDistinctIds',
-            source.team_id,
             () => this.pg.moveDistinctIds(source, target, distinctId, limit, tx, batchId),
             () => this.personhog.moveDistinctIds(source, target, distinctId, limit, tx, batchId)
         )
@@ -407,7 +397,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<MoveDistinctIdsResult> {
         return this.route(
             'moveDistinctIdsFromPersons',
-            target.team_id,
             () => this.pg.moveDistinctIdsFromPersons(sources, target, distinctId, tx, batchId),
             () => this.personhog.moveDistinctIdsFromPersons(sources, target, distinctId, tx, batchId)
         )
@@ -418,12 +407,8 @@ export class RoutingPersonsStore implements PersonsStore {
         distinctId: string,
         tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]> {
-        if (persons.length === 0) {
-            return this.pg.deletePersons(persons, distinctId, tx)
-        }
         return this.route(
             'deletePersons',
-            persons[0].team_id,
             () => this.pg.deletePersons(persons, distinctId, tx),
             () => this.personhog.deletePersons(persons, distinctId, tx)
         )
@@ -437,7 +422,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<Map<string, number>> {
         return this.route(
             'countDistinctIdsForPersons',
-            teamId,
             () => this.pg.countDistinctIdsForPersons(teamId, personIds, distinctId, tx),
             () => this.personhog.countDistinctIdsForPersons(teamId, personIds, distinctId, tx)
         )
@@ -452,7 +436,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<void> {
         return this.route(
             'updateCohortsAndFeatureFlagsForMerge',
-            teamID,
             () => this.pg.updateCohortsAndFeatureFlagsForMerge(teamID, sourcePersonID, targetPersonID, distinctId, tx),
             () =>
                 this.personhog.updateCohortsAndFeatureFlagsForMerge(
@@ -474,7 +457,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<void> {
         return this.route(
             'updateCohortsAndFeatureFlagsForMergeBatch',
-            teamID,
             () =>
                 this.pg.updateCohortsAndFeatureFlagsForMergeBatch(
                     teamID,
@@ -502,7 +484,6 @@ export class RoutingPersonsStore implements PersonsStore {
     ): Promise<string[]> {
         return this.route(
             'fetchPersonDistinctIds',
-            person.team_id,
             () => this.pg.fetchPersonDistinctIds(person, distinctId, limit, tx),
             () => this.personhog.fetchPersonDistinctIds(person, distinctId, limit, tx)
         )
@@ -540,7 +521,13 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     getFlushStats(): BatchWritingStoreFlushStats {
-        return this.pg.getFlushStats()
+        const pg = this.pg.getFlushStats()
+        const personhog = this.personhog.getFlushStats()
+        return {
+            dirtyEntryCount: pg.dirtyEntryCount + personhog.dirtyEntryCount,
+            referencedBatchCount: pg.referencedBatchCount + personhog.referencedBatchCount,
+            cacheEntryCount: pg.cacheEntryCount + personhog.cacheEntryCount,
+        }
     }
 
     async flush(): Promise<FlushResult[]> {
