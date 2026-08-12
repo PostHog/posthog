@@ -22,6 +22,8 @@ from posthog.rbac.user_access_control import (
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
@@ -2192,3 +2194,68 @@ class TestUserAccessControlFallbackParent(BaseUserAccessControlTest):
 
         assert self._level(self.sourced_table) == "none"
         assert self._level(other_table) == "editor"
+
+
+@pytest.mark.ee
+class TestProjectScopedResources(BaseUserAccessControlTest):
+    """Dashboards and insights belong to a project, not to one of its environments, so the same
+    object is reachable through every environment in the project - see
+    PROJECT_SCOPED_ACCESS_CONTROL_RESOURCES."""
+
+    def setUp(self):
+        super().setUp()
+        self.sibling_team = Team.objects.create(
+            organization=self.organization, project=self.team.project, name="Sibling environment"
+        )
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+    def _deny(self, resource, resource_id, team):
+        AccessControl.objects.create(team=team, resource=resource, resource_id=resource_id, access_level="none")
+
+    def _level(self, obj, team):
+        return UserAccessControl(self.user, team).get_user_access_level(obj)
+
+    @parameterized.expand(
+        [
+            ("dashboard_denied_in_its_own_environment", "dashboard", False),
+            ("dashboard_denied_in_a_sibling_environment", "dashboard", True),
+            ("insight_denied_in_its_own_environment", "insight", False),
+            ("insight_denied_in_a_sibling_environment", "insight", True),
+        ]
+    )
+    def test_rule_governs_the_object_from_every_environment(self, _name, resource, rule_in_sibling):
+        model = Dashboard if resource == "dashboard" else Insight
+        obj = model.objects.create(team=self.team, name="Restricted")
+        self._deny(resource, str(obj.id), self.sibling_team if rule_in_sibling else self.team)
+
+        assert self._level(obj, self.team) == "none"
+        assert self._level(obj, self.sibling_team) == "none"
+
+    def test_environment_scoped_resource_keeps_its_rule_in_its_own_environment(self):
+        # Notebooks are mounted under a project id, so resolution always names the project's
+        # primary environment and a rule about one can only ever be stored there
+        notebook = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Restricted")
+        self._deny("notebook", str(notebook.id), self.team)
+
+        assert self._level(notebook, self.team) == "none"
+        assert self._level(notebook, self.sibling_team) == "editor"
+
+    def test_rule_does_not_reach_another_project(self):
+        other_project_team = Team.objects.create(organization=self.organization, name="Other project")
+        dashboard = Dashboard.objects.create(team=self.team, name="Restricted")
+        self._deny("dashboard", str(dashboard.id), self.team)
+
+        assert self._level(dashboard, other_project_team) == "editor"
+
+    def test_denied_object_is_filtered_out_of_a_sibling_environments_queryset(self):
+        denied = Dashboard.objects.create(team=self.team, name="Restricted")
+        visible = Dashboard.objects.create(team=self.team, name="Visible")
+        self._deny("dashboard", str(denied.id), self.team)
+
+        queryset = UserAccessControl(self.user, self.sibling_team).filter_queryset_by_access_level(
+            Dashboard.objects.filter(team__project_id=self.team.project_id)
+        )
+
+        assert list(queryset) == [visible]

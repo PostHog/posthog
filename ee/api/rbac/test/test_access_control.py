@@ -2530,3 +2530,55 @@ class TestCohortUsedInAccessControl(BaseAccessControlTest):
         assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
         assert block["total"] == 2
         assert block["has_more"] is False
+
+
+class TestAccessControlAcrossEnvironments(BaseAccessControlTest):
+    """Dashboards and insights are addressable under every environment in their project, so a
+    restriction has to hold whichever environment the url names. Resolution itself is covered in
+    posthog/rbac/test/test_user_access_control.py; these guard that the endpoints consult it."""
+
+    def setUp(self):
+        super().setUp()
+        self.sibling_team = Team.objects.create(
+            organization=self.organization, project=self.team.project, name="Sibling environment"
+        )
+        self.other_user = self._create_user("other_user")
+        self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user, name="Restricted")
+        self.insight = Insight.objects.create(team=self.team, created_by=self.other_user, name="Restricted")
+
+    def _restrict(self, resource: str, object_id: str) -> None:
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/{self.team.id}/{resource}/{object_id}/access_controls",
+            {"access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+    def _object_id(self, resource: str) -> str:
+        return str(self.dashboard.id if resource == "dashboards" else self.insight.id)
+
+    @parameterized.expand([("dashboards",), ("insights",)])
+    def test_restricted_object_is_not_readable_through_a_sibling_environment(self, resource):
+        object_id = self._object_id(resource)
+        self._restrict(resource, object_id)
+
+        res = self.client.get(f"/api/projects/{self.sibling_team.id}/{resource}/{object_id}/")
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
+
+    @parameterized.expand([("dashboards",), ("insights",)])
+    def test_restricted_object_is_not_listed_through_a_sibling_environment(self, resource):
+        object_id = self._object_id(resource)
+        self._restrict(resource, object_id)
+
+        res = self.client.get(f"/api/projects/{self.sibling_team.id}/{resource}/")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert object_id not in [str(result["id"]) for result in res.json()["results"]]
+
+    def test_restricted_object_is_not_writable_through_a_sibling_environment(self):
+        self._restrict("dashboards", str(self.dashboard.id))
+
+        res = self.client.patch(
+            f"/api/projects/{self.sibling_team.id}/dashboards/{self.dashboard.id}/", {"name": "renamed"}
+        )
+        assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
