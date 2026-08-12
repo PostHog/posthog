@@ -1,5 +1,5 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -20,10 +20,10 @@ class Element(models.Model):
     group = models.ForeignKey("ElementGroup", on_delete=models.CASCADE, null=True, blank=True)
 
 
-# The key stops at `=` so a failed attempt ends at the next one. A key of `.*?` instead scans to the
-# end of the attribute run before failing, once per start position, which costs time quadratic in the
-# run's length on input that holds `=` without a following quote.
-parse_attributes_regex = re.compile(r'(?P<attribute>(?P<key>[^"=]*)="(?P<value>.*?[^\\])")', re.MULTILINE)
+# Matches one attribute's value, anchored where the caller found the opening quote. Unchanged from
+# the pattern the whole attribute used to be part of, so values parse exactly as before: the shortest
+# run whose last character is not a backslash, up to the closing quote.
+_ATTRIBUTE_VALUE_REGEX = re.compile(r'(.*?[^\\])"', re.MULTILINE)
 
 # Below splits all elements by ;, while ignoring escaped quotes and semicolons within quotes.
 # Every branch of the quoted-string alternation starts on a distinct character, so a given
@@ -42,6 +42,32 @@ MAX_ELEMENTS_CHAIN_LENGTH = 16_384
 # Below splits the tag/classes from attributes
 # Needs a regex because classes can have : too
 split_class_attributes = re.compile(r"(.*?)($|:([a-zA-Z\-\_0-9]*=.*))")
+
+
+def iter_attributes(source: str) -> Iterator[tuple[str, str]]:
+    """Yield each `key="value"` pair in an element's attribute run, left to right.
+
+    Written as a scan rather than one regex because a regex has to restart at every position when a
+    match fails, and each restart re-reads the rest of the run. That made the cost quadratic in the
+    run's length for an element that holds no `="` at all, which is a shape the sender controls.
+    `str.find` jumps straight to the next candidate instead, so the whole run is read once.
+    """
+    index = 0
+    while True:
+        equals = source.find('="', index)
+        if equals < 0:
+            return
+        # The key runs back to the previous attribute's closing quote, matching what the lazy
+        # key of the original single regex consumed.
+        key_start = equals
+        while key_start > index and source[key_start - 1] != '"':
+            key_start -= 1
+        value_match = _ATTRIBUTE_VALUE_REGEX.match(source, equals + 2)
+        if value_match is None:
+            index = equals + 2
+            continue
+        yield source[key_start:equals], value_match.group(1)
+        index = value_match.end()
 
 
 def _split_chain(chain: str) -> list[str]:
@@ -93,7 +119,7 @@ def chain_to_elements(chain: str) -> list[Element]:
     elements = []
     for idx, el_string in enumerate(_split_chain(chain)):
         el_string_split = re.findall(split_class_attributes, el_string)[0]
-        attributes = re.finditer(parse_attributes_regex, el_string_split[2]) if len(el_string_split) > 2 else []
+        attributes = iter_attributes(el_string_split[2]) if len(el_string_split) > 2 else []
 
         element = Element(order=idx)
 
@@ -103,20 +129,19 @@ def chain_to_elements(chain: str) -> list[Element]:
             if len(tag_and_class) > 1:
                 element.attr_class = [cl for cl in tag_and_class[1].split(".") if cl != ""]
 
-        for ii in attributes:
-            item = ii.groupdict()
-            if item["key"] == "href":
-                element.href = item["value"]
-            elif item["key"] == "nth-child":
-                element.nth_child = int(item["value"])
-            elif item["key"] == "nth-of-type":
-                element.nth_of_type = int(item["value"])
-            elif item["key"] == "text":
-                element.text = item["value"]
-            elif item["key"] == "attr_id":
-                element.attr_id = item["value"]
-            elif item["key"]:
-                element.attributes[item["key"]] = item["value"]
+        for key, value in attributes:
+            if key == "href":
+                element.href = value
+            elif key == "nth-child":
+                element.nth_child = int(value)
+            elif key == "nth-of-type":
+                element.nth_of_type = int(value)
+            elif key == "text":
+                element.text = value
+            elif key == "attr_id":
+                element.attr_id = value
+            elif key:
+                element.attributes[key] = value
 
         elements.append(element)
     return elements
@@ -203,9 +228,7 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
                 element["attr_class"] = [cl for cl in tag_and_class[1].split(".") if cl != ""]
 
         if attrs_part:
-            for attribute_match in parse_attributes_regex.finditer(attrs_part):
-                key = attribute_match.group("key")
-                value = attribute_match.group("value")
+            for key, value in iter_attributes(attrs_part):
                 if key == "href":
                     element["href"] = value
                 elif key == "nth-child":

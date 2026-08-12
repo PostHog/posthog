@@ -8,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.api.element import ElementSerializer
 from posthog.models.element import Element, chain_to_elements, elements_to_string
-from posthog.models.element.element import MAX_ELEMENTS_CHAIN_LENGTH, build_attributes_filter, chain_to_element_dicts
+from posthog.models.element.element import (
+    MAX_ELEMENTS_CHAIN_LENGTH,
+    build_attributes_filter,
+    chain_to_element_dicts,
+    iter_attributes,
+)
 
 
 class TestElement(ClickhouseTestMixin, BaseTest):
@@ -188,13 +193,26 @@ class TestChainSplitting(SimpleTestCase):
         assert len(chain) <= MAX_ELEMENTS_CHAIN_LENGTH
         assert len(chain_to_elements(chain)) == segments
 
-    def test_an_attribute_key_stops_at_the_equals_sign(self) -> None:
-        # An attribute run holding `=` without a following quote is what makes the parse quadratic,
-        # and it stops being quadratic exactly because the key cannot span an `=`. Reverting the key
-        # to `.*?` reads this key as `x=y` and takes seconds on a chain at the length limit.
-        elements = chain_to_elements('a:x=y="v"nth-child="0"')
-
-        assert elements[0].attributes == {"y": "v"}
+    @parameterized.expand(
+        [
+            ("plain pair", 'a="1"', [("a", "1")]),
+            ("adjacent pairs", 'a="1"b="2"', [("a", "1"), ("b", "2")]),
+            ("equals inside a value", 'href="/x?b=c"a="1"', [("href", "/x?b=c"), ("a", "1")]),
+            ("equals inside a key", 'a=b="v"', [("a=b", "v")]),
+            ("escaped quote inside a value", r'k="a\"b"n="1"', [("k", r"a\"b"), ("n", "1")]),
+            # A value needs at least one character, so the first quote pair does not close here and
+            # the value runs on to the next quote.
+            ("empty value runs on", 'a=""b="2"', [("a", '"b=')]),
+            ("equals with no quote", "a=1b=2", []),
+            ("unterminated quote", 'a="1"b="2', [("a", "1")]),
+            ("no attributes at all", "", []),
+        ]
+    )
+    def test_attribute_parsing(self, _name: str, source: str, expected: list[tuple[str, str]]) -> None:
+        # The parse is a hand-written scan rather than one regex, because a regex restarts at every
+        # position when a match fails and re-reads the rest of the run, which costs time quadratic in
+        # an attribute run the event sender controls. These cases pin the parse that scan has to keep.
+        assert list(iter_attributes(source)) == expected
 
     def test_oversized_chain_is_truncated_rather_than_parsed_whole(self) -> None:
         segments = MAX_ELEMENTS_CHAIN_LENGTH // (len(SEGMENT) + 1)
