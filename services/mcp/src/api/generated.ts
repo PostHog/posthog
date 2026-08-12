@@ -15931,6 +15931,14 @@ export namespace Schemas {
       channel_name: string;
       /** Deep link that opens the mirrored Slack thread. */
       url: string;
+      /** Progress of backfilling an imported Slack thread: 'pending', 'importing', 'complete', 'partial' or 'failed'. Blank when the discussion was sent to Slack rather than imported from it. Poll while this is 'pending' or 'importing'. */
+      import_status: string;
+      /** Why an import failed or stopped early. Blank otherwise. */
+      import_error: string;
+      /** Slack messages imported into the discussion so far, including the thread root. */
+      imported_message_count: number;
+      /** Messages Slack reported in the thread when the import started, so the UI can show progress. 0 when the discussion wasn't imported. */
+      import_expected_count: number;
     }
 
     export interface Comment {
@@ -15976,6 +15984,26 @@ export namespace Schemas {
       error_type?: string;
     }
 
+    /**
+     * * `` - Not an import
+     * * `pending` - Pending
+     * * `importing` - Importing
+     * * `complete` - Complete
+     * * `partial` - Partially imported
+     * * `failed` - Failed
+     */
+    export type ImportStatusEnum = typeof ImportStatusEnum[keyof typeof ImportStatusEnum];
+
+
+    export const ImportStatusEnum = {
+      Pending: 'pending',
+      Importing: 'importing',
+      Complete: 'complete',
+      Partial: 'partial',
+      Failed: 'failed',
+    } as const;
+
+    export const CommentSlackThreadImportStatus = {...ImportStatusEnum,...BlankEnum,} as const
     export interface CommentSlackThread {
       readonly id: string;
       /** Resource type of the mirrored discussion (e.g. Insight). */
@@ -16003,6 +16031,21 @@ export namespace Schemas {
       readonly created_at: string;
       /** User who mirrored the discussion. Null if since deleted. */
       readonly created_by: UserBasic | null;
+      /** Progress of backfilling an imported Slack thread. Blank when the discussion was sent to Slack rather than imported from it.
+       *
+       * * `` - Not an import
+       * * `pending` - Pending
+       * * `importing` - Importing
+       * * `complete` - Complete
+       * * `partial` - Partially imported
+       * * `failed` - Failed */
+      readonly import_status: typeof CommentSlackThreadImportStatus[keyof typeof CommentSlackThreadImportStatus];
+      /** Why an import failed or stopped early. Blank otherwise. */
+      readonly import_error: string;
+      /** Slack messages imported so far, including the thread root. */
+      readonly imported_message_count: number;
+      /** Messages Slack reported in the thread when the import started. */
+      readonly import_expected_count: number;
     }
 
     /**
@@ -40133,6 +40176,26 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+    }
+
+    export interface ImportSlackThread {
+      /** ID of the Slack integration (kind='slack') whose bot reads the thread. */
+      integration_id: number;
+      /**
+         * Link to any message in the Slack thread. A link to a reply works — the thread's root is resolved from Slack. The channel and thread are parsed server-side.
+         * @maxLength 500
+         */
+      slack_url: string;
+      /**
+         * Resource type to attach the discussion to.
+         * @maxLength 79
+         */
+      scope: string;
+      /**
+         * ID of the resource to attach the discussion to. Required.
+         * @maxLength 72
+         */
+      item_id: string;
     }
 
     /**

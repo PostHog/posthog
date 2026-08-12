@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
@@ -8,6 +10,11 @@ import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
 import { commentsLogic } from './commentsLogic'
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: { error: jest.fn(), success: jest.fn(), info: jest.fn() },
+}))
 
 const DRAFT_CONTENT: JSONContent = {
     type: 'doc',
@@ -45,6 +52,8 @@ describe('commentsLogic', () => {
 
     beforeEach(() => {
         lastCreateBody = null
+        jest.mocked(lemonToast.error).mockClear()
+        jest.mocked(lemonToast.success).mockClear()
         initKeaTests()
         useMocks({
             get: {
@@ -435,5 +444,133 @@ describe('commentsLogic', () => {
             .toNotHaveDispatchedActions([sidePanelDiscussionLogic.actionTypes.scrollToLastComment])
 
         expect(logic.values.composerDrafts['footer']).toEqual(DRAFT_CONTENT)
+    })
+
+    describe('importing a Slack thread', () => {
+        const IMPORT_URL = 'https://acme.slack.com/archives/C0123ABCD/p1700000000000100'
+        const importingComment = (importStatus: string, expected = 3): Record<string, any> => ({
+            ...makeComment('imported-root'),
+            slack_thread: {
+                channel_id: 'C0123ABCD',
+                channel_name: 'team-support',
+                url: 'https://slack.com/archives/C0123ABCD/p1700000000000100',
+                import_status: importStatus,
+                import_error: '',
+                imported_message_count: 1,
+                import_expected_count: expected,
+            },
+        })
+
+        it('posts the pasted link and refetches so the imported root shows up', async () => {
+            let importBody: Record<string, any> | null = null
+            useMocks({
+                get: { '/api/projects/:team_id/comments': { results: [importingComment('pending')] } },
+                post: {
+                    '/api/projects/:team_id/comments/import_from_slack/': async ({ request }) => {
+                        importBody = (await request.json()) as Record<string, any>
+                        return [201, { id: 'mirror-1' }]
+                    },
+                },
+            })
+            logic.actions.setComposerSendToSlack(true)
+            logic.actions.setComposerSlackMode('import')
+            logic.actions.setComposerSlackIntegrationId(7)
+            logic.actions.setComposerSlackThreadUrl(IMPORT_URL)
+
+            await expectLogic(logic, () => {
+                logic.actions.importSlackThread()
+            }).toDispatchActions(['importSlackThreadSuccess'])
+
+            expect(importBody).toEqual({
+                integration_id: 7,
+                slack_url: IMPORT_URL,
+                scope: ActivityScope.INSIGHT,
+                item_id: '1',
+            })
+            expect(logic.values.comments?.[0].id).toBe('imported-root')
+            // The panel closes and the field clears so the composer is ready for a normal comment.
+            expect(logic.values.composerSendToSlack).toBe(false)
+            expect(logic.values.composerSlackThreadUrl).toBe('')
+        })
+
+        it('does not call the API without a valid Slack link', async () => {
+            let called = false
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/comments/import_from_slack/': () => {
+                        called = true
+                        return [201, {}]
+                    },
+                },
+            })
+            logic.actions.setComposerSlackIntegrationId(7)
+            logic.actions.setComposerSlackThreadUrl('https://example.com/nope')
+
+            await expectLogic(logic, () => {
+                logic.actions.importSlackThread()
+            }).toDispatchActions(['importSlackThreadSuccess'])
+
+            expect(called).toBe(false)
+        })
+
+        it('surfaces the backend detail when the import is refused', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/comments/import_from_slack/': () => [
+                        400,
+                        { detail: "The PostHog Slack app isn't in that channel." },
+                    ],
+                },
+            })
+            logic.actions.setComposerSlackIntegrationId(7)
+            logic.actions.setComposerSlackThreadUrl(IMPORT_URL)
+
+            await expectLogic(logic, () => {
+                logic.actions.importSlackThread()
+            }).toDispatchActions(['importSlackThreadFailure'])
+
+            expect(lemonToast.error).toHaveBeenCalledWith("The PostHog Slack app isn't in that channel.")
+        })
+
+        it('polls while an import is running and stops once it settles', async () => {
+            jest.useFakeTimers()
+            try {
+                useMocks({
+                    get: { '/api/projects/:team_id/comments': { results: [importingComment('importing')] } },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadComments()
+                }).toDispatchActions(['loadCommentsSuccess'])
+                expect(logic.values.hasImportingSlackThread).toBe(true)
+                expect(logic.cache.disposables.registry.has('slackImportPoll')).toBe(true)
+
+                // The backfill finishes: the next poll sees a terminal status and disarms itself.
+                useMocks({
+                    get: { '/api/projects/:team_id/comments': { results: [importingComment('complete')] } },
+                })
+                await expectLogic(logic, () => {
+                    jest.advanceTimersByTime(3000)
+                }).toDispatchActions(['refreshComments', 'refreshCommentsSuccess'])
+
+                expect(logic.values.hasImportingSlackThread).toBe(false)
+                expect(logic.cache.disposables.registry.has('slackImportPoll')).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('does not poll a discussion that was sent to Slack rather than imported', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/comments': { results: [importingComment('')] } },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadComments()
+            }).toDispatchActions(['loadCommentsSuccess'])
+
+            expect(logic.values.hasImportingSlackThread).toBe(false)
+            expect(logic.cache.disposables.registry.has('slackImportPoll')).toBe(false)
+        })
     })
 })

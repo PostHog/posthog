@@ -11,6 +11,34 @@ from posthog.models.utils import UUIDModel
 DISCUSSIONS_SLACK_SYNC_FLAG = "discussions-slack-sync"
 
 
+class SlackImportStatus(models.TextChoices):
+    """Progress of backfilling an existing Slack thread into a discussion.
+
+    Only meaningful on mirrors created by the import action. A mirror created by send_to_slack
+    stays NOT_IMPORTED for its whole life: there the discussion is the source of truth and
+    nothing is ever pulled from Slack.
+    """
+
+    NOT_IMPORTED = "", "Not an import"
+    PENDING = "pending", "Pending"
+    IMPORTING = "importing", "Importing"
+    COMPLETE = "complete", "Complete"
+    PARTIAL = "partial", "Partially imported"
+    FAILED = "failed", "Failed"
+
+
+# What the frontend stops polling on. NOT_IMPORTED counts as terminal because a send_to_slack
+# mirror never runs an import at all.
+SLACK_IMPORT_TERMINAL_STATUSES = frozenset(
+    {
+        SlackImportStatus.NOT_IMPORTED.value,
+        SlackImportStatus.COMPLETE.value,
+        SlackImportStatus.PARTIAL.value,
+        SlackImportStatus.FAILED.value,
+    }
+)
+
+
 class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
     """Maps a discussion thread to a mirrored Slack thread so replies sync both ways.
 
@@ -54,12 +82,40 @@ class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, db_constraint=False
     )
 
+    # Import progress. The reply backfill runs in Celery, so the UI polls these to know whether a
+    # freshly-imported discussion is still filling in. All db_default so pre-deploy code can INSERT
+    # without naming the columns during a rolling deploy (see slack_channel_name above).
+    import_status = models.CharField(
+        max_length=16,
+        blank=True,
+        default=SlackImportStatus.NOT_IMPORTED,
+        db_default="",
+        choices=SlackImportStatus.choices,
+    )
+    # User-facing explanation for a failed or partial import; empty otherwise.
+    import_error = models.TextField(blank=True, default="", db_default="")
+    imported_message_count = models.IntegerField(default=0, db_default=0)
+    # The thread's size as Slack reported it when the import started, so the UI can say
+    # "Importing 37 messages" up front instead of counting up from zero.
+    import_expected_count = models.IntegerField(default=0, db_default=0)
+
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
             # The inbound Slack webhook resolves every threaded message via
             # (integration, slack_channel_id, slack_thread_ts) — keep that lookup off a seq scan.
             models.Index(fields=["slack_channel_id", "slack_thread_ts"]),
+        ]
+        constraints = [
+            # That inbound lookup resolves with .first(), so two mirrors on one Slack thread would
+            # route replies to an arbitrary one and silently split the conversation. Importing is
+            # what makes that reachable — send_to_slack always posts a brand-new thread.
+            # Partial because reservations legitimately share the empty ts until the root lands.
+            models.UniqueConstraint(
+                fields=["integration", "slack_channel_id", "slack_thread_ts"],
+                condition=~models.Q(slack_thread_ts=""),
+                name="unique_slack_thread_per_integration",
+            )
         ]
 
 

@@ -86,6 +86,11 @@ describe('ThreadDiscussions', () => {
                             channel_id: 'C123',
                             channel_name: 'support-eng',
                             url: 'https://slack.com/archives/C123/p1',
+                            // Sent to Slack rather than imported from it.
+                            import_status: '',
+                            import_error: '',
+                            imported_message_count: 0,
+                            import_expected_count: 0,
                         },
                     }),
                 })}

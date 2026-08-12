@@ -23,6 +23,7 @@ import type {
     CommentApi,
     CommentSlackThreadApi,
     CommentsListParams,
+    ImportSlackThreadApi,
     ListParams,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
@@ -1061,6 +1062,26 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCommentsImportFromSlackCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/comments/import_from_slack/`
+}
+
+/**
+ * Import an existing Slack thread as a new discussion. The thread's first message becomes the discussion's thread root and its existing replies become reply comments, keeping their original Slack timestamps; replies then sync both ways. Bot messages and channel-join notices are skipped. Readability is validated before anything is written, but the reply backfill runs asynchronously — poll `import_status` on the returned thread. 404 when the feature is not enabled for the team.
+ */
+export const commentsImportFromSlackCreate = async (
+    projectId: string,
+    importSlackThreadApi: ImportSlackThreadApi,
+    options?: RequestInit
+): Promise<CommentSlackThreadApi> => {
+    return apiMutator<CommentSlackThreadApi>(getCommentsImportFromSlackCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(importSlackThreadApi),
     })
 }
 

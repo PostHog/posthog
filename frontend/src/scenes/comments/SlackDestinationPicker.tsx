@@ -8,26 +8,22 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-export type SlackDestinationPickerProps = {
+export type SlackWorkspacePickerProps = {
     integrationId: number | null
-    /** The SlackChannelPicker's composite `CHANNEL_ID|#name` value. */
-    channel: string | null
     onIntegrationChange: (integrationId: number | null) => void
-    onChannelChange: (channel: string | null) => void
     /** Extra classes for the picker container; not applied to the loading/not-configured states. */
     className?: string
+    children?: React.ReactNode
 }
 
-/** Slack workspace + channel picker shared by the comment composer and the send-to-Slack modal. */
-export function SlackDestinationPicker({
+/** Slack workspace picker, with the loading and not-configured states every Slack panel needs. */
+export function SlackWorkspacePicker({
     integrationId,
-    channel,
     onIntegrationChange,
-    onChannelChange,
     className,
-}: SlackDestinationPickerProps): JSX.Element {
+    children,
+}: SlackWorkspacePickerProps): JSX.Element {
     const { slackIntegrations, integrationsLoading } = useValues(integrationsLogic)
-    const selectedIntegration = slackIntegrations?.find((integration) => integration.id === integrationId)
 
     // Integrations load async on mount — don't flash "not configured" at users who have Slack set up.
     if (!slackIntegrations?.length && integrationsLoading) {
@@ -52,6 +48,38 @@ export function SlackDestinationPicker({
                     onChange={onIntegrationChange}
                 />
             </div>
+            {children}
+        </div>
+    )
+}
+
+export type SlackDestinationPickerProps = {
+    integrationId: number | null
+    /** The SlackChannelPicker's composite `CHANNEL_ID|#name` value. */
+    channel: string | null
+    onIntegrationChange: (integrationId: number | null) => void
+    onChannelChange: (channel: string | null) => void
+    /** Extra classes for the picker container; not applied to the loading/not-configured states. */
+    className?: string
+}
+
+/** Slack workspace + channel picker shared by the comment composer and the send-to-Slack modal. */
+export function SlackDestinationPicker({
+    integrationId,
+    channel,
+    onIntegrationChange,
+    onChannelChange,
+    className,
+}: SlackDestinationPickerProps): JSX.Element {
+    const { slackIntegrations } = useValues(integrationsLogic)
+    const selectedIntegration = slackIntegrations?.find((integration) => integration.id === integrationId)
+
+    return (
+        <SlackWorkspacePicker
+            integrationId={integrationId}
+            onIntegrationChange={onIntegrationChange}
+            className={className}
+        >
             {selectedIntegration ? (
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Channel</LemonLabel>
@@ -62,6 +90,6 @@ export function SlackDestinationPicker({
                     />
                 </div>
             ) : null}
-        </div>
+        </SlackWorkspacePicker>
     )
 }

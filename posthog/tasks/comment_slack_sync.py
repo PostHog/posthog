@@ -1,5 +1,10 @@
 import time
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
+
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -10,10 +15,11 @@ from slack_sdk.errors import SlackApiError
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
 from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
-from posthog.models.comment import Comment, CommentSlackThread
+from posthog.models.comment import SLACK_IMPORT_TERMINAL_STATUSES, Comment, CommentSlackThread, SlackImportStatus
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
-from posthog.models.integration import SlackIntegration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
@@ -32,6 +38,22 @@ SLACK_SYNCED_TS_KEY = "slack_synced_ts"
 BACKFILL_BATCH_SIZE = 25
 BACKFILL_SLEEP_BUDGET_SECONDS = 60
 BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS = 60
+
+# Ceiling on how much of a Slack thread one import pulls in. Bounded by the discussion UI rather
+# than by Slack: the comments list loads a single 100-comment page and doesn't follow `next`, so a
+# larger import would render an arbitrary window of itself. Raise this once that's paginated.
+SLACK_IMPORT_MAX_MESSAGES = 200
+# conversations.replies caps out at 1000 per page; 100 keeps a single page's write batch small.
+SLACK_IMPORT_PAGE_SIZE = 100
+SLACK_IMPORT_SLEEP_BUDGET_SECONDS = 30
+# Short, unlike the outbound backfill's: Slack pagination cursors expire, so a rescheduled run
+# needs to pick the walk back up promptly.
+SLACK_IMPORT_RESCHEDULE_COUNTDOWN_SECONDS = 15
+
+# Slack subtypes that still carry a person's typed message. Anything else — channel_join,
+# channel_topic, tombstones, huddle threads — is system noise that would read as spam in a
+# discussion. A plain message has no subtype at all.
+IMPORTABLE_SLACK_SUBTYPES = frozenset({"thread_broadcast", "me_message", "file_share"})
 
 
 def _organization_id_for_team(team_id: int) -> str | None:
@@ -117,6 +139,181 @@ def _mark_reply_synced(reply: Comment, ts: object) -> None:
     item_context = dict(reply.item_context) if isinstance(reply.item_context, dict) else {}
     item_context[SLACK_SYNCED_TS_KEY] = ts if isinstance(ts, str) else ""
     Comment.objects.filter(id=reply.id).update(item_context=item_context)
+
+
+def slack_ts_to_datetime(ts: str) -> datetime | None:
+    """Slack's `"1712345678.000100"` as a UTC datetime, or None if it isn't a timestamp."""
+    try:
+        return datetime.fromtimestamp(float(ts), tz=UTC)
+    except (TypeError, ValueError):
+        return None
+
+
+def _slack_message_body(
+    text: str, blocks: list | None, files: list | None, user_names: dict[str, str] | None = None
+) -> tuple[str, Any]:
+    """Markdown + rich content for one Slack message, or ("", None) when there's nothing to show."""
+    content, rich_content = slack_to_content_and_rich_content(text, blocks, user_names)
+    file_placeholders = slack_files_to_placeholder_lines(files)
+    if not content and not rich_content and not file_placeholders:
+        return "", None
+    # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
+    # external participant's message from making the discussion UI load remote images. The UI
+    # prefers rich_content (flattened back to markdown), so its text nodes need the same
+    # treatment or the escape would be sidestepped whenever the message carries blocks.
+    content = content.replace("![", "!\\[")
+    _neutralize_rich_content_images(rich_content)
+
+    if file_placeholders:
+        # Appended after the image neutralization above, which would otherwise escape the very
+        # markdown links being added. Their filenames are escaped at construction instead.
+        placeholder_text = "\n\n".join(file_placeholders)
+        content = f"{content}\n\n{placeholder_text}" if content else placeholder_text
+        # The UI prefers rich_content whenever it's set, so placeholders added only to content
+        # would be invisible for any upload that arrived with a caption (and so with blocks).
+        if isinstance(rich_content, dict):
+            nodes = rich_content.get("content")
+            if not isinstance(nodes, list):
+                nodes = []
+                rich_content["content"] = nodes
+            nodes.extend(
+                {"type": "paragraph", "content": [{"type": "text", "text": line}]} for line in file_placeholders
+            )
+
+    return content, rich_content
+
+
+@dataclass(frozen=True)
+class SlackCommentFields:
+    """Everything needed to write one Slack message into the discussion as a Comment."""
+
+    content: str
+    rich_content: Any
+    created_by: User | None
+    item_context: dict[str, Any]
+
+
+def slack_message_to_comment_fields(
+    *,
+    client: WebClient,
+    integration: Integration,
+    team: Team,
+    message_ts: str,
+    slack_user_id: str,
+    text: str,
+    blocks: list | None = None,
+    files: list | None = None,
+    user_names: dict[str, str] | None = None,
+    user_info: dict | None = None,
+) -> SlackCommentFields | None:
+    """Convert a Slack message into Comment fields, or None when it carries nothing importable.
+
+    Shared by the inbound webhook, the thread import's root, and the import's reply backfill, so
+    all three agree on content conversion, author attribution and the item_context contract.
+    Raises whatever the Slack profile lookup raises — callers decide whether to retry.
+    """
+    content, rich_content = _slack_message_body(text, blocks, files, user_names)
+    if not content and not rich_content:
+        return None
+
+    if user_info is None:
+        # The profile feeds the workspace-membership trust check below — namespace the cache by
+        # this integration's workspace so a colliding user id from another workspace (Slack
+        # Connect) can't be served from a stale entry.
+        user_info = resolve_slack_user(client, slack_user_id, workspace=integration.integration_id or "")
+
+    # Only attribute the comment to a PostHog user when Slack confirms the author belongs to
+    # this integration's own workspace. In externally-shared (Slack Connect) channels the other
+    # workspace's admin controls its users' profile emails, so trusting the email there would
+    # let an outsider post as any org member.
+    posthog_user = None
+    if user_info.get("team_id") and user_info.get("team_id") == integration.integration_id:
+        posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
+
+    return SlackCommentFields(
+        content=content,
+        rich_content=rich_content,
+        # Slack users without a verified PostHog account stay author-less; their display
+        # identity rides in item_context (name + avatar only — no email or Slack user id,
+        # which would leak external participants' PII through the comments API).
+        created_by=posthog_user,
+        item_context={
+            "from_slack": True,
+            SLACK_MESSAGE_TS_KEY: message_ts,
+            "slack_author_name": user_info["name"],
+            "slack_author_avatar": user_info.get("avatar"),
+        },
+    )
+
+
+def build_slack_comment(
+    *,
+    team: Team,
+    scope: str,
+    item_id: str | None,
+    # None for a thread root; a mirror's source_comment_id is a UUID.
+    source_comment_id: str | UUID | None,
+    fields: SlackCommentFields,
+) -> Comment:
+    """An unsaved Comment for a Slack message. Callers save it, or bulk_create a page of them."""
+    return Comment(
+        team=team,
+        scope=scope,
+        item_id=item_id,
+        source_comment_id=source_comment_id,
+        content=fields.content,
+        rich_content=fields.rich_content,
+        created_by=fields.created_by,
+        item_context=fields.item_context,
+    )
+
+
+def _apply_slack_timestamps(comments: list[Comment], created_ats: list[datetime | None]) -> None:
+    """Rewrite created_at to the original Slack times, so an imported thread reads in true order.
+
+    Needed as a second write because created_at is auto_now_add, which stamps "now" in
+    bulk_create just as it does in save(). bulk_update skips pre_save, so it sticks.
+    """
+    dated = [(comment, created_at) for comment, created_at in zip(comments, created_ats) if created_at is not None]
+    if not dated:
+        return
+    for comment, created_at in dated:
+        comment.created_at = created_at
+    Comment.objects.bulk_update([comment for comment, _ in dated], ["created_at"])
+
+
+def slack_import_skip_reason(message: dict) -> str | None:
+    """Why this Slack thread message shouldn't become a discussion comment, or None to import it.
+
+    Bot-authored messages are excluded partly because discussions have no way to render a bot
+    author, and partly because that's what stops an import of a thread PostHog itself mirrors
+    from re-importing our own posts — they always carry bot_id and never a user.
+    """
+    if message.get("bot_id") or message.get("bot_profile") or message.get("subtype") == "bot_message":
+        return "bot_author"
+    if message.get("app_id"):
+        return "app_authored"
+    user = message.get("user")
+    if not user or user == "USLACKBOT":
+        return "no_user"
+    subtype = message.get("subtype")
+    if subtype and subtype not in IMPORTABLE_SLACK_SUBTYPES:
+        return f"subtype:{subtype}"
+    return None
+
+
+def _slack_message_already_ingested(mirror: CommentSlackThread, team_id: int, message_ts: str) -> bool:
+    """Whether this Slack message is already in the discussion, anywhere in the mirrored thread.
+
+    Spans the thread root as well as its replies. An imported thread's root *is* a Slack message,
+    so matching only replies would let an edit to the Slack parent land as a reply duplicating
+    the root.
+    """
+    return (
+        Comment.objects.filter(team_id=team_id, item_context__slack_message_ts=message_ts)
+        .filter(Q(id=mirror.source_comment_id) | Q(source_comment_id=mirror.source_comment_id))
+        .exists()
+    )
 
 
 def _reply_skip_reason(reply: Comment) -> str | None:
@@ -213,77 +410,36 @@ def ingest_slack_discussion_reply(
     if _sync_killed(team.id):
         return
 
-    if Comment.objects.filter(
-        team_id=team.id,
-        source_comment_id=mirror.source_comment_id,
-        item_context__slack_message_ts=message_ts,
-    ).exists():
+    if _slack_message_already_ingested(mirror, team.id, message_ts):
         return
-
-    content, rich_content = slack_to_content_and_rich_content(text, blocks)
-    file_placeholders = slack_files_to_placeholder_lines(files)
-    if not content and not rich_content and not file_placeholders:
-        return
-    # Slack text has no markdown image syntax, so neutralizing it is lossless — and keeps an
-    # external participant's reply from making the discussion UI load remote images. The UI
-    # prefers rich_content (flattened back to markdown), so its text nodes need the same
-    # treatment or the escape would be sidestepped whenever the message carries blocks.
-    content = content.replace("![", "!\\[")
-    _neutralize_rich_content_images(rich_content)
-
-    if file_placeholders:
-        # Appended after the image neutralization above, which would otherwise escape the very
-        # markdown links being added. Their filenames are escaped at construction instead.
-        placeholder_text = "\n\n".join(file_placeholders)
-        content = f"{content}\n\n{placeholder_text}" if content else placeholder_text
-        # The UI prefers rich_content whenever it's set, so placeholders added only to content
-        # would be invisible for any upload that arrived with a caption (and so with blocks).
-        if isinstance(rich_content, dict):
-            nodes = rich_content.get("content")
-            if not isinstance(nodes, list):
-                nodes = []
-                rich_content["content"] = nodes
-            nodes.extend(
-                {"type": "paragraph", "content": [{"type": "text", "text": line}]} for line in file_placeholders
-            )
 
     try:
         client = SlackIntegration(mirror.integration).client
         client.timeout = 10
-        # The profile feeds the workspace-membership trust check below — namespace the cache by
-        # this integration's workspace so a colliding user id from another workspace (Slack
-        # Connect) can't be served from a stale entry.
-        user_info = resolve_slack_user(client, slack_user_id, workspace=mirror.integration.integration_id or "")
+        fields = slack_message_to_comment_fields(
+            client=client,
+            integration=mirror.integration,
+            team=team,
+            message_ts=message_ts,
+            slack_user_id=slack_user_id,
+            text=text,
+            blocks=blocks,
+            files=files,
+        )
     except Exception as exc:
         raise self.retry(exc=exc)
 
-    # Only attribute the comment to a PostHog user when Slack confirms the author belongs to
-    # this integration's own workspace. In externally-shared (Slack Connect) channels the other
-    # workspace's admin controls its users' profile emails, so trusting the email there would
-    # let an outsider post as any org member.
-    posthog_user = None
-    if user_info.get("team_id") and user_info.get("team_id") == mirror.integration.integration_id:
-        posthog_user = resolve_posthog_user_for_slack(user_info.get("email"), team)
+    if fields is None:
+        return
 
-    Comment.objects.create(
+    build_slack_comment(
         team=team,
         scope=mirror.scope,
         item_id=mirror.item_id,
         # The reply hangs off the mirrored thread's root comment (None only for whole-item mirrors).
         source_comment_id=mirror.source_comment_id,
-        content=content,
-        rich_content=rich_content,
-        # Slack users without a verified PostHog account stay author-less; their display
-        # identity rides in item_context (name + avatar only — no email or Slack user id,
-        # which would leak external participants' PII through the comments API).
-        created_by=posthog_user,
-        item_context={
-            "from_slack": True,
-            SLACK_MESSAGE_TS_KEY: message_ts,
-            "slack_author_name": user_info["name"],
-            "slack_author_avatar": user_info.get("avatar"),
-        },
-    )
+        fields=fields,
+    ).save()
     logger.info(
         "slack_discussion_reply_ingested",
         team_id=team.id,
@@ -374,3 +530,199 @@ def backfill_comment_slack_thread(comment_slack_thread_id: str) -> None:
         backfill_comment_slack_thread.apply_async(
             (comment_slack_thread_id,), countdown=BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS
         )
+
+
+def _set_import_state(mirror: CommentSlackThread, **fields: Any) -> None:
+    """Write import progress with .update() so a concurrent count write isn't clobbered."""
+    CommentSlackThread.objects.unscoped().filter(id=mirror.id).update(**fields)
+
+
+def _fetch_slack_thread_page(
+    client: WebClient, mirror: CommentSlackThread, cursor: str | None
+) -> tuple[list[dict], str | None]:
+    """One page of the mirrored Slack thread, retried once if Slack asks us to slow down."""
+    try:
+        response = client.conversations_replies(
+            channel=mirror.slack_channel_id,
+            ts=mirror.slack_thread_ts,
+            limit=SLACK_IMPORT_PAGE_SIZE,
+            cursor=cursor or None,
+        )
+    except Exception as exc:
+        retry_after = _slack_retry_after(exc)
+        if retry_after is None or retry_after > SLACK_IMPORT_SLEEP_BUDGET_SECONDS:
+            raise
+        time.sleep(retry_after)
+        response = client.conversations_replies(
+            channel=mirror.slack_channel_id,
+            ts=mirror.slack_thread_ts,
+            limit=SLACK_IMPORT_PAGE_SIZE,
+            cursor=cursor or None,
+        )
+    messages = response.get("messages") or []
+    next_cursor = (response.get("response_metadata") or {}).get("next_cursor") or None
+    return [m for m in messages if isinstance(m, dict)], next_cursor
+
+
+@shared_task(bind=True, ignore_result=True, max_retries=3, default_retry_delay=10)
+@skip_team_scope_audit  # Comment is on RootTeamManager; queries pin the team via the mirror's integration
+def import_slack_thread_into_discussion(
+    self: Task, comment_slack_thread_id: str, cursor: str | None = None, imported_replies: int = 0
+) -> None:
+    """Backfill an existing Slack thread's replies into the discussion it was imported as.
+
+    The import action creates the mirror and the thread-root comment synchronously — validating
+    that we can actually read the thread — and leaves this to pull in the reply history, which
+    can be hundreds of messages and several Slack round-trips. Progress rides on the mirror's
+    import_status so the UI can show the discussion filling in.
+
+    One page per run, rescheduling itself for the next cursor, so a long thread never occupies a
+    shared worker for an unbounded stretch. Idempotent per source Slack message ts: a re-run, a
+    Celery retry, or a live webhook racing this backfill can't duplicate a comment.
+    """
+    mirror = (
+        CommentSlackThread.objects.unscoped()
+        .filter(id=comment_slack_thread_id)
+        .select_related("integration__team")
+        .first()
+    )
+    if mirror is None or not mirror.slack_thread_ts:
+        return
+    # A duplicate task delivery on an import that already settled must not reopen it.
+    if mirror.import_status in SLACK_IMPORT_TERMINAL_STATUSES:
+        return
+
+    team = mirror.integration.team
+    if _sync_killed(team.id):
+        _set_import_state(
+            mirror,
+            import_status=SlackImportStatus.FAILED,
+            import_error="Slack sync is turned off for this project.",
+        )
+        return
+
+    _set_import_state(mirror, import_status=SlackImportStatus.IMPORTING)
+
+    try:
+        client = SlackIntegration(mirror.integration).client
+        client.timeout = 10
+        messages, next_cursor = _fetch_slack_thread_page(client, mirror, cursor)
+    except Exception as exc:
+        if self.request.retries >= self.max_retries:
+            # Out of retries: settle the row rather than leaving the UI spinning forever.
+            _set_import_state(
+                mirror,
+                import_status=SlackImportStatus.FAILED,
+                import_error="PostHog couldn't finish reading the Slack thread.",
+            )
+            logger.warning(
+                "slack_thread_import_failed", comment_slack_thread_id=comment_slack_thread_id, error=str(exc)
+            )
+            return
+        raise self.retry(exc=exc)
+
+    # The root message is already the discussion's thread-root comment.
+    candidates = [m for m in messages if m.get("ts") and m.get("ts") != mirror.slack_thread_ts]
+
+    # The root counts towards the cap, hence the -1: the API wrote it before enqueuing this.
+    room = max(SLACK_IMPORT_MAX_MESSAGES - 1 - imported_replies, 0)
+    capped = len(candidates) > room
+    candidates = candidates[:room]
+
+    # One query for the whole page instead of one per message. Re-checked implicitly by the
+    # inbound webhook's own guard, which is the other writer that could land these same ts values.
+    already_ingested = set(
+        Comment.objects.filter(team_id=team.id, source_comment_id=mirror.source_comment_id)
+        .filter(item_context__slack_message_ts__in=[m["ts"] for m in candidates])
+        .values_list("item_context__slack_message_ts", flat=True)
+    )
+
+    # Comments are project-scoped: RootTeamMixin.save() would resolve an environment team to its
+    # parent, but bulk_create skips save(), so resolve it here. Without this, replies imported into
+    # a non-default environment would land on a different team than their root and never render.
+    comment_team = team.parent_team or team
+
+    user_cache: dict[str, dict] = {}
+    to_create: list[Comment] = []
+    created_ats: list[datetime | None] = []
+    for message in candidates:
+        message_ts = str(message["ts"])
+        if message_ts in already_ingested:
+            continue
+        if slack_import_skip_reason(message):
+            continue
+        slack_user_id = str(message.get("user") or "")
+        try:
+            if slack_user_id not in user_cache:
+                user_cache[slack_user_id] = resolve_slack_user(
+                    client, slack_user_id, workspace=mirror.integration.integration_id or ""
+                )
+            fields = slack_message_to_comment_fields(
+                client=client,
+                integration=mirror.integration,
+                team=team,
+                message_ts=message_ts,
+                slack_user_id=slack_user_id,
+                text=str(message.get("text") or ""),
+                blocks=message.get("blocks") if isinstance(message.get("blocks"), list) else None,
+                files=message.get("files") if isinstance(message.get("files"), list) else None,
+                user_info=user_cache[slack_user_id],
+            )
+        except Exception as exc:
+            if self.request.retries >= self.max_retries:
+                _set_import_state(
+                    mirror,
+                    import_status=SlackImportStatus.FAILED,
+                    import_error="PostHog couldn't finish reading the Slack thread.",
+                )
+                return
+            raise self.retry(exc=exc)
+        if fields is None:
+            continue
+        to_create.append(
+            build_slack_comment(
+                team=comment_team,
+                scope=mirror.scope,
+                item_id=mirror.item_id,
+                source_comment_id=mirror.source_comment_id,
+                fields=fields,
+            )
+        )
+        created_ats.append(slack_ts_to_datetime(message_ts))
+
+    if to_create:
+        # bulk_create deliberately skips post_save: it keeps the activity log from taking one row
+        # per imported message, and is a second line of defence (after item_context.from_slack)
+        # against the outbound mirror signal echoing the whole thread straight back to Slack.
+        Comment.objects.bulk_create(to_create)
+        _apply_slack_timestamps(to_create, created_ats)
+
+    imported_replies += len(to_create)
+
+    if next_cursor and not capped:
+        _set_import_state(mirror, imported_message_count=1 + imported_replies)
+        import_slack_thread_into_discussion.apply_async(
+            (comment_slack_thread_id,),
+            {"cursor": next_cursor, "imported_replies": imported_replies},
+            countdown=SLACK_IMPORT_RESCHEDULE_COUNTDOWN_SECONDS,
+        )
+        return
+
+    _set_import_state(
+        mirror,
+        import_status=SlackImportStatus.PARTIAL if capped else SlackImportStatus.COMPLETE,
+        import_error=(
+            f"This Slack thread is longer than {SLACK_IMPORT_MAX_MESSAGES} messages, so only the "
+            f"first {SLACK_IMPORT_MAX_MESSAGES} were imported."
+            if capped
+            else ""
+        ),
+        imported_message_count=1 + imported_replies,
+    )
+    logger.info(
+        "slack_thread_import_finished",
+        team_id=team.id,
+        comment_slack_thread_id=comment_slack_thread_id,
+        imported_message_count=1 + imported_replies,
+        capped=capped,
+    )

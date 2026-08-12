@@ -16,12 +16,23 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
-import { commentsSendToSlackCreate } from 'products/platform_features/frontend/generated/api'
+import {
+    commentsImportFromSlackCreate,
+    commentsSendToSlackCreate,
+} from 'products/platform_features/frontend/generated/api'
 
 import type { UserType } from '../../types'
 import type { OrganizationMemberType } from '../../types'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
-import { discussionsSlug, getTextContent } from './utils'
+import { discussionsSlug, getTextContent, isSlackImportInProgress, isSlackThreadUrl } from './utils'
+
+/** Which thing the composer's Slack panel is set up to do. */
+export type ComposerSlackMode = 'send' | 'import'
+
+// A thread import is usually a few seconds of Celery work, so poll often enough that the replies
+// look like they're streaming in, and give up long before an abandoned import polls forever.
+const SLACK_IMPORT_POLL_INTERVAL_MS = 3000
+const SLACK_IMPORT_POLL_MAX_TICKS = 60
 
 export type CommentsLogicProps = {
     scope: CommentType['scope']
@@ -74,7 +85,11 @@ export interface commentsLogicValues {
     composerSendToSlack: boolean
     composerSlackChannel: string | null
     composerSlackIntegrationId: number | null
+    composerSlackMode: ComposerSlackMode
+    composerSlackThreadUrl: string
     currentComposerDraft: JSONContent | null
+    hasImportingSlackThread: boolean
+    isImportingSlackThread: boolean
     disabledReasonFor: (comment: CommentType) => string | null
     editingComment: CommentType | null
     editingCommentExistingMentions: number[] | null
@@ -247,6 +262,33 @@ export interface commentsLogicActions {
     revealSelectedComment: () => {
         value: true
     }
+    setComposerSlackMode: (mode: ComposerSlackMode) => {
+        mode: ComposerSlackMode
+    }
+    setComposerSlackThreadUrl: (url: string) => {
+        url: string
+    }
+    importSlackThread: () => {
+        value: true
+    }
+    importSlackThreadFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    importSlackThreadSuccess: (
+        comments: CommentType[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        comments: CommentType[]
+        payload?: {
+            value: true
+        }
+    }
     sendComposedContent: (asTask?: boolean) => {
         asTask: boolean
     }
@@ -356,6 +398,7 @@ export interface commentsLogicActions {
 export interface commentsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        hasImportingSlackThread: (comments: CommentType[] | null) => boolean
         key: (arg: any) => string
         sortedComments: (comments: CommentType[] | null) => CommentType[]
         commentsWithReplies: (sortedComments: CommentType[]) => CommentWithRepliesType[]
@@ -423,6 +466,8 @@ export const commentsLogic = kea<commentsLogicType>([
         setComposerSendToSlack: (enabled: boolean) => ({ enabled }),
         setComposerSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setComposerSlackChannel: (channel: string | null) => ({ channel }),
+        setComposerSlackMode: (mode: ComposerSlackMode) => ({ mode }),
+        setComposerSlackThreadUrl: (url: string) => ({ url }),
     }),
     reducers({
         composerSendToSlack: [
@@ -450,6 +495,33 @@ export const commentsLogic = kea<commentsLogicType>([
                 // Picking a different workspace clears the channel.
                 setComposerSlackIntegrationId: () => null,
                 sendComposedContentSuccess: () => null,
+            },
+        ],
+        composerSlackMode: [
+            'send' as ComposerSlackMode,
+            {
+                setComposerSlackMode: (_, { mode }) => mode,
+                // Closing the Slack panel or starting a reply returns to the default mode, so
+                // reopening it doesn't drop the user back into a half-filled import form.
+                setComposerSendToSlack: (state, { enabled }) => (enabled ? state : 'send'),
+                setReplyingComment: (state, { commentId }) => (commentId ? 'send' : state),
+            },
+        ],
+        composerSlackThreadUrl: [
+            '',
+            {
+                setComposerSlackThreadUrl: (_, { url }) => url,
+                importSlackThreadSuccess: () => '',
+                setComposerSlackMode: () => '',
+                setComposerSendToSlack: () => '',
+            },
+        ],
+        isImportingSlackThread: [
+            false,
+            {
+                importSlackThread: () => true,
+                importSlackThreadSuccess: () => false,
+                importSlackThreadFailure: () => false,
             },
         ],
         replyingCommentId: [
@@ -676,6 +748,33 @@ export const commentsLogic = kea<commentsLogicType>([
                     return [...existingComments, newComment]
                 },
 
+                importSlackThread: async () => {
+                    const existingComments = values.comments ?? []
+
+                    if (!props.item_id || !values.composerSlackIntegrationId || !values.currentProjectId) {
+                        return existingComments
+                    }
+                    // The button is disabled in these cases; belt and braces for the keyboard path.
+                    if (!isSlackThreadUrl(values.composerSlackThreadUrl)) {
+                        return existingComments
+                    }
+
+                    // The comments API is project-scoped — currentTeamId diverges from the project id
+                    // for non-default environments and 404s.
+                    await commentsImportFromSlackCreate(String(values.currentProjectId), {
+                        integration_id: values.composerSlackIntegrationId,
+                        slack_url: values.composerSlackThreadUrl.trim(),
+                        scope: props.scope,
+                        item_id: props.item_id,
+                    })
+
+                    // Only the thread root exists yet — the replies arrive asynchronously, which is
+                    // what the import_status poll is for. Refetch so the root (and its importing
+                    // state) shows up immediately.
+                    const response = await api.comments.list({ scope: props.scope, item_id: props.item_id })
+                    return response.results
+                },
+
                 persistEditedComment: async () => {
                     const existingComments = values.comments ?? []
                     const editedComment = values.editingComment
@@ -869,9 +968,26 @@ export const commentsLogic = kea<commentsLogicType>([
             }
             actions.scrollToLastComment()
         },
+        importSlackThreadSuccess: () => {
+            // The replies land over the next few seconds, so this only promises the import started.
+            lemonToast.success('Importing the Slack thread…')
+            actions.setComposerSendToSlack(false)
+            actions.incrementCommentCount()
+            actions.scrollToLastComment()
+        },
+        importSlackThreadFailure: ({ errorObject }) => {
+            // Surface the backend's actionable detail (app not in channel, thread too long, already
+            // imported…) rather than a blanket failure.
+            lemonToast.error(errorObject?.detail || 'Could not import that Slack thread')
+        },
     })),
 
     selectors({
+        hasImportingSlackThread: [
+            (s) => [s.comments],
+            (comments: CommentType[] | null): boolean =>
+                (comments ?? []).some((comment) => isSlackImportInProgress(comment.slack_thread)),
+        ],
         key: [() => [(_, props) => props], (props): string => `${props.scope}-${props.item_id || ''}`],
         sortedComments: [
             (s) => [s.comments],
@@ -979,7 +1095,7 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     }),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions, values, cache }) => ({
         commentsWithReplies: (commentsWithReplies: CommentWithRepliesType[]) => {
             // If the thread being replied to stops rendering (deleted, or dropped on reload),
             // clear the reply so the footer composer returns instead of no composer at all.
@@ -988,6 +1104,34 @@ export const commentsLogic = kea<commentsLogicType>([
             if (target && !commentsWithReplies.some((thread) => thread.id === target)) {
                 actions.setReplyingComment(null)
             }
+        },
+        hasImportingSlackThread: (importing: boolean) => {
+            // A Slack thread import backfills its replies in a Celery task, so the only way the
+            // reader sees them arrive is for us to poll until the import settles.
+            if (!importing) {
+                cache.disposables.dispose('slackImportPoll')
+                cache.slackImportPollTicks = 0
+                return
+            }
+            if (cache.disposables.registry.has('slackImportPoll')) {
+                return
+            }
+            cache.slackImportPollTicks = 0
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    cache.slackImportPollTicks = (cache.slackImportPollTicks ?? 0) + 1
+                    // Give up rather than poll forever if the import never reaches a terminal
+                    // state (a worker died before it could write one).
+                    if (cache.slackImportPollTicks > SLACK_IMPORT_POLL_MAX_TICKS) {
+                        cache.disposables.dispose('slackImportPoll')
+                        return
+                    }
+                    // refreshComments, not loadComments: a background poll must not scroll the
+                    // reader to the newest comment while they're reading.
+                    actions.refreshComments()
+                }, SLACK_IMPORT_POLL_INTERVAL_MS)
+                return () => clearInterval(intervalId)
+            }, 'slackImportPoll')
         },
     })),
 

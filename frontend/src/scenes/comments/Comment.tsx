@@ -21,16 +21,20 @@ import {
     LemonRichContentEditor,
     serializationOptions,
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 
 import { CommentType } from '~/types'
 
+import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
+
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
 import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
+import { isSlackImportInProgress } from './utils'
 
 // Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
 // rides in item_context.
@@ -191,6 +195,39 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
     )
 }
 
+/**
+ * Progress of a Slack thread import on the discussion it created. The reply backfill runs in a
+ * Celery task, so without this the thread just looks short until something happens to refetch.
+ */
+const SlackImportState = ({
+    slackThread,
+}: {
+    slackThread: CommentSlackThreadRefApi | null | undefined
+}): JSX.Element | null => {
+    if (!slackThread) {
+        return null
+    }
+    if (isSlackImportInProgress(slackThread)) {
+        const expected = slackThread.import_expected_count
+        return (
+            <LemonTag size="small" type="warning" icon={<Spinner />}>
+                {expected ? `Importing ${pluralize(expected, 'message')} from Slack…` : 'Importing from Slack…'}
+            </LemonTag>
+        )
+    }
+    if (slackThread.import_status === 'failed' || slackThread.import_status === 'partial') {
+        const failed = slackThread.import_status === 'failed'
+        return (
+            <Tooltip title={slackThread.import_error || 'Some Slack messages could not be imported'}>
+                <LemonTag size="small" type={failed ? 'danger' : 'caution'}>
+                    {failed ? 'Slack import failed' : 'Partially imported'}
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    return null
+}
+
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { disabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
@@ -220,6 +257,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                 ) : null}
             </div>
             <div className="flex items-center gap-1">
+                <SlackImportState slackThread={slackThread} />
                 {slackThread ? (
                     <LemonButton
                         icon={<IconSlack />}

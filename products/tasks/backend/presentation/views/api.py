@@ -1,5 +1,4 @@
 import os
-import re
 import json
 import asyncio
 import logging
@@ -7,7 +6,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 from django.conf import settings
@@ -35,6 +34,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.helpers.slack_permalink import parse_slack_thread_url
 from posthog.models import User
 from posthog.permissions import (
     APIScopePermission,
@@ -252,26 +252,6 @@ class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
 class TasksPagination(_SchemaAwareLimitOffsetPagination):
     default_limit = 50
     max_limit = 100
-
-
-def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
-    """Parse a Slack permalink into `(channel, thread_ts)`"""
-    try:
-        parsed = urlparse(url)
-    except ValueError:
-        return None
-    match = re.search(r"/archives/(?P<channel>[A-Z0-9]+)/p(?P<ts>\d+)", parsed.path)
-    if not match:
-        return None
-    channel = match.group("channel")
-    # Reply permalinks put the parent thread_ts in the query string; that wins over the in-path ts.
-    thread_ts_from_query = parse_qs(parsed.query).get("thread_ts", [None])[0]
-    if thread_ts_from_query:
-        return channel, thread_ts_from_query
-    raw_ts = match.group("ts")
-    if len(raw_ts) < 7:
-        return None
-    return channel, f"{raw_ts[:-6]}.{raw_ts[-6:]}"
 
 
 @extend_schema(tags=["tasks"])
@@ -687,7 +667,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         url = request.validated_query_data["url"]
-        parsed = _parse_slack_thread_url(url)
+        parsed = parse_slack_thread_url(url)
         if parsed is None:
             return Response(
                 {"detail": "Could not parse channel/thread_ts from the provided Slack URL.", "url": url},
@@ -2148,7 +2128,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         - https://*.modal.run (Modal sandboxes)
         - https://*.modal.host (Modal connect token sandboxes)
         """
-        from urllib.parse import urlparse
 
         try:
             parsed = urlparse(url)

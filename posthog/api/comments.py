@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
+from urllib.parse import urlparse
 from uuid import UUID
 
 from django.core import exceptions as django_exceptions
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
@@ -23,11 +24,12 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
+from posthog.helpers.slack_permalink import parse_slack_thread_url
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
-from posthog.models.comment import Comment, CommentSlackThread
+from posthog.models.comment import Comment, CommentSlackThread, SlackImportStatus
 from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.comment.utils import (
@@ -37,7 +39,15 @@ from posthog.models.comment.utils import (
     send_mention_notifications,
 )
 from posthog.models.integration import Integration, SlackIntegration
-from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
+from posthog.tasks.comment_slack_sync import (
+    SLACK_IMPORT_MAX_MESSAGES,
+    backfill_comment_slack_thread,
+    build_slack_comment,
+    import_slack_thread_into_discussion,
+    slack_import_skip_reason,
+    slack_message_to_comment_fields,
+    slack_ts_to_datetime,
+)
 from posthog.tasks.email import send_discussions_mentioned
 
 from products.conversations.backend import reply_dedupe
@@ -120,6 +130,22 @@ class CommentSlackThreadRefSerializer(serializers.Serializer):
         "Empty for private channels and when unknown; may lag behind a rename in Slack.",
     )
     url = serializers.CharField(help_text="Deep link that opens the mirrored Slack thread.")
+    import_status = serializers.CharField(
+        allow_blank=True,
+        help_text="Progress of backfilling an imported Slack thread: 'pending', 'importing', 'complete', "
+        "'partial' or 'failed'. Blank when the discussion was sent to Slack rather than imported from it. "
+        "Poll while this is 'pending' or 'importing'.",
+    )
+    import_error = serializers.CharField(
+        allow_blank=True, help_text="Why an import failed or stopped early. Blank otherwise."
+    )
+    imported_message_count = serializers.IntegerField(
+        help_text="Slack messages imported into the discussion so far, including the thread root."
+    )
+    import_expected_count = serializers.IntegerField(
+        help_text="Messages Slack reported in the thread when the import started, so the UI can show progress. "
+        "0 when the discussion wasn't imported."
+    )
 
 
 def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Team) -> None:
@@ -342,6 +368,10 @@ class CommentSerializer(serializers.ModelSerializer):
             "channel_id": thread.slack_channel_id,
             "channel_name": thread.slack_channel_name,
             "url": _slack_thread_url(thread),
+            "import_status": thread.import_status,
+            "import_error": thread.import_error,
+            "imported_message_count": thread.imported_message_count,
+            "import_expected_count": thread.import_expected_count,
         }
 
     class Meta:
@@ -636,10 +666,21 @@ class CommentSlackThreadSerializer(serializers.ModelSerializer):
             "slack_team_id",
             "created_at",
             "created_by",
+            "import_status",
+            "import_error",
+            "imported_message_count",
+            "import_expected_count",
         ]
         read_only_fields = fields
         extra_kwargs = {
             "scope": {"help_text": "Resource type of the mirrored discussion (e.g. Insight)."},
+            "import_status": {
+                "help_text": "Progress of backfilling an imported Slack thread. Blank when the discussion "
+                "was sent to Slack rather than imported from it."
+            },
+            "import_error": {"help_text": "Why an import failed or stopped early. Blank otherwise."},
+            "imported_message_count": {"help_text": "Slack messages imported so far, including the thread root."},
+            "import_expected_count": {"help_text": "Messages Slack reported in the thread when the import started."},
             "item_id": {"help_text": "ID of the resource the discussion is attached to."},
             "source_comment": {"help_text": "The thread-root comment whose replies mirror to the Slack thread."},
             "integration": {"help_text": "Slack integration used to post to and read from the thread."},
@@ -662,6 +703,65 @@ class SendCommentToSlackSerializer(serializers.Serializer):
         help_text="Slack channel ID to create the mirrored thread in. The bot must be a member of the channel. "
         "The channel's display name is resolved server-side.",
     )
+
+
+# Scopes the import action refuses. Tickets sync to Slack through the support product, and the
+# task scopes carry object-level access rules this path doesn't implement.
+UNIMPORTABLE_SLACK_SCOPES = TICKET_COMMENT_SCOPES | {"task", "task_artifact", "desktop_canvas"}
+
+
+class ImportSlackThreadSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        help_text="ID of the Slack integration (kind='slack') whose bot reads the thread."
+    )
+    slack_url = serializers.CharField(
+        max_length=500,
+        help_text="Link to any message in the Slack thread. A link to a reply works — the thread's root "
+        "is resolved from Slack. The channel and thread are parsed server-side.",
+    )
+    scope = serializers.CharField(max_length=79, help_text="Resource type to attach the discussion to.")
+    item_id = serializers.CharField(
+        max_length=72, help_text="ID of the resource to attach the discussion to. Required."
+    )
+
+    def validate_slack_url(self, value: str) -> str:
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        # A non-Slack link that happens to match the path shape would otherwise fail deep in the
+        # Slack call with a confusing "channel_not_found".
+        if parsed.scheme != "https" or not (host == "slack.com" or host.endswith(".slack.com")):
+            raise serializers.ValidationError("That doesn't look like a Slack message link")
+        if parse_slack_thread_url(value) is None:
+            raise serializers.ValidationError(
+                "Couldn't find a Slack channel and message in that link — use 'Copy link' on the message in Slack"
+            )
+        return value
+
+    def validate_scope(self, value: str) -> str:
+        if value in UNIMPORTABLE_SLACK_SCOPES:
+            raise serializers.ValidationError("Slack threads can't be imported into this kind of discussion")
+        return value
+
+
+# Slack error codes worth explaining, since each has a different fix. Anything else falls back to
+# naming the raw code, which is still more actionable than a generic failure.
+_SLACK_IMPORT_ERRORS = {
+    "not_in_channel": "The PostHog Slack app isn't in that channel. Invite it with `/invite @PostHog` and try again.",
+    "channel_not_found": "PostHog can't see that Slack channel — check the link, and invite the PostHog app to the "
+    "channel.",
+    "thread_not_found": "That Slack message no longer exists, or PostHog can't read it.",
+    "message_not_found": "That Slack message no longer exists, or PostHog can't read it.",
+    "missing_scope": "Reconnect your Slack workspace so PostHog can read thread history.",
+    "ratelimited": "Slack is rate limiting PostHog right now — try again in a minute.",
+    "is_archived": "That Slack channel is archived.",
+}
+
+
+def _slack_import_error_detail(exc: Exception) -> str:
+    code = exc.response.get("error") if isinstance(exc, SlackApiError) and exc.response else None
+    if code in _SLACK_IMPORT_ERRORS:
+        return _SLACK_IMPORT_ERRORS[code]
+    return f"Could not read the Slack thread ({code})" if code else "Could not read the Slack thread"
 
 
 @extend_schema(extensions={"x-product": "platform_features"})
@@ -1067,8 +1167,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         serializer = CommentSerializer(comment, context=self.get_serializer_context())
         return Response(serializer.data)
 
-    def _resolve_slack_channel_name(self, integration: Integration, channel_id: str, user: User) -> str:
-        """Resolve the target channel server-side — the caller-supplied id is never paired with a
+    def _fetch_slack_channel_for_discussion(
+        self, integration: Integration, channel_id: str, user: User
+    ) -> tuple[dict, str]:
+        """The Slack channel payload plus the name that's safe to persist.
+
+        Resolves the target channel server-side — the caller-supplied id is never paired with a
         caller-supplied label. Private channels are restricted to the workspace connector (matching
         the channel picker, which hides them from everyone else) and their names are never persisted,
         since the stored name is shown to every reader of the discussion.
@@ -1089,8 +1193,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 raise exceptions.PermissionDenied(
                     "Only the user who connected this Slack workspace can send a discussion to a private channel"
                 )
-            return ""
-        return channel.get("name") or ""
+            return channel, ""
+        return channel, channel.get("name") or ""
+
+    def _resolve_slack_channel_name(self, integration: Integration, channel_id: str, user: User) -> str:
+        _, channel_name = self._fetch_slack_channel_for_discussion(integration, channel_id, user)
+        return channel_name
 
     @extend_schema(
         request=SendCommentToSlackSerializer,
@@ -1211,6 +1319,196 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         backfill_comment_slack_thread.delay(comment_slack_thread_id=str(slack_thread.id))
 
         return Response(CommentSlackThreadSerializer(slack_thread).data)
+
+    @extend_schema(
+        request=ImportSlackThreadSerializer,
+        responses={
+            201: OpenApiResponse(response=CommentSlackThreadSerializer, description="Import started."),
+            400: OpenApiResponse(
+                response=CommentErrorSerializer,
+                description="The link, channel, thread or scope can't be imported.",
+            ),
+            409: OpenApiResponse(
+                response=CommentErrorSerializer,
+                description="That Slack thread is already synced to a discussion.",
+            ),
+        },
+        description=(
+            "Import an existing Slack thread as a new discussion. The thread's first message becomes "
+            "the discussion's thread root and its existing replies become reply comments, keeping their "
+            "original Slack timestamps; replies then sync both ways. Messages from bots and apps, and "
+            "channel-join notices, are skipped; attachments are linked back to Slack rather than copied. "
+            "Readability is validated before anything is written, but the reply backfill runs "
+            "asynchronously — poll `import_status` on the returned thread. "
+            "404 when the feature is not enabled for the team."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="import_from_slack")
+    def import_from_slack(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        team = self.team
+        if not self._slack_mirror_flag_enabled():
+            raise exceptions.NotFound()
+
+        params = ImportSlackThreadSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        scope = params.validated_data["scope"]
+        item_id = params.validated_data["item_id"]
+
+        integration = Integration.objects.filter(
+            team=team, id=params.validated_data["integration_id"], kind="slack"
+        ).first()
+        if integration is None:
+            raise exceptions.ValidationError("Slack integration not found")
+
+        # Validated in the serializer, so this can't be None.
+        channel_id, thread_ts = cast(tuple[str, str], parse_slack_thread_url(params.validated_data["slack_url"]))
+
+        channel, channel_name = self._fetch_slack_channel_for_discussion(
+            integration, channel_id, cast(User, request.user)
+        )
+        if channel.get("is_archived"):
+            raise exceptions.ValidationError("That Slack channel is archived")
+
+        # Checked only now that we know whether the channel is private — the two need different
+        # history scopes, and asking for both would reject workspaces that can read the one we need.
+        history_scope = "groups:history" if channel.get("is_private") else "channels:history"
+        missing_scopes = SlackIntegration(integration).missing_scopes({history_scope, "users:read", "users:read.email"})
+        if missing_scopes:
+            raise exceptions.ValidationError(
+                "Reconnect your Slack workspace so PostHog can read thread history "
+                f"(missing permission: {', '.join(sorted(missing_scopes))})"
+            )
+
+        root, root_ts, reply_count = self._read_slack_thread_root(integration, channel_id, thread_ts)
+
+        expected_count = reply_count + 1
+        if expected_count > SLACK_IMPORT_MAX_MESSAGES:
+            raise exceptions.ValidationError(
+                f"That thread has {reply_count} replies — PostHog can import up to {SLACK_IMPORT_MAX_MESSAGES - 1}."
+            )
+
+        # A thread already mirrored elsewhere would make the inbound webhook pick between two
+        # mappings arbitrarily, silently splitting the conversation across two discussions.
+        existing = (
+            CommentSlackThread.objects.unscoped()
+            .filter(integration_id=integration.id, slack_channel_id=channel_id, slack_thread_ts=root_ts)
+            .exclude(slack_thread_ts="")
+            .first()
+        )
+        if existing is not None:
+            raise Conflict(
+                "That Slack thread is already synced to a PostHog discussion: "
+                f"{build_comment_item_url(existing.scope, existing.item_id)}"
+            )
+
+        slack_thread = self._create_imported_discussion(
+            integration=integration,
+            root=root,
+            root_ts=root_ts,
+            channel_id=channel_id,
+            channel_name=channel_name,
+            scope=scope,
+            item_id=item_id,
+            expected_count=expected_count,
+        )
+
+        # Pull in the reply history asynchronously — a long thread is several Slack round-trips.
+        transaction.on_commit(
+            lambda: import_slack_thread_into_discussion.delay(comment_slack_thread_id=str(slack_thread.id))
+        )
+        return Response(CommentSlackThreadSerializer(slack_thread).data, status=status.HTTP_201_CREATED)
+
+    def _read_slack_thread_root(
+        self, integration: Integration, channel_id: str, thread_ts: str
+    ) -> tuple[dict, str, int]:
+        """The thread's first message, its true root ts, and how many replies it has.
+
+        Doubles as the readability check: if this call succeeds the bot can read the thread, which
+        is the thing most likely to be wrong (the app not being in the channel).
+        """
+        client = SlackIntegration(integration).client
+        client.timeout = 10  # keep a slow Slack workspace from pinning the request worker
+        try:
+            response = client.conversations_replies(channel=channel_id, ts=thread_ts, limit=1)
+        except Exception as e:
+            raise exceptions.ValidationError(_slack_import_error_detail(e)) from e
+
+        messages = [m for m in (response.get("messages") or []) if isinstance(m, dict)]
+        if not messages:
+            raise exceptions.ValidationError("PostHog couldn't read any messages in that Slack thread")
+        root = messages[0]
+        # Slack stamps every threaded message with thread_ts = the true root, and conversations.replies
+        # returns the parent first even when the link pointed at a reply.
+        root_ts = str(root.get("thread_ts") or root.get("ts") or thread_ts)
+
+        if slack_import_skip_reason(root):
+            raise exceptions.ValidationError(
+                "PostHog can only import threads started by a person — that one starts with an app or bot message"
+            )
+        return root, root_ts, int(root.get("reply_count") or 0)
+
+    def _create_imported_discussion(
+        self,
+        *,
+        integration: Integration,
+        root: dict,
+        root_ts: str,
+        channel_id: str,
+        channel_name: str,
+        scope: str,
+        item_id: str,
+        expected_count: int,
+    ) -> CommentSlackThread:
+        """Write the thread-root comment and the mirror that anchors the rest of the import."""
+        team = self.team
+        client = SlackIntegration(integration).client
+        client.timeout = 10
+        try:
+            fields = slack_message_to_comment_fields(
+                client=client,
+                integration=integration,
+                team=team,
+                message_ts=root_ts,
+                slack_user_id=str(root.get("user") or ""),
+                text=str(root.get("text") or ""),
+                blocks=root.get("blocks") if isinstance(root.get("blocks"), list) else None,
+                files=root.get("files") if isinstance(root.get("files"), list) else None,
+            )
+        except Exception as e:
+            raise exceptions.ValidationError(_slack_import_error_detail(e)) from e
+        if fields is None:
+            raise exceptions.ValidationError("The first message in that Slack thread has no text PostHog can import")
+
+        try:
+            with transaction.atomic():
+                # Saved normally (not bulk_create) so the discussion gets its one activity-log
+                # entry; the reply backfill deliberately skips signals to avoid one row per message.
+                root_comment = build_slack_comment(
+                    team=team, scope=scope, item_id=item_id, source_comment_id=None, fields=fields
+                )
+                root_comment.save()
+                root_created_at = slack_ts_to_datetime(root_ts)
+                if root_created_at is not None:
+                    Comment.objects.filter(id=root_comment.id).update(created_at=root_created_at)
+                return CommentSlackThread.objects.for_team(team.id).create(
+                    team=team,
+                    scope=scope,
+                    item_id=item_id,
+                    source_comment=root_comment,
+                    integration=integration,
+                    slack_channel_id=channel_id,
+                    slack_channel_name=channel_name,
+                    slack_thread_ts=root_ts,
+                    slack_team_id=integration.integration_id,
+                    created_by=cast(User, self.request.user),
+                    import_status=SlackImportStatus.PENDING,
+                    import_expected_count=expected_count,
+                    imported_message_count=1,
+                )
+        except IntegrityError as e:
+            # The partial unique index on (integration, channel, thread_ts) makes a concurrent
+            # double-submit deterministic instead of leaving two mirrors on one Slack thread.
+            raise Conflict("That Slack thread is already being imported into a PostHog discussion") from e
 
     @staticmethod
     def _log_task_state_change(comment: Comment, request: Request, *, completed: bool) -> None:

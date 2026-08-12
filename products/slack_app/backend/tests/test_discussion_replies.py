@@ -259,3 +259,64 @@ class TestIngestDiscussionReply(APIBaseTest):
 
         assert handled is True  # still claimed as a discussion thread — just not written
         assert not Comment.objects.filter(source_comment=self.root).exists()
+
+
+class TestIngestOnAnImportedThread(APIBaseTest):
+    """A thread PostHog imported has a Slack-originated *root*, which the reply path must respect."""
+
+    ROOT_TS = "100.1"
+
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", sensitive_config={"access_token": "t"}
+        )
+        # Unlike a send_to_slack mirror, an imported root is itself a Slack message and carries its ts.
+        self.root = Comment.objects.create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            content="kickoff",
+            item_context={"from_slack": True, "slack_message_ts": self.ROOT_TS},
+        )
+        self.mirror = CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Insight",
+            item_id="42",
+            source_comment=self.root,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts=self.ROOT_TS,
+            import_status="complete",
+            imported_message_count=1,
+        )
+
+    def _ingest(self, **overrides) -> bool:
+        event = {
+            "type": "message",
+            "user": "U1",
+            "channel": "C1",
+            "thread_ts": self.ROOT_TS,
+            "ts": "100.9",
+            "text": "a new reply",
+        }
+        event.update(overrides)
+        return try_ingest_discussion_reply(event, [self.integration], event["channel"], event.get("thread_ts"), "T1")
+
+    @patch(RESOLVE, return_value={"name": "Ann", "team_id": "T1", "email": "ann@example.com"})
+    def test_a_live_reply_lands_on_the_imported_root(self, _resolve):
+        # This is what makes an import worth doing: the thread keeps syncing afterwards.
+        assert self._ingest() is True
+
+        reply = Comment.objects.get(source_comment=self.root)
+        assert reply.content == "a new reply"
+        assert reply.item_context["from_slack"] is True
+
+    @patch(RESOLVE, return_value={"name": "Ann", "team_id": "T1", "email": "ann@example.com"})
+    def test_the_root_message_is_never_re_ingested_as_a_reply(self, _resolve):
+        # An edit to the Slack parent arrives with ts == the root's ts. Matching only replies would
+        # append a reply duplicating the discussion's own first message.
+        assert self._ingest(ts=self.ROOT_TS) is True
+
+        assert not Comment.objects.filter(source_comment=self.root).exists()
+        assert Comment.objects.filter(team=self.team).count() == 1

@@ -814,6 +814,14 @@ export interface CommentSlackThreadRefApi {
     channel_name: string
     /** Deep link that opens the mirrored Slack thread. */
     url: string
+    /** Progress of backfilling an imported Slack thread: 'pending', 'importing', 'complete', 'partial' or 'failed'. Blank when the discussion was sent to Slack rather than imported from it. Poll while this is 'pending' or 'importing'. */
+    import_status: string
+    /** Why an import failed or stopped early. Blank otherwise. */
+    import_error: string
+    /** Slack messages imported into the discussion so far, including the thread root. */
+    imported_message_count: number
+    /** Messages Slack reported in the thread when the import started, so the UI can show progress. 0 when the discussion wasn't imported. */
+    import_expected_count: number
 }
 
 export interface CommentApi {
@@ -913,6 +921,25 @@ export interface SendCommentToSlackApi {
     channel_id: string
 }
 
+/**
+ * * `` - Not an import
+ * * `pending` - Pending
+ * * `importing` - Importing
+ * * `complete` - Complete
+ * * `partial` - Partially imported
+ * * `failed` - Failed
+ */
+export type ImportStatusEnumApi = (typeof ImportStatusEnumApi)[keyof typeof ImportStatusEnumApi]
+
+export const ImportStatusEnumApi = {
+    Pending: 'pending',
+    Importing: 'importing',
+    Complete: 'complete',
+    Partial: 'partial',
+    Failed: 'failed',
+} as const
+
+export const CommentSlackThreadApiImportStatus = { ...ImportStatusEnumApi, ...BlankEnumApi } as const
 export interface CommentSlackThreadApi {
     readonly id: string
     /** Resource type of the mirrored discussion (e.g. Insight). */
@@ -940,6 +967,41 @@ export interface CommentSlackThreadApi {
     readonly created_at: string
     /** User who mirrored the discussion. Null if since deleted. */
     readonly created_by: UserBasicApi | null
+    /** Progress of backfilling an imported Slack thread. Blank when the discussion was sent to Slack rather than imported from it.
+     *
+     * * `` - Not an import
+     * * `pending` - Pending
+     * * `importing` - Importing
+     * * `complete` - Complete
+     * * `partial` - Partially imported
+     * * `failed` - Failed */
+    readonly import_status: (typeof CommentSlackThreadApiImportStatus)[keyof typeof CommentSlackThreadApiImportStatus]
+    /** Why an import failed or stopped early. Blank otherwise. */
+    readonly import_error: string
+    /** Slack messages imported so far, including the thread root. */
+    readonly imported_message_count: number
+    /** Messages Slack reported in the thread when the import started. */
+    readonly import_expected_count: number
+}
+
+export interface ImportSlackThreadApi {
+    /** ID of the Slack integration (kind='slack') whose bot reads the thread. */
+    integration_id: number
+    /**
+     * Link to any message in the Slack thread. A link to a reply works — the thread's root is resolved from Slack. The channel and thread are parsed server-side.
+     * @maxLength 500
+     */
+    slack_url: string
+    /**
+     * Resource type to attach the discussion to.
+     * @maxLength 79
+     */
+    scope: string
+    /**
+     * ID of the resource to attach the discussion to. Required.
+     * @maxLength 72
+     */
+    item_id: string
 }
 
 export interface PinnedSceneTabApi {

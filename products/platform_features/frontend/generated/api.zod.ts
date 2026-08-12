@@ -450,6 +450,33 @@ export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Import an existing Slack thread as a new discussion. The thread's first message becomes the discussion's thread root and its existing replies become reply comments, keeping their original Slack timestamps; replies then sync both ways. Bot messages and channel-join notices are skipped. Readability is validated before anything is written, but the reply backfill runs asynchronously — poll `import_status` on the returned thread. 404 when the feature is not enabled for the team.
+ */
+export const commentsImportFromSlackCreateBodySlackUrlMax = 500
+
+export const commentsImportFromSlackCreateBodyScopeMax = 79
+
+export const commentsImportFromSlackCreateBodyItemIdMax = 72
+
+export const CommentsImportFromSlackCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("ID of the Slack integration (kind='slack') whose bot reads the thread."),
+    slack_url: zod
+        .string()
+        .max(commentsImportFromSlackCreateBodySlackUrlMax)
+        .describe(
+            "Link to any message in the Slack thread. A link to a reply works — the thread's root is resolved from Slack. The channel and thread are parsed server-side."
+        ),
+    scope: zod
+        .string()
+        .max(commentsImportFromSlackCreateBodyScopeMax)
+        .describe('Resource type to attach the discussion to.'),
+    item_id: zod
+        .string()
+        .max(commentsImportFromSlackCreateBodyItemIdMax)
+        .describe('ID of the resource to attach the discussion to. Required.'),
+})
+
+/**
  * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
  */
 export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
