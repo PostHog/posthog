@@ -59,9 +59,9 @@ export function ScratchpadPanel(): JSX.Element {
 
             {isInitialLoad ? (
                 <div className="flex flex-col gap-2">
-                    <LemonSkeleton className="h-12 w-full rounded" />
-                    <LemonSkeleton className="h-12 w-full rounded" />
-                    <LemonSkeleton className="h-12 w-full rounded" />
+                    <ScratchpadEntryCardSkeleton />
+                    <ScratchpadEntryCardSkeleton />
+                    <ScratchpadEntryCardSkeleton />
                 </div>
             ) : loadFailed && (!entries || entries.length === 0) ? (
                 <ScratchpadErrorState onRetry={() => loadEntries()} loading={entriesLoading} />
@@ -106,6 +106,24 @@ export function ScratchpadPanel(): JSX.Element {
                     ))}
                 </div>
             )}
+        </div>
+    )
+}
+
+function ScratchpadEntryCardSkeleton(): JSX.Element {
+    return (
+        <div className="flex h-20 flex-col gap-3 rounded border border-primary bg-bg-light px-3 py-2">
+            <div className="flex items-center gap-2">
+                <LemonSkeleton className="size-4 shrink-0 rounded" />
+                <LemonSkeleton className="h-4 w-16 rounded" />
+                <LemonSkeleton className="h-3 w-40 rounded" />
+                <span className="flex-1" />
+                <LemonSkeleton className="h-3 w-24 rounded" />
+            </div>
+            <div className="flex flex-col gap-1 pl-6">
+                <LemonSkeleton className="h-3 w-full rounded" />
+                <LemonSkeleton className="h-3 w-2/3 rounded" />
+            </div>
         </div>
     )
 }
