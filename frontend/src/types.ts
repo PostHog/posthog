@@ -5321,6 +5321,8 @@ export enum HogQLMathType {
 }
 export enum GroupMathType {
     UniqueGroup = 'unique_group',
+    FirstTimeForGroup = 'first_time_for_group',
+    FirstMatchingEventForGroup = 'first_matching_event_for_group',
 }
 
 export enum ExperimentMetricMathType {

@@ -1050,7 +1050,7 @@ class TestProcessTaskWorkflowUnit:
             "failed",
             error_message="Sandbox not in running state.",
             run_id="run-id",
-            error_type="ActivityError",
+            error_type="SandboxNotRunningError",
         )
 
     async def test_run_skips_relay_when_sandbox_event_ingest_is_enabled(self, monkeypatch):

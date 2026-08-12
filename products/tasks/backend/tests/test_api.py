@@ -5173,6 +5173,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
                 "reasoning_effort": "low",
+                "loop_terminal_bookkeeping_complete": True,
             },
         )
 
@@ -5226,6 +5227,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider": "openai",
                     "model": "claude-opus-4-8",
                     "reasoning_effort": "high",
+                    "loop_terminal_bookkeeping_complete": False,
                     "scratch": "ok",
                 }
             },
@@ -5261,6 +5263,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
         assert run.state["reasoning_effort"] == "low"
+        assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
@@ -5286,6 +5289,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "provider",
                     "model",
                     "reasoning_effort",
+                    "loop_terminal_bookkeeping_complete",
                     "scratch",
                 ],
             },
@@ -5313,6 +5317,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["provider"] == "anthropic"  # protected key survives removal
         assert run.state["model"] == "claude-sonnet-5"  # protected key survives removal
         assert run.state["reasoning_effort"] == "low"  # protected key survives removal
+        assert run.state["loop_terminal_bookkeeping_complete"] is True
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
