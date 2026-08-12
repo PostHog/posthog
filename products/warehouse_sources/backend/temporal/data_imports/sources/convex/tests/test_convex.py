@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.convex.con
     ConvexResumeConfig,
     InvalidDeployUrlError,
     InvalidWindowError,
+    StreamingExportNotEnabledError,
     _convex_get,
     convex_source,
     document_deltas,
@@ -119,6 +120,17 @@ class TestValidateDeployUrl:
         assert err is None
         called_url = mock_get.return_value.get.call_args.args[0]
         assert called_url.startswith("https://swift-lemur-123.convex.cloud/api/")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_validate_credentials_surfaces_streaming_export_message(self, mock_get):
+        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
+
+        ok, err = validate_credentials("https://swift-lemur-123.convex.cloud", "prod:abc123")
+
+        assert not ok
+        assert err == (
+            "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade."
+        )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
     def test_validate_credentials_does_not_leak_url_on_http_error(self, mock_get):
@@ -509,6 +521,21 @@ class TestConvexNonRetryableErrors:
 
         with pytest.raises(InvalidWindowError) as exc_info:
             list(document_deltas("https://x.convex.cloud", "key", "email_unsubscribes", 10, manager))
+
+        error_msg = str(exc_info.value)
+        non_retryable_errors = ConvexSource().get_non_retryable_errors()
+        assert any(key in error_msg for key in non_retryable_errors), error_msg
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_streaming_export_not_enabled_message_is_recognised_as_non_retryable(self, mock_get: Mock) -> None:
+        # get_schemas (schema discovery) calls get_json_schemas directly, unlike
+        # validate_credentials which already inspected the response body for this code. Without
+        # get_json_schemas surfacing the code itself, discovery only ever saw a bare HTTPError
+        # whose message never matches the "StreamingExportNotEnabled" non-retryable entry below.
+        mock_get.return_value.get.return_value = _make_response({"code": "StreamingExportNotEnabled"}, status_code=400)
+
+        with pytest.raises(StreamingExportNotEnabledError) as exc_info:
+            get_json_schemas("https://x.convex.cloud", "key")
 
         error_msg = str(exc_info.value)
         non_retryable_errors = ConvexSource().get_non_retryable_errors()
