@@ -208,3 +208,79 @@ impl TestContext {
         Ok(())
     }
 }
+
+/// Leader-surface stubs for test binaries whose flows never reach the
+/// leader: an accidental call surfaces as a clean unimplemented error
+/// instead of a hang or a panic mid-transaction.
+pub struct UnusedLeader;
+
+#[async_trait::async_trait]
+impl personhog_identity::leader::PropertyWriter for UnusedLeader {
+    async fn update_person_properties(
+        &self,
+        _request: personhog_proto::personhog::types::v1::UpdatePersonPropertiesRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::UpdatePersonPropertiesResponse, tonic::Status>
+    {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+}
+
+#[async_trait::async_trait]
+impl personhog_identity::leader::LifecycleLeader for UnusedLeader {
+    async fn fence_person(
+        &self,
+        _request: personhog_proto::personhog::types::v1::FencePersonRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::FencePersonResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
+    async fn release_fence(
+        &self,
+        _request: personhog_proto::personhog::types::v1::ReleaseFenceRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::ReleaseFenceResponse, tonic::Status> {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+
+    async fn fold_person_document(
+        &self,
+        _request: personhog_proto::personhog::types::v1::FoldPersonDocumentRequest,
+    ) -> Result<personhog_proto::personhog::types::v1::FoldPersonDocumentResponse, tonic::Status>
+    {
+        Err(tonic::Status::unimplemented("not exercised by this test"))
+    }
+}
+
+/// IdentityStorage stub for validation-only test binaries: any call means
+/// validation failed to reject first.
+pub struct UnusedStorage;
+
+#[async_trait::async_trait]
+impl personhog_identity::storage::IdentityStorage for UnusedStorage {
+    async fn resolve_distinct_ids(
+        &self,
+        _keys: &[(i64, String)],
+    ) -> personhog_identity::storage::StorageResult<
+        std::collections::HashMap<(i64, String), personhog_identity::storage::Person>,
+    > {
+        panic!("not exercised by this test")
+    }
+
+    async fn get_distinct_ids_for_persons(
+        &self,
+        _team_id: i64,
+        _person_ids: &[i64],
+        _limit_per_person: Option<i64>,
+    ) -> personhog_identity::storage::StorageResult<
+        Vec<personhog_identity::storage::DistinctIdMapping>,
+    > {
+        panic!("not exercised by this test")
+    }
+
+    async fn create_person_stubs(
+        &self,
+        _stubs: &[personhog_identity::storage::PersonStub],
+    ) -> personhog_identity::storage::StorageResult<Vec<personhog_identity::storage::StubOutcome>>
+    {
+        panic!("not exercised by this test")
+    }
+}
