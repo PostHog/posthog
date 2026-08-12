@@ -159,9 +159,6 @@ export function CollapsibleExceptionList({
     }
 
     return (
-        // --frame-border is declared above the data-quill wrapper because quill-bridge
-        // rebinds --color-border-primary to quill's low-contrast --border inside the scope.
-        // Substitution happens on this element, so descendants inherit the app border color.
         <div className="contents [--frame-border:var(--color-border-primary)]">
             <div data-quill className="contents">
                 <div className={cn('flex flex-col gap-y-2', className)}>
