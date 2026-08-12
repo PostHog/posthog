@@ -13,7 +13,13 @@ const meta: Meta<typeof InvocationsSparkline> = {
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
     // The component sizes its own height (`h-24`), so the stories only need to pin a width.
-    decorators: [(Story) => <div className="w-[760px]">{Story()}</div>],
+    decorators: [
+        (Story) => (
+            <div className="w-[760px]">
+                <Story />
+            </div>
+        ),
+    ],
 }
 export default meta
 
