@@ -88,8 +88,7 @@ class TestTikTokAdsSource:
         ]
     )
     def test_creative_permission_denied_is_non_retryable(self, name, message):
-        """An advertiser that hasn't granted creative asset access gets a 40001 on the creative
-        library endpoints. Reconnecting is the only fix, so it must be non-retryable."""
+        """Reconnecting is the only fix for a denial, so retrying it would loop forever."""
         paginator = TikTokAdsPaginator()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -109,9 +108,7 @@ class TestTikTokAdsSource:
         ]
     )
     def test_creative_permission_denied_surfaces_friendly_message(self, name, message):
-        """The permission denial matches both the specific key and the generic non-retryable
-        prefix (which maps to None). `external_data_job` takes the *first* match in dict order and
-        discards it when it is None, so this fails if the entries are ever reordered."""
+        """Fails if the dict entries are reordered, which would shadow this message with None."""
         error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
 
         friendly = [
@@ -132,9 +129,7 @@ class TestTikTokAdsSource:
         ]
     )
     def test_non_creative_permission_denied_keeps_raw_message(self, name, message):
-        """Every table in this source shares one paginator, so a denial on a non-creative endpoint
-        carries the same "does not grant you" wording. Answering it with the creative-library
-        message would tell a user whose report table just failed that report tables keep syncing."""
+        """A denial elsewhere shares the wording, so creative-library advice would contradict it."""
         error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
 
         friendly = [
@@ -147,8 +142,7 @@ class TestTikTokAdsSource:
         assert friendly[0] is None
 
     def test_advertiser_deleted_40001_still_has_no_friendly_message(self):
-        """The creative-permission key must not over-match the other 40001 meaning: a deleted
-        advertiser should still surface TikTok's raw message, which names the advertiser."""
+        """The raw message names the advertiser, so the creative key must not over-match it."""
         error_message = (
             f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} The advertiser 123 doesn't exist or has been deleted. (code: 40001)"
         )

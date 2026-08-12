@@ -85,29 +85,22 @@ def list_advertisers(access_token: str) -> list[dict]:
     return (body.get("data") or {}).get("list") or []
 
 
-# Prefix for the ValueError raised when TikTok returns a client error code that is not in the
-# retryable set. 40001 is a generic client-error bucket rather than a single failure: it covers
-# both "the advertiser doesn't exist or has been deleted" and per-endpoint permission denials
-# (see TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS). Retrying any of these never succeeds, so
-# `TikTokAdsSource.get_non_retryable_errors` matches on this exact prefix to fail the job fast
-# instead of looping forever.
+# Prefix for the ValueError the paginator raises on client error codes outside the retryable set.
+# 40001 is a generic bucket covering both a deleted advertiser and per-endpoint permission denials,
+# so callers have to discriminate on wording rather than on the code. Retrying never succeeds, so
+# `TikTokAdsSource.get_non_retryable_errors` matches this prefix to fail the job fast.
 TIKTOK_NON_RETRYABLE_ERROR_PREFIX = "TikTok API client error (non-retryable):"
 
-# TikTok permissions are declared on the app in the developer portal and granted per-advertiser at
-# authorization time — our authorize URL sends no `scope`, so we can't widen them after the fact.
-# An advertiser that didn't grant creative/asset read gets 40001 with this wording on the creative
-# library endpoints, while every other table keeps syncing.
-#
-# The denied path has to stay in the fragment. Every endpoint in this source shares one paginator,
-# so a denial on `/report/integrated/get/` or `/campaign/get/` produces the same "does not grant
-# you" wording; matching on that alone would answer a failed report table with creative-library
-# advice. TikTok templates the path into the message, so keying on it costs nothing and lets every
-# other denial fall through to its own raw message.
+# Keep the denied path in each fragment: every endpoint here shares one paginator, so a denial on
+# `/report/integrated/get/` carries the same "does not grant you" wording and would otherwise be
+# answered with creative-library advice. TikTok templates the path into the message.
 TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS = (
     "does not grant you /file/video/ad/search/",
     "does not grant you /file/image/ad/search/",
 )
 
+# Reconnecting is the only fix, because our authorize URL sends no `scope`: the creative asset
+# permission is granted per-advertiser on TikTok's side and we can't widen it after the fact.
 TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE = (
     "TikTok denied access to your creative library: the authorized advertiser account has not granted "
     "PostHog permission to read creative assets. This only affects the creative_videos and creative_images "

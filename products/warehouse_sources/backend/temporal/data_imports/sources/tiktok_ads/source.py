@@ -74,10 +74,8 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            # MUST stay above TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a permission denial arrives as a
-            # 40001 wrapped in that prefix, so it matches both keys. `external_data_job` collects
-            # every match in dict order and then drops the lot if the *first* one is None, so the
-            # specific entries have to come first or this message is silently discarded.
+            # Must precede TIKTOK_NON_RETRYABLE_ERROR_PREFIX: a denial matches both keys, and
+            # `external_data_job` takes the first match in dict order, discarding it when None.
             **dict.fromkeys(TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS, TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE),
             # Other TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
             # doesn't exist or has been deleted). The paginator raises these with this exact
