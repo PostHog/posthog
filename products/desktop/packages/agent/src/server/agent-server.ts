@@ -2296,6 +2296,7 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session || !this.resumeState) return;
     const resumeState = this.resumeState;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(payload, taskRun, "Resume message", async () => {
       const conversationSummary = formatConversationForResume(
@@ -2359,6 +2360,7 @@ export class AgentServer {
     taskRun: TaskRun | null,
   ): Promise<void> {
     if (!this.session) return;
+    taskRun = await this.refreshTaskRunForResume(payload, taskRun);
 
     await this.runResumeTurn(
       payload,
@@ -2394,6 +2396,22 @@ export class AgentServer {
       },
       { retryOnOversizedPrompt: true },
     );
+  }
+
+  private async refreshTaskRunForResume(
+    payload: JwtPayload,
+    fallback: TaskRun | null,
+  ): Promise<TaskRun | null> {
+    try {
+      return await this.posthogAPI.getTaskRun(payload.task_id, payload.run_id);
+    } catch (error) {
+      this.logger.debug("Failed to refresh task run before resume", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error,
+      });
+      return fallback;
+    }
   }
 
   /**
