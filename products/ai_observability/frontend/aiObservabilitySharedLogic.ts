@@ -81,6 +81,53 @@ const INITIAL_DASHBOARD_DATE_FROM = '-7d' as string | null
 const INITIAL_EVENTS_DATE_FROM = '-1h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
+interface DashboardDateStateInput {
+    dashboardDateFilter: {
+        dateFrom: string | null
+        dateTo: string | null
+    }
+    persistedFilters?: {
+        date_from?: string | null
+        date_to?: string | null
+    }
+    searchParams: Record<string, unknown>
+}
+
+export function getDashboardDateState({
+    dashboardDateFilter,
+    persistedFilters,
+    searchParams,
+}: DashboardDateStateInput): {
+    dateFilter: { dateFrom: string | null; dateTo: string | null }
+    externalFilters: { date_from: string | null | undefined; date_to: string | null | undefined }
+    hasUrlOverride: boolean
+} {
+    const hasUrlOverride = typeof searchParams.date_from === 'string' || typeof searchParams.date_to === 'string'
+
+    if (hasUrlOverride) {
+        return {
+            dateFilter: dashboardDateFilter,
+            externalFilters: {
+                date_from: dashboardDateFilter.dateFrom,
+                date_to: dashboardDateFilter.dateTo,
+            },
+            hasUrlOverride,
+        }
+    }
+
+    return {
+        dateFilter: {
+            dateFrom: persistedFilters?.date_from ?? INITIAL_DASHBOARD_DATE_FROM,
+            dateTo: persistedFilters?.date_to ?? INITIAL_DATE_TO,
+        },
+        externalFilters: {
+            date_from: undefined,
+            date_to: undefined,
+        },
+        hasUrlOverride,
+    }
+}
+
 export interface AIObservabilitySharedLogicProps {
     logicKey?: string
     personId?: string
@@ -187,6 +234,13 @@ export interface aiObservabilitySharedLogicActions {
         hasSentAiEvent: boolean
         payload?: any
     }
+    setDashboardDates: (
+        dateFrom: string | null,
+        dateTo: string | null
+    ) => {
+        dateFrom: string | null
+        dateTo: string | null
+    }
     setDates: (
         dateFrom: string | null,
         dateTo: string | null
@@ -257,6 +311,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
+        setDashboardDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldFilterSupportTraces: (shouldFilterSupportTraces: boolean) => ({ shouldFilterSupportTraces }),
         setPropertyFilters: (propertyFilters: AnyPropertyFilter[]) => ({ propertyFilters }),
@@ -286,6 +341,7 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             },
             {
                 setDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
+                setDashboardDates: (_, { dateFrom, dateTo }) => ({ dateFrom, dateTo }),
                 applyUrlState: (state, { dateFrom, dateTo, datesChanged }) =>
                     datesChanged ? { dateFrom, dateTo } : state,
             },

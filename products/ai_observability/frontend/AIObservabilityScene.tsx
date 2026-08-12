@@ -42,6 +42,7 @@ import {
     buildApplyUrlStatePayload,
     AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID,
     aiObservabilitySharedLogic,
+    getDashboardDateState,
 } from './aiObservabilitySharedLogic'
 import { AIObservabilityTools } from './AIObservabilityTools'
 import { AIObservabilityTraces } from './AIObservabilityTracesScene'
@@ -122,7 +123,9 @@ const Filters = ({ hidePropertyFilters = false }: { hidePropertyFilters?: boolea
 
 function AIObservabilityDashboard(): JSX.Element {
     const { dashboardDateFilter, propertyFilters } = useValues(aiObservabilitySharedLogic)
+    const { setDashboardDates } = useActions(aiObservabilitySharedLogic)
     const { selectedDashboardId, availableDashboardsLoading } = useValues(aiObservabilityDashboardLogic)
+    const { searchParams } = useValues(router)
 
     const dashboardLogicInstance = React.useMemo(
         () =>
@@ -136,25 +139,34 @@ function AIObservabilityDashboard(): JSX.Element {
         () => dashboardLogic({ id: 0, placement: DashboardPlacement.Builtin }),
         []
     )
-    const { externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
+    const { dashboard, externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
     const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
     const setExternalFilters =
         dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : undefined
     useAttachedLogic(dashboardLogicInstance || fallbackLogicInstance, aiObservabilitySharedLogic)
 
+    const dashboardDateState = React.useMemo(
+        () =>
+            getDashboardDateState({
+                dashboardDateFilter,
+                persistedFilters: dashboard?.persisted_filters ?? undefined,
+                searchParams,
+            }),
+        [dashboard?.persisted_filters, dashboardDateFilter, searchParams]
+    )
+
     const nextExternalFilters = React.useMemo(
         () => ({
-            date_from: dashboardDateFilter.dateFrom,
-            date_to: dashboardDateFilter.dateTo,
+            ...dashboardDateState.externalFilters,
             properties: propertyFilters.length > 0 ? propertyFilters : null,
         }),
-        [dashboardDateFilter.dateFrom, dashboardDateFilter.dateTo, propertyFilters]
+        [dashboardDateState.externalFilters, propertyFilters]
     )
 
     const currentExternalFilters = React.useMemo(
         () => ({
-            date_from: externalFilters?.date_from ?? null,
-            date_to: externalFilters?.date_to ?? null,
+            date_from: externalFilters?.date_from,
+            date_to: externalFilters?.date_to,
             properties: externalFilters?.properties ?? null,
         }),
         [externalFilters?.date_from, externalFilters?.date_to, externalFilters?.properties]
@@ -166,6 +178,16 @@ function AIObservabilityDashboard(): JSX.Element {
             setExternalFilters(nextExternalFilters)
         }
     }, [currentExternalFilters, nextExternalFilters, selectedDashboardId, setExternalFilters])
+
+    React.useEffect(() => {
+        if (
+            dashboard &&
+            !dashboardDateState.hasUrlOverride &&
+            !objectsEqual(dashboardDateFilter, dashboardDateState.dateFilter)
+        ) {
+            setDashboardDates(dashboardDateState.dateFilter.dateFrom, dashboardDateState.dateFilter.dateTo)
+        }
+    }, [dashboard, dashboardDateFilter, dashboardDateState, setDashboardDates])
 
     return (
         <div className="@container/dashboard" data-attr="llm-analytics-costs">
