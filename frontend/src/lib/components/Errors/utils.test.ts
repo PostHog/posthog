@@ -1,5 +1,5 @@
 import { ErrorEventProperties, ExceptionAttributes } from './types'
-import { getExceptionAttributes, getExceptionList, getSessionId } from './utils'
+import { getExceptionAttributes, getExceptionList, getExceptionRelease, getSessionId } from './utils'
 
 describe('Error Display', () => {
     it('can read sentry stack trace when $exception_list is not present', () => {
@@ -188,5 +188,44 @@ describe('Error Display', () => {
         ['null session id', { $session_id: null }, undefined],
     ])('getSessionId normalizes %s', (_name, properties, expected) => {
         expect(getSessionId(properties as ErrorEventProperties)).toEqual(expected)
+    })
+
+    it('normalizes the singular exception release property', () => {
+        const release = getExceptionRelease({
+            $exception_release: {
+                id: '019aca26-0a47-776c-baa2-0afbec3ec7bb',
+                version: '1.2.3',
+                project: 'com.example.app',
+                timestamp: '2026-08-04T10:00:00Z',
+                metadata: {
+                    git: {
+                        commit_id: 'abcdef123456',
+                    },
+                },
+            },
+        } as ErrorEventProperties)
+
+        expect(release).toEqual({
+            id: '019aca26-0a47-776c-baa2-0afbec3ec7bb',
+            version: '1.2.3',
+            project: 'com.example.app',
+            created_at: '2026-08-04T10:00:00Z',
+            metadata: {
+                git: {
+                    commit_id: 'abcdef123456',
+                },
+            },
+        })
+    })
+
+    it.each([
+        ['missing release', {}],
+        ['legacy plural release map', { $exception_releases: { release: { version: '1.2.3' } } }],
+        ['non-object release', { $exception_release: '1.2.3' }],
+        ['release without an id', { $exception_release: { version: '1.2.3', timestamp: '2026-08-04' } }],
+        ['release without a version', { $exception_release: { id: 'release-id', timestamp: '2026-08-04' } }],
+        ['release without a timestamp', { $exception_release: { id: 'release-id', version: '1.2.3' } }],
+    ])('ignores an invalid %s', (_name, properties) => {
+        expect(getExceptionRelease(properties as ErrorEventProperties)).toBeUndefined()
     })
 })
