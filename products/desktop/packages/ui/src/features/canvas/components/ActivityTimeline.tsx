@@ -1,4 +1,4 @@
-import { FileTextIcon, PlusCircleIcon } from "@phosphor-icons/react";
+import { FileTextIcon, ScrollIcon } from "@phosphor-icons/react";
 import {
   type ActivityRow,
   buildActivityTimeline,
@@ -17,12 +17,14 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
-import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import {
   ActivityEventRow,
   CommentRow,
   CommentStateRow,
-  DetailBlock,
+  CREATED_BADGE,
+  MESSAGE_BADGE,
+  MessageBubble,
+  PersonBead,
   RunStatusRow,
   ThreadReplyRow,
   TimelineRow,
@@ -32,8 +34,10 @@ import { ThreadArtifactCard } from "@posthog/ui/features/canvas/components/Threa
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
+import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
+import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { Fragment, useMemo } from "react";
 
 type ConversationItem = ReturnType<
@@ -61,35 +65,43 @@ function UserMessageRow({
     [content],
   );
   const afterChannelContext = channelContext?.stripped ?? content;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterChannelContext),
+  // Every injected block the chat strips has to be stripped here too, or the raw XML
+  // shows up in the timeline for anyone whose chat never showed it.
+  const canvasInstructions = useMemo(
+    () => extractCanvasInstructions(afterChannelContext),
     [afterChannelContext],
   );
-  const displayContent = customInstructions?.stripped ?? afterChannelContext;
+  const afterCanvasInstructions =
+    canvasInstructions?.stripped ?? afterChannelContext;
+  const customInstructions = useMemo(
+    () => extractCustomInstructions(afterCanvasInstructions),
+    [afterCanvasInstructions],
+  );
+  const displayContent = collapsePiSkillInvocation(
+    customInstructions?.stripped ?? afterCanvasInstructions,
+  );
   const trimmed = displayContent.trim();
   const firstLine = trimmed.split("\n", 1)[0] ?? "";
   return (
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      gutter={
-        // Decorative: the author's name is written beside it, so keep the avatar's
-        // initials out of the row's accessible name.
-        <div
-          aria-hidden
-          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7"
-        >
-          <UserAvatar user={author} size="sm" className="size-5" />
-        </div>
-      }
+      gutter={<PersonBead user={author} badge={MESSAGE_BADGE} />}
       timestamp={timestamp}
       detail={
         <div className="space-y-1.5">
-          <DetailBlock>
-            <div className="whitespace-pre-wrap break-words">
-              <MentionText content={displayContent} />
-            </div>
-          </DetailBlock>
+          <MessageBubble content={displayContent} />
+          {canvasInstructions && (
+            <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
+              <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
+                <ScrollIcon size={12} />
+                <span className="truncate text-xs">Canvas instructions</span>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted p-2 text-muted-foreground text-xs">
+                {canvasInstructions.body}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
           {channelContext && (
             <Collapsible className="min-w-0 bg-transparent hover:bg-transparent data-open:bg-transparent">
               <CollapsibleTrigger className="min-h-0 w-full bg-transparent px-0 py-1 text-left hover:bg-transparent aria-expanded:bg-transparent">
@@ -244,11 +256,7 @@ export function ActivityTimeline({
           <TimelineRow
             connectedAbove={connectedAbove}
             connectedBelow={connectedBelow}
-            gutter={
-              <span className="relative z-10 flex size-5 items-center justify-center rounded-full border border-gray-7 bg-gray-5 text-gray-12">
-                <PlusCircleIcon size={11} weight="fill" />
-              </span>
-            }
+            gutter={<PersonBead user={task.created_by} badge={CREATED_BADGE} />}
             timestamp={task.created_at}
           >
             {`${task.created_by ? userDisplayName(task.created_by) : "Someone"} created this task`}

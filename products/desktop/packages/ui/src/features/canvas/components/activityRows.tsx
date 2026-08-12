@@ -7,23 +7,36 @@
  */
 
 import {
-  ArrowRightIcon,
+  ArrowCounterClockwiseIcon,
   ArrowsClockwiseIcon,
   CaretRightIcon,
-  CheckCircleIcon,
+  ChatCircleIcon,
+  CheckIcon,
   FileTextIcon,
   GitCommitIcon,
+  GitMergeIcon,
   GitPullRequestIcon,
+  PaperPlaneTiltIcon,
   PlayIcon,
-  WarningCircleIcon,
-  WarningIcon,
-  XCircleIcon,
+  PlusIcon,
+  ProhibitIcon,
+  QuestionIcon,
+  SquaresFourIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import {
   type ActivityEvent,
   prLabel,
 } from "@posthog/core/canvas/activityEvents";
-import { Button, cn, Skeleton } from "@posthog/quill";
+import { xmlToContent } from "@posthog/core/message-editor/content";
+import {
+  Button,
+  ChatBubble,
+  ChatBubbleContent,
+  cn,
+  Skeleton,
+} from "@posthog/quill";
+import { splitMentionSegments } from "@posthog/shared";
 import type {
   TaskCommentThreadSummary,
   UserBasic,
@@ -32,7 +45,8 @@ import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import { type ReactNode, useState } from "react";
+import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thread/ChatMarkdown";
+import { type ReactNode, useMemo, useState } from "react";
 
 /** One row: a gutter node, a line of copy, a timestamp, and optionally a detail block the
  *  row hides until it is opened.
@@ -82,7 +96,7 @@ export function TimelineRow({
   return (
     <div
       className={cn(
-        "group flex items-stretch gap-2 rounded-md py-1.5 pr-2 pl-2 transition-colors",
+        "group flex items-stretch gap-2 rounded-md py-2.5 pr-2 pl-2 transition-colors",
         hasDetail &&
           "cursor-pointer focus-within:bg-gray-2 hover:bg-gray-2 has-[:focus-visible]:bg-gray-2",
       )}
@@ -91,18 +105,22 @@ export function TimelineRow({
           over it, and consecutive rows' segments meet to form one line. It runs through the
           bead's centre; the bead is opaque and sits above it, so the line reads as touching
           it on both sides. The halves are separate so the first and last rows stop at their
-          own bead instead of running past it. */}
+          own bead instead of running past it.
+          The offsets are the row's py-2.5: this column stretches to the row's content box,
+          so a segment has to reach past the padding to meet the next row's, or the line
+          breaks between every pair of beads. 11px is the bead's centre, so the upper half
+          is that plus the padding it has to cross. */}
       <div className="relative flex w-10 shrink-0 justify-center self-stretch">
         {connectedAbove && (
           <span
             aria-hidden
-            className="-translate-x-1/2 absolute top-0 left-1/2 h-[11px] w-px bg-gray-8"
+            className="-translate-x-1/2 -top-2.5 absolute left-1/2 h-[21px] w-px bg-gray-6"
           />
         )}
         {connectedBelow && (
           <span
             aria-hidden
-            className="-translate-x-1/2 absolute top-[11px] bottom-0 left-1/2 w-px bg-gray-8"
+            className="-translate-x-1/2 -bottom-2.5 absolute top-[11px] left-1/2 w-px bg-gray-6"
           />
         )}
         {/* h-[22px] is the copy's line height, so the bead centres on the first line
@@ -133,21 +151,40 @@ export function TimelineRow({
   );
 }
 
-/** Each bead is tinted to its event's hue: a wash for the fill, a step up for the edge, and
- *  the high-contrast step for the glyph. Neutral rows keep the gray bead, so colour means
- *  something rather than decorating every row. */
+/**
+ * Colour carries one meaning each, so a hue is worth reading rather than decoration:
+ * gray for bookkeeping, blue for the agent at work, violet for something produced, green
+ * for finished, amber for waiting on a person, red for failed.
+ *
+ * Two recipes, because the two sizes need different contrast. A bead is soft — a step-3
+ * wash, a step-6 edge, a step-11 glyph — which stays quiet beside the copy and flips with
+ * the theme on its own. A badge is 12px, too small to read as a wash, so it is the solid
+ * step-9 with the one foreground that scale is designed for (dark on amber, light on the
+ * rest).
+ */
 const BEAD_TONES = {
-  neutral: "border-gray-7 bg-gray-5 text-gray-12",
-  blue: "border-blue-7 bg-blue-4 text-blue-11",
-  green: "border-green-7 bg-green-4 text-green-11",
-  amber: "border-amber-7 bg-amber-4 text-amber-11",
-  violet: "border-violet-7 bg-violet-4 text-violet-11",
-  red: "border-red-7 bg-red-4 text-red-11",
+  neutral: "border-gray-6 bg-gray-3 text-gray-11",
+  blue: "border-blue-6 bg-blue-3 text-blue-11",
+  green: "border-green-6 bg-green-3 text-green-11",
+  amber: "border-amber-6 bg-amber-3 text-amber-11",
+  violet: "border-violet-6 bg-violet-3 text-violet-11",
+  red: "border-red-6 bg-red-3 text-red-11",
+} as const;
+
+const BADGE_TONES = {
+  neutral: "bg-gray-10 text-gray-1",
+  blue: "bg-blue-9 text-white",
+  green: "bg-green-9 text-white",
+  amber: "bg-amber-9 text-amber-12",
+  violet: "bg-violet-9 text-white",
+  red: "bg-red-9 text-white",
 } as const;
 
 type BeadTone = keyof typeof BEAD_TONES;
 
-function IconBubble({
+/** What the agent or the service did: a glyph in a tinted circle. Opaque, and above the
+ *  connector, so the line reads as running into it. */
+export function EventBead({
   children,
   tone = "neutral",
 }: {
@@ -166,6 +203,42 @@ function IconBubble({
   );
 }
 
+/** What a person did: their face, with the action worn as a badge on it. Two rows by the
+ *  same person are then told apart by the badge rather than by reading the copy, and a
+ *  person's row never looks like the agent's. */
+export function PersonBead({
+  user,
+  badge,
+  badgeTone = "neutral",
+}: {
+  user?: UserBasic | null;
+  badge: ReactNode;
+  badgeTone?: BeadTone;
+}) {
+  return (
+    // Decorative: the person's name and what they did are written beside it, so keep the
+    // initials out of the row's accessible name.
+    <span aria-hidden className="relative z-10 block size-5">
+      {/* quill's avatar is a rounded square; every bead in the gutter is a circle. */}
+      <UserAvatar user={user} size="xs" className="size-5 rounded-full" />
+      <span
+        className={cn(
+          "-right-1 -bottom-1 absolute flex size-3 items-center justify-center rounded-full ring-2 ring-background",
+          BADGE_TONES[badgeTone],
+        )}
+      >
+        {badge}
+      </span>
+    </span>
+  );
+}
+
+/** The badge glyphs are read at 8px, so they have to differ in silhouette rather than in
+ *  detail: a triangle for a message sent, a blob for a comment, a tick, a plus. */
+export const MESSAGE_BADGE = <PaperPlaneTiltIcon size={8} weight="fill" />;
+export const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
+export const CREATED_BADGE = <PlusIcon size={8} weight="bold" />;
+
 const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
   run_started: "blue",
   run_failed: "red",
@@ -177,21 +250,24 @@ const EVENT_TONES: Record<ActivityEvent["kind"], BeadTone> = {
   pr_created: "neutral",
   pr_merged: "violet",
   pr_closed: "red",
-  message_forwarded: "blue",
+  message_forwarded: "neutral",
 };
 
+/** No glyph here is itself a circle: a ring inside a ring reads as a mistake at this size,
+ *  so a failure is a bare ✕ and a success a bare ✓. */
 const EVENT_ICONS: Record<ActivityEvent["kind"], ReactNode> = {
-  run_started: <PlayIcon size={10} weight="fill" />,
-  run_failed: <XCircleIcon size={12} weight="fill" />,
+  run_started: <PlayIcon size={9} weight="fill" />,
+  run_failed: <XIcon size={10} weight="bold" />,
   commits_pushed: <GitCommitIcon size={11} />,
-  awaiting_input: <WarningIcon size={11} weight="fill" />,
+  awaiting_input: <QuestionIcon size={11} weight="bold" />,
   artifact_created: <FileTextIcon size={11} />,
-  artifact_revised: <ArrowsClockwiseIcon size={12} />,
-  canvas_created: <FileTextIcon size={11} />,
+  artifact_revised: <ArrowsClockwiseIcon size={11} />,
+  // A canvas is a board, not another document.
+  canvas_created: <SquaresFourIcon size={11} />,
   pr_created: <GitPullRequestIcon size={11} />,
-  pr_merged: <GitPullRequestIcon size={11} />,
-  pr_closed: <GitPullRequestIcon size={11} />,
-  message_forwarded: <ArrowRightIcon size={11} />,
+  pr_merged: <GitMergeIcon size={11} />,
+  pr_closed: <ProhibitIcon size={11} />,
+  message_forwarded: <PaperPlaneTiltIcon size={9} weight="fill" />,
 };
 
 /** The sentence an event reads as. Written so a person skimming the panel learns what
@@ -353,10 +429,63 @@ export function DetailAction({
   );
 }
 
-/** The shared shape of an opened row's content: one quoted block, indented to the copy. */
+/**
+ * A message's text, rendered the way the chat renders it: markdown, code fences, file and
+ * artifact links.
+ *
+ * Our own inline markup — mention tokens and the XML chips the composer writes — is not
+ * markdown, and a markdown parser mangles it (`@[Name](email)` becomes a mailto link), so a
+ * message carrying any of it goes through `MentionText` instead. Those are short one-liners
+ * in practice; anything with real markdown in it has no chips.
+ */
+export function MessageBody({ content }: { content: string }) {
+  const hasOwnMarkup = useMemo(() => {
+    const { segments } = xmlToContent(content);
+    return (
+      segments.some((segment) => segment.type === "chip") ||
+      segments.some(
+        (segment) =>
+          segment.type !== "chip" &&
+          splitMentionSegments(segment.text).some(
+            (part) => part.type === "mention",
+          ),
+      )
+    );
+  }, [content]);
+  return (
+    // The chat's markdown is sized for the transcript's column. In a side panel of
+    // one-line rows it has to sit at the rows' own size, so the overrides pull its
+    // paragraphs, list items and code back down to the row copy.
+    <div className="whitespace-pre-wrap break-words text-[12.5px] [&_code]:text-[11px]! [&_li]:text-[12.5px]! [&_p]:text-[12.5px]! [&_p]:leading-[1.55]!">
+      {hasOwnMarkup ? (
+        <MentionText content={content} />
+      ) : (
+        <ChatMarkdown content={content} />
+      )}
+    </div>
+  );
+}
+
+/** A message the person sent, shown as what it is: a message. The chat's own bubble, so the
+ *  timeline and the transcript don't render the same text two different ways. */
+export function MessageBubble({ content }: { content: string }) {
+  return (
+    <ChatBubble variant="default">
+      {/* The bubble's own `whitespace-pre-wrap` would double markdown's block spacing. */}
+      <ChatBubbleContent className="whitespace-normal">
+        <MessageBody content={content} />
+      </ChatBubbleContent>
+    </ChatBubble>
+  );
+}
+
+/** The shared shape of an opened row's content: one quoted block, indented to the copy.
+ *
+ *  No radius: the left edge is a rule, and rounding any corner turned that rule into the
+ *  outline of a box instead. */
 export function DetailBlock({ children }: { children: ReactNode }) {
   return (
-    <div className="break-words rounded-md border-border border-l-2 bg-gray-2 px-2.5 py-1.5 text-[12.5px]">
+    <div className="break-words border-gray-6 border-l-2 bg-gray-2 px-2.5 py-1.5 text-[12.5px]">
       {children}
     </div>
   );
@@ -388,9 +517,9 @@ export function ActivityEventRow({
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
       gutter={
-        <IconBubble tone={EVENT_TONES[event.kind]}>
+        <EventBead tone={EVENT_TONES[event.kind]}>
           {EVENT_ICONS[event.kind]}
-        </IconBubble>
+        </EventBead>
       }
       timestamp={timestamp}
       detail={detail ?? eventDetail(event)}
@@ -419,13 +548,13 @@ export function RunStatusRow({
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
       gutter={
-        <IconBubble tone={succeeded ? "green" : "red"}>
+        <EventBead tone={succeeded ? "green" : "red"}>
           {succeeded ? (
-            <CheckCircleIcon size={12} weight="fill" />
+            <CheckIcon size={11} weight="bold" />
           ) : (
-            <XCircleIcon size={12} weight="fill" />
+            <XIcon size={10} weight="bold" />
           )}
-        </IconBubble>
+        </EventBead>
       }
       timestamp={timestamp}
     >
@@ -465,23 +594,25 @@ export function CommentRow({
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
       gutter={
-        // Decorative: the author's name is written beside it.
-        <div aria-hidden className="relative z-10 rounded-full">
-          <UserAvatar user={author} size="sm" />
-        </div>
+        // A mention is amber because it is asking for something; a plain comment isn't.
+        <PersonBead
+          user={author}
+          badge={COMMENT_BADGE}
+          badgeTone={isMentioned ? "amber" : "neutral"}
+        />
       }
       timestamp={thread.last_activity_at}
       detail={
         <div className="space-y-1.5">
+          {/* A comment stays a quote rather than a chat bubble: it points at the text it
+              was left on, which is quoted above it. */}
           <DetailBlock>
             {thread.selected_text && (
               <div className="mb-1 truncate text-muted-foreground italic">
                 “{thread.selected_text}”
               </div>
             )}
-            <div className="whitespace-pre-wrap break-words">
-              <MentionText content={thread.content} />
-            </div>
+            <MessageBody content={thread.content} />
           </DetailBlock>
           {thread.reply_count > 0 && (
             <div className="truncate text-[12.5px] text-muted-foreground">
@@ -524,13 +655,17 @@ export function CommentStateRow({
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
       gutter={
-        <IconBubble tone={resolved ? "green" : "amber"}>
-          {resolved ? (
-            <CheckCircleIcon size={12} weight="fill" />
-          ) : (
-            <WarningCircleIcon size={12} weight="fill" />
-          )}
-        </IconBubble>
+        <PersonBead
+          user={author}
+          badge={
+            resolved ? (
+              <CheckIcon size={8} weight="bold" />
+            ) : (
+              <ArrowCounterClockwiseIcon size={8} weight="bold" />
+            )
+          }
+          badgeTone={resolved ? "green" : "amber"}
+        />
       }
       timestamp={thread.state_event?.created_at ?? thread.last_activity_at}
     >
@@ -555,7 +690,7 @@ export function ActivityLoadingState() {
       <div>
         {/* Widths vary so the block reads as copy rather than a progress bar. */}
         {[36, 52, 44, 60, 40].map((width) => (
-          <div key={width} className="flex items-start gap-2 py-1 pr-2 pl-2">
+          <div key={width} className="flex items-start gap-2 py-2.5 pr-2 pl-2">
             <div className="flex w-10 shrink-0 justify-center">
               <Skeleton className="size-5 rounded-full" />
             </div>
@@ -592,22 +727,9 @@ export function ThreadReplyRow({
     <TimelineRow
       connectedAbove={connectedAbove}
       connectedBelow={connectedBelow}
-      gutter={
-        <div
-          aria-hidden
-          className="relative z-10 flex size-5 items-center justify-center overflow-hidden rounded-full border border-gray-7"
-        >
-          <UserAvatar user={author} size="sm" className="size-5" />
-        </div>
-      }
+      gutter={<PersonBead user={author} badge={MESSAGE_BADGE} />}
       timestamp={timestamp}
-      detail={
-        <DetailBlock>
-          <div className="whitespace-pre-wrap break-words">
-            <MentionText content={content} />
-          </div>
-        </DetailBlock>
-      }
+      detail={<MessageBubble content={content} />}
     >
       <span className="font-medium">{userDisplayName(author)}</span>{" "}
       <span className="text-muted-foreground">
