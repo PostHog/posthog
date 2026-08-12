@@ -437,6 +437,7 @@ intents:
 always_required:
     - backend
     - frontend
+    - ngrok
     - typegen
     - docker-compose
     # Migrations (DBs created by postgres init scripts, run for everyone)
