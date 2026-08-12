@@ -27,7 +27,7 @@ use crate::ordering::OrderingGuarantee;
 /// sync with `v1::sinks::types::PreparedEvent`, the shape the two stacks
 /// converge on.
 #[derive(Debug, Clone)]
-pub struct PreparedPayload {
+pub(crate) struct PreparedPayload {
     pub uuid: Uuid,
     /// Realized namespace within the backend: a Kafka topic, an S3 prefix.
     /// Namespace realization happens above the sink.
@@ -43,7 +43,7 @@ pub struct PreparedPayload {
 
 /// What happened to one published payload.
 #[derive(Debug)]
-pub enum Outcome {
+pub(crate) enum Outcome {
     Published,
     Failed(CaptureError),
 }
@@ -60,20 +60,23 @@ pub enum Outcome {
 /// `fold_results` is the only consumer and ignores it; drop this note when
 /// the uuid gains its consumer.
 #[derive(Debug)]
-pub struct SinkResult {
+pub(crate) struct SinkResult {
+    // Unread outside tests until the per-event response model consumes it;
+    // see the doc comment above.
+    #[allow(dead_code)]
     pub uuid: Uuid,
     pub outcome: Outcome,
 }
 
 impl SinkResult {
-    pub fn published(uuid: Uuid) -> Self {
+    pub(crate) fn published(uuid: Uuid) -> Self {
         Self {
             uuid,
             outcome: Outcome::Published,
         }
     }
 
-    pub fn failed(uuid: Uuid, err: CaptureError) -> Self {
+    pub(crate) fn failed(uuid: Uuid, err: CaptureError) -> Self {
         Self {
             uuid,
             outcome: Outcome::Failed(err),
@@ -84,7 +87,7 @@ impl SinkResult {
 /// Backend mechanism: enqueue prepared payloads, ack them, report results.
 /// No prepare on the trait — payload assembly belongs to the layers above.
 #[async_trait]
-pub trait Sink {
+pub(crate) trait Sink {
     async fn publish(&self, payloads: Vec<PreparedPayload>) -> Vec<SinkResult>;
 
     /// Flush any buffered/pending data before shutdown.
@@ -93,7 +96,7 @@ pub trait Sink {
 
 /// Collapse per-event results into the v0 whole-request response:
 /// the first failure in publish order wins.
-pub fn fold_results(results: Vec<SinkResult>) -> Result<(), CaptureError> {
+pub(crate) fn fold_results(results: Vec<SinkResult>) -> Result<(), CaptureError> {
     for result in results {
         if let Outcome::Failed(err) = result.outcome {
             return Err(err);
