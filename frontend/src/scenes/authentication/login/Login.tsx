@@ -4,8 +4,8 @@ import { useEffect } from 'react'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { LoginForm } from './LoginForm'
 import { loginLogic } from './loginLogic'
-import { GlassLogin } from './variants/glass/GlassLogin'
 
 export const scene: SceneExport = {
     component: Login,
@@ -21,5 +21,5 @@ export function Login(): JSX.Element {
         startConditionalPasskeyLogin()
     }, [startConditionalPasskeyLogin])
 
-    return <GlassLogin />
+    return <LoginForm />
 }

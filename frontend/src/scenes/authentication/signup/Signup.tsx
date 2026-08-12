@@ -13,16 +13,21 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
-import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
-import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
-import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { TurnstileChallenge } from 'scenes/authentication/signup/signupForm/TurnstileChallenge'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { LoginMethod } from '~/types'
 
-import { signupLogic } from '../../signupForm/signupLogic'
+import { signupLogic } from './signupForm/signupLogic'
+
+export const scene: SceneExport = {
+    component: Signup,
+}
 
 // Bare text nodes below are wrapped in <span>s: Chrome's in-page translation replaces text
 // nodes with <font> elements, which crashes React's sibling insert/remove operations
@@ -60,8 +65,8 @@ function SignupEmailPanel(): JSX.Element {
     )
 
     return (
-        <PaperDeskCard footer={footer}>
-            <CardTitle title="Get started" sub="Make your product self-driving." />
+        <AuthSceneCard footer={footer}>
+            <AuthCardTitle title="Get started" sub="Make your product self-driving." />
             <Form logic={signupLogic} formKey="signupPanelEmail" enableFormOnSubmit className="flex flex-col gap-4">
                 <RegionField />
                 <LemonField
@@ -126,14 +131,14 @@ function SignupEmailPanel(): JSX.Element {
                         Trying to join an existing organization?
                     </button>
                     {showJoinOrg && (
-                        <p className="PaperDesk__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                        <p className="AuthScene__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
                             You'll need your invite link. When a teammate invites you, we email you a personal link.
                             Didn't get one? Check spam, or ask them to resend it from their members settings.
                         </p>
                     )}
                 </div>
             )}
-        </PaperDeskCard>
+        </AuthSceneCard>
     )
 }
 
@@ -143,13 +148,13 @@ function PendingInvitePanel(): JSX.Element {
     const org = pendingInvite?.organization_name ?? 'your team'
 
     return (
-        <PaperDeskCard>
-            <CardTitle
+        <AuthSceneCard>
+            <AuthCardTitle
                 title="You've already been invited"
                 sub={
                     <span>
                         <b className="text-primary">{org}</b> <span>invited</span>{' '}
-                        <span className="PaperDesk__mono">{signupPanelEmail.email}</span>{' '}
+                        <span className="AuthScene__mono">{signupPanelEmail.email}</span>{' '}
                         <span>to join them on PostHog. The invite link is in your inbox.</span>
                     </span>
                 }
@@ -184,7 +189,7 @@ function PendingInvitePanel(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-        </PaperDeskCard>
+        </AuthSceneCard>
     )
 }
 
@@ -202,7 +207,7 @@ function SignupAuthPanel(): JSX.Element {
 
     const footer = (
         <>
-            <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
+            <p className="AuthScene__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
                 <span>By creating an account, you agree to our</span>{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service ↗
@@ -225,12 +230,12 @@ function SignupAuthPanel(): JSX.Element {
     )
 
     return (
-        <PaperDeskCard footer={footer}>
-            <CardTitle
+        <AuthSceneCard footer={footer}>
+            <AuthCardTitle
                 title="Secure your account"
                 sub={
                     <span>
-                        <span>Signing up as</span> <span className="PaperDesk__mono">{signupPanelEmail.email}</span>
+                        <span>Signing up as</span> <span className="AuthScene__mono">{signupPanelEmail.email}</span>
                     </span>
                 }
             />
@@ -240,7 +245,7 @@ function SignupAuthPanel(): JSX.Element {
                 </div>
             )}
             {passkeyRegistered ? (
-                <div className="PaperDesk__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
+                <div className="AuthScene__note text-center py-3 px-3.5 text-xs leading-relaxed text-secondary bg-[#fbfbf9] border border-dashed border-[#c5c6bd] rounded">
                     Passkey registered. Continue below.
                 </div>
             ) : (
@@ -308,7 +313,7 @@ function SignupAuthPanel(): JSX.Element {
                     Create account
                 </LemonButton>
             </Form>
-        </PaperDeskCard>
+        </AuthSceneCard>
     )
 }
 
@@ -334,7 +339,7 @@ function SignupProfilePanel(): JSX.Element {
 
     const footer = (
         <>
-            <p className="PaperDesk__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
+            <p className="AuthScene__terms mt-5 mb-0 text-xs leading-relaxed text-tertiary text-center">
                 <span>
                     By {preflight?.demo ? 'entering the demo environment' : 'creating an account'}, you agree to our
                 </span>{' '}
@@ -361,13 +366,13 @@ function SignupProfilePanel(): JSX.Element {
     )
 
     return (
-        <PaperDeskCard footer={footer}>
-            <CardTitle
+        <AuthSceneCard footer={footer}>
+            <AuthCardTitle
                 title="Tell us about yourself"
                 sub={
                     <span>
                         <span>Setting up the account for</span>{' '}
-                        <span className="PaperDesk__mono">{signupPanelEmail.email}</span>
+                        <span className="AuthScene__mono">{signupPanelEmail.email}</span>
                     </span>
                 }
             />
@@ -454,11 +459,11 @@ function SignupProfilePanel(): JSX.Element {
                     </LemonButton>
                 )}
             </Form>
-        </PaperDeskCard>
+        </AuthSceneCard>
     )
 }
 
-function Signup(): JSX.Element | null {
+export function Signup(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { panel } = useValues(signupLogic)
 
@@ -467,10 +472,8 @@ function Signup(): JSX.Element | null {
     }
 
     return (
-        <PaperDeskScene notes={NOTES[panel] ?? NOTES[0]}>
+        <AuthScene notes={NOTES[panel] ?? NOTES[0]}>
             {panel === 0 ? <SignupEmailPanel /> : panel === 1 ? <SignupAuthPanel /> : <SignupProfilePanel />}
-        </PaperDeskScene>
+        </AuthScene>
     )
 }
-
-export { Signup as PaperDeskSignup }

@@ -1,6 +1,6 @@
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { GlassVerifyEmail } from './variants/glass/GlassVerifyEmail'
+import { VerifyEmailForm } from './VerifyEmailForm'
 import { verifyEmailLogic } from './verifyEmailLogic'
 
 export const scene: SceneExport = {
@@ -9,5 +9,5 @@ export const scene: SceneExport = {
 }
 
 export function VerifyEmail(): JSX.Element {
-    return <GlassVerifyEmail />
+    return <VerifyEmailForm />
 }

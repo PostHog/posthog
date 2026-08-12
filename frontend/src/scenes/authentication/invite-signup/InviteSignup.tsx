@@ -1,7 +1,7 @@
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { InviteSignupForm } from './InviteSignupForm'
 import { inviteSignupLogic } from './inviteSignupLogic'
-import { GlassInviteSignup } from './variants/glass/GlassInviteSignup'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -9,5 +9,5 @@ export const scene: SceneExport = {
 }
 
 export function InviteSignup(): JSX.Element {
-    return <GlassInviteSignup />
+    return <InviteSignupForm />
 }
