@@ -653,7 +653,7 @@ body.PostHogHostedSurvey {
 
 html.embed-mode body.PostHogHostedSurvey {
     min-height: auto;
-    background: transparent;
+    background: var(--ph-survey-page-background);
 }
 
 html.embed-mode .PostHogHostedSurvey .main-container,
