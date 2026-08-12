@@ -780,7 +780,7 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         definition: { name: 'PagePeeker', category: 'social_crawler', trafficType: 'Bot', operator: 'PagePeeker' },
     },
     {
-        pattern: 'matrix-org/synapse',
+        pattern: 'Synapse (bot',
         definition: { name: 'Synapse', category: 'social_crawler', trafficType: 'Bot', operator: 'Matrix.org' },
     },
     {
