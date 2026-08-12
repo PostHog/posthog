@@ -1,4 +1,3 @@
-import { ArtifactTabHostProvider } from "@posthog/ui/features/panels/useOpenArtifact";
 import { Theme } from "@radix-ui/themes";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -232,27 +231,6 @@ describe("CloudArtifactDownloads", () => {
       artifactId: "output-1",
       name: "report.pdf",
     });
-  });
-
-  // Embedded surfaces — the command center grid, the canvas side panel — have
-  // no task panels to open a tab in, so they host the artifact themselves and
-  // the row has to go to that host rather than the stored panel layout.
-  it("opens an artifact in the surrounding host", () => {
-    const open = vi.fn();
-    render(
-      <ArtifactTabHostProvider open={open}>
-        <CloudArtifactDownloads taskId="task-1" task={task} />
-      </ArtifactTabHostProvider>,
-    );
-
-    fireEvent.click(screen.getByText("report.pdf"));
-
-    expect(open).toHaveBeenCalledWith({
-      runId: "run-1",
-      artifactId: "output-1",
-      name: "report.pdf",
-    });
-    expect(openArtifactTab).not.toHaveBeenCalled();
   });
 
   // A re-upload replaces the file rather than adding a second row for it.

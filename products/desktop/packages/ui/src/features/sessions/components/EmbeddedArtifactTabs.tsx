@@ -1,13 +1,17 @@
 import { X } from "@phosphor-icons/react";
 import {
-  ArtifactTabHostProvider,
-  type ArtifactTarget,
-} from "@posthog/ui/features/panels/useOpenArtifact";
-import { type ReactNode, useCallback, useState } from "react";
+  DEFAULT_PANEL_IDS,
+  DEFAULT_TAB_IDS,
+} from "@posthog/core/panels/panelConstants";
+import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
+import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
+import { type ReactNode, useEffect } from "react";
 import { ArtifactPreview } from "./ArtifactPreview";
 
-// Hosts the artifact tabs for a session shown outside the task's own route,
-// where the panel tab strip that would otherwise render them isn't mounted.
+// Shows the task's own artifact tabs around a session embedded outside the task
+// route — the command center grid, the canvas side panel — where the panel tab
+// strip that renders them isn't mounted. Same tabs, same store: a file opened
+// here is the tab the task view shows, and the other way round.
 export function EmbeddedArtifactTabs({
   taskId,
   children,
@@ -15,65 +19,67 @@ export function EmbeddedArtifactTabs({
   taskId: string;
   children: ReactNode;
 }) {
-  const [tabs, setTabs] = useState<ArtifactTarget[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const layout = usePanelLayoutStore((state) => state.taskLayouts[taskId]);
+  const initializeTask = usePanelLayoutStore((state) => state.initializeTask);
+  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const closeTab = usePanelLayoutStore((state) => state.closeTab);
 
-  const open = useCallback((artifact: ArtifactTarget) => {
-    setTabs((current) =>
-      current.some((tab) => tab.artifactId === artifact.artifactId)
-        ? current
-        : [...current, artifact],
-    );
-    setActiveId(artifact.artifactId);
-  }, []);
+  // Opening a tab needs a layout to write into, and a task the user never
+  // opened has none yet.
+  useEffect(() => {
+    if (!layout) initializeTask(taskId);
+  }, [layout, initializeTask, taskId]);
 
-  const close = useCallback((artifactId: string) => {
-    setTabs((current) =>
-      current.filter((tab) => tab.artifactId !== artifactId),
-    );
-    setActiveId((active) => (active === artifactId ? null : active));
-  }, []);
-
-  const active = tabs.find((tab) => tab.artifactId === activeId) ?? null;
+  const panel = layout
+    ? getLeafPanel(layout.panelTree, DEFAULT_PANEL_IDS.MAIN_PANEL)
+    : null;
+  // Artifacts only: a file or context tab belongs to the task's editor panels,
+  // which this surface has no room for.
+  const artifactTabs =
+    panel?.content.tabs.filter((tab) => tab.data.type === "artifact") ?? [];
+  const activeTab =
+    artifactTabs.find((tab) => tab.id === panel?.content.activeTabId) ?? null;
+  const activeArtifact =
+    activeTab?.data.type === "artifact" ? activeTab.data : null;
 
   return (
-    <ArtifactTabHostProvider open={open}>
-      <div className="flex h-full min-h-0 flex-col">
-        {tabs.length > 0 && (
-          <div className="flex shrink-0 items-center gap-1 overflow-hidden border-gray-6 border-b px-1 py-1">
+    <div className="flex h-full min-h-0 flex-col">
+      {panel && artifactTabs.length > 0 && (
+        <div className="flex shrink-0 items-center gap-1 overflow-hidden border-gray-6 border-b px-1 py-1">
+          <TabPill
+            label="Chat"
+            active={!activeTab}
+            onSelect={() =>
+              setActiveTab(taskId, panel.id, DEFAULT_TAB_IDS.LOGS)
+            }
+          />
+          {artifactTabs.map((tab) => (
             <TabPill
-              label="Chat"
-              active={!active}
-              onSelect={() => setActiveId(null)}
+              key={tab.id}
+              label={tab.label}
+              active={tab.id === activeTab?.id}
+              onSelect={() => setActiveTab(taskId, panel.id, tab.id)}
+              onClose={() => closeTab(taskId, panel.id, tab.id)}
             />
-            {tabs.map((tab) => (
-              <TabPill
-                key={tab.artifactId}
-                label={tab.name}
-                active={tab.artifactId === active?.artifactId}
-                onSelect={() => setActiveId(tab.artifactId)}
-                onClose={() => close(tab.artifactId)}
-              />
-            ))}
+          ))}
+        </div>
+      )}
+      {/* An artifact covers the session rather than replacing it, so the thread
+          keeps its box and its virtualized rows their measurements. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {children}
+        {activeArtifact && activeTab && (
+          <div className="absolute inset-0 flex flex-col bg-background">
+            <ArtifactPreview
+              taskId={taskId}
+              runId={activeArtifact.runId}
+              artifactId={activeArtifact.artifactId}
+              name={activeTab.label}
+            />
           </div>
         )}
-        {/* An artifact covers the session rather than replacing it, so the
-            thread keeps its box and its virtualized rows their measurements. */}
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          {children}
-          {active && (
-            <div className="absolute inset-0 flex flex-col bg-background">
-              <ArtifactPreview
-                taskId={taskId}
-                runId={active.runId}
-                artifactId={active.artifactId}
-                name={active.name}
-              />
-            </div>
-          )}
-        </div>
       </div>
-    </ArtifactTabHostProvider>
+    </div>
   );
 }
 
