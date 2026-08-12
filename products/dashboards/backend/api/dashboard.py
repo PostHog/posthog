@@ -178,6 +178,8 @@ DASHBOARD_SHARED_FIELDS = [
     "last_accessed_at",
     "last_viewed_at",
     "folder",
+    "file_system_id",
+    "file_system_path",
     "is_shared",
     "deleted",
     "creation_mode",

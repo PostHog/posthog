@@ -213,7 +213,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
         actions: [
             moveToLogic,
-            ['openMoveToModal', 'closedMoveToModal'],
+            ['openMoveToModal'],
             eventUsageLogic,
             ['reportDashboardMoveInitiated'],
             projectTreeDataLogic,
@@ -561,10 +561,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             if (awaiting?.ids.delete(Number(item.ref))) {
                 awaiting.onStillSelected?.([...awaiting.ids])
             }
-        },
-        // Nothing moved, so the pending deselection belongs to a table render that is gone.
-        closedMoveToModal: () => {
-            cache.awaitingMove = undefined
         },
         moveDashboardsToFolder: ({ ids, method, onStillSelected }) => {
             const moving = ids

@@ -501,6 +501,18 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert result["file_system_id"] == str(first.id)
         assert result["file_system_path"] == first.path
 
+    def test_updating_a_dashboard_keeps_its_file_system_entry_in_the_response(self):
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "Filed dashboard", "_create_in_folder": "Marketing/Website"}
+        )
+        entry = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard_id), shortcut=False)
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"pinned": True})
+
+        # The list gates "Move to another folder" on these, so an update that drops them un-files the row
+        assert updated["file_system_id"] == str(entry.id)
+        assert updated["file_system_path"] == entry.path
+
     def test_list_reports_no_file_system_entry_when_the_dashboard_has_none(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "Entryless dashboard"})
         FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard_id)).delete()

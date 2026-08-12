@@ -930,6 +930,18 @@
                      AND U0."shortcut" IS NOT NULL))
      ORDER BY U0."id" ASC
      LIMIT 1) AS "_folder_path",
+  
+    (SELECT U0."id" AS "id"
+     FROM "posthog_filesystem" U0
+     WHERE ((U0."surface" IS NULL
+             OR U0."surface" = 'web')
+            AND U0."ref" = ("posthog_dashboard"."id")::varchar
+            AND U0."team_id" = ("posthog_dashboard"."team_id")
+            AND U0."type" = 'dashboard'
+            AND NOT (U0."shortcut"
+                     AND U0."shortcut" IS NOT NULL))
+     ORDER BY 1 ASC
+     LIMIT 1) AS "_folder_id",
          T6."id",
          T6."password",
          T6."last_login",
@@ -3403,6 +3415,18 @@
                      AND U0."shortcut" IS NOT NULL))
      ORDER BY U0."id" ASC
      LIMIT 1) AS "_folder_path",
+  
+    (SELECT U0."id" AS "id"
+     FROM "posthog_filesystem" U0
+     WHERE ((U0."surface" IS NULL
+             OR U0."surface" = 'web')
+            AND U0."ref" = ("posthog_dashboard"."id")::varchar
+            AND U0."team_id" = ("posthog_dashboard"."team_id")
+            AND U0."type" = 'dashboard'
+            AND NOT (U0."shortcut"
+                     AND U0."shortcut" IS NOT NULL))
+     ORDER BY 1 ASC
+     LIMIT 1) AS "_folder_id",
          T6."id",
          T6."password",
          T6."last_login",
@@ -5259,6 +5283,18 @@
                      AND U0."shortcut" IS NOT NULL))
      ORDER BY U0."id" ASC
      LIMIT 1) AS "_folder_path",
+  
+    (SELECT U0."id" AS "id"
+     FROM "posthog_filesystem" U0
+     WHERE ((U0."surface" IS NULL
+             OR U0."surface" = 'web')
+            AND U0."ref" = ("posthog_dashboard"."id")::varchar
+            AND U0."team_id" = ("posthog_dashboard"."team_id")
+            AND U0."type" = 'dashboard'
+            AND NOT (U0."shortcut"
+                     AND U0."shortcut" IS NOT NULL))
+     ORDER BY 1 ASC
+     LIMIT 1) AS "_folder_id",
          T6."id",
          T6."password",
          T6."last_login",
@@ -12385,6 +12421,18 @@
                      AND U0."shortcut" IS NOT NULL))
      ORDER BY U0."id" ASC
      LIMIT 1) AS "_folder_path",
+  
+    (SELECT U0."id" AS "id"
+     FROM "posthog_filesystem" U0
+     WHERE ((U0."surface" IS NULL
+             OR U0."surface" = 'web')
+            AND U0."ref" = ("posthog_dashboard"."id")::varchar
+            AND U0."team_id" = ("posthog_dashboard"."team_id")
+            AND U0."type" = 'dashboard'
+            AND NOT (U0."shortcut"
+                     AND U0."shortcut" IS NOT NULL))
+     ORDER BY 1 ASC
+     LIMIT 1) AS "_folder_id",
          T6."id",
          T6."password",
          T6."last_login",
@@ -14611,6 +14659,18 @@
                      AND U0."shortcut" IS NOT NULL))
      ORDER BY U0."id" ASC
      LIMIT 1) AS "_folder_path",
+  
+    (SELECT U0."id" AS "id"
+     FROM "posthog_filesystem" U0
+     WHERE ((U0."surface" IS NULL
+             OR U0."surface" = 'web')
+            AND U0."ref" = ("posthog_dashboard"."id")::varchar
+            AND U0."team_id" = ("posthog_dashboard"."team_id")
+            AND U0."type" = 'dashboard'
+            AND NOT (U0."shortcut"
+                     AND U0."shortcut" IS NOT NULL))
+     ORDER BY 1 ASC
+     LIMIT 1) AS "_folder_id",
          T6."id",
          T6."password",
          T6."last_login",
