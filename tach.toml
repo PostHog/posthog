@@ -426,6 +426,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.alerts",
     "products.approvals",
     "products.dashboards",
     "products.early_access_features",
