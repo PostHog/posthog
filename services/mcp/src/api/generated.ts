@@ -3218,7 +3218,7 @@ export namespace Schemas {
       yAxisLabel?: string | null;
       /** Pins the top of the y-axis. Leave unset for an automatic bound. Ignored in the same cases as `yAxisMin`. */
       yAxisMax?: number | null;
-      /** Pins the bottom of the y-axis. Leave unset for an automatic bound. Ignored on a logarithmic scale, while showing percentages, and when it is not below `yAxisMax`. */
+      /** Pins the bottom of the y-axis. Leave unset for an automatic bound. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, while showing percentages, and when it is not below `yAxisMax`. */
       yAxisMin?: number | null;
       yAxisScaleType?: YAxisScaleType | null;
       /** Y-axis baseline. When false the axis floats to the data range instead of starting at zero, trimming the empty space below the lowest value. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages. */
