@@ -33,12 +33,8 @@ function integrationLabel(integration: unknown): string {
     return String(integration ?? '').replace(/([a-z])([A-Z])/g, '$1 $2')
 }
 
-/** Conversion goal fields, named the way they're named in the goal editor.
- *
- * A preview that says `counts_as_revenue` is asking the user to know the schema in
- * order to approve a change to it. The editor calls these things something already;
- * the diff should agree with it.
- */
+/** Named as the goal editor names them, so approving a change doesn't require knowing
+ * the schema. */
 const GOAL_FIELD_LABELS: Record<string, string> = {
     counts_as_revenue: 'Each conversion is worth money',
     counts_as_customer: 'Counts as a new customer',
@@ -49,18 +45,12 @@ const GOAL_FIELD_LABELS: Record<string, string> = {
 }
 
 function goalFieldLabel(key: string): string {
-    // Unknown keys pass through readably rather than being hidden: a field added
-    // backend-first should look unpolished, not invisible.
+    // A field added backend-first should look unpolished, not invisible.
     return GOAL_FIELD_LABELS[key] ?? key.replace(/_/g, ' ')
 }
 
-/** What a config-mutating op will change, computed against the config as it stands.
- *
- * Derived rather than described: the same `ApplyOp` the server will execute is the
- * input, so the preview can't drift from what actually happens. Anything this can't
- * describe returns no lines, and the caller falls back to the suggestion's own
- * evidence rather than showing a confident but empty diff.
- */
+/** What a config-mutating op will change, derived from the same `ApplyOp` the server
+ * will execute so the preview can't drift. Undescribable ops return no lines. */
 export function buildApplyDiff(op: ApplyOp, config: MarketingAnalyticsConfig | null | undefined): ApplyDiff {
     const lines: DiffLine[] = []
 
@@ -120,9 +110,8 @@ export function buildApplyDiff(op: ApplyOp, config: MarketingAnalyticsConfig | n
         }
 
         case 'set_campaign_field_preference': {
-            // An absent preference means campaign_name — the documented default — so
-            // that's what "before" shows rather than "not set", which would suggest
-            // matching wasn't happening at all.
+            // An absent preference means campaign_name, the documented default —
+            // "not set" would suggest no matching was happening at all.
             const before =
                 config?.campaign_field_preferences?.[op.integration as string]?.match_field ?? 'campaign_name'
             if (before !== op.match_field) {

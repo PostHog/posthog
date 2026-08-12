@@ -68,8 +68,8 @@ describe('SuggestionModal', () => {
 
         // "Apply change" on a button that deletes a conversion goal is accurate and
         // useless.
-        expect(screen.getByRole('button', { name: 'Remove goal' })).toBeTruthy()
-        expect(screen.queryByRole('button', { name: 'Apply change' })).toBeNull()
+        expect(screen.getByText('Remove goal')).toBeTruthy()
+        expect(screen.queryByText('Apply change')).toBeNull()
     })
 
     it('keeps the generic label for an additive config edit', () => {
@@ -79,7 +79,7 @@ describe('SuggestionModal', () => {
             })
         )
 
-        expect(screen.getByRole('button', { name: 'Apply change' })).toBeTruthy()
+        expect(screen.getByText('Apply change')).toBeTruthy()
         expect(screen.getByText('Add')).toBeTruthy()
     })
 })

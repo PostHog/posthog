@@ -27,21 +27,12 @@ function SeverityGlyph({ severity }: { severity: Suggestion['severity'] }): JSX.
     return <IconWarning className={severity === 'error' ? 'text-danger text-lg' : 'text-warning text-lg'} />
 }
 
-/** One ad platform's logo, or null when there isn't one to show.
+/** Checking the catalogue first because `SourceIcon` renders a skeleton while
+ * `availableSources` is null — which is also its terminal state when the wizard
+ * endpoint 403s, so no warehouse access would mean a skeleton forever.
  *
- * A hook rather than a component so callers can branch on its absence — a component
- * returning null still gives the caller a truthy element, which is exactly the bug
- * this shape avoids.
- *
- * It also adds the one guard every caller here needs. `SourceIcon` renders a bare
- * `LemonSkeleton` while `availableSources` is null, and null is *also* the terminal
- * state when the wizard endpoint 403s — so a user without warehouse access would get
- * a skeleton sitting there forever. Asking the catalogue first means no logo simply
- * means no logo.
- *
- * `disableTooltip` because SourceIcon's default wraps the image in a link to its docs
- * page. A nested clickable inside a row that already has a primary action is a
- * misclick waiting to happen, and it navigates out of a checklist mid-task.
+ * `disableTooltip` because SourceIcon otherwise links to its docs page, and the row
+ * already has a primary action.
  */
 export function usePlatformLogo(integration: string | null): JSX.Element | null {
     const { availableSources } = useValues(availableSourcesLogic)
@@ -52,27 +43,11 @@ export function usePlatformLogo(integration: string | null): JSX.Element | null 
     return <SourceIcon type={integration} size="small" disableTooltip />
 }
 
-/** The leading visual for a suggestion row.
- *
- * Shows the ad platform's logo when the finding belongs to exactly one platform —
- * which is most of them, and is the fastest way to scan a list for "what's wrong
- * with Meta". Severity survives as a dot on the corner of the logo rather than being
- * dropped: it's the only thing on the row that says whether this blocks a metric or
- * merely improves it.
- *
- * Falls back to the plain severity icon whenever there's no single platform to name —
- * a collapsed group, a conversion goal, untagged traffic from everywhere.
- */
+/** The platform logo with severity as a corner dot, falling back to the bare severity
+ * glyph when the finding belongs to no single platform. */
 export function SuggestionIcon({ suggestion }: { suggestion: Suggestion }): JSX.Element {
     const logo = usePlatformLogo(suggestion.integration)
 
-    // A fixed-width slot, always, logo or not. Sizing the leading element to its
-    // content indented every titled row differently depending on whether its platform
-    // happened to resolve a logo, which turned a ranked list into a ragged one — and
-    // made the same list re-flow the moment an icon 404'd.
-    //
-    // `SourceIcon`'s `small` is 30px; the slot matches so the logo sits flush and the
-    // glyph centres in the same column.
     return (
         <Tooltip
             title={
@@ -81,14 +56,12 @@ export function SuggestionIcon({ suggestion }: { suggestion: Suggestion }): JSX.
                     : SEVERITY_LABEL[suggestion.severity]
             }
         >
-            {/* 30px exactly, not the nearest `size-8`: rounding to 32 would leave the
-                logo a pixel off-centre in every row that has one. */}
+            {/* Fixed 30px — `SourceIcon`'s `small` — so rows don't go ragged when a logo
+                is missing, and not `size-8` because 32 puts the logo off-centre. */}
             <span
                 className="relative shrink-0 flex items-center justify-center cursor-help size-[30px]"
                 data-attr="suggestion-icon"
-                // Severity is otherwise carried by glyph shape and dot colour alone, and
-                // the tooltip needs a pointer to read. `tabIndex` so it's reachable, and
-                // the label so it doesn't have to be.
+                // Severity is otherwise colour and glyph shape only.
                 tabIndex={0}
                 aria-label={
                     suggestion.integration

@@ -4,19 +4,11 @@ import type { ApplyOp } from 'scenes/web-analytics/tabs/marketing-analytics/fron
 
 /** Perform an op the browser owns, returning whether it handled it.
  *
- * Lives in the view rather than in `setupPlanLogic`: these need the router and the
- * scene's own logics, and importing those into the plan logic drags the whole scene
- * dependency graph — sourceManagementLogic and friends — into everything that touches
- * a suggestion. The plan logic changes config; the view moves the user.
+ * In the view rather than `setupPlanLogic` to keep the scene's dependency graph —
+ * sourceManagementLogic and friends — out of everything that touches a suggestion.
  *
- * Anything that leaves the product opens in a new tab. The user is midway through a
- * setup checklist, and navigating away to authorise an ad platform loses their place
- * in it.
- *
- * Handles exactly the ops in the backend's `NAVIGATE_OPS`. `fix_platform_urls` is not
- * here on purpose: it is advice about an ad platform's tracking template, so the row
- * renders it rather than navigating anywhere. Anything unrecognised returns false and
- * the caller leaves the row alone.
+ * New tabs throughout: the user is midway through a checklist and navigating away
+ * loses their place in it.
  */
 export function runNavigateOp(op: ApplyOp): boolean {
     switch (op.op) {

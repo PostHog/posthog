@@ -13,14 +13,9 @@ export const SECTION_LABEL: Record<SetupSection, string> = {
     [SetupSection.GENERAL]: 'General',
 }
 
-/** Which part of Setup owns each kind of suggestion.
- *
- * Lives on the frontend because `SetupSection` is a UI concept — MCP and API
- * consumers get the flat ranked list and have no sections to route into.
- *
- * A kind missing from this map still shows up in "Suggested setup"; it just doesn't
- * appear in a section. That's the safe direction for a kind added backend-first.
- */
+/** Which part of Setup owns each kind of suggestion. A missing kind still shows up in
+ * "Suggested setup", just not in a section — the safe direction for one added
+ * backend-first. */
 export const SECTION_BY_KIND: Record<string, SetupSection> = {
     connect_source: SetupSection.SOURCES,
     reconnect_oauth: SetupSection.SOURCES,

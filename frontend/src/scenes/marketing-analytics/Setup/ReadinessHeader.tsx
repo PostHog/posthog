@@ -54,23 +54,17 @@ function CapabilityChip({
         </div>
     )
 
-    // Only `unlocked` counts towards "N of M ready" above, so only `unlocked` gets
-    // full-strength text. Grouping `partial` with ready would contradict that count
-    // on the very same line.
-    //
-    // No status icon, and no per-status colour. A yellow warning glyph plus bright
-    // text made the one `partial` chip the loudest thing in the row, which reads as
-    // "this one is selected" — and the status is already in the tooltip, the count and
-    // the progress bar. Background is now reserved for exactly one meaning: focused.
+    // Only `unlocked` gets full-strength text, since only `unlocked` counts towards
+    // "N of M ready" above. No status colour either — background means focused and
+    // nothing else, and status is already in the tooltip, count and progress bar.
     const ready = readiness.status === 'unlocked'
 
     return (
         <Tooltip title={tooltip}>
             <button
                 type="button"
-                // Focusable even when there's nothing to filter: `disabled` drops it out
-                // of the tab order, and the status and explanation live in the tooltip,
-                // which then has no keyboard path. The click is guarded instead.
+                // Guarded click rather than `disabled`, which would drop the chip out of
+                // the tab order and leave its tooltip with no keyboard path.
                 onClick={clickable ? onFocus : undefined}
                 aria-pressed={clickable ? focused : undefined}
                 aria-label={`${label} · ${STATUS_COPY[readiness.status]}`}
@@ -110,9 +104,8 @@ export function ReadinessHeader(): JSX.Element {
         <div className="deprecated-space-y-3">
             {total > 0 && (
                 <div className="deprecated-space-y-2">
-                    {/* Without this line the chips read as a list of failures. They are a
-                        list of metrics, and most of a new project's are legitimately not
-                        available yet — which is the point of the tab, not a fault. */}
+                    {/* Without this line the chips read as a list of failures rather than
+                        of metrics, most of which a new project legitimately lacks. */}
                     <div className="flex items-baseline gap-2 text-xs text-secondary">
                         <span className="font-semibold uppercase tracking-wide">What you can measure right now</span>
                         <span>
@@ -138,9 +131,8 @@ export function ReadinessHeader(): JSX.Element {
                 </div>
             )}
 
-            {/* Both of these say "don't read the numbers above as the whole truth" —
-                the plan is assembled from independently failing services over capped
-                queries, and hiding that would make a partial answer look authoritative. */}
+            {/* The plan is assembled from independently failing services over capped
+                queries; hiding that makes a partial answer look authoritative. */}
             {degraded.length > 0 && (
                 <LemonBanner type="warning">
                     Some checks could not run ({degraded.join(', ')}), so this list is incomplete. Reload to try again.

@@ -31,9 +31,8 @@ const CTA_LABEL: Record<string, string> = {
     open_settings: 'Open settings',
 }
 
-/** "Fix the ad URL" — always advice, never a button that changes config. Mapping a
- * mistagged campaign is a workaround; correcting the tracking template in the ad
- * platform is the actual fix, so the values to paste are always one click away. */
+/** Advice, never an apply button — the mapping is the workaround, retagging the ad URL
+ * is the fix. */
 function UrlFixHint({ fix }: { fix: ApplyOp }): JSX.Element {
     const expectedSource = fix.expected_utm_source as string
     const expectedCampaign = fix.expected_utm_campaign as string
@@ -74,9 +73,7 @@ export function SuggestionRow({
     /** Set when the row is rendered inside a section, so it doesn't offer to send you
      * where you already are. */
     currentSection?: SetupSection
-    /** Rendered inside the hidden list: the same row, with the dismissal reversed
-     * rather than repeated. Offering "Dismiss" on an already-dismissed row would be a
-     * no-op button, and hiding the CTA would make the list read-only for no reason. */
+    /** Set inside the hidden list, which swaps Dismiss for Restore. */
     isDismissed?: boolean
 }): JSX.Element {
     const { applyingIds } = useValues(setupPlanLogic)
@@ -85,15 +82,11 @@ export function SuggestionRow({
 
     const isApplying = applyingIds.includes(suggestion.id)
     const urlFix = findOp(suggestion.also_recommended, 'fix_platform_urls')
-    // Nothing to apply doesn't mean nothing to do. The plan already says where the fix
-    // lives — `deep_link` for the ones that live outside this tab (a broken sync, an
-    // unselected table), the owning section for the rest. Without this the row offers
-    // Dismiss and nothing else, which reads as "we found it, you're on your own".
+    // Nothing to apply doesn't mean nothing to do: `deep_link` for fixes that live
+    // outside this tab, the owning section for the rest.
     const section = SECTION_BY_KIND[suggestion.kind]
-    // Setup re-hosts every component the marketing settings page hosts, so
-    // `open_settings` on a suggestion we have a section for is a detour out of the tab
-    // and back into the same editor. Once we're already in that section the editor is
-    // on screen below the row, and no button beats a redundant one.
+    // Setup re-hosts the marketing settings components, so `open_settings` on a
+    // suggestion we have a section for is a detour back into the same editor.
     const settlesInTab = suggestion.apply?.op === 'open_settings' && !!section
     const ctaLabel = suggestion.apply && !settlesInTab ? (CTA_LABEL[suggestion.apply.op] ?? 'Review change') : null
     const sectionCta = !ctaLabel && section && section !== currentSection ? section : null

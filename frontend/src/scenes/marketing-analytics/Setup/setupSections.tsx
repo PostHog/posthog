@@ -19,16 +19,9 @@ export interface SetupSectionDef {
     content: JSX.Element
 }
 
-/** The manual half of the tab. Each entry re-hosts components that already exist —
- * `MarketingAnalyticsSettings` keeps working unchanged at
- * /settings/environment-marketing-analytics, so there are two entry points over one
- * set of components rather than a fork.
- *
- * Deliberately not carried over from the prototype's twelve sections: revenue /
- * person-join (that config belongs to Revenue analytics, not
- * `marketing_analytics_config`), funnels, audiences and data retention. Listing them
- * here with nothing behind them would be worse than leaving them out.
- */
+/** The manual half of the tab. Each entry re-hosts existing components, so this and
+ * /settings/environment-marketing-analytics are two entry points over one set of
+ * components rather than a fork. */
 export const SETUP_SECTIONS: SetupSectionDef[] = [
     {
         key: SetupSection.SUGGESTIONS,
@@ -56,9 +49,8 @@ export const SETUP_SECTIONS: SetupSectionDef[] = [
     {
         key: SetupSection.UTM_MAPPING,
         label: SECTION_LABEL[SetupSection.UTM_MAPPING],
-        // Until now these three were reachable only through a modal behind the
-        // `advance-marketing-analytics-settings` flag, which is why UTM problems were
-        // hard to fix by hand.
+        // Reachable until now only through a modal behind the
+        // `advance-marketing-analytics-settings` flag.
         description: 'Map UTM values that do not match what the ad platform reports.',
         content: (
             <div className="deprecated-space-y-6">

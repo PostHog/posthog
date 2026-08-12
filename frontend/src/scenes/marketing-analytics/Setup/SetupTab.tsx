@@ -59,9 +59,8 @@ export function SetupTab(): JSX.Element {
             section.key !== SetupSection.INTEGRATION_HEALTH || featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
     )
 
-    // Scan once on arrival so the tab isn't an empty shell, but never again on its own:
-    // the plan is six ClickHouse queries deep, one of which unions every ad adapter, so
-    // re-running it on every section change would make the tab feel broken.
+    // Once on arrival and never again on its own — the plan is six ClickHouse queries
+    // deep, one unioning every ad adapter.
     useEffect(() => {
         if (!setupPlan) {
             loadSetupPlan()
@@ -93,16 +92,14 @@ export function SetupTab(): JSX.Element {
                     <h2 className="mb-1">{active.label}</h2>
                     {active.description && <p className="text-secondary mb-0">{active.description}</p>}
                 </div>
-                {/* What's wrong with *this* section, above the controls that fix it by
-                    hand. "Suggested setup" renders the whole ranked list itself, so it
-                    would otherwise show everything twice. */}
+                {/* Skipped for "Suggested setup", which renders the whole ranked list
+                    itself and would otherwise show everything twice. */}
                 {active.key !== SetupSection.SUGGESTIONS && <SectionSuggestions section={active.key} />}
                 {active.content}
             </div>
 
-            {/* Both modals live at the tab, not inside a section: a suggestion row
-                anywhere can open either, and they must survive the user switching
-                sections behind them. */}
+            {/* At the tab, not in a section: a row anywhere can open either, and they
+                must survive the user switching sections behind them. */}
             <SuggestionModal
                 suggestion={reviewingSuggestion}
                 batch={isReviewingBatch ? safeBatch : []}

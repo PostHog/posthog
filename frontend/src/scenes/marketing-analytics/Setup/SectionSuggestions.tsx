@@ -6,16 +6,8 @@ import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/fr
 import { suggestionsForSection } from './sectionRouting'
 import { SuggestionRow } from './SuggestionRow'
 
-/** The suggestions that belong to one section, rendered above its manual controls.
- *
- * Deliberately the same rows as "Suggested setup", not a summary: the ranked list is
- * where you go to ask "what first?", and this is where you land when you're already
- * fixing sources. Same data and the same button — a second, lesser rendering would
- * just be somewhere else to keep in sync.
- *
- * Renders nothing when the section is clean, so a section with no problems doesn't
- * grow an empty "no issues" block above its controls.
- */
+/** One section's suggestions, above its manual controls. The same rows as "Suggested
+ * setup" rather than a summary, so there's no second rendering to keep in sync. */
 export function SectionSuggestions({ section }: { section: SetupSection }): JSX.Element | null {
     const { visibleSuggestions } = useValues(setupPlanLogic)
     const { reviewSuggestion } = useActions(setupPlanLogic)

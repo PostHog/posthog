@@ -241,6 +241,9 @@ export interface marketingAnalyticsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     conversion_goals: ConversionGoalFilter[] // marketingAnalyticsSettingsLogic
     sources_map: Record<string, SourceMap> // marketingAnalyticsSettingsLogic
+    dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
+    dataWarehouseSourcesLoading: boolean // sourceManagementLogic
+    dataWarehouseTables: DatabaseSchemaDataWarehouseTable[] // sourceManagementLogic
     baseCurrency: CurrencyCode // teamLogic
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
     activeTab: MarketingAnalyticsTab
@@ -476,9 +479,9 @@ export interface marketingAnalyticsLogicMeta {
             [x: string]: SourceMap
         } | null
         externalTables: (
-            dataWarehouseTables: any,
+            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
             sources_map: Record<string, SourceMap>,
-            dataWarehouseSources: any
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
         ) => ExternalTable[]
         validExternalTables: (
             externalTables: ExternalTable[],
@@ -486,14 +489,17 @@ export interface marketingAnalyticsLogicMeta {
                 [x: string]: SourceMap
             } | null
         ) => ExternalTable[]
-        nativeSources: (dataWarehouseSources: any) => ExternalDataSource[]
-        validNativeSources: (nativeSources: ExternalDataSource[], dataWarehouseTables: any) => NativeSource[]
+        nativeSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        validNativeSources: (
+            nativeSources: ExternalDataSource[],
+            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+        ) => NativeSource[]
         uniqueConversionGoalName: (
             conversionGoalInput: ConversionGoalFilter,
             conversion_goals: ConversionGoalFilter[]
         ) => string
         nativeSourcesHierarchyStatus: (validNativeSources: NativeSource[]) => NativeSourceHierarchyStatus[]
-        loading: (dataWarehouseSourcesLoading: any) => boolean
+        loading: (dataWarehouseSourcesLoading: boolean) => boolean
         allAvailableSources: (
             validExternalTables: ExternalTable[],
             validNativeSources: NativeSource[]
@@ -527,7 +533,7 @@ export interface marketingAnalyticsLogicMeta {
             validExternalTables: ExternalTable[],
             validNativeSources: NativeSource[],
             loading: boolean,
-            dataWarehouseTables: any
+            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
         ) => boolean
         hasSources: (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => boolean
         allExternalTablesWithStatus: (
@@ -1416,11 +1422,6 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         const rawTab = searchParams.get('tab')
         if (rawTab && Object.values(MarketingAnalyticsTab).includes(rawTab as MarketingAnalyticsTab)) {
             actions.setActiveTab(rawTab as MarketingAnalyticsTab)
-        }
-
-        const section = searchParams.get('section')
-        if (section && Object.values(SetupSection).includes(section as SetupSection)) {
-            actions.setSetupSection(section as SetupSection)
         }
 
         const section = searchParams.get('section') as SetupSection | null

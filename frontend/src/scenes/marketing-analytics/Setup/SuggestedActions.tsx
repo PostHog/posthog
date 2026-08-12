@@ -16,9 +16,8 @@ function EmptyState({ scanned, degraded }: { scanned: boolean; degraded: string[
             </div>
         )
     }
-    // A degraded plan is missing whole checks, so "every check passed" would be a
-    // clean bill of health we can't give. The readiness header carries the same caveat;
-    // this is the one place a user could read silence as an all-clear.
+    // A degraded plan is missing whole checks, so "every check passed" is a clean bill
+    // of health we can't give.
     if (degraded.length) {
         return (
             <div className="flex items-center justify-center gap-2 py-8 text-secondary">
@@ -125,7 +124,7 @@ export function SuggestedActions(): JSX.Element {
                 </div>
             ) : focusedCapability ? (
                 // Reachable: a capability can be blocked by something we surface no
-                // suggestion for. Saying so beats an empty box that looks like a bug.
+                // suggestion for.
                 <div className="flex items-center justify-center gap-2 py-8 text-secondary">
                     <span>Nothing here changes that metric.</span>
                     <LemonButton size="small" type="secondary" onClick={() => focusCapability(null)}>
@@ -136,9 +135,8 @@ export function SuggestedActions(): JSX.Element {
                 <EmptyState scanned={!!setupPlan} degraded={degraded} />
             )}
 
-            {/* Dismissing used to be a one-way door: a count, and no way to see or undo
-                what was behind it. The rows are the same rows, so a dismissal that
-                turns out to matter costs one click to get back. */}
+            {/* So dismissing isn't a one-way door — a dismissal that turns out to matter
+                costs one click to get back. */}
             {dismissedSuggestions.length > 0 && (
                 <div className="deprecated-space-y-2">
                     <div className="flex items-center justify-between gap-4 text-sm text-secondary">

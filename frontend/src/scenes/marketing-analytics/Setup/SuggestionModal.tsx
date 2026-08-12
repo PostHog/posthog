@@ -9,12 +9,8 @@ import type { ApplyOp, Suggestion } from 'scenes/web-analytics/tabs/marketing-an
 import { buildApplyDiff, type DiffLine } from './applyDiff'
 import { usePlatformLogo } from './SuggestionIcon'
 
-/** What a navigate-only op is about to do, in plain words.
- *
- * These have no diff to show — nothing in the config changes — so the modal has to
- * earn its place by saying what will happen instead of previewing it. A retry starts
- * a real import; a reconnect leaves the app. Worth a sentence before the click.
- */
+/** Navigate-only ops change no config, so there's no diff to preview — the modal says
+ * what will happen instead. */
 const NAVIGATE_EXPLANATIONS: Record<string, (op: ApplyOp) => string> = {
     retry_sync: (op) =>
         `Starts a fresh sync of ${op.display_name} from the ad platform. It runs in the background and can take several minutes — the numbers here won't change immediately.`,
@@ -38,12 +34,8 @@ const NAVIGATE_EXPLANATIONS: Record<string, (op: ApplyOp) => string> = {
     open_settings: () => 'Opens marketing analytics settings in a new tab.',
 }
 
-/** The confirm button names the act, not the mechanism.
- *
- * "Apply change" on a button that deletes a conversion goal is accurate and useless.
- * Ops not listed here are additive config edits where "Apply change" is honest — the
- * ones worth spelling out are the destructive and the creative.
- */
+/** Only the destructive and the creative — everything else is an additive config edit
+ * that the default "Apply change" describes honestly. */
 const APPLY_LABEL: Record<string, string> = {
     delete_conversion_goal: 'Remove goal',
     create_conversion_goal: 'Create goal',
@@ -57,9 +49,8 @@ function explanationFor(op: ApplyOp): ((op: ApplyOp) => string) | undefined {
     return op.op in NAVIGATE_EXPLANATIONS ? NAVIGATE_EXPLANATIONS[op.op] : undefined
 }
 
-/** Say the verb. A strikethrough and a minus sign are the entire signal that a row is
- * about to be deleted, which is far too quiet for a destructive change the user is
- * being asked to approve — and it leaves "Remove" appearing nowhere in the preview. */
+/** Spelled out because a strikethrough and a minus sign are otherwise the whole signal
+ * that a row is about to be deleted. */
 const CHANGE_VERB: Record<DiffLine['change'], { label: string; className: string }> = {
     add: { label: 'Add', className: 'text-success' },
     remove: { label: 'Remove', className: 'text-danger' },
@@ -129,12 +120,8 @@ function UrlFixBanner({ fix }: { fix: ApplyOp }): JSX.Element {
     )
 }
 
-/** Review-then-apply, for one suggestion or for the whole safe batch.
- *
- * Config changes show the exact before/after, computed from the same op the server
- * will execute rather than from a description of it — a preview that can drift from
- * the change it previews is worse than none.
- */
+/** Review-then-apply. The before/after is computed from the same op the server will
+ * execute, so the preview can't drift from the change. */
 export function SuggestionModal({
     suggestion,
     batch,
@@ -152,13 +139,10 @@ export function SuggestionModal({
     isApplying: boolean
 }): JSX.Element | null {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
-    // Before the early returns: hook order has to be identical on every render, and
-    // both the batch and no-op paths below bail out early.
+    // Above the early returns below — hook order has to match on every render.
     const logo = usePlatformLogo(suggestion?.integration ?? null)
 
     if (batch.length) {
-        // Applying several at once is exactly where "what is this going to do?" is
-        // hardest to answer from titles alone, so the batch gets the same preview.
         const lines = batch.flatMap((item) =>
             item.apply ? buildApplyDiff(item.apply, marketingAnalyticsConfig).lines : []
         )
@@ -236,9 +220,8 @@ export function SuggestionModal({
                                 ? 'danger'
                                 : undefined
                         }
-                        // A no-op diff means the config already matches. Applying it anyway
-                        // writes nothing but reports "applied" with an Undo that would
-                        // strip the config that's already there.
+                        // Applying a no-op would report "applied" and hand back an Undo
+                        // that strips config the user already had.
                         onClick={() => (diff?.isNoop && !explain ? onClose() : onConfirm(suggestion))}
                     >
                         {explain ? 'Continue' : diff?.isNoop ? 'Close' : (APPLY_LABEL[op.op] ?? 'Apply change')}
