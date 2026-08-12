@@ -5,13 +5,11 @@ import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { BAR_DISPLAYS, displayMatches } from '~/queries/nodes/InsightViz/displayTypes'
-
 import { insightLogic } from '../insightLogic'
 
 export function YAxisRangeFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { trendsFilter, display, yAxisScaleType, showPercentStackView } = useValues(insightVizDataLogic(insightProps))
+    const { trendsFilter, yAxisScaleType, showPercentStackView } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const [minDraft, setMinDraft] = useState(trendsFilter?.yAxisMin)
@@ -31,10 +29,6 @@ export function YAxisRangeFilter(): JSX.Element {
             : showPercentStackView
               ? 'Not available while showing percentages'
               : undefined
-    const startAtZeroDisabledReason = displayMatches(display, BAR_DISPLAYS)
-        ? 'Bar charts always begin at zero'
-        : rangeDisabledReason
-
     // The chart falls back to its automatic range while the pair is inverted, so say why rather
     // than leaving the controls looking unresponsive.
     const invalidRange =
@@ -60,7 +54,7 @@ export function YAxisRangeFilter(): JSX.Element {
                 tooltip="When off, the axis starts just below your lowest value instead of at zero, so small changes are easier to see."
                 data-attr="trends-y-axis-start-at-zero"
                 checked={trendsFilter?.yAxisStartAtZero !== false}
-                disabledReason={startAtZeroDisabledReason}
+                disabledReason={rangeDisabledReason}
                 onChange={(checked) => updateInsightFilter({ yAxisStartAtZero: checked ? undefined : false })}
             />
             <div className="flex flex-col gap-1">

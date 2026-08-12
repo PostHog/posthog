@@ -40,7 +40,7 @@ import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLab
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
 import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
-import { resolveTrendsYAxisRange, trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
+import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
@@ -223,9 +223,6 @@ export function TrendsBarChart({
                 allDays: currentPeriodResult?.days ?? [],
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
-                yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
-                yAxisMin: trendsFilter?.yAxisMin,
-                yAxisMax: trendsFilter?.yAxisMax,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: INSIGHT_TOOLTIP_CONFIG,
@@ -245,9 +242,6 @@ export function TrendsBarChart({
             currentPeriodResult?.days,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
-            trendsFilter?.yAxisStartAtZero,
-            trendsFilter?.yAxisMin,
-            trendsFilter?.yAxisMax,
             goalLines,
             showValuesOnSeries,
             valueLabelFormatter,
@@ -258,21 +252,6 @@ export function TrendsBarChart({
     const aggregatedYTickFormatter = useMemo(
         () => buildYTickFormatter(trendsFilterToYFormatterConfig(trendsFilter, isPercentStackView, baseCurrency)),
         [trendsFilter, isPercentStackView, baseCurrency]
-    )
-
-    const { min: aggregatedMin, max: aggregatedMax } = resolveTrendsYAxisRange({
-        isPercentStackView,
-        yAxisScaleType,
-        min: trendsFilter?.yAxisMin,
-        max: trendsFilter?.yAxisMax,
-    })
-    // Referentially stable so an unbounded chart doesn't rebuild its scales every render.
-    const aggregatedValueBounds = useMemo(
-        () =>
-            aggregatedMin === undefined && aggregatedMax === undefined
-                ? undefined
-                : { min: aggregatedMin, max: aggregatedMax },
-        [aggregatedMin, aggregatedMax]
     )
 
     const aggregatedConfig: BarChartConfig = useChartConfig(() => {
@@ -310,13 +289,10 @@ export function TrendsBarChart({
             bars: {
                 fitToHeight: embedded,
                 divergingStack: true,
-                // The bars run horizontally here, so the y-axis range bounds their value extent.
-                valueBounds: aggregatedValueBounds,
             },
         }
     }, [
         yAxisScaleType,
-        aggregatedValueBounds,
         aggregatedYTickFormatter,
         trendsFilter?.xAxisLabel,
         trendsFilter?.yAxisLabel,

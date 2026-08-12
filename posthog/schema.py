@@ -8046,8 +8046,8 @@ class TrendsFilter(BaseModel):
         default=None,
         description=(
             "Pins the bottom of the y-axis. Leave unset for an automatic bound. Ignored"
-            " on a logarithmic scale, while showing percentages, and when it is not"
-            " below `yAxisMax`."
+            " on bar displays (bars always draw from zero), on a logarithmic scale,"
+            " while showing percentages, and when it is not below `yAxisMax`."
         ),
     )
     yAxisScaleType: YAxisScaleType | None = YAxisScaleType.LINEAR

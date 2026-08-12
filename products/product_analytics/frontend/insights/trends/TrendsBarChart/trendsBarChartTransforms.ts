@@ -88,10 +88,6 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     isPercentStackView: boolean
     isGrouped: boolean
     yAxisScaleType?: string | null
-    /** Y-axis range controls. See `buildTrendsYAxisConfig` for when each is honored. */
-    yAxisStartAtZero?: boolean | null
-    yAxisMin?: number | null
-    yAxisMax?: number | null
     interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
@@ -108,12 +104,12 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
 export function buildTrendsBarTimeSeriesConfig(
     opts: BuildTrendsBarTimeSeriesConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
+    // No y-axis range extras: bar length encodes magnitude from zero, so the range controls aren't
+    // offered for bar displays. A bound carried over from another display type is deliberately not
+    // applied here, rather than silently truncating bars with no control left to clear it.
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
-        startAtZero: opts.yAxisStartAtZero,
-        min: opts.yAxisMin,
-        max: opts.yAxisMax,
     })
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     return {

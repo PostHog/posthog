@@ -345,17 +345,6 @@ describe('buildTrendsBarTimeSeriesConfig', () => {
         })
     })
 
-    it('forwards the y-axis range onto the axis config', () => {
-        const cfg = buildTrendsBarTimeSeriesConfig({
-            isPercentStackView: false,
-            isGrouped: false,
-            yAxisStartAtZero: false,
-            yAxisMin: 40,
-            yAxisMax: 80,
-        })
-        expect(cfg.yAxis).toMatchObject({ startAtZero: false, min: 40, max: 80 })
-    })
-
     it('forces percentage_scaled format when isPercentStackView is true', () => {
         // BarChart percent layout puts the value scale on 0..1, so the y-tick formatter
         // expects 0..1 input rather than the 0..100 input of the regular `percentage` format.

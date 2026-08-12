@@ -1577,8 +1577,9 @@ export type TrendsFilter = {
      *  from zero), on a logarithmic scale, and while showing percentages.
      * @default true */
     yAxisStartAtZero?: boolean
-    /** Pins the bottom of the y-axis. Leave unset for an automatic bound. Ignored on a logarithmic
-     *  scale, while showing percentages, and when it is not below `yAxisMax`. */
+    /** Pins the bottom of the y-axis. Leave unset for an automatic bound. Ignored on bar displays
+     *  (bars always draw from zero), on a logarithmic scale, while showing percentages, and when it
+     *  is not below `yAxisMax`. */
     yAxisMin?: number
     /** Pins the top of the y-axis. Leave unset for an automatic bound. Ignored in the same cases as
      *  `yAxisMin`. */

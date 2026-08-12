@@ -92,7 +92,9 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
     const showYAxisScale = !hideContinuousChartOptions && isTrends && !isCalendarHeatmap
-    const showYAxisRangeConfig = showYAxisScale && (isLineDisplay || isBarDisplay)
+    // Bars encode magnitude as length from zero, so a floating or bounded baseline misreads them —
+    // 10 vs 11 would draw as 1 vs 2. Only the line family gets the range controls.
+    const showYAxisRangeConfig = showYAxisScale && isLineDisplay
     // Only the quill line charts (trends/stickiness line and area, retention and funnel-trends
     // graphs) draw curves, so they're the only ones with curvature to straighten. Retention and
     // funnel trends default to their line graph when display is unset.

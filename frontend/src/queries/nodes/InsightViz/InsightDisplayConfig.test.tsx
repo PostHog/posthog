@@ -148,14 +148,7 @@ describe('InsightDisplayConfig', () => {
                 'trends bar chart',
                 makeTrendsQuery(ChartDisplayType.ActionsBar),
                 {
-                    sections: [
-                        'Display',
-                        'Y-axis unit',
-                        'Y-axis scale',
-                        'Y-axis range',
-                        'Statistical analysis',
-                        'Axis labels',
-                    ],
+                    sections: ['Display', 'Y-axis unit', 'Y-axis scale', 'Statistical analysis', 'Axis labels'],
                     displayItems: [
                         'Show values on series',
                         'Show as % of total',

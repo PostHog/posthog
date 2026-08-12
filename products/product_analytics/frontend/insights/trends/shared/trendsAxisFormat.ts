@@ -36,8 +36,11 @@ export interface TrendsYAxisRangeOpts {
  * The values stay in the filter when vetoed, so switching the display back restores them. This is
  * the only place that rule lives — the UI greys the controls out to explain it, but a chart built
  * from a stored query, the API, or MCP never passes through the UI.
+ *
+ * Bar displays veto a step earlier: `buildTrendsBarTimeSeriesConfig` never supplies the range
+ * extras at all, because bar length encodes magnitude from zero.
  */
-export function resolveTrendsYAxisRange(opts: TrendsYAxisRangeOpts): {
+function resolveTrendsYAxisRange(opts: TrendsYAxisRangeOpts): {
     startAtZero?: boolean
     min?: number
     max?: number
