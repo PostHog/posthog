@@ -1152,7 +1152,7 @@ function ThreadScrollRequestBridge({
   taskId?: string;
   jumpToMessage?: (id: string) => void;
   /** Marks the arrived-at message, so a jump from another pane lands as visibly as the
-   *  keyboard's own — otherwise the thread moves and nothing says where to. */
+   *  keyboard's own. Without it the thread moves and nothing says where to. */
   onFocusMessage?: (id: string) => void;
 }) {
   const { scrollToMessage } = useChatMessageScroller();

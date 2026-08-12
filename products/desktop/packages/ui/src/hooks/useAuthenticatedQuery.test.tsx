@@ -28,9 +28,8 @@ describe("useAuthenticatedQuery", () => {
   });
 
   it("holds a query with its own `enabled` until the client exists", async () => {
-    // The caller's options used to be spread over the client gate, so a query like this
-    // one fired before auth resolved, threw, and burned its retry backoffs before the
-    // caller's loading state could clear.
+    // Without the gate this query fires before auth resolves, throws, and burns its retry
+    // backoffs before the caller's loading state can clear.
     const queryFn = vi.fn().mockResolvedValue("data");
 
     const { rerender, result } = renderHook(

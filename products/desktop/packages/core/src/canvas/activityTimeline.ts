@@ -2,7 +2,7 @@
  * Merging the task activity timeline's three sources into one ordered list of rows.
  *
  * Kept out of the renderer so the ordering, collapsing and dedupe rules can be tested
- * without mounting anything — the same split `threadTimeline.ts` uses.
+ * without mounting anything, the same split `threadTimeline.ts` uses.
  *
  * The sources:
  *  - the task itself (created, and a terminal status for tasks with no event rows),

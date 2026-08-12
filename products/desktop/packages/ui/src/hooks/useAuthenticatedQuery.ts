@@ -32,10 +32,9 @@ export function useAuthenticatedQuery<
       return await queryFn(client);
     },
     ...restOptions,
-    // After the caller's options, not before: spreading them last used to drop this gate
-    // for every caller that passes its own `enabled`. Such a query fired before the client
-    // existed, threw "Not authenticated", and then sat out three retry backoffs — seconds
-    // of a loading state for data that was one round trip away.
+    // After the caller's options, so a caller passing its own `enabled` can't drop the
+    // client gate. Without it the query fires before the client exists, throws
+    // "Not authenticated", and sits out its retry backoffs before it can succeed.
     enabled:
       typeof enabled === "function"
         ? (query) => !!client && enabled(query)

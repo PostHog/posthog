@@ -71,8 +71,8 @@ function UserMessageRow({
     [content],
   );
   const afterChannelContext = channelContext?.stripped ?? content;
-  // Every injected block the chat strips has to be stripped here too, or the raw XML
-  // shows up in the timeline for anyone whose chat never showed it.
+  // Every block the chat strips has to be stripped here too, or the raw XML shows up on
+  // the timeline for a viewer whose chat hid it.
   const canvasInstructions = useMemo(
     () => extractCanvasInstructions(afterChannelContext),
     [afterChannelContext],
@@ -258,15 +258,11 @@ export function ActivityTimeline({
   );
 
   /**
-   * The jump into the chat, offered only by a row that *is* a chat row — a prompt, which
-   * points at itself.
+   * The jump into the chat, offered only by a prompt row, which points at itself.
    *
-   * Nothing else can point anywhere reliably. The transcript resolves a jump against its
-   * top-level rows, and everything inside a turn is nested in one, so an agent-side target
-   * scrolls nowhere at all; and an event row is stamped by the API rather than by the
-   * session, so it has no transcript id to name in the first place. Landing every other
-   * row on the nearest prompt was the alternative, and it put you somewhere that wasn't
-   * what you clicked.
+   * Nothing else can point anywhere reliably: the transcript resolves a jump against its
+   * top-level rows, so a target nested inside a turn scrolls nowhere, and an event row is
+   * stamped by the API rather than by the session, so it has no transcript id to name.
    */
   const showInChat = (promptId: string) => {
     if (!hasTranscript) return undefined;

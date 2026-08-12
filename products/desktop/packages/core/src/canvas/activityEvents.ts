@@ -121,7 +121,7 @@ export function isActivityEventKind(event: string): event is ActivityEventKind {
 
 /**
  * The typed event a thread message carries, or `null` when the message isn't one this
- * client renders — a human message, an older event, or one added after this release.
+ * client renders: a human message, an older event, or one added after this release.
  */
 export function parseActivityEvent(message: {
   event?: string;

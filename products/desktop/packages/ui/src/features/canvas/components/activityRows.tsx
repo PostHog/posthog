@@ -1,9 +1,6 @@
 /**
  * The rows the activity timeline draws for one server-emitted event, and for one comment
- * thread.
- *
- * Split out of `ActivityTimeline` so that component stays the merge plus the rail, and a
- * new event is an entry in `EVENT_ICONS` plus a line of copy here.
+ * thread. A new event is an entry in `EVENT_TONES` and `EVENT_ICONS` plus a line of copy.
  */
 
 import {
@@ -49,10 +46,8 @@ import { ChatMarkdown } from "@posthog/ui/features/sessions/components/chat-thre
 import { type ReactNode, useMemo, useState } from "react";
 
 /** One row: a gutter node, a line of copy, a timestamp, and optionally a detail block the
- *  row hides until it is opened.
- *
- *  Collapsed by default so the panel reads as a timeline rather than a wall of content.
- *  A row with no detail is inert — no chevron, no hover target, nothing to click. */
+ *  row hides until it is opened. A row with no detail is inert, with no chevron and no
+ *  hover target. */
 export function TimelineRow({
   gutter,
   children,
@@ -80,8 +75,7 @@ export function TimelineRow({
   ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  // The jump counts as detail: a row whose only content is the action still opens, so
-  // every row on the timeline can take you to its moment in the chat.
+  // The jump counts as detail, so a row whose only content is the action still opens.
   const body =
     detail !== undefined && detail !== null ? (
       <div className="space-y-1.5">
@@ -118,15 +112,11 @@ export function TimelineRow({
           "cursor-pointer focus-within:bg-gray-2 hover:bg-gray-2 has-[:focus-visible]:bg-gray-2",
       )}
     >
-      {/* The connector lives inside the row, so the hover fill paints behind it rather than
-          over it, and consecutive rows' segments meet to form one line. It runs through the
-          bead's centre; the bead is opaque and sits above it, so the line reads as touching
-          it on both sides. The halves are separate so the first and last rows stop at their
-          own bead instead of running past it.
-          The offsets are the row's py-2.5: this column stretches to the row's content box,
-          so a segment has to reach past the padding to meet the next row's, or the line
-          breaks between every pair of beads. 11px is the bead's centre, so the upper half
-          is that plus the padding it has to cross. */}
+      {/* The connector lives inside the row, so the hover fill paints behind it and
+          consecutive rows' segments meet into one line. Two halves, so the first and last
+          rows stop at their own bead. The offsets are the row's py-2.5: this column
+          stretches only to the content box, so each segment has to cross the padding to
+          reach the next row's. 11px is the bead's centre. */}
       <div className="relative flex w-10 shrink-0 justify-center self-stretch">
         {connectedAbove && (
           <span
@@ -148,7 +138,7 @@ export function TimelineRow({
         {hasDetail ? (
           <>
             {/* flex, not block: an inline-level button contributes its own inherited
-                line-height as a strut, which pushed the copy 3px below the bead. */}
+                line-height as a strut, which pushes the copy 3px below the bead. */}
             <button
               type="button"
               aria-expanded={open}
@@ -169,15 +159,12 @@ export function TimelineRow({
 }
 
 /**
- * Colour carries one meaning each, so a hue is worth reading rather than decoration:
- * gray for bookkeeping, blue for the agent at work, violet for something produced, green
- * for finished, amber for waiting on a person, red for failed.
+ * One meaning per hue: gray for bookkeeping, blue for the agent at work, violet for
+ * something produced, green for finished, amber for waiting on a person, red for failed.
  *
- * Two recipes, because the two sizes need different contrast. A bead is soft — a step-3
- * wash, a step-6 edge, a step-11 glyph — which stays quiet beside the copy and flips with
- * the theme on its own. A badge is 12px, too small to read as a wash, so it is the solid
- * step-9 with the one foreground that scale is designed for (dark on amber, light on the
- * rest).
+ * Two recipes, because the sizes need different contrast. A bead uses the soft steps, which
+ * stay quiet beside the copy. A badge is 12px, too small to read as a wash, so it uses solid
+ * step 9 with the foreground that scale is designed for: dark on amber, light on the rest.
  */
 const BEAD_TONES = {
   neutral: "border-gray-6 bg-gray-3 text-gray-11",
@@ -199,8 +186,8 @@ const BADGE_TONES = {
 
 type BeadTone = keyof typeof BEAD_TONES;
 
-/** What the agent or the service did: a glyph in a tinted circle. Opaque, and above the
- *  connector, so the line reads as running into it. */
+/** What the agent or the service did. Opaque and above the connector, so the line reads as
+ *  running into it. */
 export function EventBead({
   children,
   tone = "neutral",
@@ -220,9 +207,8 @@ export function EventBead({
   );
 }
 
-/** What a person did: their face, with the action worn as a badge on it. Two rows by the
- *  same person are then told apart by the badge rather than by reading the copy, and a
- *  person's row never looks like the agent's. */
+/** What a person did: their face, with the action worn as a badge, so two rows by the same
+ *  person are told apart without reading the copy. */
 export function PersonBead({
   user,
   badge,
@@ -233,8 +219,8 @@ export function PersonBead({
   badgeTone?: BeadTone;
 }) {
   return (
-    // Decorative: the person's name and what they did are written beside it, so keep the
-    // initials out of the row's accessible name.
+    // Decorative: the name and the action are written beside it, so keep the initials out
+    // of the row's accessible name.
     <span aria-hidden className="relative z-10 block size-5">
       {/* quill's avatar is a rounded square; every bead in the gutter is a circle. */}
       <UserAvatar user={user} size="xs" className="size-5 rounded-full" />
@@ -250,8 +236,7 @@ export function PersonBead({
   );
 }
 
-/** The badge glyphs are read at 8px, so they have to differ in silhouette rather than in
- *  detail: a triangle for a message sent, a blob for a comment, a tick, a plus. */
+/** Badge glyphs are read at 8px, so they differ in silhouette, not in detail. */
 export const MESSAGE_BADGE = <PaperPlaneTiltIcon size={8} weight="fill" />;
 export const COMMENT_BADGE = <ChatCircleIcon size={8} weight="fill" />;
 export const CREATED_BADGE = <PlusIcon size={8} weight="bold" />;
@@ -430,8 +415,7 @@ function eventDetail(event: ActivityEvent): ReactNode {
   }
 }
 
-/** The action under an opened row: a small outline button, so it reads as something to
- *  press rather than as more copy. */
+/** The action under an opened row, as a button so it doesn't read as more copy. */
 export function DetailAction({
   children,
   onClick,
@@ -450,10 +434,9 @@ export function DetailAction({
  * A message's text, rendered the way the chat renders it: markdown, code fences, file and
  * artifact links.
  *
- * Our own inline markup — mention tokens and the XML chips the composer writes — is not
- * markdown, and a markdown parser mangles it (`@[Name](email)` becomes a mailto link), so a
- * message carrying any of it goes through `MentionText` instead. Those are short one-liners
- * in practice; anything with real markdown in it has no chips.
+ * Mention tokens and the composer's XML chips are not markdown, and a markdown parser
+ * mangles them (`@[Name](email)` becomes a mailto link), so a message carrying either goes
+ * through `MentionText` instead.
  */
 export function MessageBody({ content }: { content: string }) {
   const hasOwnMarkup = useMemo(() => {
@@ -470,9 +453,8 @@ export function MessageBody({ content }: { content: string }) {
     );
   }, [content]);
   return (
-    // The chat's markdown is sized for the transcript's column. In a side panel of
-    // one-line rows it has to sit at the rows' own size, so the overrides pull its
-    // paragraphs, list items and code back down to the row copy.
+    // The chat's markdown is sized for the transcript's column, so pull its paragraphs,
+    // list items and code back down to the size of the row copy.
     <div className="whitespace-pre-wrap break-words text-[12.5px] [&_code]:text-[11px]! [&_li]:text-[12.5px]! [&_p]:text-[12.5px]! [&_p]:leading-[1.55]!">
       {hasOwnMarkup ? (
         <MentionText content={content} />
@@ -483,8 +465,8 @@ export function MessageBody({ content }: { content: string }) {
   );
 }
 
-/** A message the person sent, shown as what it is: a message. The chat's own bubble, so the
- *  timeline and the transcript don't render the same text two different ways. */
+/** The chat's own bubble, so the timeline and the transcript don't render the same message
+ *  two different ways. */
 export function MessageBubble({ content }: { content: string }) {
   return (
     <ChatBubble variant="default">
@@ -496,10 +478,8 @@ export function MessageBubble({ content }: { content: string }) {
   );
 }
 
-/** The shared shape of an opened row's content: one quoted block, indented to the copy.
- *
- *  No radius: the left edge is a rule, and rounding any corner turned that rule into the
- *  outline of a box instead. */
+/** The shared shape of an opened row's content: one quoted block, indented to the copy. No
+ *  radius, so the left edge reads as a rule and not as the outline of a box. */
 export function DetailBlock({ children }: { children: ReactNode }) {
   return (
     <div className="break-words border-gray-6 border-l-2 bg-gray-2 px-2.5 py-1.5 text-[12.5px]">
@@ -549,8 +529,8 @@ export function ActivityEventRow({
   );
 }
 
-/** A lifecycle marker derived from the task rather than an event row — the ending of a run
- *  that predates the event rows. */
+/** A lifecycle marker derived from the task: the ending of a run that predates the event
+ *  rows. */
 export function RunStatusRow({
   status,
   timestamp,
@@ -591,9 +571,9 @@ function participantNames(participants: UserBasic[]): string {
 }
 
 /**
- * One comment thread, collapsed to who commented on what. Opening it shows the anchor's
- * quoted selection and the comment itself, because a comment without the text it points at
- * is just a notification — and a button to open the thread where it lives.
+ * One comment thread, collapsed to who commented on what. Opening it shows the quoted
+ * selection with the comment, because a comment without the text it points at is just a
+ * notification.
  */
 export function CommentRow({
   thread,
@@ -709,9 +689,9 @@ export function CommentStateRow({
   );
 }
 
-/** Shown once, on the panel's first draw: the timeline's own shape rather than a spinner,
- *  so the panel doesn't change size or layout when the rows arrive. It never returns —
- *  a loader over rows already on screen reads as the content disappearing. */
+/** Shown once, on the panel's first draw: the timeline's own shape, so the panel doesn't
+ *  change size when the rows arrive. It never returns, because a loader over rows already on
+ *  screen reads as the content disappearing. */
 export function ActivityLoadingState() {
   return (
     // <output> is the semantic element for role=status; the label names the wait.
@@ -736,8 +716,8 @@ export function ActivityLoadingState() {
   );
 }
 
-/** A human reply in the task's thread — the surface comments replaced. Collapsed like
- *  everything else: author and first line on the row, the message when opened. */
+/** A human reply in the task's thread. Collapsed like everything else: author and first
+ *  line on the row, the message when opened. */
 export function ThreadReplyRow({
   author,
   content,

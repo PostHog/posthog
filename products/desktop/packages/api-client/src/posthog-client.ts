@@ -2905,7 +2905,7 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskThreadMessage[];
   }
 
-  /** Every comment thread on the task, collapsed one row per thread — the activity
+  /** Every comment thread on the task, collapsed one row per thread for the activity
    *  timeline's comment feed. One request for the whole task, so the panel never fans out
    *  per artifact the way the Comments tab has to.
    *

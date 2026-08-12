@@ -89,7 +89,7 @@ describe("ActivityTimeline", () => {
       },
     ]);
 
-    // The whole message fits on the row, so the preview is the content — rendered, not raw.
+    // The whole message fits on the row, so the preview is the content, rendered not raw.
     expect(screen.getByText("#73874 - Loading…")).toBeInTheDocument();
     expect(screen.queryByText(/<github_pr/)).toBeNull();
   });
@@ -317,8 +317,7 @@ describe("ActivityTimeline chat jump", () => {
 
   it("offers the jump only from rows the chat actually contains", () => {
     // The transcript resolves a jump against its top-level rows, so only a prompt has a
-    // target that can be scrolled to. A row that isn't in the chat — this task's creation —
-    // stays inert rather than growing a button that goes nowhere.
+    // target that can be scrolled to. A row the chat doesn't contain stays inert.
     useThreadNavigationStore.getState().registerTranscript("task-1");
     renderTimeline(true);
 
@@ -360,7 +359,6 @@ describe("ActivityTimeline connectors", () => {
   });
 
   it("always opens a message to its full text", () => {
-    // A truncated one-line preview used to open onto nothing but the action.
     renderTimeline(true);
 
     fireEvent.click(screen.getByRole("button", { name: /second thing/ }));
@@ -384,8 +382,8 @@ describe("ActivityTimeline thread replies", () => {
   };
 
   it("collapses a legacy thread reply like every other row", () => {
-    // These predate comments and used to render as full message blocks, which is what made
-    // the panel read as a chat log rather than a timeline.
+    // Legacy replies collapse like every other row, so the panel reads as a timeline
+    // rather than a chat log.
     render(
       <ActivityTimeline
         task={task}

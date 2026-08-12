@@ -215,8 +215,7 @@ describe("ActivityPanel", () => {
   });
 
   it("waits for both sources, then never takes the timeline away again", () => {
-    // The panel used to draw rows, blink a loader while the live session connected, and
-    // draw them again. The loader belongs to the first paint only.
+    // The loader belongs to the first paint only, never over rows already on screen.
     loaded.thread = false;
     loaded.comments = false;
     // A fresh element each time: React bails out of `rerender` when handed the identical one.

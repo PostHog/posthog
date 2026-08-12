@@ -150,20 +150,22 @@ function ActivityConversation({
     [taskId],
   );
 
-  // The comment feed is its own request. It runs for the whole panel rather than only for
-  // the tab that draws it, so leaving the timeline doesn't throw away a fetch already in
-  // flight — coming back would then wait on it a second time.
+  // Runs for the whole panel, not just the tab that draws it, so leaving the timeline
+  // doesn't discard a fetch already in flight.
   const { threads: commentThreads, hasLoaded: hasLoadedComments } =
     useTaskCommentActivity(taskId, { enabled: commentsEnabled });
-  // Draw the timeline once both of its durable sources have answered, and never take it
-  // away again. Drawing on the thread alone is faster to first paint and worse to watch:
-  // the rows arrive, then comment rows push in among them a second later. Gating on the
-  // live session instead (`isReady`) is what made the panel show rows, blink a loader while
-  // the session connected, then show the rows again.
+  // Draw once both durable sources have answered, and never take the timeline away again.
+  // Drawing on the thread alone reaches first paint sooner but arrives in two waves, with
+  // comment rows pushing in among rows already on screen. Gating on the live session
+  // (`isReady`) instead blinks a loader over drawn rows while the session connects. The
+  // latch is set on commit, because Strict Mode and concurrent rendering abandon renders,
+  // which would set it for a draw that never happened.
   const hasDrawnTimeline = useRef(false);
   const timelineReady =
     hasDrawnTimeline.current || (hasLoadedThread && hasLoadedComments);
-  if (timelineReady) hasDrawnTimeline.current = true;
+  useEffect(() => {
+    if (hasLoadedThread && hasLoadedComments) hasDrawnTimeline.current = true;
+  }, [hasLoadedThread, hasLoadedComments]);
   const { runs } = useTaskRuns(taskId);
 
   const conversationItems = useMemo(
@@ -347,11 +349,9 @@ export function ActivityPanel({
   const task = taskProp ?? fetchedTask;
   const commentsEnabled = useCommentsEnabled();
 
-  // The timeline's own two requests answer in a few hundred milliseconds, but they used to
-  // start only once the task itself had arrived — and the task comes off a call that takes
-  // seconds. Warming them here, from the id alone, takes them off the end of that wait: by
-  // the time the task lands they have answered, and the timeline draws in one go. Same
-  // query keys as the panel's own hooks, so this is one fetch shared, not a second.
+  // Warmed from the id alone so they don't queue behind the task itself, which can take
+  // seconds to arrive. Same query keys as the panel's own hooks, so this shares one fetch
+  // rather than adding a second.
   useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });
   useTaskCommentActivity(taskId, { enabled: commentsEnabled && !collapsed });
 

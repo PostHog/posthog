@@ -74,7 +74,7 @@ export function useThreadScrollRequest(
   );
 
   // Announce that this transcript can answer a jump, so a pane that offers one can hide
-  // the affordance when nothing is listening — a dead button is worse than no button.
+  // the affordance when nothing is listening, because a dead button is worse than none.
   useEffect(() => {
     if (!taskId) return;
     const { registerTranscript, unregisterTranscript } =
