@@ -120,41 +120,45 @@ describe('dashboardsFileSystemLogic', () => {
                       }) as any
         )
         await expectLogic(logic, () => {
-            projectTreeDataLogic.actions.movedItem(
-                { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as any,
-                'Marketing/A',
-                'Product/A'
-            )
+            projectTreeDataLogic.actions.movedItems([
+                {
+                    item: { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as any,
+                    oldPath: 'Marketing/A',
+                    newPath: 'Product/A',
+                },
+            ])
         }).toDispatchActions(['loadDashboardFileSystemEntries', 'loadDashboardFileSystemEntriesSuccess'])
         expect(logic.values.entryByRef['1']?.path).toEqual('Product/A')
     })
 
-    it('collapses a bulk move into one refetch, and still reloads folder rows when any item was a folder', async () => {
+    it('refetches once for a whole bulk move, and reloads folder rows when any item was a folder', async () => {
         await expectLogic(logic).toDispatchActions([
             'loadDashboardFileSystemEntriesSuccess',
             'loadFolderEntriesSuccess',
         ])
         ;(api.fileSystem.list as jest.Mock).mockClear()
 
-        // A bulk move lands as one movedItem per item. Refetching per item would fire a full pagination each
-        // time, and the concurrent load is what surfaced a folder-load error over a move that succeeded.
-        // The folder is not last, so the run that survives the debounce is a dashboard's.
+        // A bulk move announces itself once, however many items it carried. Refetching per item would fire a
+        // full pagination each time, and that concurrent load is what surfaced a folder-load error over a
+        // move that had actually succeeded.
         await expectLogic(logic, () => {
-            projectTreeDataLogic.actions.movedItem(
-                { id: 'fld', type: 'folder', path: 'Marketing' } as any,
-                'Marketing',
-                'Product/Marketing'
-            )
-            projectTreeDataLogic.actions.movedItem(
-                { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as any,
-                'Marketing/A',
-                'Product/A'
-            )
-            projectTreeDataLogic.actions.movedItem(
-                { id: 'fs-2', type: 'dashboard', ref: '2', path: 'Marketing/B' } as any,
-                'Marketing/B',
-                'Product/B'
-            )
+            projectTreeDataLogic.actions.movedItems([
+                {
+                    item: { id: 'fld', type: 'folder', path: 'Marketing' } as any,
+                    oldPath: 'Marketing',
+                    newPath: 'Product/Marketing',
+                },
+                {
+                    item: { id: 'fs-1', type: 'dashboard', ref: '1', path: 'Marketing/A' } as any,
+                    oldPath: 'Marketing/A',
+                    newPath: 'Product/A',
+                },
+                {
+                    item: { id: 'fs-2', type: 'dashboard', ref: '2', path: 'Marketing/B' } as any,
+                    oldPath: 'Marketing/B',
+                    newPath: 'Product/B',
+                },
+            ])
         }).toDispatchActions(['loadDashboardFileSystemEntriesSuccess', 'loadFolderEntriesSuccess'])
 
         const listedTypes = (api.fileSystem.list as jest.Mock).mock.calls.map(([{ type }]) => type)
@@ -167,7 +171,9 @@ describe('dashboardsFileSystemLogic', () => {
             'loadFolderEntriesSuccess',
         ])
         ;(api.fileSystem.list as jest.Mock).mockClear()
-        projectTreeDataLogic.actions.movedItem({ id: 'i-1', type: 'insight', path: 'a' } as any, 'a', 'b')
+        projectTreeDataLogic.actions.movedItems([
+            { item: { id: 'i-1', type: 'insight', path: 'a' } as any, oldPath: 'a', newPath: 'b' },
+        ])
         await expectLogic(logic).toFinishAllListeners()
         expect(api.fileSystem.list).not.toHaveBeenCalled()
     })

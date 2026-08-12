@@ -1,15 +1,4 @@
-import {
-    BreakPointFunction,
-    MakeLogicType,
-    actions,
-    afterMount,
-    connect,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -18,7 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { withTimeout } from 'lib/utils/async'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { MovedItem, projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -42,9 +31,6 @@ const FILE_SYSTEM_PAGE_TIMEOUT_MS = 10000
 // Scopes projectTreeDataLogic's optional post-processing (selection clear, undo re-expand) for our reused delete
 // path; safely no-ops for our unmounted instance.
 const DASHBOARDS_TREE_PROJECT_LOGIC_KEY = 'dashboards-tree'
-// A bulk move emits one movedItem per item. Refetching per item runs that many full paginations at once,
-// which is enough load to time a page out and raise a folder-load error over a move that succeeded.
-const MOVE_REFETCH_DEBOUNCE_MS = 300
 
 // Page through every dashboard/folder FileSystem entry so large projects render their full tree instead of
 // being silently truncated to the first page — the experiment measures navigation, and big projects are
@@ -116,6 +102,9 @@ export interface dashboardsFileSystemLogicActions {
         item: FileSystemEntry
         newPath: string
         oldPath: string
+    } // projectTreeDataLogic
+    movedItems: (moved: MovedItem[]) => {
+        moved: MovedItem[]
     } // projectTreeDataLogic
     createFolder: (
         name: string,
@@ -218,7 +207,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     path(['products', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
         values: [dashboardsLogic, ['dashboards']],
-        actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'deleteItem']],
+        actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'movedItems', 'deleteItem']],
     })),
     actions({
         // Tree arm: select a folder ('' = the dashboards root).
@@ -322,30 +311,23 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 buildFolderDashboardCounts(dashboards, entryByRef),
         ],
     }),
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions }) => ({
         // A duplicate (via the table) creates a dashboard server-side; refetch so the subtree reflects it
         // (the new dashboard syncs its own FileSystem entry via FileSystemSyncMixin).
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
             actions.loadDashboardFileSystemEntries()
         },
-        // A move lands as movedItem AFTER the server commit (the table's "Move to" action goes through the
-        // shared move path). A dashboard move changes its own path; a folder move re-parents the dashboards
-        // beneath it (and the folder rows). Other item types (insights, notebooks) don't affect this view,
-        // so skip the refetch for them.
-        [projectTreeDataLogic.actionTypes.movedItem]: async (
-            { item }: { item: FileSystemEntry },
-            breakpoint: BreakPointFunction
-        ) => {
-            if (item.type !== 'dashboard' && item.type !== 'folder') {
+        // Listening to the batch rather than to each `movedItem` is what keeps a bulk move to one refetch:
+        // the operation's own boundary, instead of a window long enough to guess that no more are coming.
+        // A dashboard move changes its own path; a folder move re-parents the dashboards beneath it and the
+        // folder rows. Other item types (insights, notebooks) don't affect this view.
+        [projectTreeDataLogic.actionTypes.movedItems]: ({ moved }: { moved: MovedItem[] }) => {
+            const movedTypes = new Set(moved.map(({ item }) => item.type))
+            if (!movedTypes.has('dashboard') && !movedTypes.has('folder')) {
                 return
             }
-            // The breakpoint keeps only the last move of a burst, so remember across it whether any of the
-            // moves was a folder; otherwise a batch ending on a dashboard would skip the folder-row refetch.
-            cache.folderMovePending = cache.folderMovePending || item.type === 'folder'
-            await breakpoint(MOVE_REFETCH_DEBOUNCE_MS)
             actions.loadDashboardFileSystemEntries()
-            if (cache.folderMovePending) {
-                cache.folderMovePending = false
+            if (movedTypes.has('folder')) {
                 actions.loadFolderEntries()
             }
         },
@@ -393,8 +375,10 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             }
             try {
                 await api.fileSystem.move(entry.id, newPath)
-                // movedItem syncs the sidebar's store and (via our own listener below) refetches this tree.
+                // movedItem syncs the sidebar's store. A rename does not go through the shared move path,
+                // so it has to announce its own completion for the refetch listener below to see it.
                 actions.movedItem(entry, entry.path, newPath)
+                actions.movedItems([{ item: entry, oldPath: entry.path, newPath }])
                 // Re-point the scope if we were inside the renamed folder — or a descendant of it, which moves
                 // with it. (deleteSavedItem falls back to root because the folder is gone; rename keeps it.)
                 if (values.currentFolder === entry.path) {

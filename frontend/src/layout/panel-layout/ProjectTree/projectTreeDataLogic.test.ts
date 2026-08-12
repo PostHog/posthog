@@ -7,7 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { projectTreeDataLogic } from './projectTreeDataLogic'
+import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
 
 // pluralize() joins the count to the unit with a non-breaking space, which no reader can see in an assertion.
 const toastText = (message: unknown): string => String(message).replace(/\u00a0/g, ' ')
@@ -131,9 +131,18 @@ describe('projectTreeDataLogic', () => {
                 true,
                 'test'
             )
-        }).toFinishAllListeners()
+        })
+            // One announcement carrying everything that landed, so a consumer whose work is worth doing once
+            // per operation (a refetch) reads the boundary off the action instead of inferring it from a timer.
+            .toDispatchActions([
+                ({ type, payload }) =>
+                    type === logic.actionTypes.movedItems &&
+                    payload.moved.map(({ item }: MovedItem) => item.id).join() === 'fs-1,fs-2,fs-3',
+            ])
+            .toFinishAllListeners()
 
         expect(move).toHaveBeenCalledTimes(3)
+        // movedItems rides in the same branch as this toast, so one toast is one announcement.
         expect(success).toHaveBeenCalledTimes(1)
         expect(toastText(success.mock.calls[0][0])).toEqual('Moved 3 items')
 

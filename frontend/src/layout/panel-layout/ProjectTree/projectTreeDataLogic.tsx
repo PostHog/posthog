@@ -73,10 +73,16 @@ const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
 // Reporting a move per item would toast N times for a bulk move, and because react-toastify dedupes
 // identical messages the user would see one toast whose Undo reverts only the item it was built for. Every
 // move therefore goes through `moveItems`, as a batch of one or more, and reports when the batch settles.
+export interface MovedItem {
+    item: FileSystemEntry
+    oldPath: string
+    newPath: string
+}
+
 interface MoveBatch {
     // Emptying this is what tells the batch every move has settled.
     pending: Set<string>
-    moved: { item: FileSystemEntry; oldPath: string; newPath: string }[]
+    moved: MovedItem[]
     failed: { error: unknown }[]
     projectTreeLogicKey: string
 }
@@ -410,6 +416,9 @@ export interface projectTreeDataLogicActions {
         newPath: string
         oldPath: string
     }
+    movedItems: (moved: MovedItem[]) => {
+        moved: MovedItem[]
+    }
     pruneClosedFolders: (expandedFolders: string[]) => {
         expandedFolders: string[]
     }
@@ -616,6 +625,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             projectTreeLogicKey,
         }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
+        // Fired once a `moveItems` batch has fully settled, carrying only the moves that landed. Consumers
+        // that patch state per item want `movedItem`; this is for work worth doing once per operation.
+        movedItems: (moved: MovedItem[]) => ({ moved }),
         // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
         restoredItems: true,
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
@@ -680,6 +692,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         }
                         cache.moveBatches.delete(action.batchId)
                         if (batch.moved.length > 0) {
+                            // Per-item `movedItem` has already patched every store. This marks the operation
+                            // boundary for consumers whose work is worth doing once, such as a refetch.
+                            actions.movedItems(batch.moved)
                             lemonToast.success(`Moved ${pluralize(batch.moved.length, 'item')}`, {
                                 button: {
                                     label: 'Undo',
