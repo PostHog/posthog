@@ -20,6 +20,11 @@ wording):
   First call of a run must pass it.
 - Established connections are never killed on expiry (handshake-only
   semantics, RDS-IAM style); only NEW connections need a live credential.
+- Every successful mint carries a ``connect`` block (host, port, database,
+  sslmode) — the dial target for the credential. Service-credential
+  connections are built ENTIRELY from it, never from the stored
+  ``DuckgresServer`` row; a mint response without it is an older CP than the
+  contract and is rejected as unavailable.
 
 Keep this module's request/response shapes byte-compatible with
 ``controlplane/provisioning/service_credential.go``.
@@ -33,13 +38,18 @@ from typing import Any
 import structlog
 from rest_framework import status
 
-from products.managed_warehouse.backend.facade.contracts import ServiceCredential, ServiceCredentialUnavailable
+from products.managed_warehouse.backend.facade.contracts import (
+    ServiceCredential,
+    ServiceCredentialConnect,
+    ServiceCredentialUnavailable,
+)
 
 __all__ = [
     "DEFAULT_CREDENTIAL_TTL_SECONDS",
     "MAX_CREDENTIAL_TTL_SECONDS",
     "MIN_CREDENTIAL_TTL_SECONDS",
     "ServiceCredential",
+    "ServiceCredentialConnect",
     "ServiceCredentialUnavailable",
     "mint_service_credential",
 ]
@@ -125,11 +135,13 @@ def mint_service_credential(
         expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
     except (ValueError, TypeError) as exc:
         raise ServiceCredentialUnavailable(f"mint returned unparseable expires_at {expires_raw!r}") from exc
+    connect = _parse_connect(data)
     credential = ServiceCredential(
         username=str(username),
         password=str(data.get("password") or ""),
         expires_at=expires_at,
         rotated=bool(data.get("password")),
+        connect=connect,
     )
     logger.info(
         "duckgres_service_credential_minted",
@@ -138,5 +150,36 @@ def mint_service_credential(
         principal=principal,
         rotated=credential.rotated,
         expires_at=expires_at.isoformat(),
+        connect_host=connect.host,
+        connect_port=connect.port,
     )
     return credential
+
+
+def _parse_connect(data: dict[str, Any]) -> ServiceCredentialConnect:
+    """Parse the mandatory ``connect`` block from a successful mint response.
+
+    STRICT: every successful mint must carry ``connect`` with all four fields
+    (host, port, database, sslmode) — the CP contract since the connect-bundle
+    change. A 2xx without it means the CP is older than the contract; the
+    service-credential conninfo builder no longer reads the ``DuckgresServer``
+    row, so there is nothing to fall back to here and we raise
+    ``ServiceCredentialUnavailable`` (the caller's broad fallback to root
+    engages — the established transitional degradation).
+    """
+    raw = data.get("connect")
+    if not isinstance(raw, dict):
+        # Redact, as everywhere else in this module: the malformed payload can
+        # still carry a live `password`, and the caller logs exception text.
+        raise ServiceCredentialUnavailable(f"mint returned no connect block: {_redact_payload(data)!r}")
+    host = raw.get("host")
+    database = raw.get("database")
+    sslmode = raw.get("sslmode")
+    port_raw: Any = raw.get("port")
+    try:
+        port = int(port_raw)
+    except (TypeError, ValueError):
+        port = 0
+    if not host or not database or not sslmode or port <= 0:
+        raise ServiceCredentialUnavailable(f"mint returned incomplete connect block: {_redact_payload(data)!r}")
+    return ServiceCredentialConnect(host=str(host), port=port, database=str(database), sslmode=str(sslmode))

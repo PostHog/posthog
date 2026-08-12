@@ -1312,7 +1312,7 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
 
         return sync_execute(
             """
-            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id
+            SELECT fingerprint, issue_id, issue_name, issue_status, assigned_user_id, assigned_role_id, issue_severity
             FROM error_tracking_fingerprint_issue_state FINAL
             WHERE team_id = %(team_id)s AND is_deleted = 0
             ORDER BY fingerprint
@@ -1398,6 +1398,18 @@ class TestIssueStateSync(ClickhouseTestMixin, APIBaseTest):
         rows = self._get_issue_state_rows()
         assert len(rows) == 1
         assert rows[0][3] == "resolved"  # issue_status
+
+    def test_severity_change_syncs(self):
+        issue = self._create_issue(fingerprints=["fp_1"])
+
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+            data={"severity": "high"},
+        )
+
+        rows = self._get_issue_state_rows()
+        assert len(rows) == 1
+        assert rows[0][6] == "high"
 
     def test_bulk_status_change_syncs(self):
         issue_one = self._create_issue(fingerprints=["fp_one"])
