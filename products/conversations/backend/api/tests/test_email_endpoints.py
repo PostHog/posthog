@@ -115,6 +115,12 @@ class TestEmailChannelPermissions(BaseTest):
                 "/api/conversations/v1/email/set-default",
                 {"config_id": "00000000-0000-0000-0000-000000000999"},
             ),
+            (
+                "update",
+                "post",
+                "/api/conversations/v1/email/update",
+                {"config_id": "00000000-0000-0000-0000-000000000999", "trust_reply_to": True},
+            ),
         ]
     )
     def test_member_cannot_access(self, _name, method, path, body):
@@ -674,6 +680,51 @@ class TestEmailMultiConfig(BaseTest):
             content_type="application/json",
         )
         assert response.status_code == 404
+
+    def test_update_trust_reply_to(self):
+        config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ff00aa11bb22cc33",
+            from_email="relay@acme.dev",
+            from_name="Acme",
+            domain="acme.dev",
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/update",
+            {"config_id": str(config.id), "trust_reply_to": True},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json()["config"]["trust_reply_to"] is True
+        config.refresh_from_db()
+        assert config.trust_reply_to is True
+
+        status = self.client.get("/api/conversations/v1/email/status")
+        assert status.json()["configs"][0]["trust_reply_to"] is True
+
+    def test_idor_update_other_teams_config(self):
+        config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ff00aa11bb22cc44",
+            from_email="relay2@acme.dev",
+            from_name="Acme",
+            domain="acme.dev",
+        )
+
+        second_team = Team.objects.create(organization=self.organization)
+        self.user.current_team = second_team
+        self.user.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/email/update",
+            {"config_id": str(config.id), "trust_reply_to": True},
+            content_type="application/json",
+        )
+        assert response.status_code == 404
+        config.refresh_from_db()
+        assert config.trust_reply_to is False
 
 
 class TestEmailInboundRegionRouting(BaseTest):
@@ -1382,6 +1433,142 @@ class TestEmailInboundDmarcRewrite(BaseTest):
         assert comment.item_context is not None
         assert comment.item_context["email_from"] == "alex@strictdmarc.com"
         assert comment.item_context["email_from_name"] == "Alex Smith"
+
+
+class TestEmailInboundTrustedRelay(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.client = Client()
+        self.team.conversations_settings = {"email_enabled": True}
+        self.team.save()
+        self.config = EmailChannel.objects.create(
+            team=self.team,
+            inbound_token="ab12cd34ef56ab78",
+            from_email="support@acme.com",
+            from_name="Acme Support",
+            domain="acme.com",
+            domain_verified=True,
+            trust_reply_to=True,
+        )
+
+    def _relay_data(self, msg_id: str, **extra: str) -> dict[str, str]:
+        data = {
+            "recipient": "team-ab12cd34ef56ab78@mg.posthog.com",
+            "Message-Id": msg_id,
+            "subject": "Help please",
+            "stripped-text": "I need help with my account",
+            "from": "Acme App <no-reply@updates.acme.io>",
+            "sender": "no-reply@updates.acme.io",
+            "X-Mailgun-Spf": "Pass",
+        }
+        data.update(extra)
+        return data
+
+    @parameterized.expand(
+        [
+            (
+                "reply_to_honored",
+                True,
+                {"Reply-To": "Jane Doe <jane@customer.com>"},
+                "jane@customer.com",
+                "Jane Doe",
+                False,
+            ),
+            (
+                "requester_header_honored",
+                True,
+                {"X-PostHog-Requester": "jane@customer.com"},
+                "jane@customer.com",
+                "jane",
+                False,
+            ),
+            (
+                "requester_header_beats_reply_to",
+                True,
+                {"X-PostHog-Requester": "Jane <jane@customer.com>", "Reply-To": "other@customer.com"},
+                "jane@customer.com",
+                "Jane",
+                False,
+            ),
+            (
+                "flag_off_keeps_from",
+                False,
+                {"Reply-To": "jane@customer.com"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+                True,
+            ),
+            (
+                "spf_fail_keeps_from",
+                True,
+                {"Reply-To": "jane@customer.com", "X-Mailgun-Spf": "Fail"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+                False,
+            ),
+            (
+                "misaligned_envelope_keeps_from",
+                True,
+                {"Reply-To": "jane@customer.com", "sender": "bounce@elsewhere.com"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+                False,
+            ),
+            (
+                "reply_to_matching_channel_ignored",
+                True,
+                {"Reply-To": "support@acme.com"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+                True,
+            ),
+            (
+                "malformed_reply_to_ignored",
+                True,
+                {"Reply-To": "bad@"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+                True,
+            ),
+            (
+                "reply_to_same_as_from_noop",
+                True,
+                {"Reply-To": "no-reply@updates.acme.io"},
+                "no-reply@updates.acme.io",
+                "Acme App",
+                True,
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_relayed_requester_attribution(
+        self, _name, trust_reply_to, extra_headers, expected_email, expected_name, expected_verified, _mock_sig
+    ):
+        if self.config.trust_reply_to != trust_reply_to:
+            self.config.trust_reply_to = trust_reply_to
+            self.config.save(update_fields=["trust_reply_to"])
+
+        data = self._relay_data(f"<relay-{_name}@test.com>", **extra_headers)
+        self.client.post("/api/conversations/v1/email/inbound", data)
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.anonymous_traits["email"] == expected_email
+        assert ticket.anonymous_traits["name"] == expected_name
+        assert ticket.identity_verified is expected_verified
+
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_relayed_requester_flows_to_distinct_id_and_comment_context(self, _mock_sig: MagicMock):
+        data = self._relay_data("<relay-ctx@test.com>", **{"Reply-To": "Jane Doe <jane@customer.com>"})
+        self.client.post("/api/conversations/v1/email/inbound", data)
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.distinct_id == "jane@customer.com"
+
+        comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert comment.item_context is not None
+        assert comment.item_context["email_from"] == "jane@customer.com"
+        assert comment.item_context["email_from_name"] == "Jane Doe"
 
 
 class TestEmailInboundTeamMemberDetection(BaseTest):

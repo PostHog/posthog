@@ -223,6 +223,54 @@ def _recover_dmarc_rewritten_sender(
     return sender_email, sender_name
 
 
+def _recover_relayed_requester(
+    request: HttpRequest,
+    config: EmailChannel,
+    sender_email: str,
+    sender_name: str,
+) -> tuple[str, str]:
+    """Attribute the ticket to the relayed end user instead of the relay's own From address.
+
+    Services that relay user messages into the channel send from a fixed address
+    (From: no-reply@relay.example) and carry the real user in X-PostHog-Requester
+    or Reply-To. Without recovery the ticket — and every reply to it — targets the
+    relay's no-reply mailbox.
+
+    Opt-in per channel (trust_reply_to), because plenty of ordinary mail sets
+    Reply-To where From attribution is the correct behavior.
+
+    Only honored when the From sender passes SPF + domain alignment
+    (_sender_authenticated): the header assertion is exactly as trustworthy as the
+    sender making it. The recovered requester has authenticated nothing themselves,
+    so the caller re-derives identity_verified from the final sender_email — a
+    relayed ticket starts unverified and is promoted when the user replies directly.
+    """
+    if not config.trust_reply_to:
+        return sender_email, sender_name
+
+    if not _sender_authenticated(request, sender_email):
+        return sender_email, sender_name
+
+    for header in ("X-PostHog-Requester", "Reply-To"):
+        raw = request.POST.get(header, "")
+        if not raw:
+            continue
+        requester_name, requester_email = parseaddr(raw)
+        if not requester_email or not _is_plausible_email(requester_email):
+            continue
+        if requester_email.lower() in (config.from_email.lower(), sender_email.lower()):
+            continue
+        logger.info(
+            "email_inbound_relayed_requester_recovered",
+            team_id=config.team_id,
+            header=header,
+            from_header=request.POST.get("from", ""),
+        )
+        return requester_email, requester_name or requester_email.split("@")[0]
+
+    return sender_email, sender_name
+
+
 def _sender_authenticated(request: HttpRequest, sender_email: str) -> bool:
     """Verify the From header domain is authenticated before trusting it for identity.
 
@@ -357,7 +405,13 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
     # senders whose domain has p=quarantine or p=reject).
     sender_email, sender_name = _recover_dmarc_rewritten_sender(request, config, sender_email, sender_name)
 
-    # 6b. Parse other thread participants from To + Cc. We fold both into a single
+    # 6b. Opt-in relay support: attribute to X-PostHog-Requester / Reply-To when the
+    # relay itself is authenticated. Step 7b then re-evaluates authentication against
+    # the final sender_email, so a recovered requester never inherits the relay's
+    # SPF pass (identity_verified stays False until they reply directly).
+    sender_email, sender_name = _recover_relayed_requester(request, config, sender_email, sender_name)
+
+    # 6c. Parse other thread participants from To + Cc. We fold both into a single
     # list (dropping the support inbox itself and the sender) so a direct recipient
     # who only CC'd the support address still shows up and stays on replies.
     cc_list = _collect_participants(

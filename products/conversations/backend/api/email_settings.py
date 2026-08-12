@@ -90,6 +90,7 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
         "is_default": config.is_default,
+        "trust_reply_to": config.trust_reply_to,
     }
 
 
@@ -187,6 +188,14 @@ class EmailConnectSerializer(serializers.Serializer):
 
 class ConfigIdSerializer(serializers.Serializer):
     config_id = serializers.UUIDField()
+
+
+class EmailUpdateSerializer(serializers.Serializer):
+    config_id = serializers.UUIDField(help_text="ID of the email channel to update.")
+    trust_reply_to = serializers.BooleanField(
+        help_text="Attribute inbound tickets to the X-PostHog-Requester or Reply-To address "
+        "when the sender passes SPF and domain alignment checks."
+    )
 
 
 class EmailStatusView(APIView):
@@ -449,6 +458,39 @@ class EmailSetDefaultView(APIView):
 
         logger.info("email_channel_set_default", team_id=team.id, config_id=config_id, user_id=user.id)
         return Response({"ok": True})
+
+
+class EmailUpdateView(APIView):
+    """Update per-channel settings. Currently only trust_reply_to."""
+
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
+
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        serializer = EmailUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        config = _get_config_for_team(serializer.validated_data["config_id"], team)
+        if not config:
+            return Response({"error": "Email config not found"}, status=404)
+
+        config.trust_reply_to = serializer.validated_data["trust_reply_to"]
+        config.save(update_fields=["trust_reply_to"])
+
+        logger.info(
+            "email_channel_updated",
+            team_id=team.id,
+            config_id=config.id,
+            trust_reply_to=config.trust_reply_to,
+            user_id=user.id,
+        )
+
+        inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
+        return Response({"ok": True, "config": _config_to_dict(config, inbound_domain)})
 
 
 class EmailDisconnectView(APIView):

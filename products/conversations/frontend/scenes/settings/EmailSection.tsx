@@ -2,7 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconCopy, IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonInput, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCard,
+    LemonCollapse,
+    LemonInput,
+    LemonSwitch,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -61,9 +69,10 @@ function DnsRecordsTable({ records }: { records: DnsRecord[] }): JSX.Element | n
 }
 
 function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Element {
-    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId } =
+    const { emailVerifyingConfigId, emailTestingConfigId, settingDefaultEmailConfigId, updatingTrustReplyToConfigId } =
         useValues(supportSettingsLogic)
-    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail } = useActions(supportSettingsLogic)
+    const { disconnectEmail, verifyEmailDomain, sendTestEmail, setDefaultEmail, setEmailTrustReplyTo } =
+        useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -74,6 +83,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
     const isTesting = emailTestingConfigId === config.id
     const isSettingDefault = settingDefaultEmailConfigId === config.id
     const isSettingAnyDefault = settingDefaultEmailConfigId !== null
+    const isUpdatingTrustReplyTo = updatingTrustReplyToConfigId === config.id
 
     return (
         <div className="flex flex-col gap-3 p-3">
@@ -148,6 +158,24 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                         </LemonButton>
                     )}
                 </div>
+            </div>
+
+            {/* Relayed sender attribution */}
+            <div>
+                <label className="font-medium text-sm">Relayed emails</label>
+                <p className="text-xs text-muted-alt mb-1">
+                    If a service sends email to this channel on behalf of your users, turn this on to attribute tickets
+                    to the X-PostHog-Requester or Reply-To address instead of the From address. Replies go to that
+                    address. Only honored when the sender passes SPF checks.
+                </p>
+                <LemonSwitch
+                    bordered
+                    checked={config.trust_reply_to}
+                    onChange={(checked) => setEmailTrustReplyTo(config.id, checked)}
+                    label="Trust Reply-To headers"
+                    loading={isUpdatingTrustReplyTo}
+                    disabledReason={adminRestrictionReason ?? (isUpdatingTrustReplyTo ? 'Saving…' : undefined)}
+                />
             </div>
 
             {/* Default + disconnect */}

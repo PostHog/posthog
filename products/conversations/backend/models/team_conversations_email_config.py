@@ -35,6 +35,11 @@ class EmailChannel(UUIDModel):
     # explicitly (e.g. tickets opened from the widget). At most one per team (partial constraint below).
     is_default = models.BooleanField(default=False)
 
+    # Opt-in: attribute inbound tickets to the X-PostHog-Requester or Reply-To address instead
+    # of From, but only when the From sender passes SPF + domain alignment. For relays that send
+    # on a user's behalf (From: no-reply@relay.example, Reply-To: the real user).
+    trust_reply_to = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     def mark_domain_unverified(self) -> None:
