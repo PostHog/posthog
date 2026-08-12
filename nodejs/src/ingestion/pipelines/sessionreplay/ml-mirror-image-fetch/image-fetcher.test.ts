@@ -153,13 +153,27 @@ describe('HttpImageFetcher', () => {
         expect(result).toMatchObject({ outcome: 'redirect_deferred' })
     })
 
-    it('refuses a response that arrives compressed, whatever the request asked for', async () => {
-        // The byte limit counts bytes on the wire. A compressed body would pass it and then expand.
+    it('refuses a response that arrives compressed, under its own outcome', async () => {
+        // The byte limit counts bytes on the wire, and a compressed body expands past it. The image
+        // may be perfectly good, so this must not be reported, or recorded, as "not an image".
         fetchStreamedMock.mockResolvedValue(image(PNG, 'image/png', { 'content-encoding': 'gzip' }))
 
         const result = await new HttpImageFetcher().fetch('https://cdn.example.com/a.png', OPTIONS)
 
-        expect(result).toMatchObject({ outcome: 'not_image' })
+        expect(result).toMatchObject({ outcome: 'unsupported_encoding' })
+    })
+
+    it('defers a redirect whose politeness wait would outlive the request', async () => {
+        // The wait is spent from this request's clock. Taking one that cannot land would report the
+        // site as slow when what ran out was our own budget.
+        fetchStreamedMock.mockResolvedValue(respond(302, { location: '/moved.png' }))
+        const authorizeRedirect = jest.fn().mockResolvedValue('allow')
+
+        await new HttpImageFetcher().fetch('https://cdn.example.com/a.png', { ...OPTIONS, authorizeRedirect })
+
+        const remainingMs = authorizeRedirect.mock.calls[0][1]
+        expect(remainingMs).toBeGreaterThan(0)
+        expect(remainingMs).toBeLessThanOrEqual(OPTIONS.timeoutMs)
     })
 
     it('gives up on a redirect chain longer than the limit', async () => {

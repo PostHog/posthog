@@ -3,6 +3,8 @@ export interface HostBudgetOptions {
     requestsPerSecond: number
     /** Tokens a domain holds while idle, so a domain seen once an hour can send a few requests together. */
     burst: number
+    /** Connections open to one domain at once, counted here rather than by the caller's worker pool, because a redirect reaches a domain without going through that pool. */
+    maxConcurrent: number
     breakerFailures: number
     breakerCooldownMs: number
     /** The longest a domain stays blocked. It bounds the doubling cooldown and a `Retry-After` header alike. */
@@ -15,10 +17,11 @@ export type BudgetGrant =
     | { granted: false; reason: 'breaker_open' | 'rate_limited' | 'deadline' }
 
 interface DomainState {
+    inFlight: number
     tokens: number
     lastRefillMs: number
     requestsPerSecond: number
-    consecutiveFailures: number
+    failureScore: number
     cooldownMs: number
     blockedUntilMs: number
     blockedReason: 'breaker_open' | 'rate_limited'
@@ -77,9 +80,32 @@ export class HostBudget {
         return { granted: true, waitMs }
     }
 
+    /**
+     * Take one of the domain's connection slots, or report that they are all taken.
+     *
+     * The rate limit and the connection limit answer different questions: how often we may start,
+     * and how many we may have open. A slow site makes the second one bind, and a redirect target
+     * reaches this without passing through the per-domain worker pool that would otherwise bound it.
+     */
+    public acquireConnection(domain: string, nowMs: number): boolean {
+        const state = this.stateFor(domain, nowMs)
+        if (state.inFlight >= this.options.maxConcurrent) {
+            return false
+        }
+        state.inFlight += 1
+        return true
+    }
+
+    public releaseConnection(domain: string, nowMs: number): void {
+        const state = this.stateFor(domain, nowMs)
+        state.inFlight = Math.max(0, state.inFlight - 1)
+    }
+
     public recordSuccess(domain: string, nowMs: number): void {
         const state = this.stateFor(domain, nowMs)
-        state.consecutiveFailures = 0
+        // Decremented rather than cleared. A domain that fails two requests for every one it answers
+        // never reaches a run of failures, and a counter that resets would never open its breaker.
+        state.failureScore = Math.max(0, state.failureScore - 1)
         // The configured rate is the ceiling, so a recovery never sends faster than an operator set.
         const step = this.options.requestsPerSecond / 8
         state.requestsPerSecond = Math.min(this.options.requestsPerSecond, state.requestsPerSecond + step)
@@ -116,8 +142,8 @@ export class HostBudget {
     }
 
     private countTowardBreaker(state: DomainState, nowMs: number): void {
-        state.consecutiveFailures += 1
-        if (state.consecutiveFailures < this.options.breakerFailures) {
+        state.failureScore += 1
+        if (state.failureScore < this.options.breakerFailures) {
             return
         }
         // Doubled from the last cooldown rather than reset, so a site that keeps failing after the
@@ -133,7 +159,7 @@ export class HostBudget {
             state.blockedUntilMs = openUntilMs
             state.blockedReason = 'breaker_open'
         }
-        state.consecutiveFailures = 0
+        state.failureScore = 0
     }
 
     /**
@@ -182,10 +208,11 @@ export class HostBudget {
         }
         this.evictIfFull(nowMs)
         const state: DomainState = {
+            inFlight: 0,
             tokens: this.options.burst,
             lastRefillMs: nowMs,
             requestsPerSecond: this.options.requestsPerSecond,
-            consecutiveFailures: 0,
+            failureScore: 0,
             cooldownMs: 0,
             blockedUntilMs: 0,
             blockedReason: 'breaker_open',
@@ -207,7 +234,7 @@ export class HostBudget {
         let scanned = 0
         for (const [domain, state] of this.domains) {
             oldest = oldest ?? domain
-            if (state.blockedUntilMs <= nowMs) {
+            if (state.blockedUntilMs <= nowMs && state.inFlight === 0) {
                 this.domains.delete(domain)
                 return
             }

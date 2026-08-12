@@ -1,5 +1,3 @@
-import { politenessKey } from '@posthog/replay-anonymizer'
-
 import { logger } from '~/common/utils/logger'
 import { delay } from '~/common/utils/utils'
 
@@ -9,7 +7,7 @@ import { FetchOutcome, ImageFetchResult, ImageFetcher, RedirectDecision } from '
 import { ImageFetchRequestMetrics } from './metrics'
 
 /** Why a URL never reached a request. Shares `rate_limited` with the response of the same name, because both mean the site asked us to wait. */
-export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline'
+export type ShedReason = 'breaker_open' | 'rate_limited' | 'deadline' | 'connection_limit'
 
 export type AttemptOutcome = FetchOutcome | ShedReason
 
@@ -19,7 +17,7 @@ export interface FetchAttempt {
 }
 
 export interface FetchRunnerOptions {
-    /** Connections this pod opens to one registrable domain at once. It is also the worker count, so nothing else has to enforce it. */
+    /** Workers per domain. The limit itself lives in the budget, because a redirect reaches a domain without passing through this pool. */
     maxConcurrentPerDomain: number
     /** Domains this pod fetches from at once. It bounds the whole pass, because a batch can carry one domain per record. */
     maxConcurrentDomains: number
@@ -50,6 +48,23 @@ const TERMINAL_OUTCOMES: ReadonlySet<AttemptOutcome> = new Set<AttemptOutcome>([
     'too_many_redirects',
     'unexpected_status',
 ])
+
+/**
+ * The addon holds a 15 MB native library, and `index.ts` imports every server whatever mode the pod
+ * runs. Loaded on first use rather than at import, so only a pod that follows a redirect pays for
+ * it. The mirror server defers it the same way.
+ */
+let politenessKey: ((host: string) => string) | undefined
+function getPolitenessKey(): (host: string) => string {
+    if (!politenessKey) {
+        const addon = require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
+        if (typeof addon.politenessKey !== 'function') {
+            throw new Error('the replay-anonymizer addon has no politenessKey: rebuild index.node')
+        }
+        politenessKey = addon.politenessKey
+    }
+    return politenessKey
+}
 
 /** Hosts named in one batch-level log line. Enough to find the site, bounded so one bad batch cannot write a host list of its own size. */
 const MAX_LOGGED_HOSTS = 5
@@ -162,12 +177,15 @@ export class FetchRunner implements FetchPass {
      * for the deadline, so it sheds its queue without sending.
      */
     private async runDomains(entries: [string, FetchCandidate[]][], deadlineMs: number): Promise<FetchAttempt[]> {
+        // Written into by every domain rather than concatenated afterwards. One batch can offer
+        // hundreds of thousands of URLs to a single domain, and both `push(...array)` and
+        // `concat` of that size exceed the argument limit of `Function.apply`.
         const attempts: FetchAttempt[] = []
         let next = 0
         const worker = async (): Promise<void> => {
             while (next < entries.length) {
                 const [domain, queue] = entries[next++]
-                attempts.push(...(await this.runDomain(domain, queue, deadlineMs)))
+                await this.runDomain(domain, queue, deadlineMs, attempts)
             }
         }
         const workers = Math.min(this.options.maxConcurrentDomains, entries.length)
@@ -175,8 +193,12 @@ export class FetchRunner implements FetchPass {
         return attempts
     }
 
-    private async runDomain(domain: string, queue: FetchCandidate[], deadlineMs: number): Promise<FetchAttempt[]> {
-        const attempts: FetchAttempt[] = []
+    private async runDomain(
+        domain: string,
+        queue: FetchCandidate[],
+        deadlineMs: number,
+        attempts: FetchAttempt[]
+    ): Promise<void> {
         let next = 0
         // A refusal is a property of the domain, so it applies to every URL still queued for it
         // rather than only to the one that asked.
@@ -205,7 +227,6 @@ export class FetchRunner implements FetchPass {
 
         const workers = Math.min(this.options.maxConcurrentPerDomain, queue.length)
         await Promise.all(Array.from({ length: workers }, () => worker()))
-        return attempts
     }
 
     /**
@@ -217,6 +238,33 @@ export class FetchRunner implements FetchPass {
      * request timeout, which is still far inside Kafka's max.poll.interval.ms.
      */
     private async fetchOne(candidate: FetchCandidate, deadlineMs: number): Promise<FetchAttempt> {
+        // Every domain this chain touches holds one of that domain's connection slots until the
+        // chain ends. A slot taken twice by one chain is held once, so a redirect back to a domain
+        // already in the chain does not deadlock against itself.
+        const held = new Set<string>()
+        const acquire = (domain: string): boolean => {
+            if (held.has(domain)) {
+                return true
+            }
+            if (!this.budget.acquireConnection(domain, Date.now())) {
+                return false
+            }
+            held.add(domain)
+            return true
+        }
+        const releaseAll = (): void => {
+            for (const domain of held) {
+                this.budget.releaseConnection(domain, Date.now())
+            }
+        }
+
+        if (!acquire(candidate.domain)) {
+            // Reachable because redirects into this domain take slots the worker pool does not know
+            // about. It says the domain is busy now, so no sighting is written for it.
+            ImageFetchRequestMetrics.incOutcome('connection_limit')
+            return { candidate, outcome: 'connection_limit' }
+        }
+
         const startedAt = process.hrtime.bigint()
         let result: ImageFetchResult
         try {
@@ -224,15 +272,25 @@ export class FetchRunner implements FetchPass {
                 maxBytes: this.options.maxBytes,
                 timeoutMs: this.options.requestTimeoutMs,
                 maxRedirects: this.options.maxRedirects,
-                authorizeRedirect: (url) => this.authorizeRedirect(url, deadlineMs),
+                // The earlier of the two clocks. A wait that outlives the request would be spent
+                // and then reported as the site timing out.
+                authorizeRedirect: (url, remainingMs) =>
+                    this.authorizeRedirect(url, Math.min(deadlineMs, Date.now() + remainingMs), acquire),
             })
         } catch (error) {
             // The fetcher answers with an outcome rather than a throw, so reaching here means a
             // defect. It is caught anyway: a throw would leave the other domains of this batch
             // running while the partition replays them.
-            logger.error('🌐', 'ml_image_fetch_unhandled_error', { host: candidate.host, error: String(error) })
+            logger.error('🌐', 'ml_image_fetch_unhandled_error', {
+                host: candidate.host,
+                // The name only. An error message from the request layer can carry the URL, and a
+                // URL is page content.
+                error: error instanceof Error ? error.name : 'unknown',
+            })
             ImageFetchRequestMetrics.incOutcome('error')
             return { candidate, outcome: 'error' }
+        } finally {
+            releaseAll()
         }
         const durationSeconds = Number(process.hrtime.bigint() - startedAt) / 1e9
 
@@ -261,8 +319,8 @@ export class FetchRunner implements FetchPass {
             this.budget.recordBackoff(domain, nowMs)
             return
         }
-        if (outcome === 'redirect_deferred') {
-            // The budget of the redirect target refused, which says nothing about this domain.
+        if (outcome === 'redirect_deferred' || outcome === 'unsupported_encoding') {
+            // Neither says anything about the load this domain is under.
             return
         }
         if (outcome === 'forbidden') {
@@ -280,15 +338,26 @@ export class FetchRunner implements FetchPass {
      * a site that redirects every image to a CDN opens its own breaker when that CDN fails. The CDN
      * still gets the rate limit, which is the part that protects it.
      */
-    private async authorizeRedirect(url: URL, deadlineMs: number): Promise<RedirectDecision> {
+    private async authorizeRedirect(
+        url: URL,
+        deadlineMs: number,
+        acquire: (domain: string) => boolean
+    ): Promise<RedirectDecision> {
         // The same function the producer keys the topic with, called through the addon rather than
         // reimplemented here. One public suffix list answers for both, so the two cannot drift.
-        const grant = this.budget.take(politenessKey(url.hostname), Date.now(), deadlineMs)
+        const domain = getPolitenessKey()(url.hostname)
+        if (!acquire(domain)) {
+            return 'defer'
+        }
+        const grant = this.budget.take(domain, Date.now(), deadlineMs)
         if (!grant.granted) {
             // Deferred rather than refused, so no sighting is written. Every refusal reason here
             // is about this moment rather than about the URL.
             return 'defer'
         }
+        // Counted like the wait of a first request, so the histogram covers every politeness wait
+        // this lane takes rather than only the ones outside a redirect.
+        ImageFetchRequestMetrics.observeBudgetWait(grant.waitMs / 1000)
         if (grant.waitMs > 0) {
             await delay(grant.waitMs)
         }

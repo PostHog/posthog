@@ -48,6 +48,7 @@ function runner(
     budget = new HostBudget({
         requestsPerSecond: 1000,
         burst: 1000,
+        maxConcurrent: 4,
         breakerFailures: 3,
         breakerCooldownMs: 60_000,
         breakerMaxCooldownMs: 600_000,
@@ -99,6 +100,7 @@ describe('FetchRunner', () => {
         const budget = new HostBudget({
             requestsPerSecond: 1,
             burst: 1,
+            maxConcurrent: 4,
             breakerFailures: 100,
             breakerCooldownMs: 60_000,
             breakerMaxCooldownMs: 600_000,
@@ -122,6 +124,59 @@ describe('FetchRunner', () => {
         const attempts = await runner(fetcher).run([candidate('example.com', 0)])
 
         expect(isTerminal(attempts[0].outcome)).toBe(false)
+    })
+
+    it('handles a domain with more queued URLs than a spread can carry', async () => {
+        // One batch offers up to BATCH_SIZE x MAX_URLS_PER_RECORD URLs, and the topic keys by
+        // domain, so a popular CDN can fill a single queue past the argument limit of Function.apply.
+        // A RangeError here escapes the pass, and the consumer then records nothing for the batch.
+        const budget = new HostBudget({
+            requestsPerSecond: 1,
+            burst: 1,
+            maxConcurrent: 4,
+            breakerFailures: 100,
+            breakerCooldownMs: 60_000,
+            breakerMaxCooldownMs: 600_000,
+            maxTrackedDomains: 100,
+        })
+        const fetcher = new FakeFetcher(() => ({ outcome: 'ok' }))
+        const many = Array.from({ length: 130_000 }, (_value, index) => candidate('big.com', index))
+
+        const attempts = await runner(fetcher, { maxConcurrentPerDomain: 1, batchBudgetMs: 0 }, budget).run(many)
+
+        expect(attempts).toHaveLength(many.length)
+    })
+
+    it('holds a redirect target to its own connection limit', async () => {
+        // Two source domains redirect to one CDN. Without a slot taken for the target, each source
+        // worker opens its own connection and the CDN sees more than its configured maximum.
+        const budget = new HostBudget({
+            requestsPerSecond: 1000,
+            burst: 1000,
+            maxConcurrent: 1,
+            breakerFailures: 100,
+            breakerCooldownMs: 60_000,
+            breakerMaxCooldownMs: 600_000,
+            maxTrackedDomains: 100,
+        })
+        const targets: string[] = []
+        const fetcher: ImageFetcher = {
+            fetch: async (url, options) => {
+                const decision = await options.authorizeRedirect(new URL('https://img.shared-cdn.net/a.png'), 5000)
+                targets.push(`${url}:${decision}`)
+                // Held open until both source domains have asked, so the two overlap.
+                await new Promise((resolve) => setTimeout(resolve, 20))
+                return { outcome: 'ok', redirects: 1 }
+            },
+        }
+
+        await runner(fetcher, { maxConcurrentPerDomain: 1 }, budget).run([
+            candidate('one.com', 0),
+            candidate('two.com', 0),
+        ])
+
+        expect(targets.filter((t) => t.endsWith(':allow'))).toHaveLength(1)
+        expect(targets.filter((t) => t.endsWith(':defer'))).toHaveLength(1)
     })
 
     it.each([

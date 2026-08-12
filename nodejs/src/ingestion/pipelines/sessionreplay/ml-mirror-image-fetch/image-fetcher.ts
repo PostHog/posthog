@@ -23,6 +23,7 @@ export type FetchOutcome =
     | 'redirect_deferred'
     | 'too_large'
     | 'not_image'
+    | 'unsupported_encoding'
     | 'blocked'
     | 'timeout'
     | 'error'
@@ -48,8 +49,10 @@ export interface ImageFetchOptions {
      *
      * `defer` says the target is fine but cannot be reached now. It has to be told apart from
      * `refuse`, because the caller records a sighting for a refusal and none for a deferral.
+     *
+     * `remainingMs` is what is left of this request. A wait longer than that has to `defer`.
      */
-    authorizeRedirect: (url: URL) => Promise<RedirectDecision>
+    authorizeRedirect: (url: URL, remainingMs: number) => Promise<RedirectDecision>
 }
 
 /** `defer` is a budget that is spent or a breaker that is open. `refuse` is a target this lane will never follow. */
@@ -109,7 +112,10 @@ export class HttpImageFetcher implements ImageFetcher {
             }
             let decision: RedirectDecision
             try {
-                decision = await options.authorizeRedirect(next)
+                // The remaining request budget, so a politeness wait that will not fit comes back
+                // as `defer`. Taking it and then running out would report the site as slow when
+                // what ran out was our own clock.
+                decision = await options.authorizeRedirect(next, deadlineMs - Date.now())
             } catch (error) {
                 return { outcome: classifyError(error), redirects }
             }
@@ -143,11 +149,13 @@ export class HttpImageFetcher implements ImageFetcher {
             return { kind: 'done', result: { outcome: 'not_image', status } }
         }
         // The request asked for `identity`. An origin that compresses anyway would make the byte
-        // limit count compressed bytes, and the payload behind them can be far larger.
+        // limit count compressed bytes, and the payload behind them can be far larger. This is a
+        // refusal by this lane rather than a fact about the image, so it gets its own outcome and
+        // does not write the URL off.
         const encoding = response.headers['content-encoding']?.trim().toLowerCase()
         if (encoding && encoding !== 'identity') {
             response.discard()
-            return { kind: 'done', result: { outcome: 'not_image', status } }
+            return { kind: 'done', result: { outcome: 'unsupported_encoding', status } }
         }
         // Before the body, so a declared size over the limit costs one header exchange.
         const declaredBytes = Number(response.headers['content-length'])

@@ -21,6 +21,14 @@ describe('politenessKey', () => {
         expect(politenessKey(host)).toBe(expected)
     })
 
+    it.each([
+        ['example.com.', 'example.com'],
+        ['user.github.io.', 'user.github.io'],
+    ])('keys %s the same as the host without its trailing dot', (host, expected) => {
+        // A fully qualified name resolves identically, so two spellings must not take two budgets.
+        expect(politenessKey(host)).toBe(expected)
+    })
+
     it.each([['203.0.113.4'], ['::1']])('returns the address %s unchanged', (host) => {
         expect(politenessKey(host)).toBe(host)
     })

@@ -106,6 +106,10 @@ pub const MAX_URL_LEN: usize = 2048;
 /// An IP literal has no registrable domain and returns unchanged, which is right: the address is
 /// the operator.
 pub fn politeness_key(host: &str) -> String {
+    // The trailing dot goes, as it does in `is_public_host`, because `example.com.` and
+    // `example.com` are one operator. Two spellings would otherwise take two budgets, two breakers,
+    // and two partitions. Brackets stay: an IPv6 literal is keyed in the form the URL carries.
+    let host = host.strip_suffix('.').unwrap_or(host);
     if host.parse::<IpAddr>().is_ok() || host.starts_with('[') {
         return host.to_string();
     }
@@ -487,6 +491,15 @@ mod tests {
         assert_eq!(politeness_key("myapp.vercel.app"), "myapp.vercel.app");
         assert_eq!(politeness_key("site.netlify.app"), "site.netlify.app");
         assert_eq!(politeness_key("worker.workers.dev"), "worker.workers.dev");
+    }
+
+    #[test]
+    fn a_fully_qualified_host_keys_the_same_as_the_bare_one() {
+        // A trailing dot resolves identically, so leaving it on would give one operator a second
+        // budget, a second breaker, and a second partition.
+        assert_eq!(politeness_key("example.com."), "example.com");
+        assert_eq!(politeness_key("img1.cdn.example.com."), "example.com");
+        assert_eq!(politeness_key("user.github.io."), "user.github.io");
     }
 
     #[test]

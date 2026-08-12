@@ -35,6 +35,7 @@ export function buildFetchRunner(config: IngestionSessionReplayMlMirrorServerCon
     const budget = new HostBudget({
         requestsPerSecond: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUESTS_PER_SECOND,
         burst: config.SESSION_RECORDING_ML_IMAGE_FETCH_BURST,
+        maxConcurrent: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_DOMAIN,
         breakerFailures: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_FAILURES,
         breakerCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_COOLDOWN_MS,
         breakerMaxCooldownMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_BREAKER_MAX_COOLDOWN_MS,

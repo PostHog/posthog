@@ -3,6 +3,7 @@ import { HostBudget, HostBudgetOptions } from './host-budget'
 const OPTIONS: HostBudgetOptions = {
     requestsPerSecond: 1,
     burst: 2,
+    maxConcurrent: 4,
     breakerFailures: 3,
     breakerCooldownMs: 60_000,
     breakerMaxCooldownMs: 600_000,
@@ -120,6 +121,46 @@ describe('HostBudget', () => {
             granted: false,
             reason: 'rate_limited',
         })
+    })
+
+    it('holds one domain to its connection limit however many callers ask', () => {
+        // The runner's worker pool bounds only the domain a URL was queued under. A redirect reaches
+        // a domain from another domain's worker, so the limit has to live here to bind at all.
+        const host = budget({ maxConcurrent: 2 })
+
+        expect(host.acquireConnection('example.com', 1000)).toBe(true)
+        expect(host.acquireConnection('example.com', 1000)).toBe(true)
+        expect(host.acquireConnection('example.com', 1000)).toBe(false)
+
+        host.releaseConnection('example.com', 1000)
+
+        expect(host.acquireConnection('example.com', 1000)).toBe(true)
+    })
+
+    it('keeps a domain holding a connection out of the eviction scan', () => {
+        // Evicting it would drop the in-flight count, and the next caller would open one more
+        // connection than the limit allows.
+        const host = budget({ maxTrackedDomains: 2, maxConcurrent: 1 })
+        host.acquireConnection('busy.com', 1000)
+        host.take('idle.com', 1000, FAR_FUTURE)
+
+        host.take('new.com', 1000, FAR_FUTURE)
+
+        expect(host.acquireConnection('busy.com', 1000)).toBe(false)
+    })
+
+    it('opens the breaker on a domain that fails more often than it succeeds', () => {
+        // Two failures for every success never makes a run of failures, so a counter that cleared
+        // on success would leave a mostly-broken domain being retried forever.
+        const host = budget()
+
+        for (let round = 0; round < 5; round++) {
+            host.recordBackoff('flapping.com', 1000)
+            host.recordBackoff('flapping.com', 1000)
+            host.recordSuccess('flapping.com', 1000)
+        }
+
+        expect(host.take('flapping.com', 1000, FAR_FUTURE)).toEqual({ granted: false, reason: 'breaker_open' })
     })
 
     it('evicts an idle domain in preference to one it is still holding back', () => {
