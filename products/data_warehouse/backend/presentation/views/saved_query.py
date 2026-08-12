@@ -245,8 +245,10 @@ def visible_blocker_names(
         return {}
 
     visible: dict[str, str] = {}
-    node_id_by_saved_query: dict[str, str] = {}
-    node_id_by_table: dict[str, str] = {}
+    # Lists, not single ids: one saved query or table can hold a node in several DAGs, and a grant
+    # covers the resource, so every node of it becomes visible together.
+    node_ids_by_saved_query: dict[str, list[str]] = {}
+    node_ids_by_table: dict[str, list[str]] = {}
     for node_id in node_ids:
         identity = resolved.identities.get(node_id)
         name = resolved.names.get(node_id)
@@ -255,33 +257,36 @@ def visible_blocker_names(
         if identity.is_posthog_table:
             visible[node_id] = name  # events, persons and friends: readable by anyone on the project
         elif identity.saved_query_id is not None:
-            node_id_by_saved_query[identity.saved_query_id] = node_id
+            node_ids_by_saved_query.setdefault(identity.saved_query_id, []).append(node_id)
         elif identity.warehouse_table_id is not None:
-            node_id_by_table[identity.warehouse_table_id] = node_id
+            node_ids_by_table.setdefault(identity.warehouse_table_id, []).append(node_id)
 
-    if node_id_by_saved_query:
-        creators = DataWarehouseSavedQuery.objects.filter(id__in=node_id_by_saved_query).values_list(
+    def reveal(resource_node_ids: list[str]) -> None:
+        visible.update({node_id: resolved.names[node_id] for node_id in resource_node_ids})
+
+    if node_ids_by_saved_query:
+        creators = DataWarehouseSavedQuery.objects.filter(id__in=node_ids_by_saved_query).values_list(
             "id", "created_by_id"
         )
         levels = user_access_control.bulk_object_access_levels(
             "warehouse_view", [(str(pk), created_by) for pk, created_by in creators]
         )
         for saved_query_id, level in levels.items():
-            node_id = node_id_by_saved_query[saved_query_id]
             if level is not None and level != "none":
-                visible[node_id] = resolved.names[node_id]
+                reveal(node_ids_by_saved_query[saved_query_id])
 
-    if node_id_by_table:
+    if node_ids_by_table:
         # One at a time rather than in bulk: `warehouse_table` falls back to `external_data_source`,
         # and the bulk call refuses any resource with a fallback parent. Per object is also what
         # honours a deny on one table, or on the source it came from. A table that no longer
         # resolves keeps its name withheld.
-        tables = list(DataWarehouseTable.objects.filter(id__in=node_id_by_table, team_id=team_id).exclude(deleted=True))
+        tables = list(
+            DataWarehouseTable.objects.filter(id__in=node_ids_by_table, team_id=team_id).exclude(deleted=True)
+        )
         user_access_control.preload_object_access_controls(cast(list[Model], tables))
         for table in tables:
             if user_access_control.check_access_level_for_object(table, "viewer"):
-                node_id = node_id_by_table[str(table.id)]
-                visible[node_id] = resolved.names[node_id]
+                reveal(node_ids_by_table[str(table.id)])
     return visible
 
 

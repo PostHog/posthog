@@ -616,3 +616,84 @@ class TestSyncFrequencyTableBlockerAccessControl(WarehouseAccessControlTestMixin
         self.assertEqual(blocked["15min"]["blocked_by"], "source")
         self.assertIsNone(blocked["15min"]["blocker"])
         self.assertNotIn("stripe_charges", body)
+
+
+@pytest.mark.ee
+class TestSyncFrequencyDuplicateResourceAcrossDags(WarehouseAccessControlTestMixin):
+    """A grant covers a resource, not a node: a table holding a node in two DAGs is named in both."""
+
+    resource = "warehouse_objects"
+
+    def setUp(self):
+        super().setUp()
+        self.view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="downstream_view",
+            query={"kind": "HogQLQuery", "query": "select 1 as event"},
+            created_by=self.user,
+        )
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="posthog_test_",
+        )
+        # Deliberately no schema: a source with no sync schedule is what lands in best-effort, and
+        # best-effort ids union across DAGs. That union is the one place a single resource reaches
+        # the payload under two node ids.
+        self.table = DataWarehouseTable.objects.create(
+            name="unscheduled_source", team=self.team, external_data_source=self.source
+        )
+        for dag_name in ("dag_one", "dag_two"):
+            dag = DAG.objects.create(team=self.team, name=dag_name)
+            source_node = Node.objects.create(
+                team=self.team,
+                dag=dag,
+                name="unscheduled_source",
+                type=NodeType.TABLE,
+                properties={"origin": "warehouse", "warehouse_table_id": str(self.table.id)},
+            )
+            view_node = Node.objects.create(
+                team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW
+            )
+            Edge.objects.create(team=self.team, dag=dag, source=source_node, target=view_node)
+
+    def _read_view(self) -> dict:
+        with (
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "data-modeling-backend-v2",
+            ),
+            patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.tiered_schedules_enabled",
+                return_value=True,
+            ),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.pk}/warehouse_saved_queries/{self.view.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["sync_frequency_bounds"]
+
+    def test_a_readable_table_is_named_through_every_dag_that_holds_a_node_for_it(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        bounds = self._read_view()
+
+        self.assertTrue(bounds["best_effort_sources"], "the unscheduled source should reach the payload")
+        self.assertTrue(all(source["name"] == "unscheduled_source" for source in bounds["best_effort_sources"]))
+        # The caller may read the only table involved, so nothing is cut and the copy says so.
+        self.assertFalse(bounds["best_effort_sources_withheld"])
+
+    def test_a_denied_table_stays_withheld_through_every_dag(self):
+        self._create_access_control(self.viewer_user, access_level="viewer")
+        self._create_access_control(
+            self.viewer_user, resource="warehouse_table", resource_id=str(self.table.id), access_level="none"
+        )
+        self.client.force_login(self.viewer_user)
+
+        bounds = self._read_view()
+
+        self.assertTrue(bounds["best_effort_sources_withheld"])
+        self.assertEqual(bounds["best_effort_sources"], [])
