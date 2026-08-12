@@ -53,7 +53,17 @@ let getPayload := () -> {
   return properties
 }
 
-let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inputs.path}', {
+let path := trim(inputs.path)
+
+// Values templated into the path resolve to an empty string when the property is unset, which
+// silently produces a URL Salesforce rejects. Fail here so the message names the real cause.
+for (let segment in splitByString('/', path)) {
+  if (empty(trim(segment))) {
+    throw Error(f'Salesforce object path \\'{path}\\' is missing a value. A property mapped into the path was empty when this ran. Check that it is set before this step.')
+  }
+}
+
+let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{path}', {
   'body': getPayload(),
   'method': 'POST',
   'headers': {
@@ -63,10 +73,11 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
-} else {
-  print(res.status, res.body)
+  throw Error(f'Salesforce request to \\'{path}\\' failed with status {res.status}: {res.body}');
 }
+
+print(res.status, res.body)
+return res.body
 """.strip(),
     inputs_schema=[
         common_inputs["oauth"],
@@ -141,7 +152,23 @@ let getPayload := () -> {
   return properties
 }
 
-let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inputs.path}', {
+let path := trim(inputs.path)
+let segments := splitByString('/', path)
+
+// Values templated into the path resolve to an empty string when the property is unset. That
+// truncates the URL to the object collection, which only accepts GET, HEAD, and POST, so
+// Salesforce answers the PATCH with a 405 that says nothing about the missing value.
+for (let segment in segments) {
+  if (empty(trim(segment))) {
+    throw Error(f'Salesforce object path \\'{path}\\' is missing a value. A property mapped into the path was empty when this ran. Check that it is set before this step.')
+  }
+}
+
+if (length(segments) < 2) {
+  throw Error(f'Salesforce object path \\'{path}\\' has no record identifier. Use \\'Object/RecordId\\' to update by record ID, or \\'Object/ExternalIdField/Value\\' to update by external ID.')
+}
+
+let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{path}', {
   'body': getPayload(),
   'method': 'PATCH',
   'headers': {
@@ -151,10 +178,11 @@ let res := fetch(f'{inputs.oauth.instance_url}/services/data/v61.0/sobjects/{inp
 });
 
 if (res.status >= 400) {
-  throw Error(f'Salesforce request failed with status {res.status}: {res.body}');
-} else {
-  print(res.status, res.body)
+  throw Error(f'Salesforce request to \\'{path}\\' failed with status {res.status}: {res.body}');
 }
+
+print(res.status, res.body)
+return res.body
 """.strip(),
     inputs_schema=[
         common_inputs["oauth"],
@@ -162,8 +190,8 @@ if (res.status >= 400) {
             "key": "path",
             "type": "string",
             "label": "Object path",
-            "description": "The path to the object you want to create or update. This can be a standard object like 'Contact' for creating records or `Lead/Email/{person.properties.email}` for updating a lead by email. See https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/dome_upsert.htm for more information.",
-            "default": "Leads/Email/{person.properties.email}",
+            "description": "The object and record to update. Use `Lead/{recordId}` to update by record ID, or `Lead/Email/{person.properties.email}` to update by an external ID field, which must be flagged as an External ID in Salesforce. A bare object name like `Lead` is not valid for updates. Updating by external ID creates the record when nothing matches. See https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/dome_upsert.htm for more information.",
+            "default": "Lead/Email/{person.properties.email}",
             "secret": False,
             "required": True,
         },

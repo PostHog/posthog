@@ -1,4 +1,7 @@
+import pytest
 from posthog.test.base import BaseTest
+
+from parameterized import parameterized
 
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.salesforce.template_salesforce import (
@@ -8,6 +11,8 @@ from posthog.cdp.templates.salesforce.template_salesforce import (
 )
 
 from products.cdp.backend.models.plugin import PluginConfig
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
@@ -63,6 +68,16 @@ class TestTemplateSalesforceCreate(BaseHogFunctionTemplateTest):
             },
         )
 
+    def test_rejects_path_with_empty_segment(self):
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(self._inputs(path="Contact/Email/"))
+        assert "is missing a value" in str(e.value)
+        assert self.get_mock_fetch_calls() == []
+
+    def test_returns_response_body(self):
+        self.mock_fetch_response = lambda *args: {"status": 201, "body": {"id": "0031", "success": True}}  # type: ignore
+        assert self.run_function(self._inputs()).result == {"id": "0031", "success": True}
+
 
 class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
     template = template_salesforce_update
@@ -116,6 +131,29 @@ class TestTemplateSalesforceUpdate(BaseHogFunctionTemplateTest):
                 "headers": {"Authorization": "Bearer oauth-1234", "Content-Type": "application/json"},
             },
         )
+
+    @parameterized.expand(
+        [
+            ("empty external id value", "Lead/Email/"),
+            ("trailing slash", "Lead/"),
+            ("empty path", ""),
+        ]
+    )
+    def test_rejects_path_with_empty_segment(self, _name: str, path: str):
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(self._inputs(path=path))
+        assert "is missing a value" in str(e.value)
+        assert self.get_mock_fetch_calls() == []
+
+    def test_rejects_bare_object_name(self):
+        with pytest.raises(UncaughtHogVMException) as e:
+            self.run_function(self._inputs(path="Lead"))
+        assert "has no record identifier" in str(e.value)
+        assert self.get_mock_fetch_calls() == []
+
+    def test_returns_response_body(self):
+        self.mock_fetch_response = lambda *args: {"status": 201, "body": {"id": "00Q1", "created": True}}  # type: ignore
+        assert self.run_function(self._inputs()).result == {"id": "00Q1", "created": True}
 
 
 class TestTemplateMigration(BaseTest):
