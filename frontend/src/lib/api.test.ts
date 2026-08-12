@@ -306,8 +306,9 @@ describe('API helper', () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf(body) }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
             expect(error).toBeInstanceOf(ApiError)
-            // Method + path so occurrences are triageable in error tracking
-            expect(error.message).toContain('[GET /api/environments/2/insights]')
+            // Method + path so occurrences are triageable in error tracking. The team id is
+            // normalized to `:id` so the same condition across environments fingerprints as one issue.
+            expect(error.message).toContain('[GET /api/environments/:id/insights]')
             expect(error.message).toContain('status 200')
             // No `status`: a 2xx on an ApiError would make retry/recovery checks
             // (`status === undefined || status >= 500`) treat this transient failure as a client error
@@ -317,7 +318,7 @@ describe('API helper', () => {
         it('carries the actual request method in the malformed-body error', async () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: bodyOf('<html></html>') }))
             const error = await api.create('api/environments/2/insights', {}).catch((e) => e)
-            expect(error.message).toContain('[POST /api/environments/2/insights]')
+            expect(error.message).toContain('[POST /api/environments/:id/insights]')
         })
 
         it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
@@ -340,6 +341,28 @@ describe('API helper', () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
+        })
+    })
+
+    describe('non-OK error message fingerprinting', () => {
+        const badGateway = (): any => ({
+            ok: false,
+            status: 503,
+            statusText: '',
+            headers: new Headers(),
+            json: () => Promise.reject(new Error('empty body')),
+        })
+
+        // A 503 used to bake the environment id into the message, so one transient condition
+        // fragmented into a separate error-tracking issue per environment. Normalizing ids to
+        // `:id` collapses them into a single issue keyed on the route and status.
+        it('produces an identical message across different environment ids', async () => {
+            fakeFetch.mockResolvedValue(badGateway())
+            const errorA = await api.get('api/environments/251463/query').catch((e) => e)
+            const errorB = await api.get('api/environments/999999/query').catch((e) => e)
+
+            expect(errorA.message).toContain('[GET /api/environments/:id/query/]')
+            expect(errorA.message).toEqual(errorB.message)
         })
     })
 

@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, kea, path, reducers } from 'kea'
+import { MakeLogicType, actions, isBreakpoint, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -65,8 +65,19 @@ export const batchSpikeEventsLogic = kea<batchSpikeEventsLogicType>([
                     }
                     await breakpoint(100)
                     const { dateFrom, dateTo } = dateRangeToIsoBounds(dateRange)
-                    const response = await api.errorTracking.getSpikeEvents({ issueIds, dateFrom, dateTo })
-                    return response.results
+                    try {
+                        const response = await api.errorTracking.getSpikeEvents({ issueIds, dateFrom, dateTo })
+                        return response.results
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
+                        }
+                        // Spike markers are supplementary; the issue page renders fine without
+                        // them. Degrade to no markers rather than letting the rejection reach the
+                        // global handler, which would file it as a new error-tracking issue.
+                        console.warn('Failed to load spike events for issues', e)
+                        return []
+                    }
                 },
             },
         ],

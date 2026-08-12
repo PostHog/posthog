@@ -371,8 +371,23 @@ export async function getJSONOrNull(response: Response): Promise<any> {
     }
 }
 
+const NUMERIC_ID_RE = /^\d+$/
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Collapse per-resource identifiers (environment/project ids, UUIDs) in a request path to a
+ * stable `:id` placeholder. Error-tracking fingerprints off the exception message, so baking a
+ * live id into the message shatters one server condition into a separate issue per resource.
+ */
+function normalizeApiPathname(pathname: string): string {
+    return pathname
+        .split('/')
+        .map((segment) => (NUMERIC_ID_RE.test(segment) || UUID_RE.test(segment) ? ':id' : segment))
+        .join('/')
+}
+
 function apiErrorFallback(response: Response, method: string, url: string): string {
-    const pathname = new URL(url, location.origin).pathname
+    const pathname = normalizeApiPathname(new URL(url, location.origin).pathname)
     return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
 }
 
@@ -395,7 +410,7 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  */
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
-        `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
+        `[${method} ${normalizeApiPathname(new URL(url, location.origin).pathname)}] (status ${response.status})`
     let text: string
     try {
         text = await response.text()

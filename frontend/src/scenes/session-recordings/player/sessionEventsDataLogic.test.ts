@@ -62,4 +62,22 @@ describe('sessionEventsDataLogic', () => {
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(false)
         expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-2')?.fullyLoaded).toBe(true)
     })
+
+    // The property-expansion query can fail transiently (e.g. a 503 from the query gateway).
+    // That is already handled gracefully — the events are marked loaded and the player keeps
+    // working — so it must not be reported to error tracking, where it fragments into noisy
+    // per-environment issues.
+    it('degrades gracefully without reporting when loadFullEventData query fails', async () => {
+        const event = makeEvent('event-1')
+        logic.actions.loadEventsSuccess([event])
+
+        jest.spyOn(api, 'queryHogQL').mockRejectedValueOnce(new Error('Non-OK response (status 503)'))
+
+        logic.actions.loadFullEventData(event)
+
+        await expectLogic(logic).toDispatchActions(['loadFullEventDataSuccess'])
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+        expect(logic.values.sessionEventsData?.find((e) => e.id === 'event-1')?.fullyLoaded).toBe(true)
+    })
 })

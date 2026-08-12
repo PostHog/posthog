@@ -15,7 +15,6 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import posthog from 'posthog-js'
 
 import { ViewportResolution } from '@posthog/replay-shared'
 
@@ -216,55 +215,67 @@ AND properties.$lib != 'web'`
                         hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString
 
                     const tags = { scene: 'ReplaySingle', productKey: 'session_replay' }
-                    const [sessionEvents, relatedEvents]: any[] = await Promise.all([
-                        // make one query for all events that are part of the session
-                        api.queryHogQL(sessionEventsQuery, tags),
-                        // make a second for all events from that person,
-                        // not marked as part of the session
-                        // but in the same time range
-                        // these are probably e.g. backend events for the session
-                        // but with no session id
-                        // since posthog-js must always add session id we can also
-                        // take advantage of lib being materialized and further filter
-                        api.queryHogQL(relatedEventsQuery, tags),
-                    ])
+                    try {
+                        const [sessionEvents, relatedEvents]: any[] = await Promise.all([
+                            // make one query for all events that are part of the session
+                            api.queryHogQL(sessionEventsQuery, tags),
+                            // make a second for all events from that person,
+                            // not marked as part of the session
+                            // but in the same time range
+                            // these are probably e.g. backend events for the session
+                            // but with no session id
+                            // since posthog-js must always add session id we can also
+                            // take advantage of lib being materialized and further filter
+                            api.queryHogQL(relatedEventsQuery, tags),
+                        ])
 
-                    breakpoint()
+                        breakpoint()
 
-                    return [...sessionEvents.results, ...relatedEvents.results].map(
-                        (event: any): RecordingEventType => {
-                            const currentUrl = event[5]
-                            // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
-                            let pathname: string | undefined
-                            try {
-                                pathname = event[5] ? new URL(event[5]).pathname : undefined
-                            } catch {
-                                pathname = undefined
+                        return [...sessionEvents.results, ...relatedEvents.results].map(
+                            (event: any): RecordingEventType => {
+                                const currentUrl = event[5]
+                                // We use the pathname to simplify the UI - we build it here instead of fetching it to keep data usage small
+                                let pathname: string | undefined
+                                try {
+                                    pathname = event[5] ? new URL(event[5]).pathname : undefined
+                                } catch {
+                                    pathname = undefined
+                                }
+
+                                const viewportWidth = event.length > 7 ? event[7] : undefined
+                                const viewportHeight = event.length > 8 ? event[8] : undefined
+
+                                return {
+                                    id: event[0],
+                                    event: event[1],
+                                    timestamp: event[2],
+                                    elements: chainToElements(event[3]),
+                                    properties: {
+                                        $window_id: event[4],
+                                        $current_url: currentUrl,
+                                        $event_type: event[6],
+                                        $pathname: pathname,
+                                        $viewport_width: viewportWidth,
+                                        $viewport_height: viewportHeight,
+                                        $screen_name: event.length > 9 ? event[9] : undefined,
+                                    },
+                                    playerTime: +dayjs(event[2]) - +start,
+                                    fullyLoaded: false,
+                                    distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
+                                }
                             }
-
-                            const viewportWidth = event.length > 7 ? event[7] : undefined
-                            const viewportHeight = event.length > 8 ? event[8] : undefined
-
-                            return {
-                                id: event[0],
-                                event: event[1],
-                                timestamp: event[2],
-                                elements: chainToElements(event[3]),
-                                properties: {
-                                    $window_id: event[4],
-                                    $current_url: currentUrl,
-                                    $event_type: event[6],
-                                    $pathname: pathname,
-                                    $viewport_width: viewportWidth,
-                                    $viewport_height: viewportHeight,
-                                    $screen_name: event.length > 9 ? event[9] : undefined,
-                                },
-                                playerTime: +dayjs(event[2]) - +start,
-                                fullyLoaded: false,
-                                distinct_id: event[event.length - 1] || values.sessionPlayerMetaData?.distinct_id,
-                            }
+                        )
+                    } catch (e: any) {
+                        if (isBreakpoint(e)) {
+                            throw e
                         }
-                    )
+                        // The events query can fail transiently (e.g. the query gateway returns a
+                        // 5xx). The player still works without the events list, so degrade to no
+                        // events rather than letting the rejection reach the global handler, which
+                        // would file it as a new error-tracking issue.
+                        console.warn('Failed to load session events for recording', e)
+                        return null
+                    }
                 },
 
                 loadFullEventData: async ({ event }, breakpoint) => {
@@ -330,9 +341,11 @@ AND properties.$lib != 'web'`
                         if (isBreakpoint(e)) {
                             throw e
                         }
-                        // NOTE: This is not ideal but should happen so rarely that it is tolerable.
+                        // The property expansion is best-effort: the player keeps working with
+                        // properties left unexpanded. Mark the events loaded and move on without
+                        // reporting — this is an already-handled transient failure, not a crash.
                         existingEvents.forEach((e) => (e.fullyLoaded = true))
-                        posthog.captureException(e, { feature: 'session-recording-load-full-event-data' })
+                        console.warn('Failed to load full event data for recording events', e)
                     }
 
                     // here we map the events list because we want the result to be a new instance to trigger downstream recalculation
