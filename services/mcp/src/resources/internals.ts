@@ -5,17 +5,45 @@ import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 
 const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
+// The archive is served by the GitHub release CDN, which drops connections and
+// serves the odd 5xx often enough to fail a single-shot fetch.
+const ARCHIVE_FETCH_MAX_ATTEMPTS = 4
+const ARCHIVE_FETCH_BASE_BACKOFF_MS = 250
+
 let cachedResources: Unzipped | null = null
 
 export type ArchiveLoader = (url: string) => Promise<Uint8Array>
 
-async function defaultArchiveLoader(url: string, noStore: boolean): Promise<Uint8Array> {
+/** A response the CDN will keep giving us, such as a 404 for a missing release. */
+class PermanentArchiveError extends Error {}
+
+function isTransientStatus(status: number): boolean {
+    return status === 408 || status === 429 || status >= 500
+}
+
+async function fetchArchiveOnce(url: string, noStore: boolean): Promise<Uint8Array> {
     const response = await fetch(url, noStore ? { cache: 'no-store' } : {})
     if (!response.ok) {
-        throw new Error(`Failed to fetch context-mill resources from ${url}: ${response.statusText}`)
+        const message = `Failed to fetch context-mill resources from ${url}: ${response.statusText}`
+        throw isTransientStatus(response.status) ? new Error(message) : new PermanentArchiveError(message)
     }
     const arrayBuffer = await response.arrayBuffer()
     return new Uint8Array(arrayBuffer)
+}
+
+async function defaultArchiveLoader(url: string, noStore: boolean): Promise<Uint8Array> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await fetchArchiveOnce(url, noStore)
+        } catch (error) {
+            if (error instanceof PermanentArchiveError || attempt >= ARCHIVE_FETCH_MAX_ATTEMPTS - 1) {
+                throw error
+            }
+            const backoffMs = ARCHIVE_FETCH_BASE_BACKOFF_MS * 2 ** attempt
+            // Equal jitter so concurrent warmups don't retry in lockstep.
+            await new Promise((resolve) => setTimeout(resolve, backoffMs / 2 + Math.random() * (backoffMs / 2)))
+        }
+    }
 }
 
 /**

@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net'
 
 import { createApp } from '@/hono/app'
 
+import { startSkillsArchiveServer } from './skills-archive'
 import type { IntegrationEnv, IntegrationHarness } from './types'
 
 // Pinned test DB so we don't collide with the dev Redis (DB 0). Must be in
@@ -48,6 +49,9 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
     const baseUrl = new URL(`http://127.0.0.1:${probePort}`)
     process.env.MCP_APPS_BASE_URL = baseUrl.toString().replace(/\/$/, '')
 
+    const skillsArchive = await startSkillsArchiveServer()
+    process.env.POSTHOG_MCP_LOCAL_SKILLS_URL = skillsArchive.url
+
     const redis = await startTestRedis()
     const { app, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
     await warmup()
@@ -59,6 +63,7 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
         stop: async () => {
             await new Promise<void>((resolve) => server.close(() => resolve()))
             await redis.quit().catch(() => undefined)
+            await skillsArchive.stop()
         },
     }
 }
