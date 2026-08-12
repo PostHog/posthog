@@ -1010,9 +1010,12 @@ class UserViewSet(
     ]
     time_sensitive_allow_actions = ["hedgehog_config"]
     # These take over an account or lock its owner out, so no allow-list on this view may relax them.
+    # `two_factor_status` is a read, and it returns the live backup codes, which are reusable second
+    # factors. Gating the write that mints them while leaving the read open protects nothing.
     time_sensitive_always_require_actions = [
         "two_factor_disable",
         "two_factor_backup_codes",
+        "two_factor_status",
         "two_factor_validate",
         "validate_2fa",
         "revoke_login_session",

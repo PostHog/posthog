@@ -536,8 +536,13 @@ class TimeSensitiveActionPermission(BasePermission):
         if not never_relax and action in getattr(view, "time_sensitive_exclude_actions", []):
             return True
 
-        # Reads never require re-auth.
-        if getattr(view, "time_sensitive_allow_safe_methods", True) and request.method in SAFE_METHODS:
+        # Reads never require re-auth, unless the view named this action as one that no relaxation
+        # may reach. A read that hands back a credential is as sensitive as the write that minted it.
+        if (
+            not never_relax
+            and getattr(view, "time_sensitive_allow_safe_methods", True)
+            and request.method in SAFE_METHODS
+        ):
             return True
 
         # A risk-driven step-up blocks every non-safe action until the user re-authenticates,

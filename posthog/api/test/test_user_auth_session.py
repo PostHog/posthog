@@ -274,6 +274,21 @@ class TestUserAuthSessionAPI(APIBaseTest):
         self.assertEqual(response.status_code, 403, response.content)
         self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
 
+    def test_stale_session_cannot_read_backup_codes(self):
+        # The read returns the live backup codes, which are reusable second factors, so gating only
+        # the write that mints them leaves the same asset reachable through a GET.
+        self._make_session_stale()
+
+        response = self.client.get("/api/users/@me/two_factor_status/")
+
+        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+
+    def test_fresh_session_can_read_backup_codes(self):
+        response = self.client.get("/api/users/@me/two_factor_status/")
+
+        self.assertEqual(response.status_code, 200, response.content)
+
     def test_step_up_nulls_reported_sensitive_session_expiry(self):
         # The API-reported expiry must reflect that sensitive actions are blocked now, not advertise a
         # fresh window the permission layer will reject (the two used to disagree).
