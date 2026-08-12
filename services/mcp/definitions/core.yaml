@@ -378,12 +378,12 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        list: true
         title: List property definitions
         description: |
             List the property definitions seen in the project. Filter by type (event, person, group, session),
             search by name, or pass in_use=true/false to keep only properties that are (or are not) referenced
             by saved insights, cohorts, feature flags, experiments, surveys, destinations, or workflows.
-        list: true
     property-definitions-metrics-retrieve:
         operation: property_definitions_metrics_retrieve
         enabled: true
@@ -414,6 +414,9 @@ tools:
     property-definitions-seen-together-retrieve:
         operation: property_definitions_seen_together_retrieve
         enabled: false
+    property-definitions-update:
+        operation: property_definitions_update
+        enabled: false
     property-definitions-usage-summary-retrieve:
         operation: property_definitions_usage_summary_retrieve
         enabled: true
@@ -441,9 +444,6 @@ tools:
         description: |
             List the saved objects referencing a property definition: insights, cohorts, feature flags,
             experiments, surveys, destinations, and workflows, with ids and names for linking.
-    property-definitions-update:
-        operation: property_definitions_update
-        enabled: false
     reset-token-partial-update:
         operation: organizations_projects_reset_token_partial_update
         enabled: false
