@@ -931,6 +931,15 @@ Body`)
             ],
             ['a bare HogQL query', { query: hogqlQuery }, { code: 'select event from events' }],
             ['a plain SQL string', { query: 'select event from events' }, { code: 'select event from events' }],
+            [
+                'a query serialized to a JSON string',
+                { query: JSON.stringify(visualizationQuery) },
+                {
+                    code: 'select event from events',
+                    vizQuery: visualizationQuery,
+                    outputTab: OutputTab.Visualization,
+                },
+            ],
         ])('recovers the SQL from a cell written with %s', (_case, props, expected) => {
             expect(getSqlV2PropsFromQueryProp(props)).toEqual(expected)
         })
@@ -942,6 +951,9 @@ Body`)
                 'the query holds no SQL',
                 { query: { kind: NodeKind.DataTableNode, source: { kind: NodeKind.EventsQuery, select: ['event'] } } },
             ],
+            // Never fall through to the plain-SQL reading here: the editor would show JSON and run it.
+            ['a JSON string does not parse', { query: '{"kind":"HogQLQuery",' }],
+            ['a JSON string carries no SQL', { query: JSON.stringify({ kind: NodeKind.EventsQuery }) }],
         ])('leaves the cell untouched when %s', (_case, props) => {
             expect(getSqlV2PropsFromQueryProp(props)).toBeNull()
         })

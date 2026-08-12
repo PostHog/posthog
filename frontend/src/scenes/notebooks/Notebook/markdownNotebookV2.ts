@@ -274,14 +274,15 @@ export function getSqlV2PropsFromQueryProp(props: NotebookComponentProps): Noteb
     if (typeof props.code === 'string' && props.code.trim()) {
         return null
     }
-    if (typeof props.query === 'string') {
-        return props.query.trim() ? { code: props.query } : null
-    }
-    if (!props.query || typeof props.query !== 'object' || Array.isArray(props.query)) {
-        return null
+
+    const query = toQueryPropObject(props.query)
+    if (!query) {
+        // Everything else a string prop can hold is the SQL itself.
+        return typeof props.query === 'string' && props.query.trim() && !looksLikeJsonObject(props.query)
+            ? { code: props.query }
+            : null
     }
 
-    const query = props.query as Record<string, NotebookPropValue>
     // Both the wrapped shapes (data table, visualization) and a bare HogQL query show up.
     const source = (isHogQLQuery(query) ? query : query.source) as Record<string, NotebookPropValue> | undefined
     const code = source?.kind === NodeKind.HogQLQuery && typeof source.query === 'string' ? source.query : null
@@ -292,6 +293,28 @@ export function getSqlV2PropsFromQueryProp(props: NotebookComponentProps): Noteb
     // A visualization query also carries the chart the author picked. The node rewrites the source
     // from its own code on render, so keeping the whole query here costs nothing.
     return isDataVisualizationNode(query) ? { code, vizQuery: query, outputTab: OutputTab.Visualization } : { code }
+}
+
+function looksLikeJsonObject(value: string): boolean {
+    return value.trim().startsWith('{')
+}
+
+/** A `query="{…}"` attribute parses back as a JSON string rather than an object (v1 nodes
+ * round-trip their attrs as JSON), so decode that form before reading the query. */
+function toQueryPropObject(value: NotebookPropValue | undefined): Record<string, NotebookPropValue> | null {
+    if (typeof value === 'string') {
+        if (!looksLikeJsonObject(value)) {
+            return null
+        }
+        try {
+            return toQueryPropObject(JSON.parse(value))
+        } catch {
+            return null
+        }
+    }
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, NotebookPropValue>)
+        : null
 }
 
 export function serializeMarkdownNotebookComponent(tagName: string, props: NotebookComponentProps): string {
