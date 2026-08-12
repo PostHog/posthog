@@ -236,7 +236,7 @@ class TestGithubSource:
         result = self.source.get_endpoint_permissions(config, self.team_id, ["teams", "team_members", "issues"])
 
         assert result["issues"] is None
-        assert result["teams"] == "No GitHub account is connected. Please reconnect your GitHub account."
+        assert result["teams"] == "No GitHub account is connected. Connect a GitHub account and try again."
         assert result["team_members"] == result["teams"]
 
     @pytest.mark.parametrize(
@@ -447,7 +447,7 @@ class TestGithubSource:
     @pytest.mark.parametrize(
         "selection,expected_message",
         [
-            ("oauth", "No GitHub account is connected. Please reconnect your GitHub account."),
+            ("oauth", "No GitHub account is connected. Connect a GitHub account and try again."),
             ("pat", "GitHub personal access token is not configured. Please update the source configuration."),
         ],
     )
