@@ -480,13 +480,13 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 ## Related files
 
 - `posthog/storage/hypercache.py` - Core HyperCache implementation
-- `posthog/models/feature_flag/local_evaluation.py` - Local evaluation caching
-- `posthog/models/feature_flag/flags_cache.py` - Flags cache, signal handlers, verification, dependency computation
+- `products/feature_flags/backend/local_evaluation.py` - Local evaluation caching
+- `products/feature_flags/backend/flags_cache.py` - Flags cache, signal handlers, verification, dependency computation
 - `posthog/storage/hypercache_manager.py` - Batch management operations (warm, invalidate, stats)
 - `posthog/caching/flags_redis_cache.py` - `FLAGS_DEDICATED_CACHE_ALIAS` constant for the dedicated flags Redis
 - `posthog/models/remote_config.py` - Remote config caching
 - `posthog/models/team/team_caching.py` - Team authentication caching
-- `posthog/tasks/feature_flags.py` - Cache update and refresh Celery tasks
+- `products/feature_flags/backend/tasks.py` - Cache update and refresh Celery tasks
 - `posthog/tasks/hypercache_verification.py` - Cache verification task
 - `posthog/tasks/remote_config.py` - Remote config sync tasks
 - `posthog/tasks/scheduled.py` - Task schedule definitions
