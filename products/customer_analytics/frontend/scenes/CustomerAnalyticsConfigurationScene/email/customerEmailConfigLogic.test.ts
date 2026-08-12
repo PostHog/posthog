@@ -18,6 +18,9 @@ describe('customerEmailConfigLogic', () => {
         id: 'channel-1',
         from_email: 'csm@example.com',
         forwarding_address: 'team-token@inbound.example.com',
+        connection_status: 'pending_confirmation',
+        setup_expires_at: '2026-08-13T12:00:00Z',
+        confirmation_available: false,
     }
 
     beforeEach(() => {
@@ -48,6 +51,40 @@ describe('customerEmailConfigLogic', () => {
         expect(logic.values.channelsLoading).toBe(false)
     })
 
+    it('opens an authenticated confirmation and activates the channel', async () => {
+        const replace = jest.fn()
+        jest.spyOn(window, 'open').mockReturnValue({
+            opener: window,
+            location: { replace },
+            close: jest.fn(),
+        } as unknown as Window)
+        getSpy.mockResolvedValue({
+            configs: [{ ...channel, confirmation_available: true }],
+        })
+        createSpy.mockResolvedValue({
+            ok: true,
+            confirmation_url: 'https://mail-settings.google.com/mail/vf-confirmation',
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.confirmForwarding(channel.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledWith('api/conversations/v1/email/confirm-forwarding', {
+            config_id: channel.id,
+        })
+        expect(window.open).toHaveBeenCalledWith('about:blank', '_blank')
+        expect(replace).toHaveBeenCalledWith('https://mail-settings.google.com/mail/vf-confirmation')
+        expect(logic.values.channels[0]).toEqual({
+            ...channel,
+            connection_status: 'active',
+            setup_expires_at: null,
+            confirmation_available: false,
+        })
+        expect(logic.values.confirmingChannelId).toBeNull()
+    })
+
     it('connects and disconnects the current user email', async () => {
         createSpy.mockResolvedValueOnce({ config: channel }).mockResolvedValueOnce({ ok: true })
         logic.mount()
@@ -69,8 +106,8 @@ describe('customerEmailConfigLogic', () => {
         expect(logic.values.emailDraft).toBe('')
         expect(logic.values.addEmailFormVisible).toBe(false)
         expect(logic.values.connecting).toBe(false)
+        expect(logic.values.expandedChannelIds).toEqual([channel.id])
 
-        logic.actions.setExpandedChannelIds([channel.id])
         logic.actions.disconnectEmail(channel.id)
         await expectLogic(logic).toFinishAllListeners()
 

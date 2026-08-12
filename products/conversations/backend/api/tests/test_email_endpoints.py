@@ -23,7 +23,14 @@ from products.conversations.backend.mailgun import (
     MailgunPermanentError,
     MailgunTransientError,
 )
-from products.conversations.backend.models import EmailChannel, EmailChannelKind, EmailOutboxMessage
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelConnectionStatus,
+    EmailChannelKind,
+    EmailChannelSetup,
+    EmailChannelSetupProvider,
+    EmailOutboxMessage,
+)
 from products.conversations.backend.models.ticket import Ticket
 
 
@@ -197,6 +204,13 @@ class TestEmailChannelPermissions(BaseTest):
         assert channel.owner_id == self.user.id
         assert channel.domain_verified is False
         assert channel.dns_records == {}
+        assert channel.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
+        setup = EmailChannelSetup.objects.for_team(self.team.id).get(channel=channel)
+        assert setup.provider == EmailChannelSetupProvider.GOOGLE
+        assert setup.expires_at > timezone.now()
+        assert setup.confirmation_action is None
+        assert connect_response.json()["config"]["connection_status"] == "pending_confirmation"
+        assert connect_response.json()["config"]["confirmation_available"] is False
         mock_mailgun_add_domain.assert_not_called()
 
         disconnect_response = self.client.post(
@@ -207,6 +221,103 @@ class TestEmailChannelPermissions(BaseTest):
 
         assert disconnect_response.status_code == 200
         assert not EmailChannel.objects.filter(id=channel.id).exists()
+
+    def test_owner_consumes_confirmation_action_and_activates_channel(self) -> None:
+        channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="pending-token",
+            from_email=self.user.email,
+            from_name=self.user.email,
+            domain="example.com",
+            connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+        )
+        setup = EmailChannelSetup.objects.for_team(self.team.id).create(
+            team=self.team,
+            channel=channel,
+            provider=EmailChannelSetupProvider.GOOGLE,
+            expires_at=timezone.now() + timedelta(hours=1),
+            confirmation_action="https://mail-settings.google.com/mail/vf-confirmation",
+            confirmation_received_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/confirm-forwarding",
+            {"config_id": str(channel.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "ok": True,
+            "confirmation_url": "https://mail-settings.google.com/mail/vf-confirmation",
+        }
+        channel.refresh_from_db()
+        assert channel.connection_status == EmailChannelConnectionStatus.ACTIVE
+        assert not EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
+
+    def test_non_owner_cannot_consume_confirmation_action(self) -> None:
+        owner = User.objects.create(email="channel-owner@example.com")
+        OrganizationMembership.objects.create(
+            organization=self.organization,
+            user=owner,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=owner,
+            inbound_token="other-pending-token",
+            from_email=owner.email,
+            from_name=owner.email,
+            domain="example.com",
+            connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+        )
+        setup = EmailChannelSetup.objects.for_team(self.team.id).create(
+            team=self.team,
+            channel=channel,
+            provider=EmailChannelSetupProvider.GOOGLE,
+            expires_at=timezone.now() + timedelta(hours=1),
+            confirmation_action="https://mail-settings.google.com/mail/vf-other",
+        )
+
+        response = self.client.post(
+            "/api/conversations/v1/email/confirm-forwarding",
+            {"config_id": str(channel.id)},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 404
+        assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
+        channel.refresh_from_db()
+        assert channel.connection_status == EmailChannelConnectionStatus.PENDING_CONFIRMATION
+
+    def test_status_expires_pending_setup(self) -> None:
+        channel = EmailChannel.objects.create(
+            team=self.team,
+            kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+            owner=self.user,
+            inbound_token="expired-token",
+            from_email=self.user.email,
+            from_name=self.user.email,
+            domain="example.com",
+            connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+        )
+        setup = EmailChannelSetup.objects.for_team(self.team.id).create(
+            team=self.team,
+            channel=channel,
+            provider=EmailChannelSetupProvider.GOOGLE,
+            expires_at=timezone.now() - timedelta(seconds=1),
+            confirmation_action="https://mail-settings.google.com/mail/vf-expired",
+        )
+
+        response = self.client.get(f"/api/conversations/v1/email/status?kind={EmailChannelKind.CUSTOMER_COMMUNICATION}")
+
+        assert response.status_code == 200
+        assert response.json()["configs"][0]["connection_status"] == "confirmation_expired"
+        assert response.json()["configs"][0]["confirmation_available"] is False
+        assert not EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
     @patch(

@@ -2,10 +2,12 @@
 
 import uuid
 import secrets
+from datetime import timedelta
 from email.utils import formataddr, make_msgid
 
 from django.core import mail
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -32,7 +34,13 @@ from products.conversations.backend.mailgun import (
     send_mime,
     verify_domain as mailgun_verify_domain,
 )
-from products.conversations.backend.models import EmailChannel, EmailChannelKind
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelConnectionStatus,
+    EmailChannelKind,
+    EmailChannelSetup,
+    EmailChannelSetupProvider,
+)
 from products.conversations.backend.models.team_conversations_email_config import (
     MAX_CUSTOMER_COMMUNICATION_CHANNELS_PER_TEAM,
     MAX_EMAIL_CONFIGS_PER_TEAM,
@@ -40,6 +48,8 @@ from products.conversations.backend.models.team_conversations_email_config impor
 from products.conversations.backend.permissions import IsConversationsAdmin
 
 logger = structlog.get_logger(__name__)
+
+CUSTOMER_EMAIL_SETUP_TTL = timedelta(hours=24)
 
 
 def _get_team_from_request(request: Request) -> tuple[User, Team] | Response:
@@ -91,9 +101,13 @@ def _resolve_config_from_request(request: Request) -> tuple[User, Team, EmailCha
     return user, team, config
 
 
-def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict:
-    """Serialize a config to the API response shape."""
+def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> dict[str, object]:
     forwarding_address = f"team-{config.inbound_token}@{inbound_domain}" if inbound_domain else None
+    setup: EmailChannelSetup | None
+    try:
+        setup = config.setup
+    except EmailChannelSetup.DoesNotExist:
+        setup = None
     return {
         "id": config.id,
         "kind": config.kind,
@@ -105,7 +119,32 @@ def _config_to_dict(config: EmailChannel, inbound_domain: str | None = None) -> 
         "domain_verified": config.domain_verified,
         "dns_records": config.dns_records,
         "is_default": config.is_default,
+        "connection_status": config.connection_status,
+        "setup_expires_at": setup.expires_at if setup is not None else None,
+        "confirmation_available": bool(setup and setup.confirmation_action),
     }
+
+
+def _expire_customer_email_setups(*, team: Team, owner: User) -> None:
+    now = timezone.now()
+    expired_channel_ids = list(
+        EmailChannelSetup.objects.for_team(team.id)
+        .filter(channel__owner=owner, expires_at__lte=now)
+        .values_list("channel_id", flat=True)
+    )
+    if not expired_channel_ids:
+        return
+    with transaction.atomic():
+        EmailChannelSetup.objects.for_team(team.id).filter(
+            channel_id__in=expired_channel_ids,
+            expires_at__lte=now,
+        ).delete()
+        EmailChannel.objects.filter(
+            team=team,
+            owner=owner,
+            id__in=expired_channel_ids,
+            connection_status=EmailChannelConnectionStatus.PENDING_CONFIRMATION,
+        ).update(connection_status=EmailChannelConnectionStatus.CONFIRMATION_EXPIRED)
 
 
 def _release_domain_if_unused(team: Team, domain: str) -> None:
@@ -274,6 +313,20 @@ class EmailChannelConfigSerializer(serializers.Serializer):
         read_only=True,
         help_text="Whether this support channel is the team's fallback sender.",
     )
+    connection_status = serializers.ChoiceField(
+        choices=EmailChannelConnectionStatus.choices,
+        read_only=True,
+        help_text="Whether forwarding setup is pending, active, or expired.",
+    )
+    setup_expires_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the pending forwarding setup expires.",
+    )
+    confirmation_available = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether an authenticated forwarding confirmation is ready for the owner.",
+    )
 
 
 class EmailStatusResponseSerializer(serializers.Serializer):
@@ -291,6 +344,13 @@ class EmailChannelErrorSerializer(serializers.Serializer):
 
 class EmailChannelOperationResponseSerializer(serializers.Serializer):
     ok = serializers.BooleanField(read_only=True, help_text="Whether the operation succeeded.")
+
+
+class EmailConfirmForwardingResponseSerializer(EmailChannelOperationResponseSerializer):
+    confirmation_url = serializers.URLField(
+        read_only=True,
+        help_text="Authenticated Google forwarding confirmation URL.",
+    )
 
 
 class EmailSendTestResponseSerializer(EmailChannelOperationResponseSerializer):
@@ -321,8 +381,9 @@ class EmailStatusView(APIView):
         kind = query_serializer.validated_data["kind"]
         configs = EmailChannel.objects.filter(team=team, kind=kind)
         if kind == EmailChannelKind.CUSTOMER_COMMUNICATION:
+            _expire_customer_email_setups(team=team, owner=user)
             configs = configs.filter(owner=user)
-        configs = configs.order_by("created_at")
+        configs = configs.select_related("setup").order_by("created_at")
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
 
         return Response({"configs": [_config_to_dict(c, inbound_domain) for c in configs]})
@@ -462,9 +523,21 @@ class EmailConnectView(APIView):
                         dns_records=dns_records,
                         domain_verified=sibling.domain_verified if sibling else False,
                         is_default=kind == EmailChannelKind.SUPPORT and current_count == 0,
+                        connection_status=(
+                            EmailChannelConnectionStatus.ACTIVE
+                            if kind == EmailChannelKind.SUPPORT
+                            else EmailChannelConnectionStatus.PENDING_CONFIRMATION
+                        ),
                     )
                     if kind == EmailChannelKind.SUPPORT:
                         _set_email_enabled(team, enabled=True)
+                    else:
+                        EmailChannelSetup.objects.for_team(team.id).create(
+                            team=team,
+                            channel=config,
+                            provider=EmailChannelSetupProvider.GOOGLE,
+                            expires_at=timezone.now() + CUSTOMER_EMAIL_SETUP_TTL,
+                        )
         except IntegrityError:
             failure = Response({"error": "This email address is already connected."}, status=409)
 
@@ -656,6 +729,69 @@ class EmailSetDefaultView(APIView):
 
         logger.info("email_channel_set_default", team_id=team.id, config_id=config_id, user_id=user.id)
         return Response({"ok": True})
+
+
+class EmailConfirmForwardingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        tags=["conversations"],
+        request=ConfigIdSerializer,
+        responses={
+            200: EmailConfirmForwardingResponseSerializer,
+            400: OpenApiResponse(response=EmailChannelErrorSerializer),
+            404: OpenApiResponse(response=EmailChannelErrorSerializer),
+        },
+    )
+    def post(self, request: Request, *args, **kwargs) -> Response:
+        result = _get_team_from_request(request)
+        if isinstance(result, Response):
+            return result
+        user, team = result
+
+        id_serializer = ConfigIdSerializer(data=request.data)
+        id_serializer.is_valid(raise_exception=True)
+        config_id = id_serializer.validated_data["config_id"]
+
+        with transaction.atomic():
+            config = (
+                EmailChannel.objects.select_for_update()
+                .filter(
+                    id=config_id,
+                    team=team,
+                    kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
+                    owner=user,
+                )
+                .first()
+            )
+            if config is None:
+                return Response({"error": "Email config not found"}, status=404)
+            if config.connection_status != EmailChannelConnectionStatus.PENDING_CONFIRMATION:
+                return Response({"error": "This forwarding setup is not pending confirmation."}, status=400)
+
+            setup = EmailChannelSetup.objects.for_team(team.id).select_for_update().filter(channel=config).first()
+            if setup is None:
+                return Response({"error": "This forwarding setup is no longer available."}, status=400)
+            if setup.expires_at <= timezone.now():
+                setup.delete()
+                config.connection_status = EmailChannelConnectionStatus.CONFIRMATION_EXPIRED
+                config.save(update_fields=["connection_status"])
+                return Response({"error": "This forwarding setup expired. Add the email again to restart."}, status=400)
+            if not setup.confirmation_action:
+                return Response({"error": "Gmail has not sent a forwarding confirmation yet."}, status=400)
+
+            confirmation_url = setup.confirmation_action
+            setup.delete()
+            config.connection_status = EmailChannelConnectionStatus.ACTIVE
+            config.save(update_fields=["connection_status"])
+
+        logger.info(
+            "customer_email_forwarding_confirmed",
+            team_id=team.id,
+            config_id=config.id,
+            user_id=user.id,
+        )
+        return Response({"ok": True, "confirmation_url": confirmation_url})
 
 
 class EmailDisconnectView(APIView):
