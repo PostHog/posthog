@@ -52,14 +52,18 @@ export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null
                             : 'Changes you make save as a draft.'}
                     </span>
                 )}
+            </div>
+            {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
+                toggle and History never shift as the narration or the timestamp changes. */}
+            <div className="flex items-center gap-3 shrink-0">
                 {autoSaveEnabled && showSaving ? (
-                    <span className="text-xs text-tertiary flex items-center gap-1 shrink-0">
+                    <span className="text-xs text-tertiary flex items-center gap-1">
                         <Spinner textColored /> Saving…
                     </span>
                 ) : lastSavedAt ? (
                     <LastSavedIndicator timestamp={lastSavedAt} />
                 ) : null}
-                <span className="flex items-center gap-1 shrink-0">
+                <span className="flex items-center gap-1">
                     <LemonSwitch
                         checked={autoSaveEnabled}
                         onChange={setAutoSaveEnabled}
@@ -77,8 +81,6 @@ export function WorkflowStatusBar(props: WorkflowLogicProps): JSX.Element | null
                         <IconInfo className="text-tertiary size-4" />
                     </Tooltip>
                 </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
                 <LemonButton
                     type="tertiary"
                     size="small"

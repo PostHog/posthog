@@ -3654,7 +3654,18 @@ export const workflowLogic = kea<workflowLogicType>([
                     }
                 }
 
-                lemonToast.success(originalWorkflow.draft ? 'Draft saved' : 'Workflow saved')
+                if (originalWorkflow.draft) {
+                    // Saving used to deploy immediately, so the changed contract needs a loud cue at
+                    // the moment of saving, not only the status bar.
+                    lemonToast.success('Draft saved. The live version keeps running until you publish.', {
+                        button: {
+                            label: 'Publish',
+                            action: () => actions.publishDraft(),
+                        },
+                    })
+                } else {
+                    lemonToast.success('Workflow saved')
+                }
 
                 if (props.id === 'new') {
                     tryShowMCPHint('workflows.create')

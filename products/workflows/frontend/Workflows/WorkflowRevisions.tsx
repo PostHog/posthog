@@ -76,28 +76,32 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                         key: 'actions',
                         width: 0,
                         render: (_, revision) => (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Workflow}
-                                minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={workflowUserAccessLevel ?? undefined}
-                            >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    className="whitespace-nowrap"
-                                    onClick={() => restoreRevision(revision.version)}
-                                    loading={restoringVersion === revision.version}
-                                    disabledReason={
-                                        revision.version === liveVersion
-                                            ? 'This is the live version'
-                                            : restoringVersion !== null && restoringVersion !== revision.version
-                                              ? 'Another restore is in progress'
-                                              : undefined
-                                    }
+                            // The flex wrapper keeps the button at its intrinsic height instead of
+                            // stretching to the (avatar-driven) row height.
+                            <div className="flex items-center">
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Workflow}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={workflowUserAccessLevel ?? undefined}
                                 >
-                                    Restore as draft
-                                </LemonButton>
-                            </AccessControlAction>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        className="whitespace-nowrap"
+                                        onClick={() => restoreRevision(revision.version)}
+                                        loading={restoringVersion === revision.version}
+                                        disabledReason={
+                                            revision.version === liveVersion
+                                                ? 'This is the live version'
+                                                : restoringVersion !== null && restoringVersion !== revision.version
+                                                  ? 'Another restore is in progress'
+                                                  : undefined
+                                        }
+                                    >
+                                        Restore as draft
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </div>
                         ),
                     },
                 ]}
