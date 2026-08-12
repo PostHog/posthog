@@ -164,27 +164,53 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
             # What the dead attempt said it was doing, and what its pod neighbours said, at the moment
             # of death — the per-activity context this event otherwise cannot carry. Adds nothing when
             # no reports exist.
-            enrich_death_event_properties(properties, run_id=str(inputs.run_id), host=last_heartbeat_host)
+            enrich_death_event_properties(
+                properties, run_id=str(inputs.run_id), host=last_heartbeat_host, death_ts=last_heartbeat_timestamp
+            )
 
             posthoganalytics.capture("dwh_pod_heartbeat_timeout", distinct_id=None, properties=properties)
 
-            # Durable per-occurrence OOM record for the repartition trigger to read. Best-effort:
-            # a write failure here must never disrupt the sync.
+            # Durable per-occurrence record for the repartition trigger to read, snapshotting the
+            # workload evidence the enrichment just gathered — its Redis source expires in hours, and
+            # the row must remain explainable (and re-classifiable) long after. `self_*` is this
+            # team's own data; the co-tenant fields are aggregates only, never other teams' ids.
+            # Best-effort: a write failure here must never disrupt the sync.
             try:
                 from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
                     ExternalDataSchemaOOMEvent,
                 )
 
                 if inputs.schema_id is not None:
+                    # Age of the evidence *at the death*, not at this retry: the last heartbeat is the
+                    # best proxy for when the worker died, and the report's own ts says when the
+                    # evidence was flushed. The rules refuse to exonerate on evidence older than a
+                    # small bound, because a phase flip (extract -> merge) reaches Redis only on the
+                    # next sample, and a merge that OOMs inside that window still shows "extract".
+                    report_ts = properties.get("self_report_ts")
+                    self_report_age = (
+                        max(0.0, last_heartbeat_timestamp - float(report_ts)) if report_ts is not None else None
+                    )
                     ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id).create(
                         team_id=inputs.team_id,
                         schema_id=inputs.schema_id,
                         run_id=inputs.run_id,
                         host=last_heartbeat_host,
                         gap_seconds=gap_between_beats,
+                        self_phase=properties.get("self_phase"),
+                        self_report_age_at_death_seconds=self_report_age,
+                        self_peak_buffer_bytes=properties.get("self_peak_buffer_bytes"),
+                        # The *correlated* max, not the raw one: raw spans keys retained for up to
+                        # the TTL, so a neighbour that crashed an hour ago (or a survivor's refreshed
+                        # report carrying a long-released lifetime peak) could exonerate a death it
+                        # had nothing to do with. Absent when no co-tenant reported near the death,
+                        # which the culprit rule treats as unknown — it fails open.
+                        co_tenant_correlated_max_peak_buffer_bytes=properties.get(
+                            "co_tenant_correlated_max_peak_buffer_bytes"
+                        ),
+                        co_tenant_report_count=properties.get("co_tenant_report_count"),
                     )
             except Exception as record_error:
-                logger.debug(f"Failed to record OOM event for schema {inputs.schema_id}: {record_error}")
+                logger.debug(f"Failed to record suspected OOM event for schema {inputs.schema_id}: {record_error}")
         else:
             logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
     except Exception as e:

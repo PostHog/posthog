@@ -119,7 +119,7 @@ def resolve_review_arm(
 # Pins for the per-chunk warm validation sessions. All-None = the agent server's default model at its
 # default effort (the behavior before this knob existed); set all three to pin, like the review pins.
 VALIDATION_RUNTIME_ADAPTER: RuntimeAdapter | None = RuntimeAdapter.CLAUDE
-VALIDATION_MODEL: str | None = "claude-opus-4-8"
+VALIDATION_MODEL: str | None = "claude-opus-5"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 

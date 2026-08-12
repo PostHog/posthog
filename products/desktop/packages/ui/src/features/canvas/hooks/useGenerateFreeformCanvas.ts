@@ -73,7 +73,7 @@ export function useGenerateFreeformCanvas(args: {
       adapter?: Adapter;
       model?: string;
       reasoningLevel?: string;
-      // Default on (opt out in the bar): seed the starter scaffold on first build.
+      // Seed the starter scaffold on first build.
       useStarter?: boolean;
       // Dev-only override (the bar exposes a local/cloud picker in dev so a
       // local build of these features can be tested before merging). Production
