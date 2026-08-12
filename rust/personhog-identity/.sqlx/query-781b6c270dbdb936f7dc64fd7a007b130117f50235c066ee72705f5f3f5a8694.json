@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT op_id, op_type, team_id::bigint as \"team_id!\", step, attempt,\n                   request as \"request: Value\", outcome as \"outcome: Value\", completed_at\n            FROM lifecycle_op\n            WHERE op_id = $1\n            ",
+  "query": "\n            SELECT op_id, op_type, team_id::bigint as \"team_id!\", step, attempt,\n                   request as \"request: Value\", outcome as \"outcome: Value\",\n                   created_at, completed_at\n            FROM lifecycle_op\n            WHERE op_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -40,6 +40,11 @@
       },
       {
         "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
         "name": "completed_at",
         "type_info": "Timestamptz"
       }
@@ -57,8 +62,9 @@
       false,
       false,
       true,
+      false,
       true
     ]
   },
-  "hash": "a405d45d85f1d2f405205b42a7fab52c9ebd8421453af66d5c13c6fdd7adf87d"
+  "hash": "781b6c270dbdb936f7dc64fd7a007b130117f50235c066ee72705f5f3f5a8694"
 }
