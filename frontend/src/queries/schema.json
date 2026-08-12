@@ -25647,7 +25647,9 @@
                 "Wix",
                 "Sevalla",
                 "Motion",
-                "Framer"
+                "Framer",
+                "Cloudinary",
+                "Uploadcare"
             ],
             "type": "string"
         },

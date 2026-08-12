@@ -44,7 +44,6 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
             <LogsViewer
                 id={`person-${person.uuid ?? person.id}`}
                 personId={String(person.uuid ?? person.id)}
-                showFullScreenButton={false}
                 showSavedViewsButton={false}
             />
         </div>
