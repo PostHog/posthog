@@ -34,6 +34,8 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 )
 
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
+from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, MATERIALIZATION_GATE_ACTIVITY_NAME
+from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
 
@@ -411,8 +413,6 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 if not nr.success:
                     failed_node_set.add(nr.node_id)
 
-        # Safe to add without a workflow patch: this is the last command before the workflow
-        # returns, so a replayed history either stops short of it or has already completed.
         if skipped_jobs:
             await temporalio.workflow.execute_activity(
                 record_skipped_data_modeling_jobs_activity,
@@ -460,6 +460,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         get_dag_node_count_metric("failed").record(failed_nodes)
         get_dag_node_count_metric("skipped").record(skipped_nodes)
 
+        await self._run_data_quality_checks(inputs, node_results)
+
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,
             scheduled_nodes=len(node_results),
@@ -469,3 +471,45 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             duration_seconds=duration_seconds,
             node_results=node_results,
         )
+
+    async def _run_data_quality_checks(self, inputs: ExecuteDAGInputs, node_results: list[NodeResult]) -> None:
+        """Fire the check suite for the models this run brought up to date.
+
+        Best-effort and fully isolated: started by registered name so data_modeling never imports
+        the catalog product, and ABANDON so a check suite can neither delay nor fail the DAG. The
+        node ids come from recorded activity results, so replay stays deterministic.
+
+        The gate activity owns the feature flag and the "are there any checks here" question, both
+        of which need the database. Asking first keeps a team with no checks, or an org that never
+        opted in, from paying for a child workflow and a suite row on every materialization.
+        """
+        checkable_node_ids = [result.node_id for result in node_results if result.success and not result.skipped]
+        if not checkable_node_ids:
+            return
+
+        try:
+            checks_needed = await temporalio.workflow.execute_activity(
+                MATERIALIZATION_GATE_ACTIVITY_NAME,
+                {"team_id": inputs.team_id, "node_ids": checkable_node_ids},
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+            if not checks_needed:
+                return
+
+            await temporalio.workflow.start_child_workflow(
+                CHECK_SUITE_WORKFLOW_NAME,
+                {
+                    "team_id": inputs.team_id,
+                    "trigger": SuiteRunTrigger.MATERIALIZATION.value,
+                    "node_ids": checkable_node_ids,
+                },
+                id=f"data-quality-run-suite-{inputs.dag_id}-{temporalio.workflow.info().run_id}",
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as e:
+            capture_exception(e)
+            temporalio.workflow.logger.warning(
+                "Could not start the data quality check suite", extra=inputs.properties_to_log
+            )

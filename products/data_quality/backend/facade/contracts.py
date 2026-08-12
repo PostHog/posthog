@@ -7,6 +7,10 @@ Frozen, framework-free values other products need. No Django imports.
 from dataclasses import dataclass, field
 from typing import Any
 
+CHECK_SUITE_WORKFLOW_NAME = "data-quality-run-suite"
+
+MATERIALIZATION_GATE_ACTIVITY_NAME = "data-quality-materialization-gate"
+
 
 @dataclass(frozen=True)
 class CheckTypeInfo:
