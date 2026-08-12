@@ -274,6 +274,37 @@ describe('databaseTableListLogic', () => {
             expect(performQuery).toHaveBeenCalledTimes(2)
         })
 
+        it('does not let a stale hydration failure overwrite fields loaded for another connection', async () => {
+            logic.actions.setConnection('conn-old')
+            await loadShallow()
+
+            let rejectStaleHydration: ((reason?: unknown) => void) | undefined
+            ;(performQuery as jest.Mock).mockImplementationOnce(
+                () =>
+                    new Promise<never>((_, reject) => {
+                        rejectStaleHydration = reject
+                    })
+            )
+            const staleHydration = logic.asyncActions.hydrateTableFields(['events'])
+
+            logic.actions.setConnection('conn-new')
+            await loadShallow()
+            ;(performQuery as jest.Mock).mockResolvedValueOnce({
+                tables: { events: { ...shallowTables.events, fields: eventsFields } },
+                joins: [],
+            })
+            await logic.asyncActions.hydrateTableFields(['events'])
+
+            expect(logic.values.database?.tables['events'].fields).toEqual(eventsFields)
+            expect(logic.values.tableFieldsStatus).toMatchObject({ events: 'loaded' })
+
+            rejectStaleHydration?.(new Error('Stale connection failed'))
+            await staleHydration
+
+            expect(logic.values.database?.tables['events'].fields).toEqual(eventsFields)
+            expect(logic.values.tableFieldsStatus).toMatchObject({ events: 'loaded' })
+        })
+
         it('a requested table missing from the response is marked as an error', async () => {
             await loadShallow()
             ;(performQuery as jest.Mock).mockResolvedValueOnce({ tables: {}, joins: [] })
